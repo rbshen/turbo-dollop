@@ -463,3 +463,81 @@ def test_other_ranges_are_unaffected_by_the_new_fields(monkeypatch):
     # The daily path never populates the 2H-only fields.
     out = chart_data.ChartOut(range="D_1Y", timeframe="daily", bars=[], ema21=[], sma50=[], sma200=[], bollinger=[], stochastic=[], rsi=[], entry_signal_available=False, warren_signal_available=False, zones_available=False, source="fmp", chart_available=False)
     assert out.warren_rsi == [] and out.warren_levels is None
+
+
+# --- per-ticker Blue Up profiles: the chart and the nightly job use the same lookup -----------------------------
+
+
+def _with_panic_volume(raw: pd.DataFrame, count: int = 3) -> pd.DataFrame:
+    """Raw 60m bars whose volume is 80M on the underlying bars of `count` candles inside the visible window where
+    RSI < 40 and ADX <= 29.66 -- exactly where QQQ's scanOverSold2 branch a (volume > 70M) fires while ANY_TICKER
+    (price-only, RSI[1] <= 12) does not. Prices are untouched, so ANY_TICKER's arrows are identical either way."""
+    candles = build_2h_session_candles_fast(raw)
+    rsi = wi.compute_rsi_wilder(candles["close"])
+    _, _, adx = wi.compute_dmi_adx(candles["high"], candles["low"], candles["close"])
+    visible_start = pd.Timestamp("2026-10-02", tz=_NY) - pd.Timedelta(days=90)
+    hit = candles.index[((rsi < 40) & (adx <= 29.66) & (candles.index >= visible_start)).to_numpy()][:count]
+    assert len(hit) == count, "fixture must contain RSI<40 / ADX<=29.66 candles in the window"
+    out = raw.copy()
+    for t in hit:
+        out.loc[(out.index > t - pd.Timedelta(hours=2)) & (out.index <= t), "volume"] = 80_000_000
+    return out
+
+
+def _marker_set(out):
+    return {(m.time, m.kind) for m in out.warren_signal_markers}
+
+
+def test_chart_uses_the_per_ticker_profile_and_hides_the_rsi_12_line_only_for_it(monkeypatch):
+    from analysis.warren_signal.profiles import QQQ
+    from analysis.warren_signal.types import ANY_TICKER
+
+    raw = _with_panic_volume(_bars_60m(LAST_SESSION, seed=5))  # seed 5: has RSI<40 / ADX<=29.66 candles in the window
+    _patch_source(monkeypatch, raw)
+    candles = _full_candles(raw)
+    visible_start = pd.Timestamp("2026-10-02") - pd.Timedelta(days=90)
+
+    qqq = _run(chart_data._get_chart_data_2h, "QQQ", KEY, NOW)
+    aapl = _run(chart_data._get_chart_data_2h, "AAPL", KEY, NOW)
+
+    for out, profile in ((qqq, QQQ), (aapl, ANY_TICKER)):
+        expected = {(e.fired_at.strftime("%Y-%m-%dT%H:%M:%S"), e.kind) for e in replay_with_series(candles, profile)[0].events if pd.Timestamp(e.fired_at) >= visible_start}
+        assert _marker_set(out) == expected
+    # the profile really changes the signal: QQQ gets Blue Ups the price-only rule does not
+    assert any(k == "blue_up" for _, k in _marker_set(qqq))
+    assert _marker_set(qqq) != _marker_set(aapl)
+    assert qqq.warren_levels.rsi == [30.0, 70.0, 80.81, 84.75] and aapl.warren_levels.rsi == [12.0, 30.0, 70.0, 80.81, 84.75]
+    assert qqq.warren_levels.adx == aapl.warren_levels.adx == [40.0] and qqq.warren_levels.wvf == aapl.warren_levels.wvf == [0.4]
+
+
+@pytest.mark.parametrize("ticker", ["QQQ", "AAPL"])
+def test_chart_markers_match_what_the_nightly_job_would_store(monkeypatch, ticker):
+    """For a profiled ticker (QQQ) and an ordinary one (AAPL): the Chart tab's on-demand 2H arrows are exactly the
+    events compute_and_store_warren_signal persists for the same bars in the same window, and the latest-state row
+    agrees -- same profile lookup, same candles, same engine. (Stored events are stamped with the candle's last
+    60m bar, the chart with its window start, hence the mapping.)"""
+    import data.warren_signal_data as wsd
+    from analysis.entry_signal.resample import session_window_start
+
+    raw = _with_panic_volume(_bars_60m(LAST_SESSION, seed=5))
+    _patch_source(monkeypatch, raw)
+    monkeypatch.setattr(wsd, "engine", _engine())
+    chart = _run(chart_data._get_chart_data_2h, ticker, KEY, NOW)
+
+    row = wsd.compute_and_store_warren_signal(ticker, raw, source="fmp")
+    visible_start = pd.Timestamp("2026-10-02") - pd.Timedelta(days=90)
+    with Session(wsd.engine) as session:
+        stored = session.exec(select(wsd.WarrenSignalEvent).where(wsd.WarrenSignalEvent.ticker == ticker)).all()
+    stored_set = {
+        (session_window_start(pd.Timestamp(e.fired_at, tz=_NY)).strftime("%Y-%m-%dT%H:%M:%S"), e.signal_kind)
+        for e in stored
+        if pd.Timestamp(e.fired_at) >= visible_start
+    }
+    assert stored_set, "fixture must store arrows in the visible window"
+    assert stored_set == _marker_set(chart)
+    if ticker == "QQQ":
+        assert any(k == "blue_up" for _, k in stored_set)
+
+    expected_state = replay_with_series(_full_candles(raw), wsd.profile_for(ticker))[0]
+    assert row.stop_count == expected_state.stop_count and row.gray_suppressed == expected_state.gray_suppressed
+    assert row.signal_kind == expected_state.events[-1].kind

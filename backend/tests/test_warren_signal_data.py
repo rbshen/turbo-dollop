@@ -6,12 +6,15 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 import data.warren_signal_data as warren_signal_data
 from analysis.entry_signal.resample import build_2h_session_candles
-from analysis.warren_signal.types import WarrenReplayResult, WarrenSignalEvent as EngineEvent
+from analysis.warren_signal.profiles import QQQ, SPY, TECL, TQQQ
+from analysis.warren_signal.types import ANY_TICKER, WarrenReplayResult, WarrenSignalEvent as EngineEvent
 from core.models import TechnicalEntrySignal, WarrenSignalEvent
 from data.warren_signal_data import (
     compute_and_store_warren_signal,
     is_warren_signal_active,
     last_buy_signal_fired_at,
+    TICKER_PROFILES,
+    profile_for,
     prune_warren_signal_events,
     sweep_stale_warren_signals,
     warren_active_up_kind,
@@ -34,7 +37,7 @@ def _tiny_ohlcv() -> pd.DataFrame:
 
 
 def _stub_replay(monkeypatch, result: WarrenReplayResult):
-    monkeypatch.setattr(warren_signal_data, "replay", lambda candles: result)
+    monkeypatch.setattr(warren_signal_data, "replay", lambda candles, profile=None: result)
 
 
 def _disable_warmup_buffer(monkeypatch):
@@ -575,3 +578,28 @@ def test_buffer_removes_leading_edge_events_across_consecutive_nightly_replays(m
     # ...and with the buffer, neither night persists a single one.
     assert buffered_zone_1 == []
     assert buffered_zone_2 == []
+
+
+# --- per-ticker Blue Up profile selection --------------------------------------------------------------------
+
+
+def test_profile_for_picks_the_four_profiled_tickers_and_defaults_everything_else_to_any():
+    assert profile_for("SPY") is SPY and profile_for("QQQ") is QQQ and profile_for("TQQQ") is TQQQ and profile_for("TECL") is TECL
+    assert profile_for("spy") is SPY and profile_for(" qqq ") is QQQ  # normalised like every other lookup here
+    for other in ("AAPL", "SPXL", "QQQM", "SPYG", "TECS", "SQQQ", "SOXL", "BRK.B"):
+        assert profile_for(other) is ANY_TICKER, other
+    assert set(TICKER_PROFILES) == {"SPY", "QQQ", "TQQQ", "TECL"}
+
+
+def test_compute_and_store_hands_the_tickers_profile_to_the_replay(monkeypatch):
+    _fresh_engine(monkeypatch)
+    seen = {}
+
+    def spy_replay(candles, profile=None):
+        seen["profile"] = profile
+        return WarrenReplayResult(as_of=datetime(2026, 1, 5, 9, 30), events=[], gray_suppressed=False, stop_count=0, live_stop_price=None)
+
+    monkeypatch.setattr(warren_signal_data, "replay", spy_replay)
+    for ticker, expected in (("SPY", SPY), ("tecl", TECL), ("AAPL", ANY_TICKER)):
+        compute_and_store_warren_signal(ticker, _tiny_ohlcv(), source="fmp")
+        assert seen["profile"] is expected, ticker

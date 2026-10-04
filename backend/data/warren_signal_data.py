@@ -36,8 +36,9 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
 from analysis.entry_signal.resample import build_2h_session_candles
+from analysis.warren_signal.profiles import QQQ, SPY, TECL, TQQQ
 from analysis.warren_signal.state_machine import UP_KINDS, replay
-from analysis.warren_signal.types import WarrenReplayResult
+from analysis.warren_signal.types import ANY_TICKER, WarrenProfile, WarrenReplayResult
 from core.db import engine
 from core.models import TechnicalEntrySignal, WarrenSignalEvent
 from core.schemas import TechnicalEntrySignalOut
@@ -46,6 +47,18 @@ from pandas import DataFrame
 
 DEFAULT_SIGNAL_TYPE = "warren"
 DEFAULT_TIMEFRAME = "2h"
+
+# Tickers with their own Blue Up definition (analysis/warren_signal/profiles.py, from the ThinkScripts); every
+# other ticker uses ANY_TICKER. The ONE place a symbol selects a profile: the nightly job
+# (compute_and_store_warren_signal) and the Chart tab's on-demand 2H range both go through profile_for, so the
+# stored signal and the chart can never use different definitions. The engine itself never sees a symbol.
+TICKER_PROFILES: dict[str, WarrenProfile] = {"SPY": SPY, "QQQ": QQQ, "TQQQ": TQQQ, "TECL": TECL}
+
+
+def profile_for(ticker: str) -> WarrenProfile:
+    """The Blue Up profile for `ticker` (normalized like every other lookup here): its own if it has one in
+    TICKER_PROFILES, else ANY_TICKER."""
+    return TICKER_PROFILES.get(normalize_ticker(ticker), ANY_TICKER)
 
 # How long a row can go un-recomputed (e.g. its ticker dropped off every
 # monitored watchlist) before sweep_stale_warren_signals clears it -- same
@@ -251,7 +264,7 @@ def compute_and_store_warren_signal(
     entry_signal_data.py::compute_and_store_entry_signal."""
     ticker = normalize_ticker(ticker)
     candles = build_2h_session_candles(ohlcv)
-    result = replay(candles)
+    result = replay(candles, profile_for(ticker))
     computed_at = datetime.now()
     replay_start = candles.index[0].to_pydatetime().replace(tzinfo=None)
     write_events_from = replay_start + timedelta(days=EVENT_WRITE_WARMUP_DAYS)

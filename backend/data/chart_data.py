@@ -97,7 +97,7 @@ from core.tickers import normalize_ticker
 from data.chart_events_data import DividendEvent, EarningsEvent, fetch_chart_events
 from data.entry_signal_data import get_entry_signal_data
 from data.liquidity_zone_data import compute_liquidity_zones_2h, get_liquidity_zone_data
-from data.warren_signal_data import get_warren_signal_data
+from data.warren_signal_data import get_warren_signal_data, profile_for
 from helpers.liquidity_zone_config import get_liquidity_zone_settings, to_engine_settings
 from helpers.weinstein_config import load_weinstein_params
 
@@ -574,7 +574,8 @@ async def _get_chart_data_2h(ticker: str, range_key: str, now: datetime | None =
     first_visible = int(mask.argmax()) if mask.any() else len(candles)
 
     # Warren: full replay, then slice.
-    result, series = replay_with_series(candles)
+    profile = profile_for(ticker)  # the same lookup the nightly job uses (data/warren_signal_data.py)
+    result, series = replay_with_series(candles, profile)
     warren_markers = sorted(
         (
             ChartMarkerOut(time=_iso(e.fired_at), label=_WARREN_KIND_LABELS[e.kind], kind=e.kind)
@@ -626,7 +627,7 @@ async def _get_chart_data_2h(ticker: str, range_key: str, now: datetime | None =
         warren_plus_di=_points_2h(series.plus_di, mask),
         warren_minus_di=_points_2h(series.minus_di, mask),
         warren_wvf=_points_2h(series.wvf, mask),
-        warren_levels=ChartWarrenLevelsOut(**warren_reference_levels()),
+        warren_levels=ChartWarrenLevelsOut(**warren_reference_levels(profile)),
         source="fmp",
         chart_available=available,
     )

@@ -458,3 +458,11 @@ def test_ticker_rules_without_a_volume_column_raise():
     rules = TickerBlueRules(adx_lo=43.0, quiet_branches=(QuietBlueBranch(rsi1_max=18.0, volume_max=1.0),), volume_num=1.0, sos2_rsi_b=14.0)
     with pytest.raises(ValueError, match="volume"):
         replay(candles, WarrenProfile(name="needs-volume", rules=rules))
+
+
+def test_reference_levels_omit_the_rsi_12_blue_line_only_for_per_ticker_profiles():
+    from analysis.warren_signal.profiles import QQQ, SPY, TECL, TQQQ
+
+    assert warren_reference_levels(ANY_TICKER) == warren_reference_levels()
+    for p in (SPY, QQQ, TQQQ, TECL):
+        assert warren_reference_levels(p) == {"rsi": [30.0, 70.0, 80.81, 84.75], "adx": [40.0], "wvf": [0.40]}, p.name

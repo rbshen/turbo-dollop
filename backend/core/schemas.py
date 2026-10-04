@@ -1477,7 +1477,8 @@ class ChartDividendMarkerOut(BaseModel):
 class ChartWarrenLevelsOut(BaseModel):
     """Warren's own reference levels, read from the engine constants (analysis.warren_signal.state_machine.
     warren_reference_levels) so the panes can never drift from the thresholds the arrows use. RSI: 12 (Blue
-    trigger), 30, 70, 80.81 (bear1), 84.75 (Yellow-sell); ADX: 40; WVF: 0.40."""
+    trigger -- omitted for tickers with their own Blue profile), 30, 70, 80.81 (bear1), 84.75 (Yellow-sell);
+    ADX: 40; WVF: 0.40."""
 
     rsi: list[float]
     adx: list[float]

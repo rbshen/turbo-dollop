@@ -28,7 +28,6 @@ import pandas as pd
 from .indicators import (
     RSI_OVERBOUGHT,
     RSI_OVERSOLD,
-    SCAN_BLUE_RSI_THRESHOLD,
     compute_blue,
     compute_dmi_adx,
     compute_pivot_high,
@@ -47,13 +46,19 @@ YELLOW_SELL_ADX_THRESHOLD = 40.0
 UP_KINDS = frozenset({"blue_up", "yellow_up", "gray_up"})
 
 
-def warren_reference_levels() -> dict[str, list[float]]:
+def warren_reference_levels(profile: WarrenProfile = ANY_TICKER) -> dict[str, list[float]]:
     """The thresholds the state machine actually compares against, read from the same constants it
     uses (never restated), grouped by the indicator pane they belong on: RSI 12 (Blue trigger), 30
     (oversold), 70 (overbought), 80.81 (bear1), 84.75 (Yellow-sell); ADX 40 (Yellow-sell gate,
-    `adx < 40`); WVF 0.40 (Yellow-sell gate, `wvf_buy <= 0.40`)."""
+    `adx < 40`); WVF 0.40 (Yellow-sell gate, `wvf_buy <= 0.40`).
+
+    The RSI 12 line is the ANY-TICKER Blue trigger (`RSI[1] <= 12`). A per-ticker profile's Blue is a
+    combination of RSI, ADX, WVF, volume and price terms, not a single RSI level, so the line is omitted for
+    those profiles; every other level is common to all profiles."""
+    rsi = [float(profile.blue_rsi1_max)] if profile.rules is None else []
+    rsi += [float(RSI_OVERSOLD), float(RSI_OVERBOUGHT), BEAR1_RSI_THRESHOLD, YELLOW_SELL_RSI_THRESHOLD]
     return {
-        "rsi": [float(SCAN_BLUE_RSI_THRESHOLD), float(RSI_OVERSOLD), float(RSI_OVERBOUGHT), BEAR1_RSI_THRESHOLD, YELLOW_SELL_RSI_THRESHOLD],
+        "rsi": rsi,
         "adx": [YELLOW_SELL_ADX_THRESHOLD],
         "wvf": [YELLOW_SELL_WVF_THRESHOLD],
     }

@@ -1560,8 +1560,8 @@ export interface ChartStagePointOut {
   stage: "base" | "advance" | "top" | "decline";
 }
 
-// Warren's reference levels, read by the backend from the engine's own constants: RSI 12/30/70/80.81/84.75,
-// ADX 40, WVF 0.40.
+// Warren's reference levels, read by the backend from the engine's own constants: RSI 12/30/70/80.81/84.75
+// (the 12 Blue-trigger line is absent for tickers with their own Blue profile), ADX 40, WVF 0.40.
 export interface ChartWarrenLevelsOut {
   rsi: number[];
   adx: number[];
