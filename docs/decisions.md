@@ -672,7 +672,7 @@ Investigation: `docs/universe-add-wipe-investigation-2026-10-03.md`; spec: `docs
   (exactly 30 days idle is not due). Delisted tickers follow the same rule; delisted plus any protection stays.
 - **Adoption.** A ticker with stored data but NO `TickerView` row and no protection (a stock that left an index, an orphan) is never wiped blind: the wipe job
   stamps `last_viewed_at = now` ("adopts" it, logged) and it becomes eligible 30 days after that.
-- **Wipe order per ticker:** derived tables first, caches next, `TickerView` last, one `BEGIN IMMEDIATE` transaction per ticker (the journal mode is not WAL), the
+- **Wipe order per ticker:** derived tables first, caches next, `TickerView` last, one `BEGIN IMMEDIATE` transaction per ticker (the journal mode was not WAL when this was decided; WAL since 2026-10-04), the
   decision re-checked inside it. FundamentalsCache `forex_rate` rows (keys look like tickers: EURUSD, ...) are never touched.
 - **Not registered anywhere:** no crontab line, no `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS`/`JOB_METADATA` entry, no heartbeat, until the cron reschedule is done.
 **Built in step 1 (no schema change, no live write):** `data/ticker_data_registry.py` (every per-ticker table classified WIPE / PROTECTING / KEEP, the deletion order,
@@ -759,3 +759,18 @@ same row but skips the upsert when `summary.is_etf`; only `GET /score` passes it
 **Measured** (temp DB, mocked FMP, /summary + /chart + /etf-overview + /score + /universe): an ETF page load 11 writes / 10 commits -> 10 / 9 on the first load of the day and
 2 / 2 -> 1 / 1 on a second load (the remaining write is the quote upsert a page view forces on purpose). **Not changed:** the Watchlist's per-row live compute and the ETF Add path
 still use the default and can write an ETF row; the stale-data delisted flag lives on `TickerScore`, so a never-scored ETF cannot be flagged delisted (an edge case, noted only).
+
+### 2026-10-04 — SQLite WAL enabled on the live database
+**Why:** the 2026-10-03 lock incident and its reproduction (see the lock-hardening entry above): in journal mode delete a writer blocks readers and a long reader (the 03:30 UTC
+backup) blocks a commit; the 15 s timeout rides out a long writer but not the structure. WAL removes reader/writer blocking; writer-vs-writer still waits up to the 15 s timeout.
+**Done (owner, executed, live):** `PRAGMA quick_check` ok (38 s, read-only); one-off snapshot `backend/backups/pre_wal_20261004.db.gz` (backup API + gzip, 152 MB, `gzip -t` ok,
+outside the retention pruner); app and frontend stopped with `bin/stop.sh`, no process held the file; one `PRAGMA journal_mode=WAL` (returned `wal`, instant: the mode is a header
+change, no rewrite of the 1.3 GB file); no other PRAGMA touched (synchronous stays FULL, wal_autocheckpoint stays 1000 pages); app restarted in dev mode with `--reload` as before.
+The only restart deviation: the repo's `start.sh` also does a preflight and an AAPL `/quote` FMP call, skipped here on purpose (no FMP calls in this task), so the two servers were started
+with the same commands, ports, working directories and `.run/*.pid` files by hand, appending to the logs instead of truncating them.
+**Inventory:** nothing copies `fathom.db` as a plain file: `pipeline/backup_db.py` uses the sqlite3 backup API (correct under WAL, pinned by `tests/test_wal_compat.py` against a
+writer that commits during the copy); the two `mode=ro` engines (wipe dry run, `cache_history_audit`) and the ad-hoc `mode=ro` scripts (`docs/weinstein_pending_confirmation_prototype.py`,
+`~/scratch/trend-score-backtest/get_universe.py`) read fine under WAL (also proven on the live file: the wipe dry run and the audit ran after the switch). No rsync, rclone, scp, restic,
+litestream, systemd unit or /etc/cron entry touches the file. **New:** `core/db.py::_log_journal_mode` (INFO `wal`, WARNING otherwise, never raises, a pure read) called from `init_db`.
+**Consequences:** any hand copy of the live file must use the backup API or include `-wal` and `-shm` (runbook, "WAL"); a restored `delete`-mode backup needs WAL re-enabled; the `-wal`
+grows while the 03:30 backup holds its read snapshot and shrinks at the next checkpoint. Rollback: stop the app, `PRAGMA journal_mode=DELETE`, restart (runbook).

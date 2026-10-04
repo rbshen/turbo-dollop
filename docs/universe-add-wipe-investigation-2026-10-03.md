@@ -121,7 +121,7 @@ step-1 build's own live dry run is in the report of that task (and reproduces th
 
 - **Wipe against an open:** the summary route writes cache rows first and `TickerView` last. Touch at the start of the request instead, and re-check
   inside a per-ticker `BEGIN IMMEDIATE` (step 1 does the latter).
-- **Locking:** journal mode is `delete`, not WAL: delete per ticker (about 1,200 bars each).
+- **Locking:** journal mode was `delete`, not WAL, when this was written (WAL since 2026-10-04): delete per ticker (about 1,200 bars each).
 - **Lost history:** `PriceTargetSnapshot` (not verified whether FMP grades history can rebuild it), `CorporateEvent` (not refilled while its job is
   disabled), `FundamentalsCache` periods older than FMP now returns. Weinstein stage-since and momentum history are reproducible or unaffected.
 - **Disk:** at investigation time the DB was 1.31 GB with 1.5 GB free (`backup_db` needs 1.25x). The wipe frees pages inside the file but does not shrink it.

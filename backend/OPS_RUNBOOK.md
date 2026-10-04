@@ -661,25 +661,70 @@ at the flip.
 view in the last 30 days admits a ticker again, and the 25 grandfathered tickers are in through their (seed or real) views until about 2026-11-01. A cleared delisted flag is
 restored with `UPDATE tickerscore SET delisted_at = datetime('now') WHERE ticker = '...'`.
 
-## Database locking (2026-10-04)
+## Database locking (2026-10-04) and WAL (enabled 2026-10-04)
 
-One SQLite file (`backend/fathom.db`), journal mode **delete** (the default; **WAL is a planned, separate step**, not enabled). Every connection that
-writes goes through the one engine in `core/db.py`, whose busy timeout is `SQLITE_BUSY_TIMEOUT_SECONDS` = **15 s** (sqlite3's `timeout`; before 2026-10-04 it was
-sqlite3's own 5 s). `PRAGMA busy_timeout` on that engine reads back 15000 (pinned by `tests/test_view_touch_read_first.py`). Read-only engines
-(`pipeline/wipe_untouched_tickers.py`'s dry run, `pipeline/cache_history_audit.py`) open the file `mode=ro`; `pipeline/backup_db.py` uses raw `sqlite3`
-connections (the backup API on the live file, a private temp file as destination) and keeps the 5 s default.
+One SQLite file (`backend/fathom.db`), journal mode **WAL** since 2026-10-04 (it was `delete` before; see "WAL" below). Every connection that writes goes through
+the one engine in `core/db.py`, whose busy timeout is `SQLITE_BUSY_TIMEOUT_SECONDS` = **15 s** (sqlite3's `timeout`; before 2026-10-04 it was sqlite3's own 5 s).
+`PRAGMA busy_timeout` on that engine reads back 15000 (pinned by `tests/test_view_touch_read_first.py`). Read-only engines (`pipeline/wipe_untouched_tickers.py`'s
+dry run, `pipeline/cache_history_audit.py`, the ad-hoc research scripts) open the file `mode=ro`; `pipeline/backup_db.py` uses raw `sqlite3` connections (the backup
+API on the live file, a private temp file as destination) and keeps the 5 s default.
 
-**What a "database is locked" error means:** another connection held the lock for longer than the timeout. In journal mode delete a writer blocks readers while
-it commits (and while a big transaction spills the page cache), and a long reader blocks a writer's commit. Most request handlers are `async def` and call the
-synchronous session on the event loop's single thread, so a lock wait also freezes the whole API for up to the timeout: that is why the timeout is 15 s and
-not larger. The **03:30 UTC `backup_db` run reads the whole file** (the backup API holds a read lock on the source for the copy, then gzips from the copy), so a
-write attempted in that window can wait; 03:30 UTC is 11:30 in Hong Kong. First seen 2026-08-06 03:30 (two fundamentals-fetch failures during the backup) and
-2026-10-03 evening (a SOXL page load: the view touch, a cache SELECT in `/summary` and one in `/etf-overview`, all after 5 s waits; the holder was not identified).
+**What a "database is locked" error means now:** under WAL readers never block writers and writers never block readers, so the remaining case is **two writers at
+once**: another connection held the single write lock for longer than the timeout (15 s). Before WAL (journal mode delete) a writer also blocked readers while it
+committed and a long reader (the 03:30 UTC backup) blocked a commit; that was the 2026-10-03 SOXL incident (first seen 2026-08-06 03:30 too). Most request
+handlers are `async def` and call the synchronous session on the event loop's single thread, so a lock wait also freezes the whole API for up to the timeout, which
+is why it is 15 s and not larger.
 
-**What to do:** a one-off error needs nothing (the view touch is best-effort and a later call retries; check `grep -n 'failed for' logs/uvicorn_dev.log`). Repeats
-at a pattern of times point at the holder: a manual script on the live file, the backup, a long nightly transaction. Do not run a bulk write (the first
-`wipe --apply`) during the 03:00-03:40 UTC window. The touch no longer writes when a ticker was already touched today (read-first, docs/specs/tracked-universe.md,
-"State and recording a view"), which removed most write attempts on page loads.
+**What to do:** a one-off error needs nothing (the view touch is best-effort and a later call retries; `grep -n 'failed for' logs/uvicorn_dev.log`). Repeats at a
+pattern of times point at the second writer: a manual script writing to the live file, or a long nightly transaction. The touch writes at most once per ticker per
+day (read-first, docs/specs/tracked-universe.md, "State and recording a view"). The first `wipe --apply` takes many short write transactions (one `BEGIN
+IMMEDIATE` per ticker): run it outside the 00:00-03:40 UTC chain.
+
+## WAL (enabled 2026-10-04)
+
+**What it is.** In WAL (write-ahead log) mode a commit is appended to a side file, `fathom.db-wal`, and copied into `fathom.db` later by a "checkpoint"; readers
+see a consistent snapshot and do not block the writer (and vice versa). The mode is stored in the database file itself, so it survives restarts.
+
+**The files.** While any connection is open there are `backend/fathom.db-wal` (the log; 0 bytes right after a checkpoint, normally a few MB, up to tens of MB
+during the nightly chain) and `backend/fathom.db-shm` (32 KB shared-memory index; never grows). When the last connection closes, SQLite checkpoints and deletes
+both. They are not in git (`.gitignore`: `*.db`, `*.db-wal`, `*.db-shm`). Never delete them by hand while the app runs, and never delete a `-wal` next to a `fathom.db` you want to keep: committed
+data may only be in the `-wal`.
+
+**Copying the file safely.** A plain `cp fathom.db somewhere` of a live WAL database can lose committed data (it is in the `-wal`). Either use SQLite's backup
+API, which is what `pipeline/backup_db.py` does (the nightly backup is safe and needs no change):
+
+    python3 - <<'PY'
+    import sqlite3
+    src = sqlite3.connect("backend/fathom.db"); dst = sqlite3.connect("/path/to/copy.db")
+    src.backup(dst); dst.close(); src.close()
+    PY
+
+or stop the app and every job, then copy `fathom.db`, `fathom.db-wal` and `fathom.db-shm` together. Read-only access (`sqlite3.connect("file:backend/fathom.db?mode=ro",
+uri=True)`) is safe at any time and needs the directory to be writable (it creates `-shm`). A one-off snapshot: the same backup API call, then gzip (see
+`backend/backups/pre_wal_20261004.db.gz`, the snapshot taken before the switch).
+
+**Check it:** `python3 -c "import sqlite3;c=sqlite3.connect('file:backend/fathom.db?mode=ro',uri=True);print(c.execute('PRAGMA journal_mode').fetchone())"` should print
+`('wal',)`; `ls -la backend/fathom.db*` shows the `-wal` size; `PRAGMA wal_checkpoint(PASSIVE)` (returns busy, log frames, checkpointed frames) is a safe manual
+checkpoint. Each app and cron start logs the mode (`core/db.py::_log_journal_mode`, from `init_db`): INFO `journal_mode=wal` (visible in the cron job logs; the dev
+server's uvicorn log does not show app INFO lines) or a WARNING `journal_mode=<other>, expected wal` that does appear in the uvicorn log.
+
+**Expected size behaviour.** SQLite checkpoints automatically when the log passes 1000 pages (about 4 MB) and no reader is in the way, so the `-wal` normally stays
+small. A **long reader delays checkpoints**: the 03:30 UTC `backup_db` run holds a read snapshot for the whole copy (a few seconds to a minute), so the log keeps
+growing during it and shrinks at the next checkpoint after it. Heavy bulk writes (nightly fundamentals, bar replaces) can push it to tens of MB; it does not
+affect correctness. A `-wal` that keeps growing for days means a connection is holding an old snapshot open (find it with `lsof backend/fathom.db`); restarting
+the app and any stuck job releases it.
+
+**Morning check after the first nightly chain on WAL** (and any time something looks off): (1) `journal_mode` reads `wal`; (2) `ls -la backend/fathom.db*`: the
+`-wal` is small (under about 100 MB) and the `-shm` is 32 KB; (3) `backup_db` succeeded (`GET /api/config/cron-health` or `CronRunLog`: status success, message
+"... MB, N old backup(s) pruned") and `gzip -t backend/backups/fathom_<date>_033*.db.gz` passes, size within a few MB of the previous night's; (4) every cron job
+`ok`; (5) `grep -c 'database is locked' backend/logs/*.log` shows nothing new.
+
+**Rollback to the old mode.** Stop the app (`./bin/stop.sh`) and make sure no job runs (`lsof backend/fathom.db` empty), then in one Python process:
+`c = sqlite3.connect("backend/fathom.db", timeout=30); c.execute("PRAGMA journal_mode=DELETE")` (it must return `delete`; it fails while any other connection is
+open) and restart. The `-wal`/`-shm` files disappear. Tested on a temp database (`tests/test_wal_compat.py`). Switching to WAL is the same call with
+`journal_mode=WAL` (also needs exclusive access: stop the app and jobs first). **Restoring an old backup** (`gunzip` one of `backend/backups/fathom_*.db.gz` or
+`pre_wal_20261004.db.gz`) gives a file in the mode it had when it was taken: backups from before 2026-10-04 are `delete`, later ones `wal`. After restoring a
+`delete`-mode file, re-enable WAL with the call above (the startup WARNING reminds you).
 
 ## Monitored-watchlist rename (W1-W5 -> E1-E5), 2026-10-02
 

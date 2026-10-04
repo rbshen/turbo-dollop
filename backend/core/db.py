@@ -181,6 +181,28 @@ def _seed_ticker_views(now: datetime | None = None) -> int:
     return seeded
 
 
+def _log_journal_mode() -> str | None:
+    """Logs the live file's journal mode at startup: INFO when it is "wal" (the intended mode since 2026-10-04, see
+    docs/OPS_RUNBOOK.md, "WAL"), WARNING otherwise (a restore of an older backup brings back "delete", and a hand
+    copy of the file loses the mode). `PRAGMA journal_mode` with no argument only reads: it never changes the mode and
+    writes nothing. Never raises (a startup log line must not stop the app or a cron job). Returns the mode, or None."""
+    try:
+        with engine.connect() as conn:
+            mode = str(conn.exec_driver_sql("PRAGMA journal_mode").scalar()).lower()
+    except Exception as exc:  # noqa: BLE001 -- informational only
+        logger.warning("Could not read the SQLite journal mode: %s: %s", type(exc).__name__, exc)
+        return None
+    if mode == "wal":
+        logger.info("SQLite journal_mode=wal (busy timeout %d s).", SQLITE_BUSY_TIMEOUT_SECONDS)
+    else:
+        logger.warning(
+            "SQLite journal_mode=%s, expected wal: readers block writers and the 03:30 UTC backup can stall commits "
+            "(re-enable with the steps in docs/OPS_RUNBOOK.md, \"WAL\").",
+            mode,
+        )
+    return mode
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _migrate_saved_filter_kind()
@@ -188,3 +210,4 @@ def init_db() -> None:
     _ensure_unique_indexes()
     _drop_obsolete_columns()
     _seed_ticker_views()
+    _log_journal_mode()
