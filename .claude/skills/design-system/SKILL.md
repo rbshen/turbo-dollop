@@ -103,11 +103,7 @@ node scripts/validate-tokens.cjs --dir src/
 
 ## Integration
 
-**With brand:** Extract primitives from brand colors/typography
 **With ui-styling:** Component tokens → Tailwind config
-
-**Skill Dependencies:** brand, ui-styling
-**Primary Agents:** ui-ux-designer, frontend-developer
 
 ## Slide System
 
@@ -223,19 +219,6 @@ font-family: var(--typography-font-heading);
 background: #0D0D0D;
 color: #FF6B6B;
 font-family: 'Space Grotesk';
-```
-
-### Reference Implementation
-
-Working example with all features:
-```
-assets/designs/slides/claudekit-pitch-251223.html
-```
-
-### Command
-
-```bash
-/slides:create "10-slide investor pitch for ClaudeKit Marketing"
 ```
 
 ## Best Practices
