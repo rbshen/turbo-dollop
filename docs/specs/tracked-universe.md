@@ -39,7 +39,7 @@ app holds none of those rows for (a Moat on a never-fetched ticker) is in no uni
 
 `partition_known_tickers(session)` splits the wide known set into (stock side, ETF side) using `data/etf_data.py::known_etf_tickers` (a `TickerScore.is_etf`
 row, or a cached profile with `isEtf`/`isFund`) plus `ETF_SEED_TICKERS`. The sides are disjoint and together hold every known ticker; the ETF side also
-carries the seeds the app has never seen. An ETF is only recognised once its profile or score row exists, so an unopened ETF stays on the stock side until it
+carries the seeds the app has never seen. An ETF is only recognised once its profile or score row exists (since 2026-10-04 `GET /score` no longer writes a score row for an ETF, so the cached profile is the normal route), so an unopened ETF stays on the stock side until it
 is opened. The ETF side uses the same first-match rule minus `index` and `manual` (neither can apply to a fund). `ETF_SEED_TICKERS` = SPY + the 11 sector
 SPDR ETFs, built from `SECTOR_ETFS`.
 

@@ -856,7 +856,9 @@ async def ticker_score_out(ticker: str) -> TickerScoreOut | None:
         and row.computed_at < datetime.now() - SCORE_STALE_AFTER
     )
     if row is None or row.overall_score is None or frozen:
-        row = await compute_ticker_score(ticker, cache_only=not frozen)
+        # persist_etf=False: an ETF's TickerScore row is frozen since the 2026-10-03 cutover (the header shows no chip for
+        # it), so its page load computes the same response but writes nothing; a stock is upserted exactly as before.
+        row = await compute_ticker_score(ticker, cache_only=not frozen, persist_etf=False)
     return TickerScoreOut(**row.model_dump()) if row is not None else None
 
 

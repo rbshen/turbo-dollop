@@ -56,13 +56,18 @@ def _snapshot(key: str, result, has_error: bool) -> StepSnapshot:
 # TickerScore columns written by other jobs, never overwritten by a score upsert.
 PRESERVED_ON_UPSERT = ("delisted_at",)
 
-async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerScore | None:
+async def compute_ticker_score(ticker: str, cache_only: bool = False, persist_etf: bool = True) -> TickerScore | None:
     """Builds and upserts one ticker's TickerScore row for the Screener page
     -- the same 5 functions Step 1/2/4/5 and the ticker header already call,
     passed through `cache_only` (see cache.get_or_fetch), plus the ported
     Overall Assessment weighting (scoring/overall.py). Returns None if
     there's no cached profile at all for this ticker (nothing to build a
-    card from) -- callers should skip storing a row in that case."""
+    card from) -- callers should skip storing a row in that case.
+
+    `persist_etf=False` computes and returns the row exactly the same but does not write it when the ticker is an ETF/fund
+    (the app's one rule, summary.is_etf); a stock is upserted as always. GET /score passes it: an ETF's score row is
+    frozen since the 2026-10-03 cutover (the ETF job's EtfScreenerRow is the ETF read model), so its page load must not
+    rewrite one. The default keeps every other caller unchanged."""
     ticker = normalize_ticker(ticker)
 
     step1, step1_error = await _safe_step(ticker, "step1", get_step1_data(ticker, cache_only=cache_only))
@@ -167,6 +172,9 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False) -> TickerS
         warren_active_signal_kind=warren_active_up_kind(warren_signal.signal_kind) if warren_signal else None,
         warren_last_buy_fired_at=warren_last_buy_fired_at,
     )
+
+    if summary.is_etf and not persist_etf:
+        return row
 
     values = row.model_dump()
     with Session(engine) as session:

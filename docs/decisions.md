@@ -745,5 +745,17 @@ installed then collected every later test's lines into `nasdaq_list_refresh.log`
 **Measured (temp DB, mocked FMP, the page's /summary, /chart, /etf-overview, /score, /universe):** write statements on the second load of a ticker 4 -> 2 (the
 TickerView writes 2 -> 0; the remaining ones are the quote upsert, which a page view forces on purpose, and the `/score` upsert), first load of the day 28 -> 27
 (stock) and 12 -> 11 (ETF). **Not done, on purpose:** WAL (next step), moving the touch off the event loop, retry wrappers, any change to the wipe, the backup or the
-schedule. **Open:** `/score` recomputes and re-upserts the `TickerScore` row on every page load of a ticker whose row has no overall score, which is every ETF
-(the header calls it for ETFs too); one avoidable write per ETF page load, not changed here.
+schedule. **Open (closed 2026-10-04, next entry):** `/score` recomputed and re-upserted the `TickerScore` row on every page load of a ticker whose row has no overall score, which is every ETF
+(the header calls it for ETFs too).
+
+### 2026-10-04 — ETF `/score` no longer writes a TickerScore row
+**Why:** the ETF page header calls `GET /score` on every load; for an ETF `overall_score` is None, so the endpoint recomputed and re-upserted the row each time, one
+avoidable write per ETF page load, against the 2026-10-03 cutover decision that ETF `TickerScore` rows are frozen (the ETF job's `EtfScreenerRow` is the ETF read
+model). **Dependencies checked, hard stop not triggered:** the header shows no chip for an ETF (it returns nothing when `overall_score` is null, row or no row); the
+ETF stage pill reads `TrendAnalysis`; `known_etf_tickers`, `partition_known_tickers` and `classify_one` find an ETF through its cached profile (the row is only an
+alternative); the Watchlist row uses the live `compute_ticker_score` return value, not the stored row; the wipe registry and `classify_wipe_candidates` handle a ticker
+with no score row; the Screener hides ETF rows. **Change:** `compute_ticker_score(..., persist_etf=False)` (default True, so every other caller is unchanged) returns the
+same row but skips the upsert when `summary.is_etf`; only `GET /score` passes it. A stock is upserted byte for byte as before, the ten-odd frozen ETF rows are untouched.
+**Measured** (temp DB, mocked FMP, /summary + /chart + /etf-overview + /score + /universe): an ETF page load 11 writes / 10 commits -> 10 / 9 on the first load of the day and
+2 / 2 -> 1 / 1 on a second load (the remaining write is the quote upsert a page view forces on purpose). **Not changed:** the Watchlist's per-row live compute and the ETF Add path
+still use the default and can write an ETF row; the stale-data delisted flag lives on `TickerScore`, so a never-scored ETF cannot be flagged delisted (an edge case, noted only).
