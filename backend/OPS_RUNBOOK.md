@@ -633,7 +633,7 @@ Spec: `docs/specs/tracked-universe.md`. One helper, `data/tracked_universe.py::l
 through an index (S&P 500 / Nasdaq-100 / Dow), any watchlist, the system set (seed ETFs, the benchmark, the live `rs_benchmark`), manual data (Moat, custom
 valuation, bank capital, growth-catalyst note) or because it was **added** (`TickerView.added_at`, any idle age); never when it is delisted-flagged. A ticker that
 was only opened is `browsed` (30 days) then `expired`, or `untracked` (no view record): not in the universe, data kept. Opening a page records a view
-(`TickerView.last_viewed_at`, at most one write per ticker per day, touched at the start of the request) but never admits it. `GET/POST/DELETE
+(`TickerView.last_viewed_at`, touched at the start of the request, read-first: a ticker already touched today issues no write, at most one write per ticker per day) but never admits it. `GET/POST/DELETE
 /api/tickers/{t}/universe` reads, adds and removes. The wipe (`pipeline/wipe_untouched_tickers.py`) is the only thing that deletes a ticker: dry run by default,
 `--apply` locked behind `FATHOM_ALLOW_WIPE_APPLY=1`, not in the crontab.
 
@@ -654,12 +654,32 @@ valuation / bank-capital entry. Remove (`DELETE`) is refused while the ticker is
 
 **First start after the 2026-10-02 deploy (history).** `init_db()` created `tickerview` and, because it was empty, seeded one row per existing ticker with
 `last_viewed_at = now` (a second `init_db()` does nothing). Since the opt-in flip a seeded view admits nobody. The 2026-10-03 grandfather backfill marked the 25
-tickers that were then in the universe only through a view as added (pre-write snapshot `backend/backups/pre_universe_step2_20261003.db.gz`); its script was removed
+tickers that were then in the universe only through a view as added (pre-write snapshot `backend/backups/pre_universe_step2_20261003.db.gz`, since deleted 2026-10-04: the nightly backups cover the later state); its script was removed
 at the flip.
 
 **Roll back the flip:** revert the flip commit and restart (the `added_at` / `added_source` columns are inert for the old code; no table changed). Under the old rule any
 view in the last 30 days admits a ticker again, and the 25 grandfathered tickers are in through their (seed or real) views until about 2026-11-01. A cleared delisted flag is
 restored with `UPDATE tickerscore SET delisted_at = datetime('now') WHERE ticker = '...'`.
+
+## Database locking (2026-10-04)
+
+One SQLite file (`backend/fathom.db`), journal mode **delete** (the default; **WAL is a planned, separate step**, not enabled). Every connection that
+writes goes through the one engine in `core/db.py`, whose busy timeout is `SQLITE_BUSY_TIMEOUT_SECONDS` = **15 s** (sqlite3's `timeout`; before 2026-10-04 it was
+sqlite3's own 5 s). `PRAGMA busy_timeout` on that engine reads back 15000 (pinned by `tests/test_view_touch_read_first.py`). Read-only engines
+(`pipeline/wipe_untouched_tickers.py`'s dry run, `pipeline/cache_history_audit.py`) open the file `mode=ro`; `pipeline/backup_db.py` uses raw `sqlite3`
+connections (the backup API on the live file, a private temp file as destination) and keeps the 5 s default.
+
+**What a "database is locked" error means:** another connection held the lock for longer than the timeout. In journal mode delete a writer blocks readers while
+it commits (and while a big transaction spills the page cache), and a long reader blocks a writer's commit. Most request handlers are `async def` and call the
+synchronous session on the event loop's single thread, so a lock wait also freezes the whole API for up to the timeout: that is why the timeout is 15 s and
+not larger. The **03:30 UTC `backup_db` run reads the whole file** (the backup API holds a read lock on the source for the copy, then gzips from the copy), so a
+write attempted in that window can wait; 03:30 UTC is 11:30 in Hong Kong. First seen 2026-08-06 03:30 (two fundamentals-fetch failures during the backup) and
+2026-10-03 evening (a SOXL page load: the view touch, a cache SELECT in `/summary` and one in `/etf-overview`, all after 5 s waits; the holder was not identified).
+
+**What to do:** a one-off error needs nothing (the view touch is best-effort and a later call retries; check `grep -n 'failed for' logs/uvicorn_dev.log`). Repeats
+at a pattern of times point at the holder: a manual script on the live file, the backup, a long nightly transaction. Do not run a bulk write (the first
+`wipe --apply`) during the 03:00-03:40 UTC window. The touch no longer writes when a ticker was already touched today (read-first, docs/specs/tracked-universe.md,
+"State and recording a view"), which removed most write attempts on page loads.
 
 ## Monitored-watchlist rename (W1-W5 -> E1-E5), 2026-10-02
 

@@ -18,6 +18,10 @@ interactive run or a cron job never imports pytest and never constructs
 this fixture, so `core.db.engine` never gets this listener attached
 outside of a pytest session."""
 
+import logging
+import os
+from pathlib import Path
+
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.pool import StaticPool
@@ -26,7 +30,7 @@ from sqlmodel import SQLModel
 import core.data_source_health as data_source_health
 import data.ticker_summary as ticker_summary
 from clients.fmp_client import fmp_client
-from core.config import settings
+from core.config import BASE_DIR, settings
 from core.db import engine as real_engine
 from core.models import DataSourceHealth
 
@@ -43,6 +47,32 @@ def _forbid_write(conn, cursor, statement, parameters, context, executemany):
             '"Ad-hoc reproduction scripts must not touch the real '
             'database" for the incident this guards against.'
         )
+
+
+_REAL_LOG_DIR = (BASE_DIR / "logs").resolve()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _forbid_writes_to_production_logs():
+    """No test may write into backend/logs. Every job's `main()` calls `core.logging_config.configure_logging(LOG_PATH)`,
+    which does `logging.basicConfig(force=True)` with a FileHandler on the real log file; a test that runs a `main()`
+    without patching that module's LOG_PATH therefore wrote its own lines, and every later test's lines too (the root
+    logger keeps the handler for the rest of the session), into production logs (2026-10-03: the three index-list
+    refresh logs and the sector-heatmap log, lines dated 2026-10-30). Redirecting at the handler, not per module, also
+    covers a job imported late and any LOG_PATH style. A FileHandler for any path outside backend/logs (tmp_path, as
+    tests/test_logging_config.py uses) is untouched, so configure_logging itself stays testable. Session-scoped, so it
+    patches `logging.FileHandler` once and restores it at the end."""
+    original = logging.FileHandler
+
+    class _GuardedFileHandler(original):
+        def __init__(self, filename, *args, **kwargs):
+            if _REAL_LOG_DIR in Path(filename).resolve().parents:
+                filename = os.devnull
+            super().__init__(filename, *args, **kwargs)
+
+    logging.FileHandler = _GuardedFileHandler
+    yield
+    logging.FileHandler = original
 
 
 @pytest.fixture(autouse=True, scope="session")

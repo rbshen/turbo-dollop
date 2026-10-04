@@ -70,9 +70,16 @@ re-declares the union.
 
 - **`last_viewed_at`, the touch.** Written by `GET /api/tickers/{t}/summary` only (the ticker page; the header, Summary, Chart and Analyst Ratings tabs and the
   ETF page share one SWR key; the Watchlist and Screener do not). A ticker that already has a row is touched at the **start** of the request
-  (`touch_existing_ticker_view`, one `UPDATE ... WHERE last_viewed_at < start_of_today`), so a wipe cannot catch a ticker mid-open; a ticker with no row gets
-  one after the summary succeeds (`record_ticker_view`, `INSERT ... ON CONFLICT DO UPDATE`), so an invalid symbol never creates a row. At most one write per
-  ticker per calendar day; neither ever raises (a DB error is logged, the page is unaffected); a tab left open revalidates and so counts once a day.
+  (`touch_existing_ticker_view`), so a wipe cannot catch a ticker mid-open; a ticker with no row gets one after the summary succeeds
+  (`record_ticker_view`), so an invalid symbol never creates a row. **Read-first (2026-10-04):** both start with a plain SELECT of `last_viewed_at`. A row
+  already on today's calendar date (naive local `datetime.now()`, the day starts at 00:00) means **no write statement and no write transaction at all**; a
+  row from an earlier day gets one `UPDATE last_viewed_at`; no row gets one `INSERT ... ON CONFLICT DO UPDATE` from `record_ticker_view` only (the conflict
+  clause absorbs two first views racing). So the touch writes at most once per ticker per calendar day, and a request on an already-touched ticker issues
+  zero touch writes (before 2026-10-04 each call opened a write transaction even when the UPDATE matched nothing, because SQLite takes the write lock at the
+  start of an UPDATE). **Best-effort:** neither ever raises; a database error, a lock timeout included, is logged at WARNING
+  (`touch_existing_ticker_view failed for T: OperationalError: ...`), the session is rolled back and the page is unaffected. The cost is a `last_viewed_at`
+  left on its earlier date until a later call succeeds; the wipe reads that date (see "The wipe", and docs/OPS_RUNBOOK.md, "Database locking"). A tab left
+  open revalidates and so counts once a day. Lock waits are bounded by the engine's `SQLITE_BUSY_TIMEOUT_SECONDS` (15 s, `core/db.py`).
 - **`added_at` / `added_source`** (`'user'` | `'grandfathered'`, both nullable): set by the Add API, cleared only by Remove. `record_ticker_view` and the touch
   never write them; a watchlist change never writes them.
 - **The seed.** `core/db.py::_seed_ticker_views`, called from `init_db()`: when `TickerView` is **empty**, every existing ticker (cached profile, `TickerScore`

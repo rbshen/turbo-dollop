@@ -12,7 +12,18 @@ from core.models import SavedScreenerFilter
 logger = logging.getLogger(__name__)
 
 DB_PATH = (BASE_DIR / settings.database_path).resolve()
-engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
+# How long a connection waits for another connection's lock before raising "database is locked" (sqlite3's `timeout`,
+# which SQLite applies as PRAGMA busy_timeout; sqlite3's own default is 5 s). The journal mode is still the default
+# (delete, not WAL), so a writer blocks readers while it commits and a long reader (the 03:30 UTC backup) blocks a
+# commit. Most request handlers are `async def` calling the synchronous session, so a lock wait also freezes the event
+# loop's single thread: 15 s is the compromise between riding out a long writer and stalling the API. Every engine that
+# writes is this one (see docs/OPS_RUNBOOK.md, "Database locking"); read-only engines open the file with mode=ro.
+SQLITE_BUSY_TIMEOUT_SECONDS = 15
+
+engine = create_engine(
+    f"sqlite:///{DB_PATH}",
+    connect_args={"check_same_thread": False, "timeout": SQLITE_BUSY_TIMEOUT_SECONDS},
+)
 
 # (table_name, column_name) pairs for columns a model USED to define and no
 # longer does. Unlike a column that's merely unreferenced-but-still-present

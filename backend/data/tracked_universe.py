@@ -295,51 +295,72 @@ def load_etf_universe(session: Session, now: datetime | None = None) -> list[str
     return sorted(t for t, reason in reasons.items() if reason not in OUT_OF_UNIVERSE)
 
 
+def _last_viewed_at(session: Session, ticker: str) -> datetime | None:
+    """The stored `last_viewed_at`, or None when the ticker has no `TickerView` row. A plain SELECT: it takes no write lock."""
+    return session.exec(select(TickerView.last_viewed_at).where(TickerView.ticker == ticker)).first()
+
+
 def record_ticker_view(ticker: str, now: datetime | None = None) -> bool:
-    """Marks `ticker` as viewed now, at most once per calendar day: one statement, no pre-read, that
-    inserts the row or moves `last_viewed_at` forward only when the stored value is from an earlier day.
-    Returns True when it wrote. Never raises: a DB problem must not break the page that called it."""
+    """Marks `ticker` as viewed now, at most once per calendar day, and issues NO write statement when it is not due:
+    the common case (the row is already from today) is one SELECT. A row from an earlier day gets one UPDATE of
+    `last_viewed_at` only; no row gets one INSERT (conflict-safe, so two first views racing do not collide).
+    Returns True when it wrote. Never raises: a database error (including a lock timeout) is logged at WARNING and
+    swallowed, because a view record must not break the page that called it -- the cost is a `last_viewed_at` that
+    stays on its earlier date (see docs/specs/tracked-universe.md, "View touch")."""
     now = now or datetime.now()
     ticker = normalize_ticker(ticker)
     start_of_day = datetime.combine(now.date(), time.min)
     try:
-        stmt = sqlite_insert(TickerView).values(ticker=ticker, last_viewed_at=now)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["ticker"],
-            set_={"last_viewed_at": now},
-            where=TickerView.__table__.c.last_viewed_at < start_of_day,
-        )
         with Session(engine) as session:
+            last = _last_viewed_at(session, ticker)
+            if last is not None and last >= start_of_day:
+                return False  # already on today's date: no write transaction at all
+            if last is None:
+                stmt = sqlite_insert(TickerView).values(ticker=ticker, last_viewed_at=now)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["ticker"],
+                    set_={"last_viewed_at": now},
+                    where=TickerView.__table__.c.last_viewed_at < start_of_day,
+                )
+            else:
+                stmt = (
+                    TickerView.__table__.update()
+                    .where(TickerView.__table__.c.ticker == ticker, TickerView.__table__.c.last_viewed_at < start_of_day)
+                    .values(last_viewed_at=now)
+                )
             result = session.execute(stmt)
             session.commit()
         return result.rowcount > 0
-    except Exception:  # noqa: BLE001 -- a view record is best-effort by design
-        logger.warning("record_ticker_view failed for %s", ticker, exc_info=True)
+    except Exception as exc:  # noqa: BLE001 -- a view record is best-effort by design
+        logger.warning("record_ticker_view failed for %s: %s: %s", ticker, type(exc).__name__, exc)
         return False
-
 
 
 def touch_existing_ticker_view(ticker: str, now: datetime | None = None) -> bool:
     """The START-of-request counterpart of `record_ticker_view` (opt-in universe step 3a): when the ticker already has a
-    `TickerView` row, moves `last_viewed_at` forward at the very start of the summary request (at most once per
-    calendar day), so a wipe cannot catch a ticker that is being opened. One UPDATE, no insert: a ticker with no row
-    yet is created by `record_ticker_view` only after the summary succeeds (an invalid symbol never gets a row).
-    Never touches `added_at` / `added_source`. Returns True when it wrote. Never raises."""
+    `TickerView` row from an earlier day, moves `last_viewed_at` forward at the very start of the summary request, so a
+    wipe cannot catch a ticker that is being opened. Read-first: one SELECT, and the single UPDATE only when the stored
+    date is before today, so a ticker already touched today opens no write transaction. A ticker with no row yet is
+    left alone here (`record_ticker_view` creates it only after the summary succeeds, so an invalid symbol never gets a
+    row). Never touches `added_at` / `added_source`. Returns True when it wrote. Never raises: an error (a lock timeout
+    included) is logged at WARNING and swallowed, leaving `last_viewed_at` on its earlier date."""
     now = now or datetime.now()
     ticker = normalize_ticker(ticker)
     start_of_day = datetime.combine(now.date(), time.min)
     try:
-        stmt = (
-            TickerView.__table__.update()
-            .where(TickerView.__table__.c.ticker == ticker, TickerView.__table__.c.last_viewed_at < start_of_day)
-            .values(last_viewed_at=now)
-        )
         with Session(engine) as session:
-            result = session.execute(stmt)
+            last = _last_viewed_at(session, ticker)
+            if last is None or last >= start_of_day:
+                return False
+            result = session.execute(
+                TickerView.__table__.update()
+                .where(TickerView.__table__.c.ticker == ticker, TickerView.__table__.c.last_viewed_at < start_of_day)
+                .values(last_viewed_at=now)
+            )
             session.commit()
         return result.rowcount > 0
-    except Exception:  # noqa: BLE001 -- a view record is best-effort by design
-        logger.warning("touch_existing_ticker_view failed for %s", ticker, exc_info=True)
+    except Exception as exc:  # noqa: BLE001 -- a view record is best-effort by design
+        logger.warning("touch_existing_ticker_view failed for %s: %s: %s", ticker, type(exc).__name__, exc)
         return False
 
 

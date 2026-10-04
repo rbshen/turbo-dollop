@@ -689,7 +689,7 @@ the classification flip (`viewed` becomes `added`, new `browsed` reason) is defe
 makes "viewed" stop admitting a ticker, so without an Add button there would be no way to add a new ticker and the universe would freeze; grandfathering first
 means nothing in a screener today drops out when it ships. Until then `_classify`, every universe, the screeners and the nightly jobs ignore the two columns
 (pinned by a test), and `ScreenerMeta.hidden_inactive` keeps its current meaning. `--apply` on the wipe job stays locked; nothing is registered in cron.
-**Live run (2026-10-03):** pre-write snapshot `backend/backups/pre_universe_step2_20261003.db.gz` (outside the pruner), columns added by the `uvicorn --reload`
+**Live run (2026-10-03):** pre-write snapshot `backend/backups/pre_universe_step2_20261003.db.gz` (outside the pruner; since deleted 2026-10-04 together with `pre_etf_step6_20261003.db.gz`, once the nightly backups covered the later state), columns added by the `uvicorn --reload`
 `init_db`, then the grandfather backfill at 08:33 UTC: 25 tickers marked (18 stocks, 7 ETFs: exactly the expected list), `last_viewed_at` of every row unchanged,
 stock universe 581 and ETF universe 19 unchanged, `GET /api/screener?universe=all` 581 and `/api/etf-screener` 19 unchanged, `hidden_inactive` 0. Wipe dry run
 afterwards: 25 protected-by-added, no candidate today; at 2026-11-03 only AVB, EQR, TWTR, WBA (4,088 rows) would be wiped, plus the 5 orphans adopted.
@@ -726,3 +726,24 @@ the ETF universe. The wipe stays dry-run only, `--apply` locked, unscheduled; th
 ### 2026-10-03 — Universe control: no "In universe" label, notes under the action cluster
 
 Step 3b showed an "In universe · <reasons>" label for protected tickers. For a ticker like GOOGL it read "In universe · Dow, Nasdaq-100, S&P 500, Watchlist E1, ..., Moat", wide enough that the Watchlist and Refresh buttons wrapped to a second row (the header row was `flex-wrap`). Removed: the header's index chip already shows index membership, so the label was redundant. The control is now only an Add or a Remove button (nothing for protected, delisted, non-US, loading, failed). The header row no longer wraps (title `min-w-0`, cluster `shrink-0 flex-nowrap`), and Add/Remove notes and errors render under the cluster, not in the row. The reason-label helper was deleted (nothing else used it). The Add/Remove API, the status rules and the revalidated SWR keys are unchanged.
+
+### 2026-10-04 — Lock hardening, step 1: 15 s busy timeout, read-first view touch, test log isolation
+**Finding (investigation, report-only):** on the evening of 2026-10-03 a SOXL page load returned HTTP 500 twice (`/summary`, `/etf-overview`) and the best-effort
+view touch failed, all "database is locked". The log signature (a write commit and plain SELECTs failing together, each after 5 s) means some connection held an
+exclusive lock for 10 s or more; the holder was **not identified** (no cron row overlaps, the other session's pytest cannot write the live file; the app's own
+short transactions are an unlikely holder). Reproduced on a temp DB: with a rollback journal and a 5 s timeout, a writer or a spilled-cache writer fails every
+concurrent touch and read, a long reader fails every touch; a 30 s timeout rides all three out; WAL removes the reader cases but not writer-vs-writer. Also
+found: `touch_existing_ticker_view` and `record_ticker_view` opened a write transaction on every call (SQLite takes the write lock at the start of an UPDATE even
+when it matches no row), so the specs' "at most one write per calendar day" was untrue, and `/summary` made two write attempts per page load; the page endpoints
+are `async def` on the event loop's thread, so a lock wait freezes the API. An old precedent: 2026-08-06 03:30, two fundamentals-fetch failures during the backup.
+**Decision (owner, executed):** (1) the one writing engine waits `SQLITE_BUSY_TIMEOUT_SECONDS = 15` (a longer wait freezes the event loop; no PRAGMA, journal mode
+still delete); (2) both touch functions are **read-first**: a SELECT, and a write only when the row is missing (INSERT, conflict-safe) or from an earlier day
+(UPDATE of `last_viewed_at` only), so a ticker already touched today issues no write; failures are logged at WARNING, rolled back and swallowed, leaving a
+stale `last_viewed_at` until a later call succeeds; (3) `tests/conftest.py` redirects every `logging.FileHandler` aimed at `backend/logs` to the null device, so no
+test can write a production log (it had: `test_refresh_index_list_cron_entry.py` ran the index-list `main()`s with the real `LOG_PATH`, and the root handler it
+installed then collected every later test's lines into `nasdaq_list_refresh.log` and the sibling logs); (4) docs: the specs and the runbook ("Database locking").
+**Measured (temp DB, mocked FMP, the page's /summary, /chart, /etf-overview, /score, /universe):** write statements on the second load of a ticker 4 -> 2 (the
+TickerView writes 2 -> 0; the remaining ones are the quote upsert, which a page view forces on purpose, and the `/score` upsert), first load of the day 28 -> 27
+(stock) and 12 -> 11 (ETF). **Not done, on purpose:** WAL (next step), moving the touch off the event loop, retry wrappers, any change to the wipe, the backup or the
+schedule. **Open:** `/score` recomputes and re-upserts the `TickerScore` row on every page load of a ticker whose row has no overall score, which is every ETF
+(the header calls it for ETFs too); one avoidable write per ETF page load, not changed here.
