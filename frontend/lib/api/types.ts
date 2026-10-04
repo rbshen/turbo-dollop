@@ -703,9 +703,14 @@ export interface EtfScreenerRowOut {
   asset_class: string | null;
   expense_ratio: number | null;
   aum: number | null;
+  holdings_count: number | null;
   last_price: number | null;
   pct_change_1d: number | null;
+  avg_volume_30d: number | null;
+  /** Trailing-12-month distribution yield, percent (0.99 = 0.99%); null when there is no distribution. */
+  dividend_yield: number | null;
   beta: number | null;
+  return_ytd: number | null;
   return_1y: number | null;
   vs_spy_1y: number | null;
   weinstein_stage: "base" | "advance" | "top" | "decline" | null;

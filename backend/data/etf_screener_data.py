@@ -16,7 +16,7 @@ from sqlmodel import Session, select
 from core.models import EtfScreenerRow
 from core.schemas import EtfRangeOut, EtfScreenerMeta, EtfScreenerRowOut
 from core.tickers import normalize_ticker
-from data.etf_data import is_equity_asset_class
+from data.etf_data import has_equity_beta
 from data.tracked_universe import load_etf_universe
 
 # The columns an upsert may set: every EtfScreenerRow column except the key and updated_at (always stamped).
@@ -53,7 +53,7 @@ def upsert_etf_screener_row(session: Session, ticker: str, now: datetime | None 
 
 def _row_out(row: EtfScreenerRow) -> EtfScreenerRowOut:
     out = EtfScreenerRowOut(**row.model_dump())
-    if not is_equity_asset_class(out.asset_class):
+    if not has_equity_beta(out.asset_class):
         out.beta = None  # a bond/commodity/alternatives fund's beta against equities means nothing (TLT: 2.4)
     return out
 

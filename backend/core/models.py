@@ -1212,9 +1212,9 @@ class EtfScreenerRow(SQLModel, table=True):
 
     Every value column is nullable: a row is filled in pieces (/etf/info fields, bar-derived figures, the
     Weinstein/signal fields each come from a different source). Units: expense_ratio, pct_change_1d,
-    return_1y, vs_spy_1y and the two Weinstein percentages are PERCENT numbers (0.09 means 0.09%, not 9%);
+    return_ytd, return_1y, dividend_yield, vs_spy_1y and the two Weinstein percentages are PERCENT numbers (0.09 means 0.09%, not 9%);
     vs_spy_1y is percentage points (the ETF's 1Y return minus SPY's). `beta` is stored raw as FMP's profile
-    reports it; the endpoint nulls it unless asset_class is equity (is_equity_asset_class)."""
+    reports it; the endpoint nulls it unless the asset class contains "equity" (data/etf_data.py::has_equity_beta)."""
 
     ticker: str = Field(primary_key=True)
     name: str | None = None
@@ -1222,11 +1222,19 @@ class EtfScreenerRow(SQLModel, table=True):
     asset_class: str | None = None
     expense_ratio: float | None = None
     aum: float | None = None
+    # /etf/info `holdingsCount`; None for "unknown" (FMP reports 0, e.g. GLD)
+    holdings_count: int | None = None
     # Quote (from bars)
     last_price: float | None = None
     pct_change_1d: float | None = None
+    # Mean share volume over the 30 calendar days to the newest bar (same figure as the ETF page's Trading data)
+    avg_volume_30d: float | None = None
+    # Trailing-12-month distribution yield, PERCENT: profile `lastDividend` / last close * 100 (not an SEC yield);
+    # None when there is no distribution (GLD) or no price
+    dividend_yield: float | None = None
     # Technicals
     beta: float | None = None
+    return_ytd: float | None = None
     return_1y: float | None = None
     vs_spy_1y: float | None = None
     weinstein_stage: str | None = None

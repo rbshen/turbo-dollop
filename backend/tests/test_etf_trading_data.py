@@ -141,6 +141,16 @@ def test_beta_is_hidden_for_a_bond_or_commodity_fund_but_the_other_rows_stay(env
     assert td.perf_1m is not None and td.distribution_ttm_yield_pct is not None
 
 
+def test_beta_is_shown_for_a_sector_equity_fund(env):
+    # 2026-10-04: Beta follows the screener's rule (any asset class containing "equity"), so CIBR-style funds show it.
+    engine, _ = env
+    _put(engine, "CIBR", "profile", [{**PROFILE, "beta": 1.04}])
+    _put(engine, "CIBR", "quote", [QUOTE])
+    _flat_history(engine, "CIBR")
+
+    assert _overview({**EQUITY_INFO, "assetClass": "Sector Equity"}, "CIBR").trading_data.beta == 1.04
+
+
 def test_beta_is_hidden_when_the_asset_class_is_unknown_and_when_zero(env):
     engine, _ = env
     _put(engine, "QQQ", "profile", [PROFILE])

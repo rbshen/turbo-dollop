@@ -4,12 +4,13 @@ them through data/etf_screener_data.py::upsert_etf_screener_row. Entry point: pi
 (registered as a cron job, 1:45 AM, since 2026-10-03 -- step 6).
 
 Where each field comes from (all existing paths, nothing reimplemented):
-  * name, last_price, pct_change_1d, as_of_date, return_1y, vs_spy_1y -- the shared daily-bar cache
+  * name, last_price, pct_change_1d, as_of_date, avg_volume_30d, return_ytd, return_1y, vs_spy_1y -- the shared daily-bar cache
     (clients/shared_bars_cache.py, split-adjusted close, no dividend adjustment) read through
     read_cached_completed_daily_bars after one get_or_fetch_bars_batch; returns by
     scoring/etf_returns.py::compute_window_returns (the Sector Heatmap / ETF page math).
-  * asset_class, expense_ratio, aum, info_updated_at -- /etf/info via data/etf_data.py::load_etf_info (1-day TTL).
-  * name, beta -- the cached FMP profile (30-day TTL), beta stored RAW (the equity-only rule is applied on read).
+  * asset_class, expense_ratio, aum, holdings_count, info_updated_at -- /etf/info via data/etf_data.py::load_etf_info (1-day TTL).
+  * name, beta, dividend_yield -- the cached FMP profile (30-day TTL), beta stored RAW (the equity-only rule is applied on
+    read); dividend_yield = profile lastDividend / the run's last close * 100.
   * Weinstein fields -- the pure engines analysis/trend_structure/weinstein*.py with the live Settings and the same
     benchmark behaviour as pipeline/nightly_trend_calculation.py, computed ONCE per ETF
     (data/trend_analysis_data.py::compute_weinstein_results): the one result feeds both the EtfScreenerRow fields and the
@@ -56,7 +57,7 @@ from core.db import engine
 from core.models import EtfScreenerRow, TechnicalEntrySignal
 from core.tickers import normalize_ticker
 from data.entry_signal_data import DEFAULT_SIGNAL_TYPE, DEFAULT_TIMEFRAME, is_entry_signal_active
-from data.etf_data import _number, _overview_from_payload, _text, load_etf_info
+from data.etf_data import _nonzero, _number, _overview_from_payload, _positive, _text, avg_volume_30d, load_etf_info
 from data.etf_screener_data import upsert_etf_screener_row
 from data.tracked_universe import load_etf_universe
 from data.last_close_data import refresh_last_closes
@@ -98,7 +99,8 @@ class EtfRefreshResult:
 
 
 def _bar_fields(ticker: str, bars: pd.DataFrame, spy_bars: pd.DataFrame, result: EtfRefreshResult) -> None:
-    """last_price / pct_change_1d / as_of_date from the last two completed bars, return_1y, vs_spy_1y."""
+    """last_price / pct_change_1d / as_of_date from the last two completed bars, return_ytd, return_1y, vs_spy_1y,
+    avg_volume_30d."""
     close = bars["close"].dropna() if not bars.empty else pd.Series(dtype=float)
     if close.empty:
         result.notes.append("no cached daily bars: price, return and Weinstein fields not computed")
@@ -112,6 +114,11 @@ def _bar_fields(ticker: str, bars: pd.DataFrame, spy_bars: pd.DataFrame, result:
         result.notes.append("fewer than two bars: pct_change_1d not computed")
 
     by_window = {r.window: r.return_pct for r in compute_window_returns(close, anchor)}
+    # Same helpers as the ETF page's Trading data block (data/etf_data.py), so the figures agree. A YTD return
+    # unavailable (no bar on/before the prior Dec 31) is simply not written, like return_1y below.
+    if by_window.get("ytd") is not None:
+        result.fields["return_ytd"] = by_window["ytd"]
+    result.fields["avg_volume_30d"] = avg_volume_30d(bars, anchor)
     return_1y = by_window.get("1y")
     if return_1y is None:
         result.notes.append("no 1Y return (young fund, shallow cache or newest bar stale): return_1y and vs_spy_1y not computed")
@@ -192,6 +199,8 @@ async def _info_fields(ticker: str, cache_only: bool, result: EtfRefreshResult) 
     ):
         if value is not None:
             result.fields[column] = value
+    # A real answer even when empty: FMP reports 0 for "unknown" (GLD), which the overview already maps to None.
+    result.fields["holdings_count"] = overview.holdings_count
     row = loaded.payload[0] if isinstance(loaded.payload, list) and loaded.payload else {}
     updated = _parse_updated_at(row.get("updatedAt")) if isinstance(row, dict) else None
     if updated is not None:
@@ -216,6 +225,13 @@ async def _profile_fields(ticker: str, cache_only: bool, result: EtfRefreshResul
     beta = _number(profile.get("beta"))
     if beta is not None and not math.isnan(beta) and beta != 0:
         result.fields["beta"] = beta
+    # TTM distribution yield, percent: `lastDividend` (the trailing-12-month per-share amount, see etf-page.md
+    # "Distribution") over the last close this run computed, rounded like the page. No distribution (0 / missing) is a
+    # real "none" and is written as None; with no price there is no answer, so nothing is written.
+    price = result.fields.get("last_price")
+    if price is not None and price > 0:
+        per_share = _positive(profile.get("lastDividend"))
+        result.fields["dividend_yield"] = _nonzero(per_share / price * 100, 2) if per_share is not None else None
 
 
 def _signal_fields(ticker: str, result: EtfRefreshResult) -> None:

@@ -790,3 +790,14 @@ works. **No other list can be renamed to `ETF`** in any case/whitespace spelling
 (3) **Frontend, minimal:** the Watchlists page shows no Delete button and no rename pencil for the `ETF` list.
 **Not covered / known gaps:** a stock already on the list before this change would stay (none exist on the live DB, checked 2026-10-04); the one-off `pipeline/rename_monitored_watchlists.py` and a
 direct DB edit bypass the API guard; ETFs can still be added to any other list (E1-E5, ...), by design.
+
+### 2026-10-04 — Beta follows "asset class contains Equity"; four more stored ETF columns
+Step 2 of the ETF watchlist table. **Decided (owner):** Beta shows for any `/etf/info` asset class that *contains* "equity" (case-insensitive), so "Sector Equity" funds such as CIBR get one; bond,
+commodity, alternatives, multi-asset and unknown funds still show a dash. New definition `data/etf_data.py::has_equity_beta`, used by the ETF screener row (and its meta range) and by the ETF page's
+Trading data Beta, so the page and the table agree. **Deliberately unchanged:** `is_equity_asset_class` (exactly "Equity") still decides the ETF page's sector weights: Beta was the only thing asked
+for, and "Sector Equity" funds' sector lists have not been checked against that block. Effect on the live ETFs: only CIBR changes (Beta 1.04, was a dash).
+`EtfScreenerRow` gained `holdings_count`, `avg_volume_30d`, `dividend_yield` (percent) and `return_ytd`, filled by the existing 1:45 job from rows it already reads (cached `/etf/info`, profile and bars):
+no new FMP call, no new job. They use the ETF page's own helpers (`compute_window_returns`, the extracted `etf_data.avg_volume_30d`, `lastDividend` / price); a zero holdings count or zero/missing dividend is
+stored as null (a real "none", it clears a stale value), an input that is not cached writes nothing (a stored value is never blanked). **Known differences from the page:** the yield divides by the run's last
+close (the page uses the cached quote price first), and the page's "newest bar older than 5 days" gate is not applied to the stored volume. **Note:** a TTM yield includes one-off distributions (TECL reads
+3.48%: its $8.04 December 2025 distribution is inside the trailing 12 months).

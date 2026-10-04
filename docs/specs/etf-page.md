@@ -59,7 +59,7 @@ when every row is omitted**. No new endpoint, table or cron job: every input is 
 | 52-week range | cached `quote` row (`yearLow` / `yearHigh`) | either end missing or 0 |
 | Average volume (30d), average dollar volume (20d) | the same cached bars (30 calendar days of volume; close x volume over the last 20 bars) | no bars, or 0 |
 | Distribution yield (TTM) | cached `profile` `lastDividend` / current price (cached quote price, else the last bar close), shown with the per-share amount | `lastDividend` null, zero or negative, or no price |
-| Beta | cached `profile` `beta` | asset class (from `/etf/info`) is not Equity (bond, commodity, other, unknown), or 0 |
+| Beta | cached `profile` `beta` | asset class (from `/etf/info`) does not contain "equity" (bond, commodity, other, unknown; "Sector Equity" counts, 2026-10-04), or 0 |
 
 - **Performance basis.** Split-adjusted **price** return, not total return: FMP's daily bars are not dividend-adjusted, the same
   basis the Sector Heatmap uses (`docs/specs/sector-heatmap.md`), and the same calendar-offset windows (last close on/before

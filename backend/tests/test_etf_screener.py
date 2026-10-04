@@ -12,7 +12,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 import core.main as main
 import data.tracked_universe as tu
 from core.models import EtfScreenerRow, FundamentalsCache, TickerView, Watchlist, WatchlistTicker
-from data.etf_data import is_equity_asset_class
+from data.etf_data import has_equity_beta, is_equity_asset_class
 from data.etf_screener_data import (
     RANGE_FIELDS,
     WRITABLE_FIELDS,
@@ -60,6 +60,21 @@ def _known_etf(session, ticker, viewed_days_ago=1, added=True):
 def test_only_the_equity_asset_class_is_equity(asset_class, expected):
     # The four live values (2026-10-02 /etf/info cache) are Equity, Fixed Income, Commodities, Alternatives.
     assert is_equity_asset_class(asset_class) is expected
+
+
+@pytest.mark.parametrize(
+    "asset_class, expected",
+    [("Equity", True), ("equity", True), (" Equity ", True), ("Sector Equity", True), ("EQUITY - Sector", True),
+     ("Fixed Income", False), ("Commodities", False), ("Alternatives", False), ("Multi-Asset", False), ("", False),
+     (None, False)],
+)
+def test_beta_applies_to_any_asset_class_containing_equity(asset_class, expected):
+    # 2026-10-04: widened from the exact "Equity" so "Sector Equity" funds (CIBR) get a Beta.
+    assert has_equity_beta(asset_class) is expected
+
+
+def test_the_exact_equity_rule_is_unchanged_for_the_sector_weights():
+    assert is_equity_asset_class("Sector Equity") is False and is_equity_asset_class("Equity") is True
 
 
 # --- the table and the write helper ---------------------------------------------------------------------
@@ -190,6 +205,24 @@ def test_beta_is_null_unless_the_fund_is_equity_and_the_stored_value_is_untouche
     assert betas == {"XLK": 2.4, "TLT": None, "GLD": None, "IBIT": None, "SPY": None}
     with Session(engine) as session:
         assert session.get(EtfScreenerRow, "TLT").beta == 2.4  # raw value stays in the table
+
+
+def test_beta_is_shown_for_a_sector_equity_fund(engine, client):
+    with Session(engine) as session:
+        _known_etf(session, "CIBR")
+        upsert_etf_screener_row(session, "CIBR", asset_class="Sector Equity", beta=1.04)
+    assert {r["ticker"]: r["beta"] for r in client.get("/api/etf-screener").json()} == {"CIBR": 1.04}
+    meta = client.get("/api/etf-screener/meta").json()
+    assert meta["ranges"]["beta"] == {"min": 1.04, "max": 1.04}
+
+
+def test_the_new_columns_are_writable_and_served(engine, client):
+    assert {"holdings_count", "avg_volume_30d", "dividend_yield", "return_ytd"} <= WRITABLE_FIELDS
+    with Session(engine) as session:
+        _known_etf(session, "XLK")
+        upsert_etf_screener_row(session, "XLK", holdings_count=70, avg_volume_30d=1.2e7, dividend_yield=0.4, return_ytd=12.5)
+    row = client.get("/api/etf-screener").json()[0]
+    assert (row["holdings_count"], row["avg_volume_30d"], row["dividend_yield"], row["return_ytd"]) == (70, 1.2e7, 0.4, 12.5)
 
 
 # --- GET /api/etf-screener/meta -------------------------------------------------------------------------

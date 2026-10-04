@@ -19,9 +19,9 @@ filled in pieces by different sources.
 | Group | Columns | Source (for the step-4 job) |
 |---|---|---|
 | Identity | `ticker`, `name` | `/etf/info` `name` (or the profile `companyName`) |
-| Fund facts | `asset_class`, `expense_ratio`, `aum` | `/etf/info` `assetClass`, `expenseRatio`, `assetsUnderManagement` (AUM from here, never the profile `marketCap`) |
-| Quote | `last_price`, `pct_change_1d` | cached daily bars (last close; last two closes) |
-| Technicals | `beta`, `return_1y`, `vs_spy_1y` | profile `beta` (raw); `compute_window_returns` 1Y on bars; the ETF's 1Y minus SPY's 1Y, in percentage points |
+| Fund facts | `asset_class`, `expense_ratio`, `aum`, `holdings_count` | `/etf/info` `assetClass`, `expenseRatio`, `assetsUnderManagement` (AUM from here, never the profile `marketCap`), `holdingsCount` (0 or missing = null) |
+| Quote | `last_price`, `pct_change_1d`, `avg_volume_30d`, `dividend_yield` | cached daily bars (last close; last two closes; mean volume over the 30 calendar days to the newest bar, `etf_data.avg_volume_30d`, the ETF page's figure); `dividend_yield` = profile `lastDividend` (TTM per share) / the run's last close x 100, rounded to 2 decimals, null for no distribution (see etf-page.md "Distribution") |
+| Technicals | `beta`, `return_ytd`, `return_1y`, `vs_spy_1y` | profile `beta` (raw); `compute_window_returns` YTD and 1Y on bars; the ETF's 1Y minus SPY's 1Y, in percentage points |
 | Weinstein | `weinstein_stage`, `weinstein_stage_since_date`, `weinstein_stage_since_is_lower_bound`, `weinstein_ma_slope_pct`, `weinstein_vs_ma_pct`, `weinstein_pending_direction` | `TrendAnalysis`, the same fields `TickerScore` copies |
 | Signals | `bb_rsi_entry_signal`, `warren_active_signal_kind`, `warren_last_buy_fired_at` | `TechnicalEntrySignal`; only ever set for an ETF on a monitored watchlist (the `ETF` list is one) |
 | Bookkeeping | `as_of_date`, `info_updated_at`, `updated_at` | the price session date; FMP's `/etf/info` `updatedAt`; stamped on every write |
@@ -33,7 +33,7 @@ and the pill's tooltip lines), and the Warren / BB+RSI filters and the Warren re
 Moat, valuation, speculative growth, market cap (AUM replaces it), sector and company type (FMP reports every ETF as
 "Financial Services"; `asset_class` replaces them).
 
-**Units.** `expense_ratio`, `pct_change_1d`, `return_1y`, `vs_spy_1y` and the two Weinstein percentages are percent
+**Units.** `expense_ratio`, `pct_change_1d`, `dividend_yield`, `return_ytd`, `return_1y`, `vs_spy_1y` and the two Weinstein percentages are percent
 numbers (`0.09` means 0.09%, as `/etf/info` reports the expense ratio and `/stock-price-change` the returns), not
 fractions.
 
@@ -60,15 +60,15 @@ stock endpoints (`/api/screener`, `/meta`, `/recompute`, `/filters`) are untouch
   (min/max for `expense_ratio`, `aum`, `last_price`, `pct_change_1d`, `beta`, `return_1y`, `vs_spy_1y`; all keys always
   present, `null`/`null` when no value; `beta` is the post-rule value).
 
-### Beta is equity-only
+### Beta is shown for equity funds
 
-The row stores FMP's raw beta; the endpoint returns `beta: null` unless `asset_class` is equity
-(`data/etf_data.py::is_equity_asset_class`, the one definition, also used by the ETF page's sector weights and Trading
-data block). The `assetClass` values in the live `/etf/info` cache (2026-10-02, 10 ETFs) are **Equity** (7),
-**Fixed Income** (1), **Commodities** (1) and **Alternatives** (1). **Equity means exactly `Equity`** (case and
-surrounding spaces ignored); `None`, an empty string and any value FMP adds later (for example "Multi-Asset") are not
-equity, so Beta stays hidden rather than guessed. The meta `beta` range is computed after the rule. Reason: a bond fund's
-beta against equities is meaningless (TLT reads 2.4).
+The row stores FMP's raw beta; the endpoint returns `beta: null` unless the asset class **contains "equity"**,
+case-insensitive (`data/etf_data.py::has_equity_beta`, the one definition, also used by the ETF page's Trading data Beta
+and the ETF watchlist table). Widened 2026-10-04 from "exactly `Equity`" so a "Sector Equity" fund (CIBR) gets a Beta; see
+docs/decisions.md. The `assetClass` values in the live `/etf/info` cache are **Equity**, **Sector Equity**, **Fixed Income**,
+**Commodities** and **Alternatives**; `None`, an empty string and any other value (for example "Multi-Asset") are not equity, so
+Beta stays hidden rather than guessed. The meta `beta` range is computed after the rule. Reason: a bond fund's beta against
+equities is meaningless (TLT reads 2.4). The ETF page's sector weights keep the old exact rule (`is_equity_asset_class`).
 
 ## Saved views: `SavedScreenerFilter.kind`
 

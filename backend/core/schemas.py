@@ -1808,17 +1808,21 @@ class WatchlistRowOut(BaseModel):
 
 
 class EtfScreenerRowOut(BaseModel):
-    """A row of GET /api/etf-screener (models.py::EtfScreenerRow). `beta` is already nulled for a non-equity
-    fund. Percent fields are percent numbers (0.09 = 0.09%); see the model."""
+    """A row of GET /api/etf-screener (models.py::EtfScreenerRow). `beta` is already nulled unless the asset class contains
+    "equity" (has_equity_beta). Percent fields are percent numbers (0.09 = 0.09%); see the model."""
 
     ticker: str
     name: str | None = None
     asset_class: str | None = None
     expense_ratio: float | None = None
     aum: float | None = None
+    holdings_count: int | None = None
     last_price: float | None = None
     pct_change_1d: float | None = None
+    avg_volume_30d: float | None = None
+    dividend_yield: float | None = None
     beta: float | None = None
+    return_ytd: float | None = None
     return_1y: float | None = None
     vs_spy_1y: float | None = None
     weinstein_stage: str | None = None
@@ -2219,7 +2223,7 @@ class EtfTradingDataOut(BaseModel):
     # the yield is that over the current price, in percent. Not an SEC yield.
     distribution_ttm_per_share: float | None = None
     distribution_ttm_yield_pct: float | None = None
-    # Only for an equity fund (asset class from /etf/info); None for bond, commodity and other funds.
+    # Only when the asset class (from /etf/info) contains "equity"; None for bond, commodity and other funds.
     beta: float | None = None
 
 

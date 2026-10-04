@@ -42,11 +42,20 @@ ETF_INFO_STATEMENT_TYPE = "etf_info"
 
 
 def is_equity_asset_class(asset_class: str | None) -> bool:
-    """The one definition of an equity fund, from /etf/info `assetClass`. The values seen in the live cache
-    (2026-10-02, 10 ETFs) are "Equity", "Fixed Income", "Commodities" and "Alternatives"; only "Equity" is
-    equity (case and surrounding whitespace ignored). None or anything else (including a value FMP adds
-    later) is not, so the equity-only figures (Beta, sector weights) stay hidden rather than guessed."""
+    """An equity fund by /etf/info `assetClass`, EXACTLY "Equity" (case and surrounding whitespace ignored). None or
+    anything else (including a value FMP adds later) is not. Used for the ETF page's sector weights, which stay
+    exact: "Sector Equity" funds report a sector list that has not been checked against the page's rule. Beta uses
+    the wider `has_equity_beta` instead (2026-10-04)."""
     return asset_class is not None and asset_class.strip().lower() == "equity"
+
+
+def has_equity_beta(asset_class: str | None) -> bool:
+    """Whether Beta is shown for this fund: any asset class that CONTAINS "equity" (case-insensitive), so "Equity" and
+    "Sector Equity" (CIBR) both do; a bond, commodity, alternatives, multi-asset or unknown (None) fund does not --
+    its beta against equities means nothing (TLT reads 2.4). The one definition for the ETF screener row, the ETF page's
+    Trading data Beta and the ETF watchlist table."""
+    return asset_class is not None and "equity" in asset_class.lower()
+
 
 # FMP's placeholder sector for the part of a fund that is not stocks. A non-equity fund (bond,
 # commodity) reports ONLY this, at 100% -- meaningless as a "sector weight".
@@ -153,6 +162,14 @@ def _nonzero(value: float | None, digits: int | None = None) -> float | None:
     return number if number != 0 else None
 
 
+def avg_volume_30d(frame: pd.DataFrame, anchor: pd.Timestamp) -> float | None:
+    """Mean share volume over the 30 calendar days up to and including `anchor` (the newest bar's date); None when
+    there is no bar in the window or the mean is zero/NaN. The one definition, shared by the ETF page's Trading data
+    block and the ETF screener row."""
+    recent = frame[frame.index >= anchor - pd.Timedelta(days=30)]
+    return _nonzero(recent["volume"].mean()) if not recent.empty else None
+
+
 def _bar_trading_stats(frame: pd.DataFrame, completed: date) -> dict:
     """1M / YTD / 1Y price returns and the volume averages from cached daily bars. Returns are the shared
     Sector Heatmap math (scoring/etf_returns.py::compute_window_returns): calendar-offset base, last close
@@ -174,8 +191,7 @@ def _bar_trading_stats(frame: pd.DataFrame, completed: date) -> dict:
         perf_1y=_nonzero(by_window.get("1y"), 2),
         perf_as_of=anchor.date(),
     )
-    recent = frame[frame.index >= anchor - pd.Timedelta(days=30)]
-    stats["avg_volume_30d"] = _nonzero(recent["volume"].mean()) if not recent.empty else None
+    stats["avg_volume_30d"] = avg_volume_30d(frame, anchor)
     last_20 = frame.tail(20)
     stats["avg_dollar_volume_20d"] = _nonzero((last_20["close"] * last_20["volume"]).mean())
     stats["last_close"] = float(close.iloc[-1])
@@ -204,7 +220,7 @@ async def _trading_data(ticker: str, asset_class: str | None) -> EtfTradingDataO
     low, high = _positive(quote.get("yearLow")), _positive(quote.get("yearHigh"))
     price = _positive(quote.get("price")) or stats.get("last_close")
     per_share = _positive(profile.get("lastDividend"))
-    is_equity = is_equity_asset_class(asset_class)
+    shows_beta = has_equity_beta(asset_class)
 
     data = EtfTradingDataOut(
         perf_1m=stats.get("perf_1m"),
@@ -217,7 +233,7 @@ async def _trading_data(ticker: str, asset_class: str | None) -> EtfTradingDataO
         avg_dollar_volume_20d=stats.get("avg_dollar_volume_20d"),
         distribution_ttm_per_share=per_share if price is not None else None,
         distribution_ttm_yield_pct=_nonzero(per_share / price * 100, 2) if per_share is not None and price is not None else None,
-        beta=_nonzero(profile.get("beta"), 2) if is_equity else None,
+        beta=_nonzero(profile.get("beta"), 2) if shows_beta else None,
     )
     values = data.model_dump(exclude={"perf_as_of"})
     return data if any(v is not None for v in values.values()) else None

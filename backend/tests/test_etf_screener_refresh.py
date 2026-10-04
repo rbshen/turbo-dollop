@@ -193,6 +193,83 @@ def test_every_field_is_computed_and_written_from_the_cached_data(env):
     assert row.updated_at is not None
 
 
+def test_the_four_added_columns_match_the_etf_page_figures(env):
+    engine = env["engine"]
+    info = {**INFO, "holdingsCount": 101}
+    _etf(engine, "QQQ", info=info, profile={**PROFILE, "lastDividend": 3.0})
+    _bars(engine, "QQQ", _history(120.0))
+    _bars(engine, "SPY", _history(110.0))
+
+    _run(tickers=["QQQ"], cache_only=True)
+
+    row = _row(engine, "QQQ")
+    assert row.holdings_count == 101
+    assert row.dividend_yield == pytest.approx(2.5)  # 3.0 / 120 * 100
+    assert row.return_ytd == pytest.approx(20.0)  # the 100 base is the prior year-end close
+    assert row.avg_volume_30d == 1_000_000
+    # The same helpers the ETF page's Trading data block calls, on the same cached bars.
+    frame = shared_bars_cache.read_cached_completed_daily_bars("QQQ", etf_data.TRADING_DATA_BAR_LOOKBACK_DAYS)
+    stats = etf_data._bar_trading_stats(frame, _most_recent_completed_trading_date())
+    assert row.avg_volume_30d == stats["avg_volume_30d"]
+    assert row.return_ytd == pytest.approx(stats["perf_ytd"])
+    assert row.return_1y == pytest.approx(stats["perf_1y"])
+
+
+def test_zero_holdings_and_zero_or_missing_dividend_are_stored_as_null(env):
+    engine = env["engine"]
+    _etf(engine, "GLD", info={**INFO, "assetClass": "Commodities", "holdingsCount": 0}, profile={**PROFILE, "lastDividend": 0})
+    _etf(engine, "NODIV", info={**INFO, "holdingsCount": None}, profile=PROFILE)  # no lastDividend key at all
+    for ticker in ("GLD", "NODIV"):
+        _bars(engine, ticker, _history(120.0))
+        upsert = EtfScreenerRow(ticker=ticker, holdings_count=999, dividend_yield=9.9)  # stale values a real answer clears
+        with Session(engine) as session:
+            session.add(upsert)
+            session.commit()
+
+    _run(tickers=["GLD", "NODIV"], cache_only=True)
+
+    for ticker in ("GLD", "NODIV"):
+        row = _row(engine, ticker)
+        assert row.holdings_count is None and row.dividend_yield is None
+        assert row.last_price == 120.0  # the rest of the row is still written
+
+
+def test_without_a_price_there_is_no_dividend_yield_and_a_stored_one_is_kept(env):
+    engine = env["engine"]
+    _etf(engine, "QQQ", profile={**PROFILE, "lastDividend": 3.0})  # no bars at all
+    with Session(engine) as session:
+        session.add(EtfScreenerRow(ticker="QQQ", dividend_yield=0.5, avg_volume_30d=7.0, return_ytd=1.0))
+        session.commit()
+
+    result = _run(tickers=["QQQ"], cache_only=True)["results"]["QQQ"]
+
+    assert "dividend_yield" not in result.fields and "avg_volume_30d" not in result.fields and "return_ytd" not in result.fields
+    row = _row(engine, "QQQ")
+    assert (row.dividend_yield, row.avg_volume_30d, row.return_ytd) == (0.5, 7.0, 1.0)  # a missing input never blanks
+
+
+def test_a_young_fund_gets_no_ytd_or_1y_but_still_gets_volume(env):
+    engine = env["engine"]
+    _etf(engine, "NEWETF")
+    _bars(engine, "NEWETF", _history(105.0, sessions=40))
+
+    result = _run(tickers=["NEWETF"], cache_only=True)["results"]["NEWETF"]
+
+    assert "return_ytd" not in result.fields and "return_1y" not in result.fields
+    assert result.fields["avg_volume_30d"] == 1_000_000
+
+
+def test_no_cached_info_means_no_holdings_value_and_no_fetch(env):
+    engine = env["engine"]
+    _cache(engine, "QQQ", "profile", [dict(PROFILE)])  # no etf_info row cached
+    _bars(engine, "QQQ", _history(120.0))
+
+    result = _run(tickers=["QQQ"], cache_only=True)["results"]["QQQ"]
+
+    assert "holdings_count" not in result.fields
+    assert env["fmp_calls"] == []
+
+
 def test_beta_is_stored_raw_even_for_a_bond_fund_and_zero_or_missing_is_not_stored(env):
     engine = env["engine"]
     _etf(engine, "TLT", info={"assetClass": "Fixed Income"}, profile={"companyName": "TLT", "beta": 2.4})
