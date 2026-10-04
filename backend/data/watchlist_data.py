@@ -1,15 +1,16 @@
 import asyncio
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from core.cache import get_or_fetch, safe_fetch
 from core.config import settings
 from core.db import engine
 from helpers.first import _first
 from clients.fmp_client import fmp_client
-from core.models import WatchlistTicker
-from core.schemas import WatchlistRowOut
+from core.models import EtfScreenerRow, WatchlistTicker
+from core.schemas import EtfWatchlistRowOut, WatchlistRowOut
 from core.tickers import normalize_ticker
+from data.etf_screener_data import _row_out as etf_screener_row_out
 from data.last_close_data import get_cached_last_closes
 from data.step1_data import get_step1_data
 from data.ticker_score import compute_ticker_score
@@ -170,3 +171,28 @@ async def get_watchlist_rows(tickers: list[WatchlistTicker]) -> list[WatchlistRo
     # One batched DB read of the nightly last close for the whole list (no FMP call).
     last_closes = get_cached_last_closes([normalize_ticker(t.ticker) for t in tickers])
     return list(await asyncio.gather(*[_compose_row(t, last_closes.get(normalize_ticker(t.ticker))) for t in tickers]))
+
+
+# The numeric/text fields an ETF watchlist row copies from the screener row (EtfWatchlistRowOut minus ticker/exchange).
+_ETF_ROW_FIELDS = tuple(f for f in EtfWatchlistRowOut.model_fields if f not in ("ticker", "exchange"))
+
+
+async def get_etf_watchlist_rows(tickers: list[WatchlistTicker]) -> list[EtfWatchlistRowOut]:
+    """The rows of the watchlist named "ETF", in the order of `tickers` (list_watchlist_tickers' added order). STORED data
+    only: one select of EtfScreenerRow for the list's tickers (through etf_screener_data._row_out, the one place the
+    equity-only Beta rule and the row's value handling live) plus the cache-only profile exchange per ticker. No score
+    computation, no Step 1 read, no consensus call, no FMP/network path, no write of any kind. A ticker with no
+    EtfScreenerRow (just added, the job has not reached it) is still returned, with None for every figure."""
+    names = [normalize_ticker(t.ticker) for t in tickers]
+    if not names:
+        return []
+    with Session(engine) as session:
+        stored = {row.ticker: etf_screener_row_out(row) for row in session.exec(select(EtfScreenerRow).where(EtfScreenerRow.ticker.in_(names))).all()}
+    exchanges = await asyncio.gather(*[_cached_exchange(name) for name in names])
+    rows: list[EtfWatchlistRowOut] = []
+    for name, exchange in zip(names, exchanges):
+        row = stored.get(name)
+        figures = {field: getattr(row, field) for field in _ETF_ROW_FIELDS} if row is not None else {}
+        rows.append(EtfWatchlistRowOut(ticker=name, exchange=exchange, **figures))
+    return rows
+

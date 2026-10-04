@@ -1807,6 +1807,29 @@ class WatchlistRowOut(BaseModel):
     is_etf: bool = False
 
 
+class EtfWatchlistRowOut(BaseModel):
+    """One row of GET /api/watchlists/{id}/etf-rows (the table of the list named "ETF"): the ETF screener row's
+    stored figures (models.py::EtfScreenerRow, through the same `_row_out`, so Beta is already null unless the asset
+    class contains "equity") plus the cached profile's exchange (for the TradingView export). Every figure is None for a
+    ticker with no EtfScreenerRow yet. Percent fields are percent numbers (0.09 = 0.09%)."""
+
+    ticker: str
+    name: str | None = None
+    # Cached profile exchange (EXCHANGE:SYMBOL pairs for the export button); None when no profile is cached.
+    exchange: str | None = None
+    last_price: float | None = None
+    pct_change_1d: float | None = None
+    asset_class: str | None = None
+    expense_ratio: float | None = None
+    aum: float | None = None
+    holdings_count: int | None = None
+    avg_volume_30d: float | None = None
+    dividend_yield: float | None = None
+    beta: float | None = None
+    return_ytd: float | None = None
+    return_1y: float | None = None
+
+
 class EtfScreenerRowOut(BaseModel):
     """A row of GET /api/etf-screener (models.py::EtfScreenerRow). `beta` is already nulled unless the asset class contains
     "equity" (has_equity_beta). Percent fields are percent numbers (0.09 = 0.09%); see the model."""

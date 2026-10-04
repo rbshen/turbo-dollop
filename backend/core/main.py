@@ -73,6 +73,7 @@ from core.schemas import (
     DataSourceHealthOut,
     EtfScreenerMeta,
     EtfScreenerRowOut,
+    EtfWatchlistRowOut,
     DiscountRateConfigIn,
     DiscountRateConfigOut,
     EtfOverviewOut,
@@ -158,7 +159,7 @@ from data.entry_signal_data import get_entry_signal_data
 from data.warren_signal_data import get_warren_signal_data
 from data.ticker_summary import get_summary
 from data.trend_analysis_data import get_trend_analysis_data
-from data.watchlist_data import get_watchlist_rows
+from data.watchlist_data import get_etf_watchlist_rows, get_watchlist_rows
 from data.watchlists import (
     add_watchlist_ticker,
     bulk_add_watchlist_tickers,
@@ -1251,6 +1252,21 @@ async def watchlist_rows(watchlist_id: int) -> list[WatchlistRowOut]:
             raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
         tickers = list_watchlist_tickers(session, watchlist_id)
     return await get_watchlist_rows(tickers)
+
+
+@app.get("/api/watchlists/{watchlist_id}/etf-rows", response_model=list[EtfWatchlistRowOut])
+async def watchlist_etf_rows(watchlist_id: int) -> list[EtfWatchlistRowOut]:
+    """The ETF table of the list named "ETF" (docs/decisions.md 2026-10-04): stored data only, no FMP call and no
+    write (see data/watchlist_data.py::get_etf_watchlist_rows). Any other list has no ETF table (400); the stock table's
+    GET /rows is untouched."""
+    with Session(engine) as session:
+        watchlist = session.get(Watchlist, watchlist_id)
+        if watchlist is None:
+            raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
+        if not is_etf_watchlist(watchlist.name):
+            raise HTTPException(status_code=400, detail=f'Only the "{ETF_WATCHLIST_NAME}" watchlist has an ETF table.')
+        tickers = list_watchlist_tickers(session, watchlist_id)
+    return await get_etf_watchlist_rows(tickers)
 
 
 def _slugify_watchlist_name(name: str) -> str:

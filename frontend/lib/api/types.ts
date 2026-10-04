@@ -727,6 +727,27 @@ export interface EtfScreenerRowOut {
   updated_at: string | null;
 }
 
+/** `GET /api/watchlists/{id}/etf-rows` (only the list named "ETF"). Every figure is null for a ticker with no
+ * ETF screener row yet; `beta` is already null unless the asset class contains "equity"; percent fields are percent
+ * numbers (0.09 = 0.09%). */
+export interface EtfWatchlistRow {
+  ticker: string;
+  name: string | null;
+  /** Cached profile exchange, for the TradingView export. */
+  exchange: string | null;
+  last_price: number | null;
+  pct_change_1d: number | null;
+  asset_class: string | null;
+  expense_ratio: number | null;
+  aum: number | null;
+  holdings_count: number | null;
+  avg_volume_30d: number | null;
+  dividend_yield: number | null;
+  beta: number | null;
+  return_ytd: number | null;
+  return_1y: number | null;
+}
+
 export interface EtfRange {
   min: number | null;
   max: number | null;

@@ -137,8 +137,15 @@ The header's action cluster also holds the shared universe button (Add to / Remo
   from local knowledge only (`data/etf_data.py::known_etf_tickers`: a cached profile with `isEtf`/`isFund`, or a
   `TickerScore.is_etf` row). An ETF never opened, scored or watchlisted is therefore **not labelled** until its page is
   first viewed.
-- **Watchlist rows:** the list named "ETF" holds ETFs only (see "Add to watchlist"), but it is still rendered by the stock table until the
-  dedicated ETF table is built (a later step); an ETF on any other list is a stock-table row. `WatchlistRowOut.is_etf` (from the score row) shows an "ETF" badge in the Analysis cell in place of
+- **Watchlist rows:** the list named "ETF" holds ETFs only (see "Add to watchlist") and has its own data endpoint,
+  `GET /api/watchlists/{id}/etf-rows` -> `list[EtfWatchlistRowOut]` (2026-10-04; the ETF table that renders it is a later step, until then the page
+  still renders the list with the stock table). Fields: `ticker`, `name`, `exchange`, `last_price`, `pct_change_1d`, `asset_class`, `expense_ratio`, `aum`,
+  `holdings_count`, `avg_volume_30d`, `dividend_yield`, `beta`, `return_ytd`, `return_1y`. **Stored data only**: one select of `EtfScreenerRow` for the list's
+  tickers through `etf_screener_data._row_out` (so Beta is null unless the asset class contains "equity") plus the cache-only profile exchange
+  (`_cached_exchange`); no `compute_ticker_score`, Step 1, `/grades-consensus` or any FMP call, and no write (no `TickerScore` row, no view record).
+  Rows come back in the list's added order (`list_watchlist_tickers`, `added_at`, same as the stock endpoint); a member with no `EtfScreenerRow` yet is
+  still returned with null figures. Any list other than the exact name "ETF" answers 400 (`Only the "ETF" watchlist has an ETF table.`), an unknown id 404.
+  An ETF on any other list is a stock-table row, and `WatchlistRowOut.is_etf` (from the score row) shows an "ETF" badge in the Analysis cell in place of
   the blank score, and the Rating cell shows a dash: `data/watchlist_data.py::_compose_row` makes **no** `/grades-consensus`
   call for an ETF row (FMP answers `[]` for a fund, so it was one wasted call and one empty cached row per ETF per window)
   and the row carries the `N/A` placeholder (`NO_CONSENSUS_RATING`), which sorts last. The consensus call is made after the

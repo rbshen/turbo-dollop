@@ -801,3 +801,11 @@ no new FMP call, no new job. They use the ETF page's own helpers (`compute_windo
 stored as null (a real "none", it clears a stale value), an input that is not cached writes nothing (a stored value is never blanked). **Known differences from the page:** the yield divides by the run's last
 close (the page uses the cached quote price first), and the page's "newest bar older than 5 days" gate is not applied to the stored volume. **Note:** a TTM yield includes one-off distributions (TECL reads
 3.48%: its $8.04 December 2025 distribution is inside the trailing 12 months).
+
+### 2026-10-04 — ETF watchlist rows come from `EtfScreenerRow`, through their own endpoint
+Step 3 of the ETF watchlist table. `GET /api/watchlists/{id}/etf-rows` serves only the list named exactly `ETF` (400 `Only the "ETF" watchlist has an ETF table.` for any other list, 404 for an unknown id like
+the stock endpoint) and reads **stored data only**: the `EtfScreenerRow` of each member through `etf_screener_data._row_out` (the one place the "contains Equity" Beta rule lives) plus the cached profile exchange for the
+TradingView export. **Why a separate endpoint, not a branch of `/rows`:** the stock payload and its tests stay untouched, and the ETF path skips everything the stock row does that is wrong for a fund: `compute_ticker_score`
+(which can still persist an ETF `TickerScore` row on the Watchlist path), Step 1 statements, the live `/grades-consensus` call and the 8-wide fetch semaphore. A page load therefore costs one select plus cache reads, makes
+no network call and writes nothing (pinned by `tests/test_etf_watchlist_rows.py`). Order is the list's added order (`list_watchlist_tickers`, `added_at`; tickers added in one bulk call share a timestamp and keep
+insertion order). A member with no `EtfScreenerRow` (just added, the 1:45 job or the add-time write has not reached it) is returned with null figures and a null name, so the table shows dashes instead of dropping it.
