@@ -35,7 +35,7 @@ from data.etf_screener_data import etf_screener_meta, list_etf_screener_rows
 from data.liquidity_zone_data import get_liquidity_zone_data
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
 from data.market_breadth_data import get_market_breadth
-from data.momentum_data import get_momentum_snapshot
+from data.momentum_data import get_etf_momentum_snapshot, get_momentum_snapshot
 from data.sector_heatmap_data import get_sector_heatmap
 from helpers.weinstein_config import get_weinstein_settings, update_weinstein_settings
 from helpers.liquidity_zone_config import get_liquidity_zone_settings, update_liquidity_zone_settings
@@ -92,6 +92,7 @@ from core.schemas import (
     MoatScoreConfigIn,
     MarketBreadthOut,
     MoatScoreConfigOut,
+    EtfMomentumOut,
     MomentumOut,
     MomentumPeriod,
     NewsOut,
@@ -277,6 +278,11 @@ def data_source_health() -> DataSourceHealthOut:
 @app.get("/api/momentum", response_model=MomentumOut)
 def momentum(period: MomentumPeriod = "current") -> MomentumOut:
     return get_momentum_snapshot(period)
+
+
+@app.get("/api/momentum/etf", response_model=EtfMomentumOut)
+def etf_momentum(period: MomentumPeriod = "current") -> EtfMomentumOut:
+    return get_etf_momentum_snapshot(period)
 
 
 @app.get("/api/sector-heatmap", response_model=SectorHeatmapOut)

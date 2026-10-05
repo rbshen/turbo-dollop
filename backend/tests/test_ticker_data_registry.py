@@ -76,7 +76,7 @@ def test_classes_are_disjoint_and_complete():
     keep = {n for n, e in reg.REGISTRY.items() if e.table_class is reg.TableClass.KEEP}
     assert wipe | protecting | keep == set(reg.REGISTRY)
     assert protecting == {"indexconstituent", "watchlistticker", "tickermoat", "tickercustomvaluation", "tickerbankcapitalmetrics", "growthcatalystnote"}
-    assert keep == {"sectoretfreturn"}
+    assert keep == {"sectoretfreturn", "etfmomentumsnapshot"}
 
 
 def test_only_fundamentalscache_has_a_keep_predicate_and_it_names_forex_rate():

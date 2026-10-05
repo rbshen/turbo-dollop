@@ -724,6 +724,23 @@ def read_cached_completed_daily_bars(
     return frame
 
 
+def read_cached_daily_bars_batch(
+    tickers: list[str], lookback_days: int, reference: datetime | None = None
+) -> dict[str, pd.DataFrame]:
+    """Cached daily bars for many tickers, trimmed to the last `lookback_days` calendar days -- a pure READ: no
+    FMP call, no cache write, no staleness refetch (unlike get_or_fetch_bars_batch). Every bar held is returned,
+    including a provisional last bar: the caller (a historical-anchor backfill) must not depend on the newest
+    bar. A ticker with nothing cached is absent from the result."""
+    if not tickers:
+        return {}
+    now = reference or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    start = _eastern_today(now) - timedelta(days=max(lookback_days - 1, 0))
+    with Session(engine) as session:
+        return _load_frames(session, tickers, DAILY_INTERVAL, start)
+
+
 def prune_old_bars(reference: datetime | None = None, dry_run: bool = False) -> dict[str, int]:
     """Deletes bars older than RETENTION_DAYS[interval], measured back from
     today (US/Eastern), per bar -- never whole rows. Returns the number of

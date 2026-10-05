@@ -1648,6 +1648,34 @@ class MomentumOut(BaseModel):
     rows: list[MomentumSnapshotRowOut]
 
 
+class EtfMomentumRowOut(BaseModel):
+    """One ETF's row in the ETF Momentum top 5 -- see models.py::EtfMomentumSnapshot. Same return columns as
+    MomentumSnapshotRowOut but no `moat`, `overall_score` or `quote_currency` (an ETF has none of them).
+    `company_name` is EtfScreenerRow.name and `last_price` the nightly TickerLastClose, both joined at request time."""
+
+    ticker: str
+    company_name: str | None = None
+    return_3mo: float
+    return_6mo: float
+    return_12mo: float
+    composite_score: float
+    rank: int
+    return_1w: float | None = None
+    return_1mo: float | None = None
+    last_price: float | None = None
+
+
+class EtfMomentumOut(BaseModel):
+    """The top ETF_MOMENTUM_TOP_N rows of one month's stored ETF ranking. `total_ranked` is how many ETFs the
+    snapshot scored (the full ranking stays stored). as_of_date/computed_at are None, rows [] and total_ranked 0
+    when no matching snapshot exists (none yet, or no earlier month for `previous`) -- never a 404."""
+
+    as_of_date: date | None
+    computed_at: datetime | None
+    total_ranked: int
+    rows: list[EtfMomentumRowOut]
+
+
 class SectorHeatmapCellOut(BaseModel):
     """One (ETF, window) cell. `return_pct` is a trailing TOTAL return in
     percentage points (4.25 == +4.25%); None (with `base_date` None) when

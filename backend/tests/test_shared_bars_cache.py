@@ -731,3 +731,25 @@ def test_sunday_force_resync_refetches_the_full_window_and_replaces_stale_phanto
         stored = {r.bar_time.date() for r in session.exec(select(SharedBarsCache).where(SharedBarsCache.ticker == _US)).all()}
     assert junk not in stored and stored and all(d.weekday() < 5 for d in stored)  # replaced, not upserted over
     assert _count_rows(engine, _US) < n_before
+
+
+def test_read_cached_daily_bars_batch_is_a_pure_read_trimmed_to_the_window(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    ref = datetime(2026, 10, 5, 15, tzinfo=timezone.utc)
+    fetched_at = datetime(2026, 10, 5)
+    _seed_row(engine, "AAA", DAILY_INTERVAL, datetime(2026, 9, 30), fetched_at, close=11.0)
+    _seed_row(engine, "AAA", DAILY_INTERVAL, datetime(2025, 1, 2), fetched_at, close=5.0)  # outside a 400-day window
+    _seed_row(engine, "BBB", DAILY_INTERVAL, datetime(2026, 9, 30), fetched_at, close=22.0)
+
+    def boom(*a, **k):
+        raise AssertionError("a cached read must not fetch")
+
+    monkeypatch.setattr(shared_bars_cache, "get_daily_bar_source", boom)
+
+    frames = shared_bars_cache.read_cached_daily_bars_batch(["AAA", "NONE"], 400, reference=ref)
+
+    assert list(frames) == ["AAA"]  # a ticker with nothing cached is absent
+    assert frames["AAA"]["close"].tolist() == [11.0]
+    with Session(engine) as session:
+        assert len(session.exec(select(SharedBarsCache)).all()) == 3  # nothing written
+    assert shared_bars_cache.read_cached_daily_bars_batch([], 400) == {}

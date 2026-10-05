@@ -32,6 +32,7 @@ from sqlmodel import SQLModel
 from core.models import (
     CorporateEvent,
     CorporateEventFetch,
+    EtfMomentumSnapshot,
     EtfScreenerRow,
     FundamentalsCache,
     GrowthCatalystNote,
@@ -130,6 +131,11 @@ _ORDERED: tuple[TickerTable, ...] = (
     _t(TickerBankCapitalMetrics, TableClass.PROTECTING, "owner-entered CET1 / NPL override", user_entered=True),
     _t(GrowthCatalystNote, TableClass.PROTECTING, "owner-curated growth catalyst note", user_entered=True),
     # --- KEEP ---------------------------------------------------------------------------------------------------
+    _t(
+        EtfMomentumSnapshot,
+        TableClass.KEEP,
+        "frozen monthly ETF momentum rankings (a past month's full ranked list; wiping an ETF would rewrite its ranks)",
+    ),
     _t(SectorEtfReturn, TableClass.KEEP, "11 sector ETFs only, all ETF_SEED_TICKERS (protected as seeds)"),
 )
 

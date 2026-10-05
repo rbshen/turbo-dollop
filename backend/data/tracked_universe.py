@@ -27,9 +27,9 @@ ticker's page records a view (the "last touch" the wipe reads) but never admits 
 (every ticker the app holds any row for) for the jobs whose whole point is to see everything: the non-US purge, the
 delisted-flag sync and the search fallback.
 
-**A future ETF momentum universe MUST be added to `ETF_SEED_TICKERS`** (and to the spec); the ETF momentum ranking is
-"investigated, not built" (docs/specs/sector-heatmap.md). Protection, not insertion on the stock side: nothing here
-creates a new row or a new FMP call.
+ETF Momentum (docs/specs/momentum.md) reads `load_etf_universe` itself, so it needs no `ETF_SEED_TICKERS` addition
+(docs/decisions.md, 2026-10-05). Protection, not insertion on the stock side: nothing here creates a new row or a new
+FMP call.
 
 Defined once, imported everywhere: `tests/test_tracked_universe.py` fails if a job or the Screener
 re-declares the union or reads the old function names."""

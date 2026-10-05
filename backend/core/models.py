@@ -956,6 +956,32 @@ class MomentumSnapshot(SQLModel, table=True):
     return_1mo: float | None = None
 
 
+class EtfMomentumSnapshot(SQLModel, table=True):
+    """One row per ETF per monthly ETF Momentum run -- the ETF twin of MomentumSnapshot above (same engine,
+    scoring/momentum.py, same composite, same split-adjusted close basis), written by the ETF pass of
+    pipeline/monthly_momentum_snapshot.py via data/momentum_data.py::compute_and_store_etf_momentum_snapshot.
+    Spec: docs/specs/momentum.md.
+
+    Stores the FULL ranking (the API returns only the top 5). No `moat` column: an ETF cannot have a Moat.
+    The universe is `load_etf_universe` frozen at compute time -- a later change to it never rewrites a past
+    month. Append-only per as_of_date like MomentumSnapshot (re-running an anchor replaces only that date's
+    rows). `company_name` and `last_price` are joined at request time (EtfScreenerRow.name, TickerLastClose),
+    not stored. Returns are fractions (0.12 == +12%), as in MomentumSnapshot."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    ticker: str = Field(index=True)
+    as_of_date: date = Field(index=True)
+    computed_at: datetime
+    return_3mo: float
+    return_6mo: float
+    return_12mo: float
+    composite_score: float
+    rank: int
+    # Informational only (never part of composite_score/rank); None when the fund lacks a price that far back.
+    return_1w: float | None = None
+    return_1mo: float | None = None
+
+
 class SectorEtfReturn(SQLModel, table=True):
     """One trailing TOTAL return (price change + reinvested distributions,
     from an adjusted close) for one sector ETF over one calendar window,

@@ -6,7 +6,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 import data.momentum_data as momentum_data
 import pipeline.monthly_momentum_snapshot as monthly_momentum
-from core.models import MomentumSnapshot, TickerScore
+from core.models import EtfMomentumSnapshot, MomentumSnapshot, TickerScore
 
 
 def _fresh_engine(monkeypatch, tmp_path):
@@ -50,10 +50,12 @@ def test_anchor_day_computes_and_persists_a_snapshot(monkeypatch, tmp_path):
         session.commit()
 
     monkeypatch.setattr(momentum_data, "load_tracked_universe", lambda session: ["AAA"])
+    monkeypatch.setattr(momentum_data, "load_etf_universe", lambda session: ["EEE"])
     _stub_stale_count(monkeypatch)
 
     async def fake_get_bars_batch(tickers, interval, lookback_days, auto_adjust=True, **kwargs):
-        return {"AAA": _series(130.0)}
+        histories = {"AAA": _series(130.0), "EEE": _series(140.0)}
+        return {t: histories[t] for t in tickers}
 
     monkeypatch.setattr(momentum_data, "get_or_fetch_bars_batch", fake_get_bars_batch)
 
@@ -61,7 +63,13 @@ def test_anchor_day_computes_and_persists_a_snapshot(monkeypatch, tmp_path):
 
     assert summary["skipped"] is False
     assert summary["processed"] == 1
+    # the ETF pass runs after the stock pass, over its own universe, into its own table
+    assert (summary["etf"]["universe_size"], summary["etf"]["processed"]) == (1, 1)
     with Session(engine) as session:
         rows = session.exec(select(MomentumSnapshot)).all()
     assert rows[0].ticker == "AAA"
     assert rows[0].as_of_date == date(2026, 8, 31)
+    with Session(engine) as session:
+        etf_rows = session.exec(select(EtfMomentumSnapshot)).all()
+    assert [(r.ticker, r.as_of_date) for r in etf_rows] == [("EEE", date(2026, 8, 31))]
+    assert [r.ticker for r in rows] == ["AAA"]  # the stock table never receives the ETF
