@@ -6,14 +6,18 @@ the annual total. Fathom guards against these **at read time**, in the data laye
 (`data/step5_data.py`, `helpers/ttm.py`, `helpers/balance_sheet_gate.py`), never in the scorers:
 the scoring rules of every step are unchanged, they just receive cleaner inputs.
 
-**The cache and refetch policy is unchanged.** A bad row stays cached exactly as FMP served it
-(history protection still applies, see [FMP data and bar cache](fmp-data-and-bar-cache.md)); the
-guards decide what to *use*. `get_or_fetch_earnings_aware` treats a cached statement row as fresh
-until a new earnings date plus 2 days has passed, whatever its content, so a partial row fetched
-after an earnings date is not refetched until the next one, a manual Refresh, or the next
-earnings date. A refreshed *complete* row replaces the partial one (same periods are overwritten
-by the history merge) and the guard then simply stops firing. Whether to also refetch suspect rows
-early is a separate, undecided change.
+**The cache and the earnings-aware staleness rule are unchanged.** A bad row stays cached exactly as FMP
+served it (history protection still applies, see [FMP data and bar cache](fmp-data-and-bar-cache.md)); the
+guards decide what to *use*. `get_or_fetch_earnings_aware` treats a cached statement row as fresh until a new
+earnings date plus 2 days has passed, whatever its content, so a partial row fetched after an earnings date is
+not refetched until the next earnings date or a manual Refresh. Two facts widen that gap: the **earnings row
+itself is cached on a flat 7-day window** (`get_or_fetch(..., "earnings", "latest")`, deliberately not
+earnings-aware, which would be circular), so the earnings-aware trigger can slip up to 7 days after the real
+earnings date; and a fetch two days after earnings can still precede the quarter landing at FMP, freezing the
+old quarter. A refreshed *complete* row replaces the partial one (the history merge overwrites the same
+periods) and the guard then simply stops firing. **Section 5** adds a bounded, targeted recheck of the three
+quarterly statements for flagged tickers; it does not change the staleness rule and does not shorten the window
+for any other ticker.
 
 ## 1. Newest-quarter completeness gate (Step 5 only)
 
@@ -157,3 +161,41 @@ being the newest quarter it is dropped, so AMCR's TTM CFO covers Q4 FY2025 to Q3
 invent a figure; the cost is a TTM that is one quarter old and understated against the true
 ≈2.15B. A scale-broken quarterly row is handled the same way as a placeholder row.
 Income-statement and balance-sheet rows are never touched by this rule (none is flagged today).
+
+## 5. Recheck of flagged statements (targeted refetch)
+
+`helpers/statement_recheck.py` (detection, state machine, cadence), table `RecheckState` (`core/models.py`, created
+by `init_db`, one row per ticker). Evidence behind it: banks and many others heal when the 10-Q lands (about 22 to
+45 days after quarter end, the row's `filingDate` moving to the 10-Q date), debt and current-assets remaps heal on
+no fixed schedule, COF, ADP, O, GEV and CIEN were still unhealed at 60-75 days, HSBC (about 11 of 12 quarters
+placeholder) never heals, and some tickers are frozen because the newest quarter had not reached FMP when fetched.
+
+**Triggers** (read from the cache, no network; the first one tripped is `trigger`, all are in `rules_tripped`).
+The first four reuse the existing helpers unchanged:
+
+| Trigger | Fires when | Anchor |
+|---|---|---|
+| `placeholder_cf` | the newest quarterly cash-flow row is a placeholder (section 3) | that row's `filingDate` (else `acceptedDate`, else period end) |
+| `debt_remap`, `current_assets_remap` | `select_complete_balance_sheet` falls back (section 1; REIT/Property Developer path uses `totalDebt` and skips the current-assets rule, as Step 5 does) | newest balance-sheet row's `filingDate` |
+| `scale_break` | `is_scale_broken_row` is true for the newest quarterly **or** newest annual cash-flow row (section 4) | that row's `filingDate` |
+| `not_landed` | R = last reported earnings date (`most_recent_reported_earnings_date`: a past date with a real actual) is **more than 3 days old** AND (**A**: the newest quarterly income period ends **more than 100 days** before R, OR **B**: the income statement's newest period ends **more than 10 days** after the balance sheet's or the cash-flow statement's) | R |
+
+Thresholds: a landed quarter ends about 20-75 days before its earnings date, a not-landed one about 110-165 (the
+prior quarter), so 100 days separates them; 10 days is `ALIGN_TOLERANCE_DAYS`, absorbing the day or two filers
+differ between statements; 3 days is FMP's lag after an earnings date (the staleness buffer is 2). No cached
+earnings or income rows: never fires. A not-yet-reported quarter (future earnings date) never fires. Universe: the
+same one the nightly job fetches (`load_fundamentals_fetch_universe`: tracked universe, ETFs excluded).
+
+**Status.** `active` (inside the window), `healed` (no rule trips on the cached rows any more; `healed_at`,
+`days_to_heal_from_anchor`), `gave_up` (more than **60 days** after the anchor; a flag already past the window when
+first seen is recorded as `gave_up` with `last_result = seeded_expired` and never retried), `chronic` (more than
+half, i.e. at least 3, of the last four quarterly cash-flow rows are placeholders; checked before the window rule).
+The **anchor is fixed for the episode**: a filingDate that later moves while the row is still flagged cannot extend
+the window. Only a healed row, or an anchor more than 60 days later than the stored one, starts a new episode
+(same row, `episodes + 1`, attempts reset).
+
+**Cadence** (`is_due`). Active: **every night for the first 7 counted attempts, then every third night** (at least
+3 days after the last attempt), until the window ends; after give-up the normal earnings-aware refetch is all that
+is left. A ticker is not rechecked on the night the normal pass has just refetched its quarterly rows (it would
+only re-read what it just got): a ticker seeded from a cache fetched on an earlier day is due the same night.
+Chronic: one recheck, then **at most once every 365 days**.

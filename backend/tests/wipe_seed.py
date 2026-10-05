@@ -18,6 +18,7 @@ from core.models import (
     MomentumSnapshot,
     NewsCache,
     PriceTargetSnapshot,
+    RecheckState,
     SharedBarsCache,
     TechnicalEntrySignal,
     TechnicalEntrySignalEvent,
@@ -57,6 +58,7 @@ def seed_wipe_tables(engine, ticker: str, view_days_ago: float | None = None, no
         s.add(TickerScore(ticker=ticker, computed_at=now))
         s.add(TrendAnalysis(ticker=ticker, computed_at=now))
         s.add(TickerLastClose(ticker=ticker, close=1.0, as_of_date=date(2026, 11, 13), fetched_at=now))
+        s.add(RecheckState(ticker=ticker, trigger="debt_remap", anchor_date=date(2026, 11, 1), first_flagged_at=now))
         s.add(TechnicalEntrySignal(ticker=ticker, signal_type="bb_rsi", timeframe="2h", source="t", as_of=now, computed_at=now))
         s.add(TechnicalEntrySignalEvent(ticker=ticker, signal_type="bb_rsi", timeframe="2h", fired_at=now, created_at=now))
         s.add(WarrenSignalEvent(ticker=ticker, timeframe="2h", signal_kind="buy", fired_at=now, created_at=now))

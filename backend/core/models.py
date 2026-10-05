@@ -1342,3 +1342,28 @@ class CorporateEventFetch(SQLModel, table=True):
     event_type: str = Field(primary_key=True)
     fetched_at: datetime
     row_count: int = 0
+
+
+class RecheckState(SQLModel, table=True):
+    """One row per ticker whose newest cached quarterly statements look wrong or not-yet-landed
+    (helpers/statement_recheck.py, docs/specs/statement-data-quality.md "Recheck of flagged statements").
+    Drives the nightly fundamentals job's targeted refetch of the three quarterly statements. One row
+    per ticker: a later, separate episode re-arms the same row (`episodes` counts them); the earlier
+    episode's heal evidence stays in the nightly log.
+
+    `anchor_date` is fixed for the episode (the flagged row's filingDate, or for `not_landed` the last
+    reported earnings date): the recheck window ends 60 days after it, and a later-moving filingDate
+    never extends it. `status`: active | healed | gave_up | chronic."""
+
+    ticker: str = Field(primary_key=True)
+    trigger: str  # placeholder_cf | debt_remap | current_assets_remap | scale_break | not_landed
+    anchor_date: date
+    first_flagged_at: datetime
+    attempts: int = 0
+    last_attempt_at: datetime | None = None
+    last_result: str | None = None  # still_flagged | healed | regression_guard | blocked | error | seeded_expired
+    status: str = "active"
+    healed_at: datetime | None = None
+    days_to_heal_from_anchor: int | None = None
+    rules_tripped: str = ""  # comma list of every rule tripped at the last evaluation
+    episodes: int = 1
