@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   AXIS_FONT_FAMILY,
   AXIS_FONT_SIZE,
-  AXIS_FONT_SIZE_LARGER,
   AXIS_TEXT_BRIGHTER,
+  AXIS_OPTION_ITEMS,
   axisLayout,
   axisOptionsOffered,
   BASE_TICK_MARK_DENSITY,
@@ -21,11 +21,11 @@ import {
   tickMarkDensity,
 } from "@/lib/chartAxis";
 
-const ON = { hideOverlap: true, brighter: true, fewerTicks: true, tabular: true };
+const ON = { hideOverlap: true, brighter: true, fewerTicks: true, tabular: true, cleanSubPanes: true };
 
 describe("axis options: defaults and ranges", () => {
   it("every option is off by default", () => {
-    expect(Object.values(DEFAULT_AXIS_OPTIONS)).toEqual([false, false, false, false]);
+    expect(Object.values(DEFAULT_AXIS_OPTIONS)).toEqual([false, false, false, false, false]);
   });
 
   it("only 2H·90D offers them; every other range is told all-off whatever the user chose", () => {
@@ -48,14 +48,14 @@ describe("axisLayout / tickMarkDensity", () => {
     expect(tickMarkDensity(DEFAULT_AXIS_OPTIONS)).toBe(BASE_TICK_MARK_DENSITY);
   });
 
-  it("brighter changes color and size only; tabular changes the font only", () => {
+  it("brighter changes the color only (never the size); tabular changes the font only", () => {
+    expect(AXIS_TEXT_BRIGHTER).toBe("#e5e8ec");
     expect(axisLayout({ ...DEFAULT_AXIS_OPTIONS, brighter: true }, "#9499a0", "Mono")).toEqual({
       textColor: AXIS_TEXT_BRIGHTER,
-      fontSize: AXIS_FONT_SIZE_LARGER,
+      fontSize: AXIS_FONT_SIZE,
       fontFamily: AXIS_FONT_FAMILY,
     });
-    expect(AXIS_FONT_SIZE_LARGER - AXIS_FONT_SIZE).toBeGreaterThanOrEqual(1);
-    expect(AXIS_FONT_SIZE_LARGER - AXIS_FONT_SIZE).toBeLessThanOrEqual(2);
+    expect(axisLayout(ON, "#9499a0", "Mono").fontSize).toBe(AXIS_FONT_SIZE);
     expect(axisLayout({ ...DEFAULT_AXIS_OPTIONS, tabular: true }, "#9499a0", "Mono")).toEqual({
       textColor: "#9499a0",
       fontSize: 12,
@@ -65,6 +65,15 @@ describe("axisLayout / tickMarkDensity", () => {
 
   it("fewer ticks multiplies the minimum label spacing (a rule, not a price step)", () => {
     expect(tickMarkDensity({ ...DEFAULT_AXIS_OPTIONS, fewerTicks: true })).toBe(BASE_TICK_MARK_DENSITY * FEWER_TICKS_FACTOR);
+  });
+});
+
+describe("clean sub-pane axes option", () => {
+  it("is the fifth item, labelled as in the dropdown, and only changes the sub-panes (no layout or density effect)", () => {
+    expect(AXIS_OPTION_ITEMS.map((i) => i.label)).toEqual(["Hide overlapping labels", "Brighter", "Fewer ticks", "Tabular numerals", "Clean sub-pane axes"]);
+    const clean = { ...DEFAULT_AXIS_OPTIONS, cleanSubPanes: true };
+    expect(axisLayout(clean, "#9499a0", "Mono")).toEqual(axisLayout(DEFAULT_AXIS_OPTIONS, "#9499a0", "Mono"));
+    expect(tickMarkDensity(clean)).toBe(BASE_TICK_MARK_DENSITY);
   });
 });
 
@@ -99,6 +108,9 @@ describe("session persistence", () => {
     expect(loadAxisOptions()).toEqual(DEFAULT_AXIS_OPTIONS);
     saveAxisOptions({ ...DEFAULT_AXIS_OPTIONS, fewerTicks: true });
     expect(loadAxisOptions()).toEqual({ ...DEFAULT_AXIS_OPTIONS, fewerTicks: true });
+    // An entry saved before the fifth option existed loads with it off.
+    window.sessionStorage.setItem("fathom-chart-axis-options", JSON.stringify({ hideOverlap: true, brighter: true, fewerTicks: false, tabular: false }));
+    expect(loadAxisOptions()).toEqual({ ...DEFAULT_AXIS_OPTIONS, hideOverlap: true, brighter: true });
     window.sessionStorage.setItem("fathom-chart-axis-options", "{not json");
     expect(loadAxisOptions()).toEqual(DEFAULT_AXIS_OPTIONS);
   });

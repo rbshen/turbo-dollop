@@ -13,12 +13,14 @@ import type { ChartRange } from "@/lib/api/types";
 export interface AxisOptions {
   /** Hide any regular tick label that would overlap a price tag (current price, LP levels, a sub-pane's level tag). */
   hideOverlap: boolean;
-  /** Brighter axis label color and a larger font. */
+  /** Brighter axis label color (the size is not changed). */
   brighter: boolean;
   /** Lower tick density: about twice the spacing between price tick labels. */
   fewerTicks: boolean;
   /** Monospace (equal-width) digits so the numbers line up. */
   tabular: boolean;
+  /** Warren sub-panes only: no axis tags for the dotted reference lines, and one tick label at the pane's middle. */
+  cleanSubPanes: boolean;
 }
 
 export const DEFAULT_AXIS_OPTIONS: AxisOptions = {
@@ -26,13 +28,15 @@ export const DEFAULT_AXIS_OPTIONS: AxisOptions = {
   brighter: false,
   fewerTicks: false,
   tabular: false,
+  cleanSubPanes: false,
 };
 
 export const AXIS_OPTION_ITEMS: { key: keyof AxisOptions; label: string }[] = [
   { key: "hideOverlap", label: "Hide overlapping labels" },
-  { key: "brighter", label: "Brighter and larger" },
+  { key: "brighter", label: "Brighter" },
   { key: "fewerTicks", label: "Fewer ticks" },
   { key: "tabular", label: "Tabular numerals" },
+  { key: "cleanSubPanes", label: "Clean sub-pane axes" },
 ];
 
 const AXIS_STORAGE_KEY = "fathom-chart-axis-options";
@@ -76,7 +80,6 @@ export function effectiveAxisOptions(options: AxisOptions, range: ChartRange): A
 // --- Font and color (chart-wide: lightweight-charts has one `layout` for every price scale AND the time axis) ---
 
 export const AXIS_FONT_SIZE = 12;
-export const AXIS_FONT_SIZE_LARGER = 14;
 /** The design system's text-primary (oklch(93% 0.006 260)) as the plain hex Tailwind's fallback declaration carries;
  * a literal for the same reason the other chrome colors are (lib/chartTokens.ts: lab() is not parseable). */
 export const AXIS_TEXT_BRIGHTER = "#e5e8ec";
@@ -102,7 +105,7 @@ export interface AxisLayout {
 export function axisLayout(options: AxisOptions, baseTextColor: string, monoFamily: string): AxisLayout {
   return {
     textColor: options.brighter ? AXIS_TEXT_BRIGHTER : baseTextColor,
-    fontSize: options.brighter ? AXIS_FONT_SIZE_LARGER : AXIS_FONT_SIZE,
+    fontSize: AXIS_FONT_SIZE,
     fontFamily: options.tabular ? monoFamily : AXIS_FONT_FAMILY,
   };
 }

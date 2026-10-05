@@ -1,11 +1,12 @@
 "use client";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers, LineStyle } from "lightweight-charts";
-import type { BarPrice, IChartApi, ISeriesApi, ISeriesMarkersPluginApi, Logical, LogicalRangeChangeEventHandler, SeriesType, Time } from "lightweight-charts";
+import type { BarPrice, IChartApi, IPriceLine, ISeriesApi, ISeriesMarkersPluginApi, Logical, LogicalRangeChangeEventHandler, SeriesType, Time } from "lightweight-charts";
 import { fmtMoney } from "@/lib/format";
 import { buildDividendLabels, buildEarningsLabels, describeEventMarker, eventTooltipPlacement } from "@/lib/chartEventMarkers";
 import type { TooltipPlacement } from "@/lib/chartEventMarkers";
 import { EventLabelsPrimitive } from "./EventLabelsPrimitive";
+import { PaneMidLabelPrimitive } from "./PaneMidLabelPrimitive";
 import { TooltipCard } from "@/components/ui/tooltip";
 import type { ChartOut } from "@/lib/api/types";
 import { buildStageColoredBars, WEINSTEIN_MA_COLOR } from "@/lib/chartWeinstein";
@@ -556,10 +557,10 @@ function extendZoneLinesToEdge(
   }
 }
 
-function addRefLine(series: ISeriesApi<"Line">, price: number, color: string, opts: { dashed?: boolean; axisLabel?: boolean } = {}) {
+function addRefLine(series: ISeriesApi<"Line">, price: number, color: string, opts: { dashed?: boolean; axisLabel?: boolean } = {}): IPriceLine {
   // Static reference lines (not derived from data), drawn via
   // createPriceLine rather than a plotted series.
-  series.createPriceLine({
+  return series.createPriceLine({
     price,
     color,
     lineWidth: 1,
@@ -627,19 +628,18 @@ function addWarrenSubPane(chart: IChartApi, spec: PaneSpec, data: ChartOut, pane
   });
   let owner: ISeriesApi<SeriesType> | null = null;
   let tagPrices: number[] = [];
+  // Every dotted reference line with the axis tag it is drawn with, so "Clean sub-pane axes" can remove and restore the tags.
+  const refLines: RefLineTag[] = [];
+  const addLevel = (series: ISeriesApi<"Line">, level: number, axisLabel: boolean) =>
+    refLines.push({ line: addRefLine(series, level, colors.chartRefline, { dashed: true, axisLabel }), axisLabel });
 
   if (spec.id === "warren-rsi") {
-    // The classic 30/70 lines are not drawn (drawnRsiLevels); the line still turns red beyond them.
+    // The classic 30/70 lines are not drawn (drawnRsiLevels). The line is one color: no red beyond 30/70 on this range
+    // (the daily RSI pane keeps its red).
     const rsiLevels = drawnRsiLevels(levels?.rsi ?? []);
     const series = chart.addSeries(LineSeries, { color: colors.chartBand, ...lineOpts, ...withLevels(rsiLevels, { min: 0, max: 100 }) }, paneIndex);
-    series.setData(
-      retime(data.warren_rsi, data).map((p) => ({
-        time: p.time as Time,
-        value: p.value,
-        color: p.value > RSI_OVERBOUGHT || p.value < RSI_OVERSOLD ? colors.chartDown : colors.chartBand,
-      }))
-    );
-    for (const level of rsiLevels) addRefLine(series, level, colors.chartRefline, { dashed: true, axisLabel: level === 12 });
+    series.setData(retime(data.warren_rsi, data) as { time: Time; value: number }[]);
+    for (const level of rsiLevels) addLevel(series, level, level === 12);
     owner = series;
     tagPrices = rsiLevels.filter((level) => level === 12);
   } else if (spec.id === "warren-adx") {
@@ -647,14 +647,14 @@ function addWarrenSubPane(chart: IChartApi, spec: PaneSpec, data: ChartOut, pane
     const adxLevels = levels?.adx ?? [];
     const adx = chart.addSeries(LineSeries, { color: colors.chartEma21, ...lineOpts, ...withLevels(adxLevels) }, paneIndex);
     adx.setData(retime(data.warren_adx, data) as { time: Time; value: number }[]);
-    for (const level of adxLevels) addRefLine(adx, level, colors.chartRefline, { dashed: true });
+    for (const level of adxLevels) addLevel(adx, level, true);
     owner = adx;
     tagPrices = adxLevels;
   } else if (spec.id === "warren-wvf") {
     const wvfLevels = levels?.wvf ?? [];
     const series = chart.addSeries(LineSeries, { color: colors.chartWarrenYellow, ...lineOpts, ...withLevels(wvfLevels) }, paneIndex);
     series.setData(retime(data.warren_wvf, data) as { time: Time; value: number }[]);
-    for (const level of wvfLevels) addRefLine(series, level, colors.chartRefline, { dashed: true });
+    for (const level of wvfLevels) addLevel(series, level, true);
     owner = series;
     tagPrices = wvfLevels;
   }
@@ -663,7 +663,7 @@ function addWarrenSubPane(chart: IChartApi, spec: PaneSpec, data: ChartOut, pane
   chart.priceScale("right", paneIndex).applyOptions({ scaleMargins: SUB_PANE_SCALE_MARGINS_2H });
   // The axis options (lib/chartAxis.ts) act on this pane's price scale; its drawn axis tags are the reference lines
   // added with axisLabel above (every level except RSI's 80.81/84.75, which sit too close to label).
-  return owner ? { paneIndex, owner, tags: () => tagPrices, customFormat: false } : null;
+  return owner ? { paneIndex, owner, tags: () => tagPrices, format: "default", subPane: true, refLines, midLabel: null } : null;
 }
 
 // Returns the pane's AxisPane when the axis options reach it. Only the 2H Warren panes are wired so far; the daily /
@@ -677,53 +677,88 @@ function addSubPane(chart: IChartApi, spec: PaneSpec, data: ChartOut, paneIndex:
 
 // --- Axis options (lib/chartAxis.ts) ---------------------------------------------------------------------------
 //
+// One dotted reference line and whether it is drawn with an axis tag when the pane is not cleaned.
+interface RefLineTag {
+  line: IPriceLine;
+  axisLabel: boolean;
+}
+
+// How a pane's tick labels are formatted: the library default, with overlapping labels blanked, or all blank (the clean
+// sub-pane axis, whose only label is the middle one).
+type FormatMode = "default" | "overlap" | "blank";
+
 // One AxisPane per price scale the options act on. `owner` is the pane's first series: lightweight-charts formats a
-// scale's tick labels with its lowest-z-order series' priceFormat, so that series carries the overlap-hiding
-// formatter. `tags()` are the prices of the axis tags drawn on that scale right now.
+// scale's tick labels with its lowest-z-order series' priceFormat, so that series carries the overlap/blank formatter.
+// `tags()` are the prices of the axis tags drawn on that scale right now.
 interface AxisPane {
   paneIndex: number;
   owner: ISeriesApi<SeriesType>;
   tags: () => number[];
-  /** Whether the custom (overlap-hiding) priceFormat is installed -- so turning the option off restores the default. */
-  customFormat: boolean;
+  /** The priceFormat currently installed on `owner`, so turning an option off restores the library default. */
+  format: FormatMode;
+  /** A Warren sub-pane: the only kind "Clean sub-pane axes" acts on. */
+  subPane: boolean;
+  refLines: RefLineTag[];
+  /** The clean axis' middle label while attached (null otherwise). */
+  midLabel: PaneMidLabelPrimitive | null;
 }
 
 // The library's own default series priceFormat, restored when overlap hiding goes off.
 const DEFAULT_PRICE_FORMAT = { type: "price" as const, precision: 2, minMove: 0.01 };
 
-function installPriceFormat(chart: IChartApi, pane: AxisPane, hideOverlap: boolean) {
-  if (!hideOverlap) {
-    if (pane.customFormat) pane.owner.applyOptions({ priceFormat: DEFAULT_PRICE_FORMAT });
-    pane.customFormat = false;
+function installPriceFormat(chart: IChartApi, pane: AxisPane, mode: FormatMode) {
+  if (mode === "default") {
+    if (pane.format !== "default") pane.owner.applyOptions({ priceFormat: DEFAULT_PRICE_FORMAT });
+    pane.format = "default";
     return;
   }
-  // Same two-decimal text as the default format (formatAxisPrice); the tick labels additionally blank any tick whose
-  // y is within the tag clearance of a drawn tag. y comes from the live scale (priceToCoordinate), so it is the pixel
-  // position the labels are actually drawn at.
+  // Same two-decimal text as the default format (formatAxisPrice). "overlap" additionally blanks any tick whose y is
+  // within the tag clearance of a drawn tag (y from the live scale, priceToCoordinate, so it is the pixel position the
+  // labels are drawn at); "blank" blanks every tick.
   pane.owner.applyOptions({
     priceFormat: {
       type: "custom",
       minMove: 0.01,
       formatter: formatAxisPrice,
       tickmarksFormatter: (prices: BarPrice[]) =>
-        tickLabelsHidingOverlap(
-          prices as number[],
-          (price) => pane.owner.priceToCoordinate(price),
-          pane.tags(),
-          overlapClearancePx(chart.options().layout.fontSize)
-        ),
+        mode === "blank"
+          ? prices.map(() => "")
+          : tickLabelsHidingOverlap(
+              prices as number[],
+              (price) => pane.owner.priceToCoordinate(price),
+              pane.tags(),
+              overlapClearancePx(chart.options().layout.fontSize)
+            ),
     },
   });
-  pane.customFormat = true;
+  pane.format = mode;
 }
 
-function applyAxisOptions(chart: IChartApi, panes: AxisPane[], options: AxisOptions, baseTextColor: string) {
+// "Clean sub-pane axes": the dotted reference lines lose their axis tags (the lines stay), and one label is drawn at the
+// pane's middle instead of the regular ticks (those are blanked by the "blank" format mode). Off restores each tag.
+function setCleanSubPane(chart: IChartApi, pane: AxisPane, clean: boolean, pageColor: string) {
+  for (const { line, axisLabel } of pane.refLines) line.applyOptions({ axisLabelVisible: clean ? false : axisLabel });
+  if (clean && !pane.midLabel) {
+    pane.midLabel = new PaneMidLabelPrimitive(
+      () => chart.options().layout.textColor,
+      () => pageColor
+    );
+    pane.owner.attachPrimitive(pane.midLabel);
+  } else if (!clean && pane.midLabel) {
+    pane.owner.detachPrimitive(pane.midLabel);
+    pane.midLabel = null;
+  }
+}
+
+function applyAxisOptions(chart: IChartApi, panes: AxisPane[], options: AxisOptions, baseTextColor: string, pageColor: string) {
   // Layout first: the price-scale applyOptions below is what invalidates each scale's cached tick marks, so they
-  // are rebuilt with the new font size.
+  // are rebuilt with the new font.
   chart.applyOptions({ layout: axisLayout(options, baseTextColor, readMonoFontFamily()) });
   for (const pane of panes) {
+    const clean = pane.subPane && options.cleanSubPanes;
     chart.priceScale("right", pane.paneIndex).applyOptions({ tickMarkDensity: tickMarkDensity(options) });
-    installPriceFormat(chart, pane, options.hideOverlap);
+    installPriceFormat(chart, pane, clean ? "blank" : options.hideOverlap ? "overlap" : "default");
+    if (pane.subPane) setCleanSubPane(chart, pane, clean, pageColor);
   }
 }
 
@@ -930,7 +965,10 @@ export function TickerChart({
           }
           return prices;
         },
-        customFormat: false,
+        format: "default",
+        subPane: false,
+        refLines: [],
+        midLabel: null,
       },
       ...subPaneAxes.filter((pane): pane is AxisPane => pane !== null),
     ];
@@ -987,7 +1025,7 @@ export function TickerChart({
       // The price tag follows the last visible bar, so a pan can change which tick labels it overlaps.
       if (axisHideOverlapRef.current) {
         const main = axisPanesRef.current[0];
-        if (main) installPriceFormat(chart, main, true);
+        if (main) installPriceFormat(chart, main, "overlap");
       }
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
@@ -1225,7 +1263,7 @@ export function TickerChart({
     const colors = colorsRef.current;
     if (!chart || !colors) return;
     axisHideOverlapRef.current = axisOptions.hideOverlap;
-    applyAxisOptions(chart, axisPanesRef.current, axisOptions, colors.textSecondary);
+    applyAxisOptions(chart, axisPanesRef.current, axisOptions, colors.textSecondary, colors.page);
   }, [data, axisOptions, showLpSupport, showLpResistance]);
 
   // Derived at render time from current props (see hoveredEvent's comment above).

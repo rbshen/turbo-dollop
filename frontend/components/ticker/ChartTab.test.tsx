@@ -351,7 +351,7 @@ describe("ChartTab: the Axis dropdown", () => {
   beforeEach(() => window.sessionStorage.clear());
 
   const axisProps = () => chartProps.axisOptions as Record<string, boolean>;
-  const ALL_OFF = { hideOverlap: false, brighter: false, fewerTicks: false, tabular: false };
+  const ALL_OFF = { hideOverlap: false, brighter: false, fewerTicks: false, tabular: false, cleanSubPanes: false };
 
   it("is offered on 2H · 90D only", () => {
     render(<ChartTab ticker="AAPL" />);
@@ -371,9 +371,9 @@ describe("ChartTab: the Axis dropdown", () => {
     fireEvent.click(btn("Axis"));
     const group = screen.getByRole("group", { name: "Axis options" });
     const boxes = Array.from(group.querySelectorAll<HTMLInputElement>("input[type=checkbox]"));
-    expect(boxes).toHaveLength(4);
-    expect(boxes.map((b) => b.checked)).toEqual([false, false, false, false]);
-    for (const name of ["Hide overlapping labels", "Brighter and larger", "Fewer ticks", "Tabular numerals"]) {
+    expect(boxes).toHaveLength(5);
+    expect(boxes.map((b) => b.checked)).toEqual([false, false, false, false, false]);
+    for (const name of ["Hide overlapping labels", "Brighter", "Fewer ticks", "Tabular numerals", "Clean sub-pane axes"]) {
       expect(screen.getByRole("checkbox", { name })).toBeInTheDocument();
     }
   });
@@ -387,6 +387,9 @@ describe("ChartTab: the Axis dropdown", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Tabular numerals" }));
     expect(axisProps()).toEqual({ ...ALL_OFF, fewerTicks: true, tabular: true });
     expect(btn("Axis (2)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Clean sub-pane axes" }));
+    expect(axisProps()).toEqual({ ...ALL_OFF, fewerTicks: true, tabular: true, cleanSubPanes: true });
+    expect(btn("Axis (3)")).toBeInTheDocument(); // the count includes the fifth option
     fireEvent.keyDown(screen.getByRole("group", { name: "Axis options" }), { key: "Escape" });
     expect(screen.queryByRole("group", { name: "Axis options" })).toBeNull();
   });
@@ -395,7 +398,7 @@ describe("ChartTab: the Axis dropdown", () => {
     render(<ChartTab ticker="AAPL" />);
     fireEvent.click(btn("2H · 90D"));
     fireEvent.click(btn("Axis"));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Brighter and larger" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Brighter" }));
     expect(axisProps().brighter).toBe(true);
     fireEvent.click(btn("D · 1Y"));
     expect(axisProps()).toEqual(ALL_OFF);
