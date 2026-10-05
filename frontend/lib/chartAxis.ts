@@ -1,20 +1,21 @@
 // Chart-tab axis readability, shared by every range.
 //
-// Three settings are PERMANENT on every chart (price pane and every sub-pane), with no toggle:
+// Permanent on every chart, with no toggle:
 //   - Brighter: the axis label color is AXIS_TEXT_COLOR (the size is untouched, 12 px);
-//   - Fewer ticks: every price scale uses AXIS_TICK_MARK_DENSITY (twice the library's minimum label spacing);
-//   - Tabular numerals: the axis font is the page's concrete monospace family (equal-width digits).
-// One option stays a toggle, default off, in the Chart toolbar's "Axis" dropdown so it can be compared before/after:
-//   - Hide overlapping labels: blank any regular tick label that would overlap a price tag.
-// The toggle is browser-session state only (sessionStorage; no DB, no localStorage).
+//   - Tabular numerals: the axis font is the page's concrete monospace family (equal-width digits);
+//   - Fewer ticks: the PRICE pane's scale uses AXIS_TICK_MARK_DENSITY (twice the library's minimum label spacing);
+//   - no regular tick labels on any sub-pane (RSI, Stochastic, Warren RSI/ADX/WVF): only their level-line tags remain.
+// One option is a toggle in the Chart toolbar's "Axis" dropdown, ON by default on every range:
+//   - Hide overlapping labels: blank any price-pane tick label that would overlap a price tag.
+// The toggle is browser-session state only (sessionStorage; no DB, no localStorage). A stored choice overrides the default.
 
 export interface AxisOptions {
-  /** Hide any regular tick label that would overlap a price tag (current price, LP levels, the Weinstein MA, a sub-pane's level tags). */
+  /** Hide any regular price-pane tick label that would overlap a price tag (current price, LP levels, the Weinstein MA). */
   hideOverlap: boolean;
 }
 
 export const DEFAULT_AXIS_OPTIONS: AxisOptions = {
-  hideOverlap: false,
+  hideOverlap: true,
 };
 
 export const AXIS_OPTION_ITEMS: { key: keyof AxisOptions; label: string }[] = [{ key: "hideOverlap", label: "Hide overlapping labels" }];
@@ -27,8 +28,10 @@ export function loadAxisOptions(): AxisOptions {
     const raw = window.sessionStorage.getItem(AXIS_STORAGE_KEY);
     if (!raw) return DEFAULT_AXIS_OPTIONS;
     const parsed = JSON.parse(raw);
-    // Only the known keys are read: entries saved when there were five options carry extra fields, which are ignored.
-    return { hideOverlap: parsed?.hideOverlap === true };
+    // A stored boolean overrides the default -- including a stored `false` (the user switched it off, or an entry saved
+    // while the default was off), which stays off for the rest of the browser session. Anything else (no field, junk)
+    // falls back to the default, and extra fields from older versions are ignored.
+    return { hideOverlap: typeof parsed?.hideOverlap === "boolean" ? parsed.hideOverlap : DEFAULT_AXIS_OPTIONS.hideOverlap };
   } catch {
     return DEFAULT_AXIS_OPTIONS;
   }

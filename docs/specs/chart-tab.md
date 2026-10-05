@@ -187,26 +187,27 @@ differences) are in `docs/specs/warren-signal.md`.
 
 ### Axis options (every range)
 
-Chart-level axis settings in `lib/chartAxis.ts`, applied by `TickerChart` to the price pane and **every** sub-pane on **all five ranges** (2H·90D, D·6M, D·1Y, D·2Y, W·4Y), including the daily RSI and Stochastic panes.
+Chart-level axis settings in `lib/chartAxis.ts`, applied by `TickerChart` on **all five ranges** (2H·90D, D·6M, D·1Y, D·2Y, W·4Y).
 
 **Permanent (no toggle, no storage):**
 - **Brighter:** axis text color `#e5e8ec` (the text-primary token; it was `#9499a0`). Color only: the axis font size stays 12 px.
-- **Fewer ticks:** `tickMarkDensity` 5 on every pane's price scale (`AXIS_TICK_MARK_DENSITY` = the library's 2.5 x `FEWER_TICKS_FACTOR` 2): twice the minimum pixel gap between tick labels. A density rule, not a price step: the
-  library snaps the step to its 1/2/2.5/5/10 ladder, so $5 becomes $10 on a price pane of this height at any price level. In a 100 px sub-pane the 60 px minimum gap leaves one or two tick labels; the dashed-line tags still show.
+- **Fewer ticks:** `tickMarkDensity` 5 (`AXIS_TICK_MARK_DENSITY` = the library's 2.5 x `FEWER_TICKS_FACTOR` 2) on the **price pane's** scale: twice the minimum pixel gap between tick labels. A density rule, not a price step: the
+  library snaps the step to its 1/2/2.5/5/10 ladder, so $5 becomes $10 on a price pane of this height at any price level. The sub-panes keep the library default density, which is moot because they draw no tick labels (next bullet).
+- **No regular tick labels on any sub-pane** (Warren RSI/ADX/WVF on 2H·90D; the RSI and Stochastic panes on D·6M, D·1Y, D·2Y, W·4Y). Only the axis tags of the level lines remain: Warren RSI 12, 80.81 and 84.75 (the pair nudged, see below), ADX 40, WVF 0.40; daily/weekly RSI 70 and 30; Stochastic 80 and 20.
+  The library has no "tags without ticks" option, so each sub-pane's first series gets a `custom` priceFormat whose `tickmarksFormatter` returns empty labels (`addSubPane`); its `formatter` is the default two-decimal one, so the level tags and the crosshair label read as before. The pane layout and
+  heights are unchanged; the shared axis width is now set by the price pane's labels (and the 70 px floor). The price pane and the time axis are unaffected.
 - **Tabular numerals:** the axis font is the page's concrete monospace family (`readMonoFontFamily`, the next/font `--font-mono` value plus `ui-monospace, monospace`). A canvas font cannot take `font-variant-numeric`, so
   equal-width digits means a monospace face; the previous stack named `var(--font-mono)`, which a canvas `font` string may not resolve, so this also guarantees the face actually reaching the canvas.
 - Brighter and Tabular are the chart's single `layout` (lightweight-charts has no per-axis font), so they also colour/face the time axis and the marker text, if any. The E/D letters (own 13 px font) and the pane header text (DOM) are unaffected.
-  The three permanent settings replace the first-version toggles ("Brighter and larger" 14 px, "Fewer ticks", "Tabular numerals"); "Clean sub-pane axes" and its middle-label primitive were tried and removed the same day.
+  History: these replace the first-version toggles ("Brighter and larger" 14 px, "Fewer ticks", "Tabular numerals"); "Clean sub-pane axes" and its middle-label primitive were tried and removed the same day.
 
-**The one toggle: Hide overlapping labels** (default off), in an **Axis** dropdown in the Chart toolbar (`components/chart/ChartAxisMenu.tsx`, left of Zoom out, shown on every range; button "Axis", or "Axis (n)" with n toggles on, so
-"Axis (1)" when on). Browser-session state only (`sessionStorage` key `fathom-chart-axis-options`, holding `{hideOverlap}`; nothing in the DB, nothing in `fathom-chart-signal-toggles`). A saved entry from the earlier five-option version
-still loads (only `hideOverlap` is read). When on, a regular tick label is blanked when its y is within `overlapClearancePx(fontSize)` (fontSize + 4 px, center to center) of a price tag on the same scale. Done by giving each pane's first
-series a `custom` priceFormat whose `tickmarksFormatter` blanks those labels and otherwise prints the default two-decimal text (`formatAxisPrice`); off restores the library default `price` format. The tags, the crosshair label and the pane
-header text are untouched. Tags per pane (`AxisPane.tags`):
-- **Price pane:** the last visible bar's close (the candle's last-value tag, which follows panning); each LP zone level whose line is visible (its LP toggle on) and has started by the last visible bar; and, on W·4Y while the Stage line is shown,
-  the Weinstein MA's value at the last visible bar (its last-value tag). The price pane re-tests on every pan and on an LP or Stage toggle.
-- **Daily RSI pane:** 70 and 30. **Stochastic pane:** 80 and 20.
-- **Warren panes (2H):** every dashed line: RSI 12, 80.81, 84.75; ADX 40; WVF 0.40 (at their true prices; the nudged RSI tags move at most about 7 px from the line).
+**The one toggle: Hide overlapping labels, ON by default on every range**, in an **Axis** dropdown in the Chart toolbar (`components/chart/ChartAxisMenu.tsx`, left of Zoom out, shown on every range; button "Axis (n)" with n toggles on, so
+**"Axis (1)" by default** and "Axis" with it off). Browser-session state only (`sessionStorage` key `fathom-chart-axis-options`, holding `{hideOverlap}`; nothing in the DB, nothing in `fathom-chart-signal-toggles`). **A stored boolean overrides the default, both ways:**
+once a user (or an earlier build, back when the default was off) has stored `{hideOverlap:false}`, it stays off for the rest of that browser session; a stored `true` stays on. No entry, no `hideOverlap` field or junk falls back to the default (on); extra fields from older builds are ignored.
+Only a new browser session (empty sessionStorage) shows the new default. When on, a regular **price-pane** tick label is blanked when its y is within `overlapClearancePx(fontSize)` (fontSize + 4 px, center to center) of a price tag on the price axis. Done by giving the candle series a `custom`
+priceFormat whose `tickmarksFormatter` blanks those labels and otherwise prints the default two-decimal text (`formatAxisPrice`); off restores the library default `price` format. The tags, the crosshair label and the pane header text are untouched. The price-pane tags (`AxisPane.tags`):
+the last visible bar's close (the candle's last-value tag, which follows panning); each LP zone level whose line is visible (its LP toggle on) and has started by the last visible bar; and, on W·4Y while the Stage line is shown, the Weinstein MA's value at the last visible bar (its
+last-value tag). It re-tests on every pan and on an LP or Stage toggle. (The sub-panes have no tick labels, so the toggle has nothing to hide there; the earlier per-sub-pane tag lists were removed.)
 
 **Nudging the RSI 80.81 / 84.75 tags** (`LevelTagsPrimitive` + `nudgeTagYs`, read at draw time so it follows autoscale and panning): a tag is `axisTagHeightPx(fontSize)` tall (the font plus the library's padding: 17 px at 12 px). Each tag's y starts at its
 line's y (`priceToCoordinate`). Only when two tags are closer than one tag height are they separated, symmetrically: the upper tag moves up and the lower tag down by half the shortfall each (so the pair ends exactly one tag height apart, the
@@ -214,8 +215,8 @@ minimum), clamped inside the pane. Tags already clear of each other do not move.
 RSI point, 80.81 and 84.75 sit about 4 px apart, so each tag moves about 6.5 px. The library's own overlap fix would have pushed only the upper tag, by the whole shortfall.
 
 **Not verified on screen** (no browser in the build environment): the exact pixel clearance at which a tag and a tick label touch (derived from the font size, not measured); the look of the nudged tags (the primitive's text color is white on the
-`chart-refline` fill, approximating the library's own tag contrast color); the rendered monospace face; and how many ticks the density rule leaves per pane. Pinned by tests instead: the permanent layout and density on every pane of every range,
-the toggle's formatters on every pane, the tag lists (including the W·4Y MA and the LP toggle), and the nudge geometry.
+`chart-refline` fill, approximating the library's own tag contrast color); the rendered monospace face; the price pane's tick count under the density rule; and that the blank-tick sub-pane scales still lay out the shared axis width as expected. Pinned by tests instead: the permanent layout and
+density, the blank sub-pane formatters on every range, the surviving level tags, the toggle's default and its formatter, the price-pane tag lists (including the W·4Y MA and the LP toggle), and the nudge geometry.
 
 ### Signal arrows (every range)
 

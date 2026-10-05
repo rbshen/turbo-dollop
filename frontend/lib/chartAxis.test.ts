@@ -21,8 +21,8 @@ import {
 } from "@/lib/chartAxis";
 
 describe("the one toggle", () => {
-  it("is 'Hide overlapping labels', off by default, and the only item in the dropdown", () => {
-    expect(DEFAULT_AXIS_OPTIONS).toEqual({ hideOverlap: false });
+  it("is 'Hide overlapping labels', ON by default, and the only item in the dropdown", () => {
+    expect(DEFAULT_AXIS_OPTIONS).toEqual({ hideOverlap: true });
     expect(AXIS_OPTION_ITEMS).toEqual([{ key: "hideOverlap", label: "Hide overlapping labels" }]);
   });
 });
@@ -96,20 +96,33 @@ describe("nudging close axis tags", () => {
 
 describe("session persistence", () => {
   afterEach(() => window.sessionStorage.clear());
+  const KEY = "fathom-chart-axis-options";
 
-  it("round-trips through sessionStorage and falls back to off on junk", () => {
-    expect(loadAxisOptions()).toEqual(DEFAULT_AXIS_OPTIONS);
-    saveAxisOptions({ hideOverlap: true });
+  it("with nothing stored the default is ON", () => {
     expect(loadAxisOptions()).toEqual({ hideOverlap: true });
-    window.sessionStorage.setItem("fathom-chart-axis-options", "{not json");
-    expect(loadAxisOptions()).toEqual(DEFAULT_AXIS_OPTIONS);
   });
 
-  it("an entry saved when there were five options still loads: the removed keys are ignored", () => {
-    window.sessionStorage.setItem(
-      "fathom-chart-axis-options",
-      JSON.stringify({ hideOverlap: true, brighter: true, fewerTicks: true, tabular: true, cleanSubPanes: true }),
-    );
+  it("a stored choice overrides the default, both ways: a stored off stays off for the session", () => {
+    saveAxisOptions({ hideOverlap: false });
+    expect(window.sessionStorage.getItem(KEY)).toBe('{"hideOverlap":false}');
+    expect(loadAxisOptions()).toEqual({ hideOverlap: false });
+    saveAxisOptions({ hideOverlap: true });
+    expect(loadAxisOptions()).toEqual({ hideOverlap: true });
+  });
+
+  it("junk, or an entry without the field, falls back to the default (on)", () => {
+    window.sessionStorage.setItem(KEY, "{not json");
+    expect(loadAxisOptions()).toEqual({ hideOverlap: true });
+    window.sessionStorage.setItem(KEY, JSON.stringify({ brighter: false }));
+    expect(loadAxisOptions()).toEqual({ hideOverlap: true });
+    window.sessionStorage.setItem(KEY, JSON.stringify({ hideOverlap: "no" }));
+    expect(loadAxisOptions()).toEqual({ hideOverlap: true });
+  });
+
+  it("an entry saved by an older version keeps its hideOverlap value; its removed keys are ignored", () => {
+    window.sessionStorage.setItem(KEY, JSON.stringify({ hideOverlap: false, brighter: true, fewerTicks: true, tabular: true, cleanSubPanes: true }));
+    expect(loadAxisOptions()).toEqual({ hideOverlap: false });
+    window.sessionStorage.setItem(KEY, JSON.stringify({ hideOverlap: true, brighter: true }));
     expect(loadAxisOptions()).toEqual({ hideOverlap: true });
   });
 });

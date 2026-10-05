@@ -353,60 +353,61 @@ describe("ChartTab: the Axis dropdown", () => {
   const axisProps = () => chartProps.axisOptions as Record<string, boolean>;
   const RANGES = ["2H · 90D", "D · 6M", "D · 1Y", "D · 2Y", "W · 4Y"];
 
-  it("is offered on every range, and the chart is told the same single option on each", () => {
+  it("is offered on every range, and the chart is told 'hide overlapping labels' is ON on each by default", () => {
     render(<ChartTab ticker="AAPL" />);
     for (const range of RANGES) {
       fireEvent.click(btn(range));
-      expect(btn("Axis")).toBeInTheDocument();
-      expect(axisProps()).toEqual({ hideOverlap: false });
-    }
-  });
-
-  it("opens a group with exactly one checkbox, 'Hide overlapping labels', unchecked", () => {
-    render(<ChartTab ticker="AAPL" />);
-    fireEvent.click(btn("Axis"));
-    const group = screen.getByRole("group", { name: "Axis options" });
-    const boxes = Array.from(group.querySelectorAll<HTMLInputElement>("input[type=checkbox]"));
-    expect(boxes).toHaveLength(1);
-    expect(boxes[0].checked).toBe(false);
-    expect(screen.getByRole("checkbox", { name: "Hide overlapping labels" })).toBeInTheDocument();
-    for (const gone of ["Brighter", "Brighter and larger", "Fewer ticks", "Tabular numerals", "Clean sub-pane axes"]) {
-      expect(screen.queryByRole("checkbox", { name: gone })).toBeNull();
-    }
-  });
-
-  it("the checkbox flips the option and the button count; Escape closes the popover", () => {
-    render(<ChartTab ticker="AAPL" />);
-    expect(btn("Axis")).toBeInTheDocument();
-    fireEvent.click(btn("Axis"));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Hide overlapping labels" }));
-    expect(axisProps()).toEqual({ hideOverlap: true });
-    expect(btn("Axis (1)")).toBeInTheDocument();
-    fireEvent.keyDown(screen.getByRole("group", { name: "Axis options" }), { key: "Escape" });
-    expect(screen.queryByRole("group", { name: "Axis options" })).toBeNull();
-    fireEvent.click(btn("Axis (1)"));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Hide overlapping labels" }));
-    expect(axisProps()).toEqual({ hideOverlap: false });
-    expect(btn("Axis")).toBeInTheDocument();
-  });
-
-  it("the choice follows the user across every range (no per-range gating)", () => {
-    render(<ChartTab ticker="AAPL" />);
-    fireEvent.click(btn("Axis"));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Hide overlapping labels" }));
-    for (const range of RANGES) {
-      fireEvent.click(btn(range));
+      expect(btn("Axis (1)")).toBeInTheDocument(); // the default state counts as 1
       expect(axisProps()).toEqual({ hideOverlap: true });
     }
   });
 
-  it("keeps the choice for the browser session only (sessionStorage), not localStorage", () => {
-    const { unmount } = render(<ChartTab ticker="AAPL" />);
+  it("opens a group with exactly one checkbox, 'Hide overlapping labels', checked by default", () => {
+    render(<ChartTab ticker="AAPL" />);
+    fireEvent.click(btn("Axis (1)"));
+    const group = screen.getByRole("group", { name: "Axis options" });
+    const boxes = Array.from(group.querySelectorAll<HTMLInputElement>("input[type=checkbox]"));
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0].checked).toBe(true);
+    expect(screen.getByRole("checkbox", { name: "Hide overlapping labels" })).toBeInTheDocument();
+    for (const gone of ["Brighter", "Fewer ticks", "Tabular numerals", "Clean sub-pane axes"]) {
+      expect(screen.queryByRole("checkbox", { name: gone })).toBeNull();
+    }
+  });
+
+  it("unchecking turns it off and the count drops to 0; checking turns it back on; Escape closes the popover", () => {
+    render(<ChartTab ticker="AAPL" />);
+    fireEvent.click(btn("Axis (1)"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Hide overlapping labels" }));
+    expect(axisProps()).toEqual({ hideOverlap: false });
+    expect(btn("Axis")).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("group", { name: "Axis options" }), { key: "Escape" });
+    expect(screen.queryByRole("group", { name: "Axis options" })).toBeNull();
     fireEvent.click(btn("Axis"));
     fireEvent.click(screen.getByRole("checkbox", { name: "Hide overlapping labels" }));
+    expect(axisProps()).toEqual({ hideOverlap: true });
+    expect(btn("Axis (1)")).toBeInTheDocument();
+  });
+
+  it("the choice follows the user across every range (no per-range gating)", () => {
+    render(<ChartTab ticker="AAPL" />);
+    fireEvent.click(btn("Axis (1)"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Hide overlapping labels" })); // off
+    for (const range of RANGES) {
+      fireEvent.click(btn(range));
+      expect(axisProps()).toEqual({ hideOverlap: false });
+    }
+  });
+
+  it("a stored 'off' overrides the default for the browser session (sessionStorage), and is never written to localStorage", () => {
+    const { unmount } = render(<ChartTab ticker="AAPL" />);
+    fireEvent.click(btn("Axis (1)"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Hide overlapping labels" }));
+    expect(window.sessionStorage.getItem("fathom-chart-axis-options")).toBe('{"hideOverlap":false}');
     expect(window.localStorage.getItem("fathom-chart-axis-options")).toBeNull();
     unmount();
     render(<ChartTab ticker="AAPL" />);
-    expect(axisProps()).toEqual({ hideOverlap: true });
+    expect(axisProps()).toEqual({ hideOverlap: false });
+    expect(btn("Axis")).toBeInTheDocument();
   });
 });
