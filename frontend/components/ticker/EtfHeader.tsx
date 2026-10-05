@@ -5,9 +5,11 @@ import type { ReactNode } from "react";
 import { EtfWatchlistButton } from "@/components/ticker/EtfWatchlistButton";
 import { PriceChange } from "@/components/ticker/PriceChange";
 import { useUniverseControl } from "@/components/ticker/UniverseControl";
-import type { EtfOverviewOut, TickerSummaryOut } from "@/lib/api/types";
+import { WeinsteinStagePill } from "@/components/ticker/WeinsteinStagePill";
+import type { EtfOverviewOut, TickerSummaryOut, TrendAnalysisOut } from "@/lib/api/types";
 import { fmtMoney } from "@/lib/format";
 import { useEtfOverview } from "@/lib/hooks/useEtfOverview";
+import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
 
 type HeaderData = Pick<
   TickerSummaryOut,
@@ -21,13 +23,16 @@ interface ViewProps {
   actions: ReactNode;
   /** A small line under the action cluster (the universe Add/Remove note or error); never inside the row. */
   actionsNote?: ReactNode;
+  /** From /trend-analysis; null/undefined (loading, or no stage computed yet) renders no Stage pill. */
+  trend?: TrendAnalysisOut | null;
 }
 
-/** ETF header: fund name, ticker, price and daily change, a caption ("Exchange-traded fund" + asset class)
- * and the action slot (the universe control, then the watchlist button). No Assessment/Moat/Valuation/Speculative
- * growth/5Y-vs-SPY pills and no next-earnings line (a fund has none of them), and no sector/industry eyebrow (FMP reports every ETF as
- * "Financial Services · Asset Management", which is misleading). */
-export function EtfHeaderView({ data, assetClass, actions, actionsNote }: ViewProps) {
+/** ETF header: fund name, ticker, price and daily change with the Weinstein Stage pill beside them, a caption
+ * ("Exchange-traded fund" + asset class) and the action slot (the universe control, then the watchlist button).
+ * No Assessment/Moat/Valuation/Speculative growth/5Y-vs-SPY pills and no next-earnings line (a fund has none of
+ * them), and no sector/industry eyebrow (FMP reports every ETF as "Financial Services · Asset Management", which
+ * is misleading). */
+export function EtfHeaderView({ data, assetClass, actions, actionsNote, trend }: ViewProps) {
   return (
     <div className="space-y-3 pt-4">
       {/* Never wraps: the title block shrinks (min-w-0), the action cluster is shrink-0 and flex-nowrap. */}
@@ -50,13 +55,17 @@ export function EtfHeaderView({ data, assetClass, actions, actionsNote }: ViewPr
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 pb-1">
-        {data.price != null && (
-          <span className="font-mono text-xl font-bold tabular-nums text-text-primary">
-            {fmtMoney(data.price, data.quote_currency)}
-          </span>
-        )}
-        <PriceChange change={data.change} changePercent={data.change_percent} currency={data.quote_currency} />
+      {/* Same row structure as the stock header: the price + change group wraps as a unit, pills 8px apart. */}
+      <div className="flex flex-wrap items-center gap-2 pb-1">
+        <div className="mr-1 flex items-center gap-3">
+          {data.price != null && (
+            <span className="font-mono text-xl font-bold tabular-nums text-text-primary">
+              {fmtMoney(data.price, data.quote_currency)}
+            </span>
+          )}
+          <PriceChange change={data.change} changePercent={data.change_percent} currency={data.quote_currency} />
+        </div>
+        <WeinsteinStagePill data={trend} />
       </div>
     </div>
   );
@@ -64,6 +73,7 @@ export function EtfHeaderView({ data, assetClass, actions, actionsNote }: ViewPr
 
 export function EtfHeader({ data }: { data: TickerSummaryOut }) {
   const { data: overview } = useEtfOverview(data.ticker);
+  const { data: trend } = useTrendAnalysis(data.ticker);
   const universe = useUniverseControl(data.ticker);
   return (
     <EtfHeaderView
@@ -76,6 +86,7 @@ export function EtfHeader({ data }: { data: TickerSummaryOut }) {
         </>
       }
       actionsNote={universe.note}
+      trend={trend}
     />
   );
 }
