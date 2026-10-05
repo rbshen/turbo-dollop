@@ -144,16 +144,23 @@ def test_get_step1_data_corrects_team_shaped_duplicate_annual_quarter(monkeypatc
 
     result = asyncio.run(get_step1_data("team"))
 
-    # TTM revenue/net_income/cfo all resolve to the annual figure itself
-    # (the true isolated Q4 + the other 3 known-good quarters always sum
-    # back to it by construction) -- not the raw, ~1.7x-inflated double-count
-    # a pre-fix Fathom would have shown (revenue TTM would have read
-    # ~$11.38B against real cached TEAM data with this same shape).
+    # TTM revenue/cfo resolve to the annual figure itself (the true isolated
+    # Q4 + the other 3 known-good quarters always sum back to it by
+    # construction) -- not the raw, ~1.7x-inflated double-count a pre-fix
+    # Fathom would have shown (revenue TTM would have read ~$11.38B against
+    # real cached TEAM data with this same shape).
     assert result.revenue[-1] == 6_572_308_000
-    assert result.net_income[-1] == -53_828_000
     assert result.cfo[-1] == 1_353_135_000
-    # No revenue/net_income/cfo outlier warning -- correctly resolved by the
-    # duplicate-annual correction, not just flagged as anomalous.
+    # net_income is the one exception since the Defect-B plausibility check
+    # (2026-10-05): TEAM's true isolated Q4 net income is +139.1M against
+    # three loss quarters (-98.4M/-42.6M/-51.9M), a genuine sign flip, which
+    # the check cannot tell apart from a stub annual row (FERG/AZO) and so
+    # skips -- the quarters stay as reported and TTM is the raw sum, not the
+    # annual -53.8M. Known cost of the rule, reported to the owner.
+    assert result.net_income[-1] == -53_828_000 - 98_389_000 - 42_645_000 - 51_870_000
+    # No revenue/net_income/cfo outlier warning -- revenue/cfo correctly
+    # resolved by the duplicate-annual correction; net_income has no
+    # 4-quarter baseline to flag against.
     flagged_metrics = {w.metric for w in result.outlier_warnings}
     assert "revenue" not in flagged_metrics
     assert "net_income" not in flagged_metrics

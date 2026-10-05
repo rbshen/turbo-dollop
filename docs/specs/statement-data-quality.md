@@ -54,3 +54,34 @@ sheet. One step back only; the prior quarter is not itself re-checked. The fact 
 (`ticker_summary.py`), Valuation (`step3_data.py`, net debt / `compute_debt_metrics`), Step 4's
 invested capital, the Ratios tab and Speculative Growth still read the raw newest quarter and show
 the bad row; this is reported, not changed.
+
+## 2. Plausibility check on the duplicate-annual-quarter correction ("Defect B")
+
+`helpers/ttm.py::is_plausible_isolated_quarter`, used by `_corrected_recent_values`.
+
+When FMP serves the just-closed fiscal year's annual total as the "Q4" quarterly row
+(`is_quarter_content_duplicate_of_annual`, TEAM's case), `sum_last_four_quarters` derives the true
+Q4 as `annual − (the other three quarters)`. That derivation assumed the annual row is real. It is
+not when the annual row is a stub or all zeros: FERG's stub annual row made TTM EBITDA 898M instead
+of about 3,129M; AZO's all-zero FY2026 cash-flow row made Q4 CFO −2.12B and TTM CFO exactly 0.
+
+**The check.** The derived Q4 is used only if it is plausible next to the other three quarters of
+that fiscal year, whose mean is *m*:
+
+- it does **not flip sign** relative to *m*, and
+- its magnitude is within **[¼, 4] × |m|**, both ends inclusive ("more than 4×" or "less than a
+  quarter" is rejected; exactly 4× and exactly ¼ pass).
+
+A zero mean has no scale and is never "plausible", which changes nothing (the other three quarters
+sum to 0, so corrected and uncorrected Q4 are equal). When rejected, the **uncorrected quarters**
+(as FMP reported them) are used for that line.
+
+**Per line item.** The test runs for each field separately, so one harmless line cannot block a good
+correction on another. BR, FDS, FN, INTU, LRCX, MU, NKE, PH and WDC trip only interest lines
+(interest income/expense/net interest, an annual row carrying 0 for a line the quarters populate);
+their revenue/EBITDA/net income/CFO corrections are unaffected.
+
+**Known cost.** A genuine loss-to-profit (or reverse) Q4 is indistinguishable from a stub: TEAM's
+isolated Q4 net income is +139.1M against three loss quarters, so TEAM's net income TTM is now the
+raw sum (−246.7M) instead of the annual −53.8M (TEAM revenue and CFO are still corrected; Step 1
+72 → 71). Distinguishing the two would need cross-line evidence, which is out of scope.

@@ -103,18 +103,19 @@ TEAM_SHAPED_INCOME_ANNUAL = [{"fiscalYear": "2026", "ebitda": 212_168_000}]
 
 TEAM_SHAPED_INCOME_QUARTERLY = [
     {"date": "2026-06-30", "period": "Q4", "fiscalYear": "2026", "ebitda": 212_168_000},
-    {"date": "2026-03-31", "period": "Q3", "fiscalYear": "2026", "ebitda": 10_000_000},
-    {"date": "2025-12-31", "period": "Q2", "fiscalYear": "2026", "ebitda": 8_000_000},
-    {"date": "2025-09-30", "period": "Q1", "fiscalYear": "2026", "ebitda": 6_000_000},
+    {"date": "2026-03-31", "period": "Q3", "fiscalYear": "2026", "ebitda": 50_000_000},
+    {"date": "2025-12-31", "period": "Q2", "fiscalYear": "2026", "ebitda": 45_000_000},
+    {"date": "2025-09-30", "period": "Q1", "fiscalYear": "2026", "ebitda": 40_000_000},
 ]
 
 
 def test_compute_debt_metrics_corrects_team_shaped_ebitda_when_annual_passed():
     result = compute_debt_metrics(BALANCE_SHEET_QUARTERLY[0], TEAM_SHAPED_INCOME_QUARTERLY, TEAM_SHAPED_INCOME_ANNUAL)
-    # True isolated Q4 = 212,168,000 - (10,000,000+8,000,000+6,000,000) =
-    # 188,168,000; TTM = corrected_Q4 + other 3 = the annual figure itself,
-    # 212,168,000 -- not 236,168,000 (the raw, double-counted sum a pre-fix
-    # Fathom would have computed).
+    # True isolated Q4 = 212,168,000 - (50,000,000+45,000,000+40,000,000) =
+    # 77,168,000 (1.7x the other quarters' mean, inside the Defect-B
+    # plausibility bounds); TTM = corrected_Q4 + other 3 = the annual figure
+    # itself, 212,168,000 -- not 347,168,000 (the raw, double-counted sum a
+    # pre-fix Fathom would have computed).
     assert result.ebitda_ttm == 212_168_000
     assert result.outlier_flags == []
 
@@ -124,7 +125,7 @@ def test_compute_debt_metrics_unaffected_when_income_annual_omitted():
     # so this call site's figures must stay exactly as before this
     # parameter existed -- the raw, uncorrected sum.
     result = compute_debt_metrics(BALANCE_SHEET_QUARTERLY[0], TEAM_SHAPED_INCOME_QUARTERLY)
-    assert result.ebitda_ttm == 212_168_000 + 10_000_000 + 8_000_000 + 6_000_000
+    assert result.ebitda_ttm == 212_168_000 + 50_000_000 + 45_000_000 + 40_000_000
 
 
 def test_ticker_summary_and_step5_agree_on_the_same_raw_figures(monkeypatch):

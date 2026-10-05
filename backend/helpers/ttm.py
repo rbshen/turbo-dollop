@@ -19,6 +19,19 @@ MIN_BASELINE_QUARTERS = 4
 TOTAL_QUARTERS_NEEDED = 4 + OUTLIER_LOOKBACK_QUARTERS
 
 
+# Plausibility bounds on the duplicate-annual-quarter correction ("Defect B").
+# The derived isolated Q4 (annual - the other 3 quarters) must not flip sign
+# relative to those 3 quarters, and its magnitude must stay within
+# [1/4, 4] x the magnitude of their mean -- both bounds inclusive. Outside that
+# the annual row is far more likely a stub/zero/placeholder than a real
+# total (FERG's stub annual row, AZO's all-zero FY2026 cash-flow row), and the
+# correction is skipped for that one line item, leaving the quarter as FMP
+# reported it. Judged per line item, so a harmless interest-income line can
+# never block a good revenue/CFO correction.
+DEFECT_B_MAX_RATIO_TO_MEAN = 4.0
+DEFECT_B_MIN_RATIO_TO_MEAN = 0.25
+
+
 class FlaggedQuarter(NamedTuple):
     date: str | None
     value: float
@@ -73,6 +86,20 @@ def is_quarter_content_duplicate_of_annual(annual_rows: list[dict], quarterly_ro
     return quarter_value == annual_value
 
 
+def is_plausible_isolated_quarter(corrected_q4: float, other_three: list[float]) -> bool:
+    """True when a derived isolated Q4 value is believable next to the other
+    three quarters of the same fiscal year: same sign as their mean, and
+    between DEFECT_B_MIN_RATIO_TO_MEAN and DEFECT_B_MAX_RATIO_TO_MEAN times its
+    magnitude (both ends inclusive). A zero mean has no scale to judge
+    against, so it is never plausible -- harmless in practice, since with the
+    other three quarters summing to 0 the "corrected" value equals the
+    uncorrected one anyway."""
+    mean = sum(other_three) / len(other_three)
+    if mean == 0 or corrected_q4 * mean < 0:
+        return False
+    return DEFECT_B_MIN_RATIO_TO_MEAN * abs(mean) <= abs(corrected_q4) <= DEFECT_B_MAX_RATIO_TO_MEAN * abs(mean)
+
+
 def _corrected_recent_values(
     quarters: list[dict], recent_values: list[float], field: str, annual_rows: list[dict] | None
 ) -> list[float]:
@@ -81,13 +108,19 @@ def _corrected_recent_values(
     is_quarter_content_duplicate_of_annual detects the duplicate-annual
     defect -- the correct value IS mathematically derivable here, unlike
     is_implausible_magnitude_shift's shares/EV defect, where no clean
-    correction exists and suppression is the only safe option."""
+    correction exists and suppression is the only safe option.
+
+    The correction is skipped (the uncorrected quarters are used) when the
+    derived Q4 fails is_plausible_isolated_quarter -- see
+    DEFECT_B_MAX_RATIO_TO_MEAN."""
     if not annual_rows or not is_quarter_content_duplicate_of_annual(annual_rows, quarters, field):
         return recent_values
     matching_annual = next(
         row for row in annual_rows if row.get("fiscalYear") == quarters[0].get("fiscalYear")
     )
     corrected_q4 = matching_annual[field] - sum(recent_values[1:4])
+    if not is_plausible_isolated_quarter(corrected_q4, recent_values[1:4]):
+        return recent_values
     return [corrected_q4, *recent_values[1:]]
 
 

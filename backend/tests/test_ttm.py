@@ -306,9 +306,15 @@ def test_sum_last_four_quarters_corrects_team_shaped_revenue_when_annual_rows_pa
     assert result.flagged == []
 
 
-def test_sum_last_four_quarters_corrects_team_shaped_net_income_when_annual_rows_passed():
+def test_sum_last_four_quarters_skips_team_net_income_correction_because_q4_flips_sign():
+    # Changed deliberately with the Defect-B plausibility check (2026-10-05):
+    # TEAM's derived Q4 net income is -53.8M - (-192.9M) = +139.1M against
+    # three loss quarters -- a sign flip, so the correction is skipped and the
+    # quarters are summed as reported. (Before the check this asserted the
+    # corrected -53,828,000.) A genuine loss-to-profit quarter is
+    # indistinguishable from a stub annual row here; see the spec.
     result = sum_last_four_quarters(TEAM_QUARTERLY_INCOME, "netIncome", annual_rows=TEAM_ANNUAL_INCOME)
-    assert result.total == -53_828_000
+    assert result.total == -53_828_000 - 98_389_000 - 42_645_000 - 51_870_000
 
 
 def test_sum_last_four_quarters_does_not_correct_non_duplicated_field():
@@ -337,3 +343,102 @@ def test_sum_last_four_quarters_does_not_correct_normal_ticker_data():
     annual = [{"fiscalYear": "2025", "value": 400_000_000}]
     result = sum_last_four_quarters(_quarters(quarterly), "value", annual_rows=annual)
     assert result.total == 110_000_000 + 95_000_000 + 105_000_000 + 90_000_000
+
+
+# --- Defect B plausibility check (is_plausible_isolated_quarter) -----------
+
+
+def _defect_b_quarters(q4, others):
+    # Q4 row duplicates the annual total (`q4`), the other three quarters carry `others`.
+    periods = [("Q4", "2026-06-30"), ("Q3", "2026-03-31"), ("Q2", "2025-12-31"), ("Q1", "2025-09-30")]
+    return [
+        {"date": d, "period": p, "fiscalYear": "2026", "value": v} for (p, d), v in zip(periods, [q4, *others])
+    ]
+
+
+def _annual(total):
+    return [{"fiscalYear": "2026", "value": total}]
+
+
+def test_defect_b_correction_applies_when_isolated_q4_is_plausible():
+    # others 100/100/100 (mean 100); annual 520 -> corrected Q4 = 220.
+    result = sum_last_four_quarters(_defect_b_quarters(520, [100, 100, 100]), "value", _annual(520))
+
+    assert result.total == 520  # corrected Q4 220 + 300
+
+
+def test_defect_b_correction_boundary_exactly_4x_the_mean_is_still_plausible():
+    # corrected Q4 = 400 = 4 x mean(100). Annual = 700.
+    result = sum_last_four_quarters(_defect_b_quarters(700, [100, 100, 100]), "value", _annual(700))
+
+    assert result.total == 700
+
+
+def test_defect_b_correction_skipped_just_above_4x_the_mean():
+    # corrected Q4 = 401 > 4 x 100 -> skipped, quarters used as reported (Q4 = 701).
+    result = sum_last_four_quarters(_defect_b_quarters(701, [100, 100, 100]), "value", _annual(701))
+
+    assert result.total == 701 + 300
+
+
+def test_defect_b_correction_boundary_exactly_a_quarter_of_the_mean_is_still_plausible():
+    # corrected Q4 = 25 = mean(100) / 4. Annual = 325.
+    result = sum_last_four_quarters(_defect_b_quarters(325, [100, 100, 100]), "value", _annual(325))
+
+    assert result.total == 325
+
+
+def test_defect_b_correction_skipped_just_below_a_quarter_of_the_mean():
+    # corrected Q4 = 24 < 25 -> skipped.
+    result = sum_last_four_quarters(_defect_b_quarters(324, [100, 100, 100]), "value", _annual(324))
+
+    assert result.total == 324 + 300
+
+
+def test_defect_b_correction_skipped_when_isolated_q4_flips_sign():
+    # FERG/AZO-shaped: a stub annual (150) smaller than the three quarters it
+    # should contain (300) -> corrected Q4 = -150. Skipped, Q4 stays 150.
+    result = sum_last_four_quarters(_defect_b_quarters(150, [100, 100, 100]), "value", _annual(150))
+
+    assert result.total == 150 + 300
+
+
+def test_defect_b_correction_skipped_for_a_zero_annual_row_azo_shaped():
+    # All-zero annual and Q4 (AZO's FY2026 cash-flow row): the "correction"
+    # would make Q4 = -sum(others) and the TTM exactly 0. Skipped instead.
+    result = sum_last_four_quarters(_defect_b_quarters(0, [700, 700, 700]), "value", _annual(0))
+
+    assert result.total == 2100
+
+
+def test_defect_b_correction_with_a_negative_mean_keeps_the_same_sign_rule():
+    # Loss-making line: others -100 each; corrected Q4 = -220 is plausible,
+    # +220 would be a sign flip.
+    plausible = sum_last_four_quarters(_defect_b_quarters(-520, [-100, -100, -100]), "value", _annual(-520))
+    flipped = sum_last_four_quarters(_defect_b_quarters(80, [-100, -100, -100]), "value", _annual(80))
+
+    assert plausible.total == -520
+    assert flipped.total == 80 - 300  # corrected Q4 would be +380 -> skipped
+
+
+def test_defect_b_check_is_per_line_item_so_one_bad_line_does_not_block_a_good_one():
+    # Same Q4 rows for two fields: "revenue" is a clean duplicate of a sane annual,
+    # "interestIncome" is the harmless 0 == 0 stub shape that would flip sign.
+    quarters = [
+        {"date": "2026-06-30", "period": "Q4", "fiscalYear": "2026", "revenue": 520, "interestIncome": 0},
+        {"date": "2026-03-31", "period": "Q3", "fiscalYear": "2026", "revenue": 100, "interestIncome": 3},
+        {"date": "2025-12-31", "period": "Q2", "fiscalYear": "2026", "revenue": 100, "interestIncome": 3},
+        {"date": "2025-09-30", "period": "Q1", "fiscalYear": "2026", "revenue": 100, "interestIncome": 3},
+    ]
+    annual = [{"fiscalYear": "2026", "revenue": 520, "interestIncome": 0}]
+
+    assert sum_last_four_quarters(quarters, "revenue", annual).total == 520  # corrected
+    assert sum_last_four_quarters(quarters, "interestIncome", annual).total == 9  # skipped, raw
+
+
+def test_defect_b_zero_mean_is_never_corrected_and_changes_nothing():
+    # Other three quarters sum to 0 -> no scale to judge; the corrected Q4
+    # equals the uncorrected one anyway.
+    result = sum_last_four_quarters(_defect_b_quarters(500, [0, 0, 0]), "value", _annual(500))
+
+    assert result.total == 500
