@@ -33,7 +33,7 @@ holds FX pairs such as `EURUSD`), any `TickerScore` row, any watchlist entry. It
 to see everything: the weekly non-US purge, the delisted-flag sync, the search fallback while `profile_quote` is off, and the one-off backfills. A ticker the
 app holds none of those rows for (a Moat on a never-fetched ticker) is in no universe whatever protections it carries.
 
-- **A future ETF momentum universe must be added to `ETF_SEED_TICKERS`**; protection on the ETF side creates no row and no FMP call for an unseen ticker.
+- **ETF Momentum needs no seed addition** (2026-10-05): it ranks `load_etf_universe` itself, see [Momentum](momentum.md). A *separate*, fixed ETF list for any future feature would still have to be added to `ETF_SEED_TICKERS`; protection on the ETF side creates no row and no FMP call for an unseen ticker.
 
 ## The ETF universe
 

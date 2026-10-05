@@ -5,8 +5,8 @@ windows (1d/1w/1m/3m/6m/9m/YTD/1y), color-graded. Price-only, zero FMP *fundamen
 independent of Step 1-5/Overall Assessment scoring. This was Round 1 of a two-feature
 investigation (2026-09-20) that also scoped a
 companion **ETF Momentum ranking** (the existing 3/6/12-month stock-momentum composite applied
-to a fixed 45-ETF universe) — that second feature is **not built**; this document covers only
-what shipped.
+to ETFs) — built later, on a different design (2026-10-05); see [Momentum](momentum.md). This document covers only
+the heatmap.
 
 ## Data source and basis
 
@@ -118,22 +118,15 @@ published index closely, also consistent with it. Dividends don't explain the ga
 would shift these numbers by well under 1 percentage point on the control sectors, nowhere near
 the several-percentage-point gaps found on the concentrated ones.
 
-## ETF Momentum ranking — investigated, not built
+## ETF Momentum ranking — now built
 
-The same 2026-09-20 investigation also scoped a companion feature: applying the existing
-3/6/12-month stock-Momentum composite (`scoring/momentum.py::compute_momentum_ranking`,
-confirmed universe-agnostic and unmodified-reusable) to a fixed 45-ETF universe (9 of the 11
-sector ETFs overlap with it; XLB and XLRE are sector-only). Found fully feasible — both FMP and
-Yahoo returned clean data for all 47 combined tickers with no young-fund problem — but never
-implemented. Open decisions the investigation left unresolved (return basis, storage shape, a
-new `EtfMomentumSnapshot` table since `MomentumSnapshot`'s `moat` column is non-optional and
-can't be relaxed by this app's additive-only migration tooling, nav placement) would need
-revisiting against the app's current (FMP-only) price-data architecture before this is picked
-back up, since the investigation's own source-selection reasoning (recommending Yahoo, at the
-time the app's price-only provider) predates the FMP migration and Yahoo's later full removal
-(see `docs/archive/claude-md-history-fmp-migration.md`, "Phase 6b").
+Superseded on 2026-10-05: the ranking shipped as the ETF pass of the monthly Momentum job over the existing ETF
+universe (`load_etf_universe`), stored in `EtfMomentumSnapshot`, on split-adjusted FMP closes. The 2026-09-20 design
+below (a fixed 45-ETF list, Yahoo as the source) was not followed; the open questions it left are answered in
+[Momentum](momentum.md) and `docs/decisions.md` (2026-10-05). The `ETF_SEED_TICKERS` requirement it stated no longer
+applies.
 
-**If the ETF momentum ranking is ever built, its ETF universe must be added to `ETF_SEED_TICKERS` in
-`data/tracked_universe.py`** (see [Tracked universe](tracked-universe.md); `SYSTEM_TICKERS` was retired at the 2026-10-03
-ETF cutover): an ETF outside the ETF universe stops refreshing 30 days after its last view, which would silently freeze
-that ranking's inputs. Today the seed list is the 11 sector ETFs plus SPY only.
+The original investigation, kept for the record: it scoped applying the existing 3/6/12-month composite
+(`scoring/momentum.py::compute_momentum_ranking`, confirmed universe-agnostic) to a fixed 45-ETF universe (9 of the 11
+sector ETFs overlap with it; XLB and XLRE are sector-only), and found it fully feasible — both FMP and Yahoo returned
+clean data for all 47 combined tickers with no young-fund problem.

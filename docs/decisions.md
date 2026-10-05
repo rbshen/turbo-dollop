@@ -828,3 +828,12 @@ stale state) is treated as no watchlist filter: the saved universe applies and n
 the name "ETF" in any case with `"ETF" is reserved for the ETF-only watchlist.` and sends no request (the backend refuses it too). **Step 6:** the ETFs page drops the Watchlist section, `watchlistId` state, the watchlist subtitle and the
 saved-view watchlist logic; `filterEtfRows` and `countActiveEtfFilters` lose their watchlist parameters (callers already passed none/false). `SavedEtfFiltersBar` saves `watchlist_id: null`; an ETF view carrying one
 (none exist) loads with it ignored. No backend change: `/api/etf-screener` never took a watchlist parameter, and `SavedScreenerFilterIn.watchlist_id` stays for stock views. `WatchlistFilters` is now stock-only.
+
+### 2026-10-05 — ETF Momentum: the ETF universe, one job, one table; "previous" is the last earlier month
+Backend of the ETF momentum table (spec: `docs/specs/momentum.md`). **ETF Momentum ranks `load_etf_universe`, so no `ETF_SEED_TICKERS` addition is needed.** This reverses the 2026-09-20 / 2026-10-03 note ("a future ETF momentum universe must
+be added to `ETF_SEED_TICKERS`"), which assumed a separate fixed list: ranking the universe itself cannot freeze its own inputs, because an ETF that stops refreshing has left the universe and is no longer ranked. Choices: a new table
+`EtfMomentumSnapshot` (the stock `moat` column is non-optional), the ETF pass inside the existing monthly job (no new cron line, so no `CRON_JOB_NAMES` / cadence / metadata change), split-adjusted price-only closes like the stock
+ranking, leveraged funds not filtered, only the top 5 served (the full ranking is stored), `KEEP` in the ticker-data registry. **"Previous month" changed for both endpoints:** the latest snapshot in a calendar month earlier than the
+current snapshot's, instead of the second-newest date, so a mid-month manual snapshot (the stock table has 2026-09-23) no longer shadows the real month-end (2026-08-31). The 2026-09-23 stock snapshot was kept as is. ETF snapshots for
+2026-08-31 and 2026-09-30 were backfilled from cached bars with today's universe (not point-in-time).
+
