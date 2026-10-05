@@ -159,7 +159,8 @@ def test_computes_and_upserts_a_full_row(monkeypatch):
     assert result.step5_score == 60
     # 90*(24/69) + 80*(10/69) + 70*(20/69) + 60*(15/69) = 5260/69 = 76.23 -> 76
     assert result.overall_score == 76
-    assert result.overall_verdict == "Pass"
+    # No Moat rating is stored for AAPL here, so the Pass-band blend reads "moat_not_rated" (verdict only).
+    assert result.overall_verdict == "moat_not_rated"
     assert result.market_cap == 3_000_000_000_000.0
     assert result.quote_currency == "USD"
     # Lifted verbatim from summary.pe_ratio (the trailing P/E, data/ticker_summary.py) -- no basis

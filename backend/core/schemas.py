@@ -1049,6 +1049,8 @@ class TickerScoreOut(BaseModel):
     moat: str | None = None
     moat_score: float | None = None
     overall_score: int | None = None
+    # "Strong Pass" / "Pass" / "Pass with caution" / "Fail", or "moat_not_rated" (Moat unset and the steps-only blend
+    # would pass; overall_score is still that steps-only score). None when incomplete. See scoring/overall.py.
     overall_verdict: str | None = None
     market_cap: float | None = None
     # See models.py::TickerScore.last_price -- same rollout-gap convention,
@@ -1806,6 +1808,8 @@ class WatchlistRowOut(BaseModel):
     step5_score: int | None = None
     step5_verdict: str | None = None
     overall_score: int | None = None
+    # "Strong Pass" / "Pass" / "Pass with caution" / "Fail", or "moat_not_rated" (Moat unset and the steps-only blend
+    # would pass; overall_score is still that steps-only score). None when incomplete. See scoring/overall.py.
     overall_verdict: str | None = None
     market_cap: float | None = None
     # See models.py::TickerScore.quote_currency -- None (treat as "USD")

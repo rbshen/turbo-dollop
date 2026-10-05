@@ -1,6 +1,13 @@
 import pytest
 
-from scoring.overall import STEP_WEIGHTS, MoatSnapshot, StepSnapshot, compute_overall_assessment
+from scoring.overall import (
+    MOAT_NOT_RATED_REASON,
+    MOAT_NOT_RATED_VERDICT,
+    STEP_WEIGHTS,
+    MoatSnapshot,
+    StepSnapshot,
+    compute_overall_assessment,
+)
 
 
 def snapshot(key: str, label: str, score: int | None, verdict: str, has_error: bool = False) -> StepSnapshot:
@@ -26,13 +33,17 @@ def test_computes_a_standard_weighted_average_when_every_step_has_a_real_score()
     result = compute_overall_assessment(steps)
     assert result.status == "complete"
     assert result.score == 76
-    assert result.verdict == "Pass"
+    assert result.verdict == MOAT_NOT_RATED_VERDICT  # steps-only Pass, Moat unset
+    # The same steps with a Moat set read the plain band verdict.
+    rated = compute_overall_assessment(steps, moat=MoatSnapshot("narrow_moat", 65.0))
+    assert rated.verdict == "Pass"
 
 
 def test_all_steps_at_100_scores_exactly_100_strong_pass():
     result = compute_overall_assessment(BASE)
     assert result.score == 100
-    assert result.verdict == "Strong Pass"
+    assert result.verdict == MOAT_NOT_RATED_VERDICT  # steps-only Strong Pass, Moat unset
+    assert compute_overall_assessment(BASE, moat=MoatSnapshot("wide_moat", 100.0)).verdict == "Strong Pass"
 
 
 def test_renormalizes_weights_when_a_step_is_structurally_exempt():
@@ -140,7 +151,7 @@ def test_score_of_exactly_70_is_pass_not_fail():
     ]
     result = compute_overall_assessment(steps)
     assert result.score == 70
-    assert result.verdict == "Pass"
+    assert result.verdict == MOAT_NOT_RATED_VERDICT  # a 70 steps-only blend is Pass-band; Moat unset
 
 
 def test_score_of_69_is_fail():
@@ -172,7 +183,9 @@ def test_caution_step_forces_caution_verdict_even_when_blend_is_strong_pass():
     # 100*(54/69) + 74*(15/69) = (5400+1110)/69 = 94.3 -> 94
     result = compute_overall_assessment(steps)
     assert result.score == 94  # the underlying blend is untouched
-    assert result.verdict == "Pass with caution"
+    assert result.verdict == MOAT_NOT_RATED_VERDICT  # Moat unset outranks the caution flag
+    rated = compute_overall_assessment(steps, moat=MoatSnapshot("wide_moat", 100.0))
+    assert rated.verdict == "Pass with caution"  # a rated ticker keeps the caution verdict
 
 
 def test_caution_propagation_does_not_override_a_fail_blend():
@@ -213,8 +226,9 @@ STEPS_BLENDING_TO_90 = [
 
 def test_moat_not_set_is_byte_identical_to_no_moat_behavior():
     result = compute_overall_assessment(STEPS_BLENDING_TO_90, moat=None)
-    assert result.score == 90
-    assert result.verdict == "Pass"  # 90 is the Pass/Strong Pass boundary (>90 required for Strong Pass)
+    assert result.score == 90  # the score is the steps-only blend, unchanged by the verdict rule
+    # 90 is the Pass band, but Moat unset can never pass (see tests below).
+    assert result.verdict == MOAT_NOT_RATED_VERDICT
     assert all(b.key != "moat" for b in result.breakdown)
 
 
@@ -275,3 +289,69 @@ def test_moat_breakdown_entry_never_appears_in_failing_steps():
     moat_entry = next(b for b in result.breakdown if b.key == "moat")
     assert moat_entry.verdict == "No Moat"
     assert moat_entry.score == 0.0
+
+
+# --- "Moat not rated cannot pass" (verdict only; the score is untouched) ---
+
+
+def _steps(score: int, verdict: str, step5_verdict: str | None = None) -> list[StepSnapshot]:
+    return [
+        snapshot("step1", "Step 1", score, verdict),
+        snapshot("step2", "Step 2", score, verdict),
+        snapshot("step4", "Step 4", score, verdict),
+        snapshot("step5", "Step 5", score, step5_verdict or verdict),
+    ]
+
+
+def test_unrated_pass_reads_moat_not_rated_with_the_steps_only_score():
+    result = compute_overall_assessment(_steps(80, "Pass"), moat=None)
+    assert (result.status, result.score, result.verdict) == ("complete", 80, MOAT_NOT_RATED_VERDICT)
+    assert result.verdict_reason == MOAT_NOT_RATED_REASON
+
+
+def test_unrated_pass_with_caution_reads_moat_not_rated():
+    result = compute_overall_assessment(_steps(80, "Pass", step5_verdict="Pass with caution"), moat=None)
+    assert (result.score, result.verdict) == (80, MOAT_NOT_RATED_VERDICT)
+
+
+def test_unrated_strong_pass_reads_moat_not_rated():
+    result = compute_overall_assessment(_steps(95, "Strong Pass"), moat=None)
+    assert (result.score, result.verdict) == (95, MOAT_NOT_RATED_VERDICT)
+
+
+def test_unrated_boundaries_70_is_moat_not_rated_69_stays_fail():
+    assert compute_overall_assessment(_steps(70, "Pass"), moat=None).verdict == MOAT_NOT_RATED_VERDICT
+    below = compute_overall_assessment(_steps(69, "Pass"), moat=None)
+    assert (below.score, below.verdict, below.verdict_reason) == (69, "Fail", None)
+
+
+def test_unrated_fail_stays_fail():
+    result = compute_overall_assessment(_steps(40, "Fail"), moat=None)
+    assert (result.score, result.verdict, result.verdict_reason) == (40, "Fail", None)
+
+
+def test_unrated_incomplete_stays_incomplete():
+    steps = [*_steps(90, "Pass")[:3], snapshot("step5", "Step 5", None, "insufficient_data")]
+    result = compute_overall_assessment(steps, moat=None)
+    assert (result.status, result.score, result.verdict, result.verdict_reason) == ("incomplete", None, None, None)
+
+
+def test_unrated_with_an_exempt_step_is_still_moat_not_rated():
+    steps = [*_steps(90, "Pass")[:3], snapshot("step5", "Step 5", None, "not_supported")]
+    result = compute_overall_assessment(steps, moat=None)
+    assert (result.status, result.score, result.verdict) == ("complete", 90, MOAT_NOT_RATED_VERDICT)
+
+
+@pytest.mark.parametrize(
+    ("moat", "points", "expected_score", "expected_verdict"),
+    [("wide_moat", 100.0, 93, "Strong Pass"), ("narrow_moat", 65.0, 82, "Pass"), ("no_moat", 0.0, 62, "Fail")],
+)
+def test_rated_tickers_are_unchanged(moat, points, expected_score, expected_verdict):
+    result = compute_overall_assessment(STEPS_BLENDING_TO_90, moat=MoatSnapshot(moat, points))
+    assert (result.score, result.verdict, result.verdict_reason) == (expected_score, expected_verdict, None)
+
+
+def test_the_score_is_identical_with_and_without_the_verdict_rule_for_an_unrated_ticker():
+    # The numeric score must stay the steps-only blend (Screener sort/filter/saved views).
+    steps = _steps(88, "Pass")
+    assert compute_overall_assessment(steps, moat=None).score == 88

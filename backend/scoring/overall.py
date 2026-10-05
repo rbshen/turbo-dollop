@@ -38,6 +38,16 @@ MOAT_WEIGHT = 0.31
 
 MOAT_LABELS = {"no_moat": "No Moat", "narrow_moat": "Narrow Moat", "wide_moat": "Wide Moat"}
 
+# Overall verdict for a ticker with NO Moat rating whose four automated steps
+# would otherwise read Pass / Pass with caution / Strong Pass: Moat is
+# non-negotiable, so an unrated ticker cannot pass. A stable internal key
+# (stored in TickerScore.overall_verdict, compared by the frontend), not display
+# text -- the frontend maps it to "Moat not rated". Verdict only: the numeric
+# score is still the steps-only blend (see compute_overall_assessment). Mirrors
+# frontend/lib/overallScore.ts::MOAT_NOT_RATED_VERDICT / MOAT_NOT_RATED_REASON.
+MOAT_NOT_RATED_VERDICT = "moat_not_rated"
+MOAT_NOT_RATED_REASON = "Moat not rated: rate the moat to enable a Pass"
+
 
 class StepSnapshot(NamedTuple):
     key: str
@@ -71,12 +81,15 @@ class StepBreakdownEntry(NamedTuple):
 class OverallAssessment(NamedTuple):
     status: str  # "complete" | "incomplete"
     score: int | None
-    verdict: str | None  # "Strong Pass" | "Pass" | "Pass with caution" | "Fail" | None
+    # "Strong Pass" | "Pass" | "Pass with caution" | "Fail" | "moat_not_rated" | None
+    verdict: str | None
     breakdown: list[StepBreakdownEntry]
     incomplete_steps: list[str]
     failing_steps: list[str]
     assessed_count: int
     total_methodology_steps: int
+    # Short explanation shown beside a "moat_not_rated" verdict; None otherwise.
+    verdict_reason: str | None = None
 
 
 def _status_for(snapshot: StepSnapshot) -> str:
@@ -109,7 +122,9 @@ def compute_overall_assessment(steps: list[StepSnapshot], moat: MoatSnapshot | N
     override, verdict bands) is identical.
 
     `moat` is None for the (default) "not set" state -- in that case the
-    result is byte-identical to the pre-Moat behavior below. When set, Moat
+    score is byte-identical to the pre-Moat behavior below (the verdict is
+    the one thing that differs: a would-be Pass-family verdict reads
+    "moat_not_rated", see MOAT_NOT_RATED_VERDICT). When set, Moat
     is applied as a SECOND stage on top of the Steps 1/2/4/5 blend
     (`0.69 * steps_score + 0.31 * moat.score`), not folded into a single
     flat weight table alongside STEP_WEIGHTS -- a flat renormalization does
@@ -183,6 +198,14 @@ def compute_overall_assessment(steps: list[StepSnapshot], moat: MoatSnapshot | N
     # but an otherwise-green Pass/Strong Pass displays as caution instead.
     # This changes only the DISPLAYED verdict; `score` above is untouched.
     verdict = "Pass with caution" if score_verdict not in (None, "Fail") and caution_steps else score_verdict
+    # Moat unset can never pass: a would-be Pass-family verdict on a complete
+    # steps-only score becomes "moat_not_rated". Fail stays Fail, incomplete
+    # stays incomplete (verdict None), and `score` is untouched -- Screener
+    # sorting/filtering read the number, not this verdict.
+    verdict_reason = None
+    if moat is None and can_compute and verdict not in (None, "Fail"):
+        verdict = MOAT_NOT_RATED_VERDICT
+        verdict_reason = MOAT_NOT_RATED_REASON
 
     return OverallAssessment(
         status="complete" if can_compute else "incomplete",
@@ -193,4 +216,5 @@ def compute_overall_assessment(steps: list[StepSnapshot], moat: MoatSnapshot | N
         failing_steps=failing_steps,
         assessed_count=IMPLEMENTED_STEPS,
         total_methodology_steps=TOTAL_METHODOLOGY_STEPS,
+        verdict_reason=verdict_reason,
     )
