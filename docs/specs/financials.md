@@ -206,6 +206,40 @@ be a one-off:
   lower than Net Income's own unrescued score.
 - If the dip is older than 2 periods, Operating Income is never consulted.
 
+**Quality gates on the lift (2026-10-05).** Being consulted is not enough: the backup may only
+*lift* Net Income's score if **all** of these hold, otherwise Net Income keeps the score it
+computed on its own (the 80 cap, the `max(Net Income, Operating Income)` combination and the
+dip-age gate above are unchanged):
+
+1. **TTM Operating Income > 0.**
+2. **TTM Operating Income margin ≥ 5%** of TTM revenue (`NET_INCOME_BACKUP_MIN_OI_MARGIN`;
+   exactly 5% passes, just under fails). Revenue here is real revenue, even for Banks (same
+   convention as the margins and the `not_yet_positive` scale).
+3. **Operating Income positive in at least 4 of the last 5 periods** of the cleaned Operating
+   Income series, TTM included (`NET_INCOME_BACKUP_OI_WINDOW` = 5,
+   `NET_INCOME_BACKUP_MIN_POSITIVE_PERIODS` = 4). "Cleaned" is the same None-filtered series the
+   trend classifier scores, so a missing year is skipped rather than counted as non-positive; a
+   series shorter than 5 points is judged on the points it has (4 positives of 4 pass, 3 of 3 do not).
+
+A **missing TTM** fails its gate: if TTM revenue or TTM Operating Income is missing (FMP returned
+fewer than 4 quarters), the backup cannot lift. `data/step1_data.py` passes the raw TTM slots
+(`ttm_revenue`, `ttm_operating_income`) to `score_step1` for exactly this reason — the
+None-filtered series can't tell a missing TTM from a present one. Direct callers of `score_step1`
+that omit them get the last point of the series passed in.
+
+The gates only govern the lift. Operating Income is still scored whenever it is consulted, so the
+"genuine data gap" rule (Net Income reads `insufficient_data` **and** its backup has no real data)
+is unchanged. `components.net_income.used_operating_income_backup` keeps its meaning: true only
+when the backup actually changed the score.
+
+**Applies to every company type** (Bank, Insurance, REIT, Utility and the rest alike): the backup
+has never been exempted by company type, and the gates are not either. This was previously
+undocumented.
+
+Why: a thin or sporadic Operating Income (ECHO, LITE, WBD, INTC) used to lift a weak Net Income
+score on little more than a positive sign. Simulation: about 26 Step 1 scores change, all
+downward, no verdict flips (step or Overall); about 33 of the 178 baseline lifts are removed.
+
 Why it is recency-gated: the backup exists for a plausible one-off (a charge that hit 1–2 periods
 ago), not for a chronic, long-unresolved Net Income problem. The age is computed by
 `scoring/trend.py::most_recent_real_dip_age`, and the window deliberately **includes age 0** (the

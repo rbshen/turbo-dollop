@@ -272,6 +272,12 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
         fcf_cfo=fcf_cfo,
         margins_exempt=margins_exempt,
         margins_severity_carveout=margins_severity_carveout,
+        # Real revenue (not the Bank Net-Interest-Income substitution) and the
+        # raw TTM slots (None when FMP gave < 4 quarters) for the Operating
+        # Income backup's quality gates -- the filtered series above can't
+        # tell a missing TTM from a present one.
+        ttm_revenue=revenue[-1],
+        ttm_operating_income=operating_income[-1],
     )
 
     return Step1Out(

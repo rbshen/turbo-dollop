@@ -205,6 +205,110 @@ def test_net_income_backup_not_used_when_score_above_threshold():
     assert result["components"]["net_income"]["used_operating_income_backup"] is False
 
 
+# --- Operating Income backup quality gates (K2, 2026-10-05) -----------------
+
+# Net income with a recent dip -> raw multiple_dips 65, backup-eligible.
+_WEAK_NI = [100, 60, 90, 55, 95]
+_REV = [600, 700, 800, 900, 1000]
+
+
+def _backup_case(oi, revenue=_REV, net_income=_WEAK_NI, **ttm):
+    result = score_step1(
+        revenue=revenue,
+        net_income=net_income,
+        operating_income=oi,
+        cfo=GROWING,
+        gross_margin=STABLE_MARGINS,
+        net_margin=NET_MARGINS_STABLE,
+        cfo_exempt=False,
+        **ttm,
+    )
+    return result["components"]["net_income"]
+
+
+def test_backup_lifts_when_every_gate_passes():
+    ni = _backup_case([200, 220, 240, 260, 280])
+    assert ni["score"] == 80
+    assert ni["used_operating_income_backup"] is True
+
+
+def test_backup_margin_gate_exactly_5_percent_passes():
+    # TTM OI 50 / TTM revenue 1000 = exactly 5%.
+    ni = _backup_case([30, 35, 40, 45, 50])
+    assert ni["used_operating_income_backup"] is True
+    assert ni["score"] == 80
+
+
+def test_backup_margin_gate_just_below_5_percent_blocks_the_lift():
+    ni = _backup_case([30, 35, 40, 45, 49.99])
+    assert ni["used_operating_income_backup"] is False
+    assert ni["score"] == 65  # Net Income's own multiple_dips score, unchanged
+
+
+def test_backup_blocked_when_ttm_operating_income_is_not_positive():
+    # 4 of 5 periods positive and the margin test is moot: TTM OI itself <= 0.
+    assert _backup_case([200, 220, 240, 260, 0])["used_operating_income_backup"] is False
+    assert _backup_case([200, 220, 240, 260, -5])["used_operating_income_backup"] is False
+
+
+def test_backup_positive_period_gate_4_of_5_passes_3_of_5_fails():
+    four_of_five = [-20, 220, 240, 260, 280]
+    three_of_five = [-20, -10, 240, 260, 280]
+    assert _backup_case(four_of_five)["used_operating_income_backup"] is True
+    blocked = _backup_case(three_of_five)
+    assert blocked["used_operating_income_backup"] is False
+    assert blocked["score"] == 65
+
+
+def test_backup_positive_period_gate_only_looks_at_the_last_5_periods():
+    # 6 periods, 4 of the last 5 positive, an old negative outside the window.
+    ni = _backup_case([-50, 200, 220, 240, 260, 280], revenue=[500] + _REV, net_income=[90] + _WEAK_NI)
+    assert ni["used_operating_income_backup"] is True
+    # ...but 3 of the last 5 positive fails even with 4 positives overall.
+    ni = _backup_case([200, -50, -20, 240, 260, 280], revenue=[500] + _REV, net_income=[90] + _WEAK_NI)
+    assert ni["used_operating_income_backup"] is False
+
+
+def test_backup_missing_ttm_revenue_or_operating_income_fails_the_gate():
+    oi = [200, 220, 240, 260, 280]
+    assert _backup_case(oi, ttm_revenue=None, ttm_operating_income=280)["used_operating_income_backup"] is False
+    assert _backup_case(oi, ttm_revenue=1000, ttm_operating_income=None)["used_operating_income_backup"] is False
+    assert _backup_case(oi, ttm_revenue=1000, ttm_operating_income=280)["used_operating_income_backup"] is True
+
+
+def test_backup_explicit_ttm_values_override_the_series_tail():
+    oi = [200, 220, 240, 260, 280]
+    # TTM revenue 10000 makes the 280 OI a 2.8% margin even though the
+    # (cleaned) revenue series ends at 1000.
+    assert _backup_case(oi, ttm_revenue=10000, ttm_operating_income=280)["used_operating_income_backup"] is False
+
+
+def test_backup_flag_semantics_unchanged_true_only_when_the_score_actually_changed():
+    near_ceiling_ni = [100, 100, 80, 100, 99]  # raw ~69, lifted to 80 when allowed
+    allowed = _backup_case([200, 220, 240, 260, 280], net_income=near_ceiling_ni)
+    assert allowed["score"] == 80 and allowed["used_operating_income_backup"] is True
+    blocked = _backup_case([30, 35, 40, 45, 49.99], net_income=near_ceiling_ni)
+    assert blocked["score"] < 80 and blocked["used_operating_income_backup"] is False
+
+
+def test_backup_blocked_still_lets_insufficient_net_income_count_as_scored_when_oi_has_data():
+    # NI has a single point (insufficient_data); OI is real but fails the
+    # positive-period gate (only 3 points, so 3 < 4). The step is still
+    # scored (the data-gap rule is unchanged) with Net Income at its own 0.
+    result = score_step1(
+        revenue=[800, 900, 1000],
+        net_income=[50],
+        operating_income=[200, 220, 240],
+        cfo=[300, 320, 340],
+        gross_margin=STABLE_MARGINS,
+        net_margin=NET_MARGINS_STABLE,
+        cfo_exempt=False,
+    )
+    assert result["score"] is not None
+    assert result["components"]["net_income"]["score"] == 0
+    assert result["components"]["net_income"]["used_operating_income_backup"] is False
+
+
 # --- Positivity gate (Revenue / Net Income / CFO) --------------------------
 
 

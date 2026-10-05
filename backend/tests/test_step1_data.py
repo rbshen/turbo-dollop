@@ -391,3 +391,46 @@ def test_insufficient_data_when_genuinely_thin_cash_flow_history(monkeypatch):
 
     assert result.score is None
     assert result.verdict == "insufficient_data"
+
+
+# --- Operating Income backup gates wired to the real TTM slots (K2) ---------
+
+_BACKUP_ANNUAL = [
+    {"fiscalYear": str(2021 + i), "revenue": rev, "netInterestIncome": 0, "grossProfit": rev // 2, "operatingIncome": oi, "netIncome": ni}
+    for i, (rev, oi, ni) in enumerate(zip([600, 700, 800, 900, 1000], [200, 220, 240, 260, 280], [100, 60, 90, 55, 95]))
+][::-1]
+
+
+def _backup_quarters(oi_per_quarter, revenue_per_quarter=250):
+    return [
+        {"date": f"2026-0{q}-28", "revenue": revenue_per_quarter, "netInterestIncome": 0, "grossProfit": 100, "operatingIncome": oi, "netIncome": 24}
+        for q, oi in zip((4, 3, 2, 1), oi_per_quarter)
+    ]
+
+
+def _run_backup_case(monkeypatch, quarters):
+    _fresh_engine(monkeypatch)
+
+    async def fake_profile(ticker):
+        return PROFILE
+
+    async def fake_income(ticker, period, limit):
+        return _BACKUP_ANNUAL if period == "annual" else quarters
+
+    async def fake_cash_flow(ticker, period, limit):
+        return CASH_FLOW_ANNUAL if period == "annual" else CASH_FLOW_QUARTERLY
+
+    monkeypatch.setattr(step1_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step1_data.fmp_client, "get_income_statement", fake_income)
+    monkeypatch.setattr(step1_data.fmp_client, "get_cash_flow_statement", fake_cash_flow)
+    return asyncio.run(get_step1_data("bkup")).components["net_income"]
+
+
+def test_backup_gates_read_the_real_ttm_slots(monkeypatch):
+    # TTM OI 280 on TTM revenue 1000 = 28%, 5 of 5 positive: lifted.
+    assert _run_backup_case(monkeypatch, _backup_quarters([70, 70, 70, 70]))["used_operating_income_backup"] is True
+    # TTM OI 48 on 1000 = 4.8%: margin gate blocks.
+    assert _run_backup_case(monkeypatch, _backup_quarters([12, 12, 12, 12]))["used_operating_income_backup"] is False
+    # One quarter's OI missing -> TTM OI is None -> gate fails (even though
+    # the cleaned annual series alone would pass every gate).
+    assert _run_backup_case(monkeypatch, _backup_quarters([70, 70, 70, None]))["used_operating_income_backup"] is False

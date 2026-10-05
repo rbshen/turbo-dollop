@@ -106,6 +106,23 @@ NET_INCOME_BACKUP_CAP = 80
 # fallback, which reads as an unintended gap rather than an intended
 # exclusion.
 NET_INCOME_BACKUP_RECENCY_YEARS = 2
+# Quality gates on the backup itself (2026-10-05, "K2"): an Operating
+# Income rescue is only credible when the business is genuinely and durably
+# operating-profitable, otherwise a thin or sporadic OI (ECHO, LITE, WBD,
+# INTC) was lifting a weak Net Income score on little more than a positive
+# sign. ALL must hold or the backup cannot lift (the Net Income score stays
+# as computed): TTM OI > 0; TTM OI >= NET_INCOME_BACKUP_MIN_OI_MARGIN of TTM
+# revenue; OI positive in >= NET_INCOME_BACKUP_MIN_POSITIVE_PERIODS of the
+# last NET_INCOME_BACKUP_OI_WINDOW entries of the cleaned OI series (TTM
+# included; a series shorter than the window is judged on what it has).
+NET_INCOME_BACKUP_MIN_OI_MARGIN = 0.05
+NET_INCOME_BACKUP_OI_WINDOW = 5
+NET_INCOME_BACKUP_MIN_POSITIVE_PERIODS = 4
+# "No explicit TTM supplied": score_step1 then reads TTM as the last point of
+# the cleaned series it was handed. step1_data.py always passes the real TTM
+# values (None when missing), because a None-filtered series can't tell
+# "TTM missing" from "TTM present".
+_TTM_FROM_SERIES = object()
 
 # classify_trend is purely relative/directional -- it only asks whether a
 # series has grown/recovered relative to its OWN prior points, never
@@ -485,6 +502,21 @@ def _verdict_for(score: int) -> str:
     return "Fail"
 
 
+def _operating_income_backup_allowed(
+    operating_income: list[float], ttm_operating_income: float | None, ttm_revenue: float | None
+) -> bool:
+    """The K2 gates (see NET_INCOME_BACKUP_MIN_OI_MARGIN's comment). A missing
+    TTM Operating Income or TTM revenue fails its gate: no lift."""
+    if ttm_operating_income is None or ttm_revenue is None:
+        return False
+    if ttm_operating_income <= 0 or ttm_revenue <= 0:
+        return False
+    if ttm_operating_income < NET_INCOME_BACKUP_MIN_OI_MARGIN * ttm_revenue:
+        return False
+    recent = operating_income[-NET_INCOME_BACKUP_OI_WINDOW:]
+    return sum(1 for v in recent if v > 0) >= NET_INCOME_BACKUP_MIN_POSITIVE_PERIODS
+
+
 def score_step1(
     revenue: list[float],
     net_income: list[float],
@@ -498,6 +530,8 @@ def score_step1(
     fcf_cfo: list[float] | None = None,
     margins_exempt: bool = False,
     margins_severity_carveout: bool = False,
+    ttm_revenue: float | None | object = _TTM_FROM_SERIES,
+    ttm_operating_income: float | None | object = _TTM_FROM_SERIES,
 ) -> dict:
     """Pure scoring function per CLAUDE.md's Step 1 spec: takes parsed metric
     series (chronological, oldest fiscal year -> TTM) and returns
@@ -530,7 +564,13 @@ def score_step1(
     `gradually_compressing` at the old flat 60 instead of the graduated
     score for these three types, unrelated to (and never simultaneously
     `True` with) `margins_exempt` above, which skips the classifier
-    entirely rather than carving out one of its patterns."""
+    entirely rather than carving out one of its patterns.
+
+    `ttm_revenue` / `ttm_operating_income` feed the Operating-Income backup's
+    quality gates (_operating_income_backup_allowed). Real revenue even for
+    Banks, like every other margin here. `None` means "TTM missing" (the gate
+    fails, no lift); omitted, they default to the last point of the (cleaned)
+    series passed in -- a convenience for direct scoring-function callers."""
     # Computed early (moved ahead of the Margins section below, where it
     # originally lived) so it's available as the `not_yet_positive`
     # graduated-score denominator for Net Income/Operating Income/CFO --
@@ -557,7 +597,17 @@ def score_step1(
     )
     if net_income_pos_result.score <= NET_INCOME_BACKUP_THRESHOLD and ni_recent_enough:
         oi_pos_result = _classify_positive_trend(operating_income, growth_reference)
-        backup_score = min(NET_INCOME_BACKUP_CAP, max(net_income_pos_result.score, oi_pos_result.score))
+        if ttm_operating_income is _TTM_FROM_SERIES:
+            ttm_operating_income = operating_income[-1] if operating_income else None
+        if ttm_revenue is _TTM_FROM_SERIES:
+            ttm_revenue = growth_reference[-1] if growth_reference else None
+        # The gates only decide whether OI may LIFT Net Income; oi_pos_result
+        # is still computed either way, so the "both NI and its backup came up
+        # short" data-gap rule below is unchanged.
+        if _operating_income_backup_allowed(operating_income, ttm_operating_income, ttm_revenue):
+            backup_score = min(NET_INCOME_BACKUP_CAP, max(net_income_pos_result.score, oi_pos_result.score))
+        else:
+            backup_score = net_income_pos_result.score
         net_income_backup_used = backup_score != net_income_pos_result.score
         net_income_result = TrendResult(net_income_pos_result.pattern, backup_score)
 
