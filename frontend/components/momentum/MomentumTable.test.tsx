@@ -3,7 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MomentumTable } from "@/components/momentum/MomentumTable";
-import type { MomentumSnapshotRowOut } from "@/lib/api/types";
+import type { EtfMomentumRowOut, MomentumSnapshotRowOut } from "@/lib/api/types";
 
 afterEach(() => {
   cleanup();
@@ -83,6 +83,55 @@ describe("MomentumTable", () => {
     render(<MomentumTable rows={[]} />);
     expect(screen.getByText("No tickers in this snapshot.")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+});
+
+describe("MomentumTable showMoatAndScore={false}", () => {
+  const ETF_ROWS: EtfMomentumRowOut[] = [
+    {
+      ticker: "SOXL",
+      company_name: "Direxion Daily Semiconductor Bull 3X",
+      return_3mo: 0.4,
+      return_6mo: 0.9,
+      return_12mo: 2.1,
+      composite_score: 1.1333,
+      rank: 1,
+      return_1w: 0.02,
+      return_1mo: null,
+      last_price: 55.25,
+    },
+  ];
+
+  it("hides the Moat and Score columns but keeps every other column", () => {
+    render(<MomentumTable rows={ROWS} showMoatAndScore={false} />);
+    expect(screen.queryByText("Moat")).not.toBeInTheDocument();
+    expect(screen.queryByText("Score")).not.toBeInTheDocument();
+    expect(screen.queryByText("None")).not.toBeInTheDocument();
+    expect(screen.queryByText("47")).not.toBeInTheDocument();
+    for (const name of ["Rank", "Ticker", "Last", "1 w", "1 mo", "3 mo", "6 mo", "12 mo", "Composite"]) {
+      expect(screen.getByText(name)).toBeInTheDocument();
+    }
+    expect(screen.getAllByRole("columnheader")).toHaveLength(9);
+    expect(screen.getByText("SNDK").closest("tr")!.querySelectorAll("td")).toHaveLength(9);
+  });
+
+  it("renders ETF rows (no moat/score/currency fields) with USD formatting and a dash for a missing 1 mo", () => {
+    render(<MomentumTable rows={ETF_ROWS} showMoatAndScore={false} />);
+    const row = screen.getByText("SOXL").closest("tr")!;
+    expect(screen.getByText("Direxion Daily Semiconductor Bull 3X")).toBeInTheDocument();
+    const cells = row.querySelectorAll("td");
+    expect(cells).toHaveLength(9);
+    expect(cells[2]).toHaveTextContent("$55.25");
+    expect(cells[3]).toHaveTextContent("+2.00%");
+    expect(cells[4]).toHaveTextContent("—");
+    expect(cells[8]).toHaveTextContent("+113.33%");
+  });
+
+  it("shows both columns by default", () => {
+    render(<MomentumTable rows={ROWS} />);
+    expect(screen.getByText("Moat")).toBeInTheDocument();
+    expect(screen.getByText("Score")).toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader")).toHaveLength(11);
   });
 });
 

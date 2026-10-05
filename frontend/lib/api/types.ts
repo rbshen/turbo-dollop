@@ -1718,6 +1718,30 @@ export interface MomentumOut {
   rows: MomentumSnapshotRowOut[];
 }
 
+// ETF Momentum (GET /api/momentum/etf) -- the top 5 of the stored ETF ranking. No moat, overall score
+// or currency (an ETF has none); company_name is the ETF screener's name, joined at request time.
+export interface EtfMomentumRowOut {
+  ticker: string;
+  company_name: string | null;
+  return_3mo: number;
+  return_6mo: number;
+  return_12mo: number;
+  composite_score: number;
+  rank: number;
+  return_1w: number | null;
+  return_1mo: number | null;
+  last_price: number | null;
+}
+
+export interface EtfMomentumOut {
+  // as_of_date/computed_at null, rows [] and total_ranked 0 when no matching snapshot exists.
+  as_of_date: string | null;
+  computed_at: string | null;
+  // How many ETFs the snapshot scored; rows holds only the top 5 of them.
+  total_ranked: number;
+  rows: EtfMomentumRowOut[];
+}
+
 // Sector Heatmap -- see backend/data/sector_heatmap_data.py. Every return
 // is a trailing TOTAL return (price + reinvested distributions) in
 // percentage points (4.25 == +4.25%), calendar-day windows.

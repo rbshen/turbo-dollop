@@ -2,7 +2,7 @@
 
 A monthly 3/6/12-month price-momentum ranking, price-only and independent of Step 1-5 / Overall Assessment scoring.
 Two rankings share one engine, one job and one anchor rule: **stocks** (`MomentumSnapshot`, the `/momentum` page) and
-**ETFs** (`EtfMomentumSnapshot`, `GET /api/momentum/etf`; backend built 2026-10-05, the table on `/momentum` follows).
+**ETFs** (`EtfMomentumSnapshot`, `GET /api/momentum/etf`; backend and `/momentum` table built 2026-10-05).
 The Sector Heatmap is a separate feature ([Sector Heatmap](sector-heatmap.md)).
 
 ## Signal
@@ -91,3 +91,33 @@ anchored mid-September, instead of 2026-08-31.)
 - A backfill is limited by what the bars cache holds (the 12-month lookback needs ~13 months of daily bars); a fund
   without them is dropped, not imputed.
 - Price-only and leveraged-fund inclusion: see Signal and Universe.
+
+## Frontend (`/momentum`)
+
+- **Layout.** `app/momentum/page.tsx`: the page title "Momentum", then two `MomentumSection`s, **Stock** (the existing table) and
+  **ETF** (below it), then the one-line "Ad hoc external research" disclaimer. There is no page-level period toggle and no
+  page-level "As of" subtitle: each section carries its own.
+- **Section title style.** The design system's `Section` family (hairline above, `h2` at `text-sm font-semibold text-text-primary`,
+  sentence case), the same title the Settings and ETF Overview sections use. `Section` has no actions slot, so
+  `MomentumSection` renders `Section` untitled and draws the identical `h2` itself, in a header row with the period toggle on the
+  right and the section's "As of ... · Computed ..." caption (`text-xs text-text-secondary`) under the title. The `Section` is a
+  `role="region"` labelled by its title.
+- **`components/momentum/MomentumSection.tsx`.** Props: `title`, `useData` (a module-level hook, `useMomentum` or
+  `useEtfMomentum`), `topN`, `showMoatAndScore` (default true), `footnote`. It owns its own `period` state, the `This month |
+  Previous month` `SegmentedControl` (`aria-label` "<title> period"), the data call, the pulsing skeleton (`topN` rows, `colSpan`
+  = the table's column count), the empty text ("No snapshot yet ..." / "No previous month's snapshot available yet.") and the
+  error text ("Failed to load <title> Momentum data."). The two sections are fully independent: each toggle refetches only its own
+  endpoint and an error in one never shows in the other.
+- **Rows shown.** Stock `topN` 10 (the endpoint returns the full ranking, the page slices); ETF `topN` 5 (the endpoint already
+  returns the top 5; the slice is a guard). There is no "top N of M" note, so `total_ranked` is typed (`EtfMomentumOut`) but not
+  displayed.
+- **Hooks and types.** `lib/hooks/useMomentum.ts`: `useMomentum` (unchanged) and `useEtfMomentum` (`GET /api/momentum/etf?period=`).
+  `lib/api/types.ts`: `EtfMomentumRowOut`, `EtfMomentumOut` (with `total_ranked`); the stock types are unchanged.
+- **`MomentumTable`.** Rows are `MomentumTableRow` (an ETF row plus optional `moat`, `overall_score`, `quote_currency`, so a stock
+  row or an ETF row both fit). Prop `showMoatAndScore` (default `true`): `false` hides the Moat and Score columns (9 columns instead
+  of 11). Rank, Ticker (company name below it), Last, 1 w, 1 mo, 3 mo, 6 mo, 12 mo and Composite are identical for both; a missing
+  quote currency (always the case for an ETF) formats as USD. The ETF section passes `false`.
+- **Footnotes.** Stock section: the Moat point-in-time caveat only (today's Moat classification is the filter). ETF section:
+  price-only basis (split-adjusted, no dividends), leveraged funds included, and the previous-month ranking uses today's ETF
+  universe, not point-in-time (see Caveats). Neither footnote appears in the other section.
+- **Not changed:** `/styleguide`, the backend, CLAUDE.md. Tests: `app/momentum/page.test.tsx`, `components/momentum/MomentumTable.test.tsx`.

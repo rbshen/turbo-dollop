@@ -3,13 +3,18 @@ import type { MouseEvent } from "react";
 import { MOAT_LABEL_SHORT, MOAT_TONE } from "@/components/ticker/MoatPill";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { MomentumSnapshotRowOut } from "@/lib/api/types";
+import type { EtfMomentumRowOut, MomentumSnapshotRowOut } from "@/lib/api/types";
 import { fmtMoney, fmtPct, pnlClass } from "@/lib/format";
 
 const HEAD_CLASS = "text-xs font-medium text-text-tertiary";
 
+// A stock row, or an ETF row (which has no moat, overall score or currency).
+export type MomentumTableRow = EtfMomentumRowOut & Partial<Pick<MomentumSnapshotRowOut, "moat" | "overall_score" | "quote_currency">>;
+
 interface Props {
-  rows: MomentumSnapshotRowOut[];
+  rows: MomentumTableRow[];
+  // false for the ETF table: hides the Moat and Score columns.
+  showMoatAndScore?: boolean;
 }
 
 // The whole row opens the ticker page in a new tab (matching WatchlistTable's
@@ -29,7 +34,7 @@ function InfoReturnCell({ value }: { value: number | null }) {
   return <TableCell className={`text-right font-mono ${pnlClass(value)}`}>{fmtPct(value * 100)}</TableCell>;
 }
 
-export function MomentumTable({ rows }: Props) {
+export function MomentumTable({ rows, showMoatAndScore = true }: Props) {
   if (rows.length === 0) {
     return <p className="text-xs text-text-tertiary">No tickers in this snapshot.</p>;
   }
@@ -41,14 +46,14 @@ export function MomentumTable({ rows }: Props) {
           <TableHead className={`${HEAD_CLASS} w-12 text-center`}>Rank</TableHead>
           <TableHead className={`${HEAD_CLASS} w-[280px]`}>Ticker</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>Last</TableHead>
-          <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Moat</TableHead>
+          {showMoatAndScore && <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Moat</TableHead>}
           <TableHead className={`${HEAD_CLASS} text-right`}>1 w</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>1 mo</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>3 mo</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>6 mo</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>12 mo</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>Composite</TableHead>
-          <TableHead className={`${HEAD_CLASS} text-right`}>Score</TableHead>
+          {showMoatAndScore && <TableHead className={`${HEAD_CLASS} text-right`}>Score</TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -71,11 +76,17 @@ export function MomentumTable({ rows }: Props) {
             <TableCell className="text-right font-mono text-text-secondary">
               {row.last_price != null ? fmtMoney(row.last_price, row.quote_currency ?? "USD") : "—"}
             </TableCell>
-            <TableCell className="text-center">
-              <Badge size="compact" tone={MOAT_TONE[row.moat]}>
-                {MOAT_LABEL_SHORT[row.moat]}
-              </Badge>
-            </TableCell>
+            {showMoatAndScore && (
+              <TableCell className="text-center">
+                {row.moat ? (
+                  <Badge size="compact" tone={MOAT_TONE[row.moat]}>
+                    {MOAT_LABEL_SHORT[row.moat]}
+                  </Badge>
+                ) : (
+                  <Badge size="compact" missing />
+                )}
+              </TableCell>
+            )}
             {/* 1w/1mo are informational only -- the ranking uses 3/6/12 mo. */}
             <InfoReturnCell value={row.return_1w} />
             <InfoReturnCell value={row.return_1mo} />
@@ -93,15 +104,17 @@ export function MomentumTable({ rows }: Props) {
                 read as before this migration, just via Badge's `missing`
                 state instead of a bare "—"). See the design-system session
                 5a report. */}
-            <TableCell className="text-right">
-              {row.overall_score != null ? (
-                <Badge size="compact" tone="neutral">
-                  {row.overall_score}
-                </Badge>
-              ) : (
-                <Badge size="compact" missing />
-              )}
-            </TableCell>
+            {showMoatAndScore && (
+              <TableCell className="text-right">
+                {row.overall_score != null ? (
+                  <Badge size="compact" tone="neutral">
+                    {row.overall_score}
+                  </Badge>
+                ) : (
+                  <Badge size="compact" missing />
+                )}
+              </TableCell>
+            )}
           </TableRow>
         ))}
       </TableBody>
