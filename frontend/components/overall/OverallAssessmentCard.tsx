@@ -6,7 +6,7 @@ import { CircularScoreBadge } from "@/components/overall/CircularScoreBadge";
 import { Status, Verdict } from "@/components/ui/status";
 import { useOverallAssessment } from "@/lib/hooks/useOverallAssessment";
 import type { OverallAssessment, StepBreakdownEntry } from "@/lib/overallScore";
-import { toneFor, toneForNullable, pillLabel } from "@/lib/tierColor";
+import { toneFor, toneForNullable, pillLabel, verdictLabel } from "@/lib/tierColor";
 
 interface Props {
   ticker: string;
@@ -67,7 +67,8 @@ export function OverallAssessmentView({ result }: { result: OverallAssessment })
             <div className="flex items-center gap-4">
               <CircularScoreBadge score={result.score} verdict={result.verdict} />
               <div className="space-y-1.5">
-                <Verdict tone={toneFor(result.score, result.verdict)}>{pillLabel(result.verdict)}</Verdict>
+                <Verdict tone={toneFor(result.score, result.verdict)}>{verdictLabel(result.verdict)}</Verdict>
+                {result.verdictReason && <p className="text-sm text-text-primary">{result.verdictReason}</p>}
                 <p className="text-sm text-text-secondary">{rollupSummary(result.breakdown)}</p>
               </div>
             </div>

@@ -601,6 +601,9 @@ export interface TickerScoreOut {
   // null (along with overall_verdict) when any non-exempt step is missing --
   // a ticker can have a row here without a full Overall Assessment.
   overall_score: number | null;
+  // "Strong Pass" | "Pass" | "Pass with caution" | "Fail", or "moat_not_rated" (Moat unset and the steps-only blend would
+  // pass; overall_score is still that score) -- see MOAT_NOT_RATED_VERDICT in lib/overallScore.ts. Use verdictLabel()
+  // from lib/tierColor.ts to draw it.
   overall_verdict: string | null;
   market_cap: number | null;
   // See models.py::TickerScore.last_price -- null for a row computed

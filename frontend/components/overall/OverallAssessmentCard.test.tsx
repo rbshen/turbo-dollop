@@ -52,3 +52,23 @@ describe("OverallAssessmentView: the failing and caution notes", () => {
     expect(notes[1]).toHaveClass("text-caution");
   });
 });
+
+describe("OverallAssessmentView: Moat not rated", () => {
+  it("shows a neutral Moat not rated pill and the reason line, keeping the steps-only score", () => {
+    render(
+      <OverallAssessmentView
+        result={result({ score: 81, verdict: "moat_not_rated", verdictReason: "Moat not rated: rate the moat to enable a Pass" })}
+      />,
+    );
+    const pill = screen.getByText("Moat not rated");
+    expect(pill).toHaveClass("text-text-secondary"); // the neutral tone, not a Pass colour
+    expect(screen.queryByText(/^Pass$/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Moat not rated: rate the moat to enable a Pass")).toBeInTheDocument();
+    expect(screen.getByText("81")).toBeInTheDocument();
+  });
+
+  it("shows no reason line for a normal verdict", () => {
+    render(<OverallAssessmentView result={result({})} />);
+    expect(screen.queryByText(/rate the moat/)).not.toBeInTheDocument();
+  });
+});

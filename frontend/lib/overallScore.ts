@@ -23,6 +23,14 @@ export const STEP_WEIGHTS = {
 
 export type StepKey = keyof typeof STEP_WEIGHTS;
 
+// Overall verdict for a ticker with NO Moat rating whose four automated steps would otherwise read Pass / Pass with
+// caution / Strong Pass: Moat is non-negotiable, so an unrated ticker cannot pass. A stable key (stored in
+// TickerScore.overall_verdict), not display text -- lib/tierColor.ts::verdictLabel turns it into "Moat not rated".
+// Verdict only: the score is still the steps-only blend. Mirrors backend/scoring/overall.py::MOAT_NOT_RATED_VERDICT /
+// MOAT_NOT_RATED_REASON.
+export const MOAT_NOT_RATED_VERDICT = "moat_not_rated";
+export const MOAT_NOT_RATED_REASON = "Moat not rated: rate the moat to enable a Pass";
+
 // Shared 0-69/70-90/91-100 verdict bands used everywhere else in the app
 // (see CLAUDE.md's "Scoring rubric deviations") -- must match backend
 // scoring/overall.py::_verdict_for exactly.
@@ -84,7 +92,9 @@ export interface StepBreakdownEntry {
 export interface OverallAssessment {
   status: "loading" | "complete" | "incomplete";
   score: number | null;
-  verdict: "Strong Pass" | "Pass" | "Pass with caution" | "Fail" | null;
+  verdict: "Strong Pass" | "Pass" | "Pass with caution" | "Fail" | typeof MOAT_NOT_RATED_VERDICT | null;
+  // Short explanation beside a "moat_not_rated" verdict; null/absent otherwise.
+  verdictReason?: string | null;
   breakdown: StepBreakdownEntry[];
   incompleteSteps: string[];
   failingSteps: string[];
@@ -220,12 +230,22 @@ export function computeOverallAssessment(
   // score's own band -- Fail stays Fail (already the strongest signal),
   // but an otherwise-green Pass/Strong Pass displays as caution instead.
   // This changes only the DISPLAYED verdict; `score` above is untouched.
-  const verdict = scoreVerdict !== null && scoreVerdict !== "Fail" && cautionSteps.length > 0 ? "Pass with caution" : scoreVerdict;
+  let verdict: OverallAssessment["verdict"] =
+    scoreVerdict !== null && scoreVerdict !== "Fail" && cautionSteps.length > 0 ? "Pass with caution" : scoreVerdict;
+  // Moat unset can never pass: a would-be Pass-family verdict on a complete steps-only score becomes
+  // "moat_not_rated". Fail stays Fail, incomplete stays incomplete (verdict null), `score` is untouched. Mirrors
+  // backend/scoring/overall.py::compute_overall_assessment.
+  let verdictReason: string | null = null;
+  if (!moat && canCompute && verdict !== null && verdict !== "Fail") {
+    verdict = MOAT_NOT_RATED_VERDICT;
+    verdictReason = MOAT_NOT_RATED_REASON;
+  }
 
   return {
     status: canCompute ? "complete" : "incomplete",
     score,
     verdict,
+    verdictReason,
     breakdown,
     incompleteSteps: canCompute ? [] : incomplete.map((s) => s.label),
     failingSteps,

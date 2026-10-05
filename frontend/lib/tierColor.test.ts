@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { pillLabel, toneFor, toneForNullable } from "@/lib/tierColor";
+import { pillLabel, toneFor, toneForNullable, verdictLabel } from "@/lib/tierColor";
 
 describe("pillLabel", () => {
   it.each([
@@ -38,5 +38,19 @@ describe("toneFor", () => {
   it("is neutral without a score", () => {
     expect(toneForNullable(null, "Pass")).toBe("neutral");
     expect(toneForNullable(80, null)).toBe("positive");
+  });
+});
+
+describe("Moat not rated", () => {
+  it("reads neutral at any score, never the green Pass tiers", () => {
+    for (const score of [70, 74, 75, 90, 91, 100]) expect(toneFor(score, "moat_not_rated")).toBe("neutral");
+    expect(toneForNullable(81, "moat_not_rated")).toBe("neutral");
+  });
+
+  it("verdictLabel turns the key into sentence-case text and leaves other verdicts to pillLabel", () => {
+    expect(verdictLabel("moat_not_rated")).toBe("Moat not rated");
+    expect(verdictLabel("Strong Pass")).toBe("Strong pass");
+    expect(verdictLabel("Pass with caution")).toBe("Pass with caution");
+    expect(verdictLabel("Fail")).toBe("Fail");
   });
 });

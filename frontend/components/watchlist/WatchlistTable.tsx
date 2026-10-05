@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { HEAD_CLASS, openTickerPage, RemoveCell, SkeletonRows, SortableColumnHead, useRemoveFlow } from "@/components/watchlist/tableParts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { SortableField, WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
+import { MOAT_NOT_RATED_REASON, MOAT_NOT_RATED_VERDICT } from "@/lib/overallScore";
 import { fmtCompactMoney, fmtMoney, fmtNumber, fmtSignedCompactMoneyTooltip } from "@/lib/format";
 import { toneForNullable } from "@/lib/tierColor";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,14 @@ function cautionStepLabels(row: WatchlistRowOut): string[] {
   if (row.step4_verdict === "Pass with caution") labels.push("Profitability");
   if (row.step5_verdict === "Pass with caution") labels.push("Debt");
   return labels;
+}
+
+// Hover text for the Analysis pill: names the cautioned steps, or says why a "Moat not rated" ticker (a neutral pill
+// holding its steps-only score) is not reading Pass.
+export function overallCellTitle(row: WatchlistRowOut): string | undefined {
+  if (row.overall_verdict === "Pass with caution") return `Passed with caution: ${cautionStepLabels(row).join(", ")}`;
+  if (row.overall_verdict === MOAT_NOT_RATED_VERDICT) return MOAT_NOT_RATED_REASON;
+  return undefined;
 }
 
 // Same buy/hold/sell bucketing ConsensusBanner's distribution bar already
@@ -318,7 +327,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
                   <Badge
                     size="compact"
                     tone={toneForNullable(row.overall_score, row.overall_verdict)}
-                    title={row.overall_verdict === "Pass with caution" ? `Passed with caution: ${cautionStepLabels(row).join(", ")}` : undefined}
+                    title={overallCellTitle(row)}
                   >
                     {row.overall_score}
                     {row.overall_verdict === "Pass with caution" && " ⚠"}

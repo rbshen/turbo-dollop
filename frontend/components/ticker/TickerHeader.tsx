@@ -18,7 +18,8 @@ import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
 import { useTickerScore } from "@/lib/hooks/useTickerScore";
 import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
 import { fmtMoney } from "@/lib/format";
-import { toneForNullable, pillLabel } from "@/lib/tierColor";
+import { MOAT_NOT_RATED_REASON, MOAT_NOT_RATED_VERDICT } from "@/lib/overallScore";
+import { toneForNullable, verdictLabel } from "@/lib/tierColor";
 import type { ReactNode } from "react";
 import type { MoatValue } from "@/lib/overallScore";
 import type { SpeculativeGrowthOut, TickerSummaryOut, TrendAnalysisOut } from "@/lib/api/types";
@@ -34,9 +35,12 @@ function AssessmentChip({ symbol }: { symbol: string }) {
   const { data } = useTickerScore(symbol);
   if (!data || data.overall_score == null || data.overall_verdict == null) return null;
 
+  const asOf = `As of ${new Date(data.computed_at).toLocaleString()}`;
+  const title = data.overall_verdict === MOAT_NOT_RATED_VERDICT ? `${MOAT_NOT_RATED_REASON}. ${asOf}` : asOf;
+
   return (
-    <Status tone={toneForNullable(data.overall_score, data.overall_verdict)} title={`As of ${new Date(data.computed_at).toLocaleString()}`}>
-      {pillLabel(data.overall_verdict)}
+    <Status tone={toneForNullable(data.overall_score, data.overall_verdict)} title={title}>
+      {verdictLabel(data.overall_verdict)}
     </Status>
   );
 }

@@ -2,7 +2,9 @@
 flips it back to a normal verdict once the owner rates the ticker (pure-rule boundaries: scoring/test_overall.py)."""
 
 import asyncio
+import json
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,6 +15,7 @@ import core.main as main
 import data.ticker_score as ticker_score
 from core.models import MoatScoreConfig, TickerMoat, TickerScore
 from data.ticker_score import compute_ticker_score
+from scoring.overall import MoatSnapshot, StepSnapshot, compute_overall_assessment
 from tests.test_ticker_score import _patch_all, _step1, _step2, _step4, _step5, _summary
 
 
@@ -107,3 +110,17 @@ def test_rating_a_ticker_through_the_moat_endpoint_flips_its_stored_verdict(monk
         with Session(engine) as session:
             none_ = session.get(TickerScore, "AAPL")
             assert (none_.overall_score, none_.overall_verdict) == (52, "Fail")
+
+
+# The same cases frontend/lib/overallScore.test.ts runs through computeOverallAssessment: the two implementations
+# (scoring/overall.py and lib/overallScore.ts) must agree on every one.
+_SHARED_CASES = json.loads((Path(__file__).parent / "fixtures" / "overall_verdict_cases.json").read_text())["cases"]
+
+
+@pytest.mark.parametrize("case", _SHARED_CASES, ids=[c["name"] for c in _SHARED_CASES])
+def test_backend_matches_the_shared_overall_verdict_cases(case):
+    steps = [StepSnapshot(s["key"], s["key"], False, s["score"], s["verdict"]) for s in case["steps"]]
+    moat = MoatSnapshot(case["moat"]["moat"], case["moat"]["score"]) if case["moat"] else None
+    result = compute_overall_assessment(steps, moat=moat)
+    expected = case["expected"]
+    assert (result.status, result.score, result.verdict) == (expected["status"], expected["score"], expected["verdict"])

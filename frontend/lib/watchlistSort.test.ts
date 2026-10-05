@@ -48,6 +48,15 @@ describe("sortWatchlistRows", () => {
     expect(result.map((r) => r.ticker)).toEqual(["HIGH", "LOW"]);
   });
 
+  it("sorts a Moat not rated row by its steps-only score like any other", () => {
+    const rows = [
+      row({ ticker: "UNRATED", overall_score: 81, overall_verdict: "moat_not_rated" }),
+      row({ ticker: "PASS", overall_score: 75, overall_verdict: "Pass" }),
+      row({ ticker: "FAIL", overall_score: 60, overall_verdict: "Fail" }),
+    ];
+    expect(sortWatchlistRows(rows, [{ field: "overall_score", direction: "desc" }]).map((r) => r.ticker)).toEqual(["UNRATED", "PASS", "FAIL"]);
+  });
+
   it("sorts nulls last regardless of direction", () => {
     const rows = [row({ ticker: "NULL", overall_score: null }), row({ ticker: "REAL", overall_score: 50 })];
     expect(sortWatchlistRows(rows, [{ field: "overall_score", direction: "asc" }]).map((r) => r.ticker)).toEqual(["REAL", "NULL"]);

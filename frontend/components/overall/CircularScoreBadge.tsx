@@ -16,6 +16,8 @@ const RING_CLASS: Record<ScoreTone, string> = {
   warn: "border-warn",
   caution: "border-caution",
   negative: "border-negative",
+  // "Moat not rated": no tone to carry, so a quiet neutral ring.
+  neutral: "border-text-tertiary",
 };
 
 // Overall Assessment's own top badge, distinct from ScoreBadge's stacked

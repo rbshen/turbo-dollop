@@ -1,6 +1,16 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
-import { computeOverallAssessment, STEP_WEIGHTS, type MoatSnapshot, type StepSnapshot } from "@/lib/overallScore";
+import {
+  computeOverallAssessment,
+  MOAT_NOT_RATED_REASON,
+  MOAT_NOT_RATED_VERDICT,
+  STEP_WEIGHTS,
+  type MoatSnapshot,
+  type StepSnapshot,
+} from "@/lib/overallScore";
 
 function snapshot(key: StepSnapshot["key"], label: string, score: number | null, verdict: string): StepSnapshot {
   return { key, label, hasError: false, data: { score, verdict } };
@@ -25,13 +35,13 @@ describe("computeOverallAssessment", () => {
     const result = computeOverallAssessment(steps);
     expect(result.status).toBe("complete");
     expect(result.score).toBe(76);
-    expect(result.verdict).toBe("Pass");
+    expect(result.verdict).toBe(MOAT_NOT_RATED_VERDICT); // steps-only Pass, Moat unset
   });
 
   it("all steps at 100 scores exactly 100, Strong Pass", () => {
     const result = computeOverallAssessment(BASE);
     expect(result.score).toBe(100);
-    expect(result.verdict).toBe("Strong Pass");
+    expect(result.verdict).toBe(MOAT_NOT_RATED_VERDICT); // steps-only Strong Pass, Moat unset
   });
 
   it("renormalizes weights when a step is structurally exempt (not_supported)", () => {
@@ -151,13 +161,14 @@ describe("computeOverallAssessment", () => {
     // 90*(54/69) + 95*(15/69) = (4860+1425)/69 = 91.09 -> 91 (coincidentally
     // unchanged from the pre-rebalance weights for this particular input)
     expect(result.score).toBe(91);
-    expect(result.verdict).toBe("Pass with caution");
+    expect(result.verdict).toBe(MOAT_NOT_RATED_VERDICT); // Moat unset outranks the caution flag
+    expect(computeOverallAssessment(steps, { moat: "wide_moat", score: 100 }).verdict).toBe("Pass with caution");
   });
 
   it("stays silent (no cautionSteps) when nothing passed with caution", () => {
     const result = computeOverallAssessment(BASE);
     expect(result.cautionSteps).toEqual([]);
-    expect(result.verdict).toBe("Strong Pass");
+    expect(computeOverallAssessment(BASE, { moat: "wide_moat", score: 100 }).verdict).toBe("Strong Pass");
   });
 
   it("caution propagation never overrides an already-failing blend", () => {
@@ -198,7 +209,7 @@ describe("computeOverallAssessment", () => {
     ];
     const result = computeOverallAssessment(steps);
     expect(result.score).toBe(70);
-    expect(result.verdict).toBe("Pass");
+    expect(result.verdict).toBe(MOAT_NOT_RATED_VERDICT); // a 70 steps-only blend is Pass-band; Moat unset
   });
 
   it("a score of 69 is Fail", () => {
@@ -232,7 +243,7 @@ describe("computeOverallAssessment with moat", () => {
   it("omitted moat is byte-identical to the pre-Moat behavior", () => {
     const result = computeOverallAssessment(STEPS_BLENDING_TO_90);
     expect(result.score).toBe(90);
-    expect(result.verdict).toBe("Pass"); // 90 is the Pass/Strong Pass boundary
+    expect(result.verdict).toBe(MOAT_NOT_RATED_VERDICT); // 90 is the Pass band, but Moat unset can never pass
     expect(result.breakdown.some((b) => b.key === "moat")).toBe(false);
   });
 
@@ -315,5 +326,42 @@ describe("computeOverallAssessment with moat", () => {
     const result = computeOverallAssessment(STEPS_BLENDING_TO_90, null, true);
     expect(result.status).toBe("loading");
     expect(result.score).toBeNull();
+  });
+});
+
+// The same cases backend/tests/test_moat_not_rated.py runs through scoring/overall.py: the two implementations of the
+// Overall verdict must agree on every one.
+interface SharedCase {
+  name: string;
+  steps: { key: StepSnapshot["key"]; score: number | null; verdict: string }[];
+  moat: MoatSnapshot | null;
+  expected: { status: string; score: number | null; verdict: string | null };
+}
+const SHARED_CASES: SharedCase[] = JSON.parse(
+  readFileSync(path.resolve(__dirname, "../../backend/tests/fixtures/overall_verdict_cases.json"), "utf-8"),
+).cases;
+
+describe("computeOverallAssessment: the cases shared with the backend", () => {
+  it.each(SHARED_CASES.map((c) => [c.name, c] as const))("%s", (_name, c) => {
+    const steps = c.steps.map((s) => snapshot(s.key, s.key, s.score, s.verdict));
+    const result = computeOverallAssessment(steps, c.moat);
+    expect({ status: result.status, score: result.score, verdict: result.verdict }).toEqual(c.expected);
+  });
+});
+
+describe("computeOverallAssessment: Moat not rated", () => {
+  it("carries the reason only for the moat_not_rated verdict", () => {
+    const unrated = computeOverallAssessment(BASE);
+    expect(unrated.verdict).toBe(MOAT_NOT_RATED_VERDICT);
+    expect(unrated.verdictReason).toBe(MOAT_NOT_RATED_REASON);
+    const rated = computeOverallAssessment(BASE, { moat: "wide_moat", score: 100 });
+    expect(rated.verdictReason).toBeNull();
+    const failing = computeOverallAssessment([snapshot("step1", "S1", 40, "Fail"), snapshot("step2", "S2", 40, "Fail"), snapshot("step4", "S4", 40, "Fail"), snapshot("step5", "S5", 40, "Fail")]);
+    expect(failing.verdict).toBe("Fail");
+    expect(failing.verdictReason).toBeNull();
+  });
+
+  it("a loading moat is still loading, not Moat not rated", () => {
+    expect(computeOverallAssessment(BASE, null, true).verdict).toBeNull();
   });
 });

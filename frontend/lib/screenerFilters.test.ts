@@ -101,6 +101,15 @@ describe("filterTickerScores", () => {
     expect(result.map((r) => r.ticker)).toEqual(["HIGH"]);
   });
 
+  it("an Overall range filter reads the steps-only score of a Moat not rated ticker, like any other score", () => {
+    const rows = [
+      row({ ticker: "UNRATED_HIGH", overall_score: 81, overall_verdict: "moat_not_rated" }),
+      row({ ticker: "UNRATED_LOW", overall_score: 55, overall_verdict: "Fail" }),
+    ];
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, overallScore: { min: 70, max: null } };
+    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["UNRATED_HIGH"]);
+  });
+
   it("excludes an Incomplete ticker (null overall_score) when an Overall range filter is active", () => {
     // The exact case the spec calls out: filtering "Overall score > 70"
     // must never treat a missing score as passing.
