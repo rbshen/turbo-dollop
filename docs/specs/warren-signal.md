@@ -267,7 +267,7 @@ reader. It is wired into `core/cron_health.py`'s `CRON_JOB_NAMES` / `_EXPECTED_C
   collapse to the first (mirroring BB+RSI's tie-break reasoning). `TickerChart.tsx` renders Warren's markers
   via a second `createSeriesMarkers` call on the same candle series, styled by a
   `kind -> {color, shape, position}` lookup (Blue/Yellow/Gray x Up/Down; Up arrows below the bar, Down arrows
-  above).
+  above). The arrows carry no text label on any range, and Yellow Up/Down are pure yellow `#FFFF00` (the `chart-warren-yellow` token; was amber `#F59E0B`): `docs/specs/chart-tab.md`, "Signal arrows".
 - **2H·90D Chart range (2026-10-02): computed on demand, not read from `WarrenSignalEvent`.** For any ticker the Chart tab
   replays the state machine over the same window as the nightly job (`today-729d`, 730 days of 60m bars resampled with the vectorised
   `build_2h_session_candles_fast`), drops the forming candle first, then slices the arrows to the last 90 days. Markers are **per candle**

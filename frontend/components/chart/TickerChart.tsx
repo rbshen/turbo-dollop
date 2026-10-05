@@ -6,20 +6,20 @@ import { fmtMoney } from "@/lib/format";
 import { buildDividendLabels, buildEarningsLabels, describeEventMarker, eventTooltipPlacement } from "@/lib/chartEventMarkers";
 import type { TooltipPlacement } from "@/lib/chartEventMarkers";
 import { EventLabelsPrimitive } from "./EventLabelsPrimitive";
-import { PaneMidLabelPrimitive } from "./PaneMidLabelPrimitive";
+import { LevelTagsPrimitive } from "./LevelTagsPrimitive";
 import { TooltipCard } from "@/components/ui/tooltip";
 import type { ChartOut } from "@/lib/api/types";
 import { buildStageColoredBars, WEINSTEIN_MA_COLOR } from "@/lib/chartWeinstein";
 import { readChartColors } from "@/lib/chartTokens";
 import { etIsoToFakeUtc, fakeUtcToEtIso, formatCandleLegendTime } from "@/lib/chartTime";
 import {
+  AXIS_TICK_MARK_DENSITY,
   axisLayout,
   DEFAULT_AXIS_OPTIONS,
   formatAxisPrice,
   overlapClearancePx,
   readMonoFontFamily,
   tickLabelsHidingOverlap,
-  tickMarkDensity,
 } from "@/lib/chartAxis";
 import type { AxisOptions } from "@/lib/chartAxis";
 import {
@@ -128,13 +128,13 @@ interface OhlcState {
   c: number;
 }
 
-function makeChartOptions(rightOffset: number, height: number, colors: ChartColors, intraday: boolean, axisOptions: AxisOptions) {
-  const axis = axisLayout(axisOptions, colors.textSecondary, readMonoFontFamily());
+function makeChartOptions(rightOffset: number, height: number, colors: ChartColors, intraday: boolean) {
+  const axis = axisLayout(readMonoFontFamily());
   return {
     layout: {
       background: { color: colors.page },
-      // Axis (price-scale/time-scale) label color, size (bumped from 11 to 12 for readability) and font, chart-wide.
-      // Exactly the original values unless an Axis option is on (lib/chartAxis.ts::axisLayout).
+      // Axis (price-scale/time-scale) label color, size and font, chart-wide: the permanent brighter color and
+      // monospace face, at the same 12 px (lib/chartAxis.ts::axisLayout).
       textColor: axis.textColor,
       fontSize: axis.fontSize,
       fontFamily: axis.fontFamily,
@@ -151,7 +151,8 @@ function makeChartOptions(rightOffset: number, height: number, colors: ChartColo
     // project's PositionChart.tsx.
     handleScroll: true,
     handleScale: false,
-    rightPriceScale: { borderColor: colors.borderCard, minimumWidth: PRICE_SCALE_MIN_WIDTH },
+    // tickMarkDensity is the permanent "fewer ticks" rule; every pane's price scale is created from these options.
+    rightPriceScale: { borderColor: colors.borderCard, minimumWidth: PRICE_SCALE_MIN_WIDTH, tickMarkDensity: AXIS_TICK_MARK_DENSITY },
     // shiftVisibleRangeOnNewBar defaults to true (a "streaming chart"
     // convenience: auto-scroll to keep showing rightOffset's margin ahead
     // of a genuinely new incoming bar). This chart never streams -- every
@@ -460,6 +461,10 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
   };
 }
 
+// Arrows only: the markers carry no `text`, so no label ("Blue Up", "BB+RSI", ...) is drawn next to an arrow. The
+// kind/label still travel in the response (the Technical tab and the Screener use them); the chart just does not print
+// them.
+//
 // Pure marker-array builders, shared between initial chart creation (addMainSeries above) and the toggle-driven
 // setMarkers() calls in the component itself (see the showBbRsi/showWarren effects) -- keeps both call sites
 // byte-identical instead of two hand-maintained copies of the same mapping.
@@ -470,7 +475,6 @@ function buildEntrySignalMarkers(data: ChartOut, color: string) {
     position: "belowBar" as const,
     color,
     shape: "arrowUp" as const,
-    text: marker.label,
     size: 1,
   }));
 }
@@ -485,7 +489,6 @@ function buildWarrenMarkers(data: ChartOut, colors: ChartColors) {
       position: style.position,
       color: style.color,
       shape: style.shape,
-      text: marker.label,
       size: 1,
     };
   });
@@ -570,7 +573,7 @@ function addRefLine(series: ISeriesApi<"Line">, price: number, color: string, op
   });
 }
 
-function addRsiSeries(chart: IChartApi, data: ChartOut, paneIndex: number, colors: ChartColors) {
+function addRsiSeries(chart: IChartApi, data: ChartOut, paneIndex: number, colors: ChartColors): AxisPane {
   const series = chart.addSeries(
     LineSeries,
     { color: colors.chartBand, lineWidth: 1, priceLineVisible: false, lastValueVisible: false },
@@ -591,9 +594,11 @@ function addRsiSeries(chart: IChartApi, data: ChartOut, paneIndex: number, color
   );
   addRefLine(series, RSI_OVERBOUGHT, colors.chartRefline);
   addRefLine(series, RSI_OVERSOLD, colors.chartRefline);
+  // Both lines carry an axis tag; they are the tags the axis options work around.
+  return { paneIndex, owner: series, tags: () => [RSI_OVERBOUGHT, RSI_OVERSOLD], format: "default" };
 }
 
-function addStochasticSeries(chart: IChartApi, data: ChartOut, paneIndex: number, colors: ChartColors) {
+function addStochasticSeries(chart: IChartApi, data: ChartOut, paneIndex: number, colors: ChartColors): AxisPane {
   const kSeries = chart.addSeries(
     LineSeries,
     { color: colors.chartStochK, lineWidth: 1, priceLineVisible: false, lastValueVisible: false },
@@ -608,17 +613,19 @@ function addStochasticSeries(chart: IChartApi, data: ChartOut, paneIndex: number
   dSeries.setData(data.stochastic.map((p) => ({ time: p.time, value: p.d })));
   addRefLine(kSeries, STOCH_OVERBOUGHT, colors.chartRefline);
   addRefLine(kSeries, STOCH_OVERSOLD, colors.chartRefline);
+  return { paneIndex, owner: kSeries, tags: () => [STOCH_OVERBOUGHT, STOCH_OVERSOLD], format: "default" };
 }
 
 // --- 2H·90D sub-panes: the Warren engine's own series (ChartOut.warren_*), never the daily rsi/stochastic fields ---
 //
-// Colors reuse the existing chart tokens (no new ones): RSI keeps the daily RSI pane's grey line with red beyond
-// 30/70; ADX is the blue (chart-ema21) line alone (+DI/-DI are not plotted); WVF the Warren amber
+// Colors reuse the existing chart tokens (no new ones): RSI keeps the daily RSI pane's grey, as ONE color on this range
+// (no red beyond 30/70); ADX is the blue (chart-ema21) line alone (+DI/-DI are not plotted); WVF the Warren yellow
 // (chart-warren-yellow). Reference lines are chart-refline, all dashed: the Warren-specific thresholds (RSI
-// 12/80.81/84.75, ADX 40, WVF 0.40); the classic RSI 30/70 lines are not drawn. Price-axis labels are drawn only where
-// they cannot collide (RSI 12, ADX 40, WVF 0.40) -- 80.81 and 84.75 sit about 3px apart on a 100px pane -- and the
-// pane's own label lists every drawn level instead. Each series' autoscale is widened to include its levels, so a line
-// is always inside the scale, and the pane keeps SUB_PANE_SCALE_MARGINS_2H of headroom at the top for its label.
+// 12/80.81/84.75, ADX 40, WVF 0.40); the classic RSI 30/70 lines are not drawn. Every dashed line has a price-axis tag.
+// RSI 80.81 and 84.75 are about 4px apart on a 100px pane, so their tags are drawn by LevelTagsPrimitive, which nudges
+// the pair apart only as far as needed; the pane's own label also lists every drawn level. Each series' autoscale is
+// widened to include its levels, so a line is always inside the scale, and the pane keeps SUB_PANE_SCALE_MARGINS_2H of
+// headroom at the top for its label.
 
 function addWarrenSubPane(chart: IChartApi, spec: PaneSpec, data: ChartOut, paneIndex: number, colors: ChartColors): AxisPane | null {
   const levels = data.warren_levels;
@@ -628,10 +635,6 @@ function addWarrenSubPane(chart: IChartApi, spec: PaneSpec, data: ChartOut, pane
   });
   let owner: ISeriesApi<SeriesType> | null = null;
   let tagPrices: number[] = [];
-  // Every dotted reference line with the axis tag it is drawn with, so "Clean sub-pane axes" can remove and restore the tags.
-  const refLines: RefLineTag[] = [];
-  const addLevel = (series: ISeriesApi<"Line">, level: number, axisLabel: boolean) =>
-    refLines.push({ line: addRefLine(series, level, colors.chartRefline, { dashed: true, axisLabel }), axisLabel });
 
   if (spec.id === "warren-rsi") {
     // The classic 30/70 lines are not drawn (drawnRsiLevels). The line is one color: no red beyond 30/70 on this range
@@ -639,69 +642,71 @@ function addWarrenSubPane(chart: IChartApi, spec: PaneSpec, data: ChartOut, pane
     const rsiLevels = drawnRsiLevels(levels?.rsi ?? []);
     const series = chart.addSeries(LineSeries, { color: colors.chartBand, ...lineOpts, ...withLevels(rsiLevels, { min: 0, max: 100 }) }, paneIndex);
     series.setData(retime(data.warren_rsi, data) as { time: Time; value: number }[]);
-    for (const level of rsiLevels) addLevel(series, level, level === 12);
+    // Levels that sit within a tag's height of another one (80.81 / 84.75) get their tag from LevelTagsPrimitive so the
+    // pair can be nudged apart; the line is drawn here without a tag. Every other level uses the library's own tag.
+    const crowded = rsiLevels.filter((level) => rsiLevels.some((other) => other !== level && Math.abs(other - level) < CROWDED_LEVEL_GAP));
+    for (const level of rsiLevels) addRefLine(series, level, colors.chartRefline, { dashed: true, axisLabel: !crowded.includes(level) });
+    if (crowded.length > 0) {
+      series.attachPrimitive(
+        new LevelTagsPrimitive(
+          crowded.map((price) => ({ price, backColor: colors.chartRefline, textColor: "#ffffff" })),
+          () => chart.options().layout.fontSize
+        )
+      );
+    }
     owner = series;
-    tagPrices = rsiLevels.filter((level) => level === 12);
+    tagPrices = rsiLevels;
   } else if (spec.id === "warren-adx") {
     // The ADX line only: +DI/-DI are not plotted.
     const adxLevels = levels?.adx ?? [];
     const adx = chart.addSeries(LineSeries, { color: colors.chartEma21, ...lineOpts, ...withLevels(adxLevels) }, paneIndex);
     adx.setData(retime(data.warren_adx, data) as { time: Time; value: number }[]);
-    for (const level of adxLevels) addLevel(adx, level, true);
+    for (const level of adxLevels) addRefLine(adx, level, colors.chartRefline, { dashed: true });
     owner = adx;
     tagPrices = adxLevels;
   } else if (spec.id === "warren-wvf") {
     const wvfLevels = levels?.wvf ?? [];
     const series = chart.addSeries(LineSeries, { color: colors.chartWarrenYellow, ...lineOpts, ...withLevels(wvfLevels) }, paneIndex);
     series.setData(retime(data.warren_wvf, data) as { time: Time; value: number }[]);
-    for (const level of wvfLevels) addLevel(series, level, true);
+    for (const level of wvfLevels) addRefLine(series, level, colors.chartRefline, { dashed: true });
     owner = series;
     tagPrices = wvfLevels;
   }
   // After the pane's series exist: addSeries(..., paneIndex) is what creates the pane, and the library rejects
   // price-scale options for a pane that does not exist yet. The margins reserve top headroom for the pane label.
   chart.priceScale("right", paneIndex).applyOptions({ scaleMargins: SUB_PANE_SCALE_MARGINS_2H });
-  // The axis options (lib/chartAxis.ts) act on this pane's price scale; its drawn axis tags are the reference lines
-  // added with axisLabel above (every level except RSI's 80.81/84.75, which sit too close to label).
-  return owner ? { paneIndex, owner, tags: () => tagPrices, format: "default", subPane: true, refLines, midLabel: null } : null;
+  // The hide-overlap option (lib/chartAxis.ts) acts on this pane's price scale; its axis tags are the reference lines
+  // added above (the crowded RSI pair is tagged by the primitive, at its lines' true prices for this test).
+  return owner ? { paneIndex, owner, tags: () => tagPrices, format: "default" } : null;
 }
 
-// Returns the pane's AxisPane when the axis options reach it. Only the 2H Warren panes are wired so far; the daily /
-// weekly RSI and Stochastic panes return null (their axes are never touched).
+// Every sub-pane (daily RSI / Stochastic, 2H Warren RSI / ADX / WVF) returns its AxisPane, which registers its price
+// scale with the axis options.
 function addSubPane(chart: IChartApi, spec: PaneSpec, data: ChartOut, paneIndex: number, colors: ChartColors): AxisPane | null {
-  if (spec.id === "rsi") addRsiSeries(chart, data, paneIndex, colors);
-  else if (spec.id === "stochastic") addStochasticSeries(chart, data, paneIndex, colors);
-  else return addWarrenSubPane(chart, spec, data, paneIndex, colors);
-  return null;
+  if (spec.id === "rsi") return addRsiSeries(chart, data, paneIndex, colors);
+  if (spec.id === "stochastic") return addStochasticSeries(chart, data, paneIndex, colors);
+  return addWarrenSubPane(chart, spec, data, paneIndex, colors);
 }
+
+// Two reference levels closer than this (price units) share a crowded tag pair. Only the RSI 80.81 / 84.75 pair is.
+const CROWDED_LEVEL_GAP = 5;
 
 // --- Axis options (lib/chartAxis.ts) ---------------------------------------------------------------------------
 //
-// One dotted reference line and whether it is drawn with an axis tag when the pane is not cleaned.
-interface RefLineTag {
-  line: IPriceLine;
-  axisLabel: boolean;
-}
-
-// How a pane's tick labels are formatted: the library default, with overlapping labels blanked, or all blank (the clean
-// sub-pane axis, whose only label is the middle one).
-type FormatMode = "default" | "overlap" | "blank";
-
-// One AxisPane per price scale the options act on. `owner` is the pane's first series: lightweight-charts formats a
-// scale's tick labels with its lowest-z-order series' priceFormat, so that series carries the overlap/blank formatter.
-// `tags()` are the prices of the axis tags drawn on that scale right now.
+// One AxisPane per price scale the hide-overlap toggle acts on (the price pane and every sub-pane). `owner` is the
+// pane's first series: lightweight-charts formats a scale's tick labels with its lowest-z-order series' priceFormat,
+// so that series carries the overlap-hiding formatter. `tags()` are the prices of the axis tags drawn on that scale
+// right now. The permanent settings (brighter, fewer ticks, tabular) are chart options, not part of this list.
 interface AxisPane {
   paneIndex: number;
   owner: ISeriesApi<SeriesType>;
   tags: () => number[];
-  /** The priceFormat currently installed on `owner`, so turning an option off restores the library default. */
+  /** The priceFormat currently installed on `owner`, so turning hide-overlap off restores the library default. */
   format: FormatMode;
-  /** A Warren sub-pane: the only kind "Clean sub-pane axes" acts on. */
-  subPane: boolean;
-  refLines: RefLineTag[];
-  /** The clean axis' middle label while attached (null otherwise). */
-  midLabel: PaneMidLabelPrimitive | null;
 }
+
+// How a pane's tick labels are formatted: the library default, or with overlapping labels blanked.
+type FormatMode = "default" | "overlap";
 
 // The library's own default series priceFormat, restored when overlap hiding goes off.
 const DEFAULT_PRICE_FORMAT = { type: "price" as const, precision: 2, minMove: 0.01 };
@@ -712,54 +717,28 @@ function installPriceFormat(chart: IChartApi, pane: AxisPane, mode: FormatMode) 
     pane.format = "default";
     return;
   }
-  // Same two-decimal text as the default format (formatAxisPrice). "overlap" additionally blanks any tick whose y is
-  // within the tag clearance of a drawn tag (y from the live scale, priceToCoordinate, so it is the pixel position the
-  // labels are drawn at); "blank" blanks every tick.
+  // Same two-decimal text as the default format (formatAxisPrice), additionally blanking any tick whose y is within the
+  // tag clearance of a drawn tag (y from the live scale, priceToCoordinate, so it is the pixel position the labels are
+  // drawn at).
   pane.owner.applyOptions({
     priceFormat: {
       type: "custom",
       minMove: 0.01,
       formatter: formatAxisPrice,
       tickmarksFormatter: (prices: BarPrice[]) =>
-        mode === "blank"
-          ? prices.map(() => "")
-          : tickLabelsHidingOverlap(
-              prices as number[],
-              (price) => pane.owner.priceToCoordinate(price),
-              pane.tags(),
-              overlapClearancePx(chart.options().layout.fontSize)
-            ),
+        tickLabelsHidingOverlap(
+          prices as number[],
+          (price) => pane.owner.priceToCoordinate(price),
+          pane.tags(),
+          overlapClearancePx(chart.options().layout.fontSize)
+        ),
     },
   });
   pane.format = mode;
 }
 
-// "Clean sub-pane axes": the dotted reference lines lose their axis tags (the lines stay), and one label is drawn at the
-// pane's middle instead of the regular ticks (those are blanked by the "blank" format mode). Off restores each tag.
-function setCleanSubPane(chart: IChartApi, pane: AxisPane, clean: boolean, pageColor: string) {
-  for (const { line, axisLabel } of pane.refLines) line.applyOptions({ axisLabelVisible: clean ? false : axisLabel });
-  if (clean && !pane.midLabel) {
-    pane.midLabel = new PaneMidLabelPrimitive(
-      () => chart.options().layout.textColor,
-      () => pageColor
-    );
-    pane.owner.attachPrimitive(pane.midLabel);
-  } else if (!clean && pane.midLabel) {
-    pane.owner.detachPrimitive(pane.midLabel);
-    pane.midLabel = null;
-  }
-}
-
-function applyAxisOptions(chart: IChartApi, panes: AxisPane[], options: AxisOptions, baseTextColor: string, pageColor: string) {
-  // Layout first: the price-scale applyOptions below is what invalidates each scale's cached tick marks, so they
-  // are rebuilt with the new font.
-  chart.applyOptions({ layout: axisLayout(options, baseTextColor, readMonoFontFamily()) });
-  for (const pane of panes) {
-    const clean = pane.subPane && options.cleanSubPanes;
-    chart.priceScale("right", pane.paneIndex).applyOptions({ tickMarkDensity: tickMarkDensity(options) });
-    installPriceFormat(chart, pane, clean ? "blank" : options.hideOverlap ? "overlap" : "default");
-    if (pane.subPane) setCleanSubPane(chart, pane, clean, pageColor);
-  }
+function applyAxisOptions(chart: IChartApi, panes: AxisPane[], options: AxisOptions) {
+  for (const pane of panes) installPriceFormat(chart, pane, options.hideOverlap ? "overlap" : "default");
 }
 
 export interface ZoomBounds {
@@ -782,8 +761,7 @@ interface Props extends OverlayVisibility {
   // since the only cross-component need is "step the index" / "know the bounds."
   zoomIndex: number;
   onZoomBoundsChange: (bounds: ZoomBounds) => void;
-  /** Axis readability options (lib/chartAxis.ts), already narrowed to the current range by the caller. Omitted = all
-   * off = the axes exactly as they have always been drawn. */
+  /** The Axis dropdown's toggle (lib/chartAxis.ts). Omitted = off. */
   axisOptions?: AxisOptions;
 }
 
@@ -895,7 +873,7 @@ export function TickerChart({
     const colors = readChartColors();
     colorsRef.current = colors;
 
-    const chart = createChart(containerRef.current, makeChartOptions(rightOffset, totalHeight, colors, intraday, axisOptions));
+    const chart = createChart(containerRef.current, makeChartOptions(rightOffset, totalHeight, colors, intraday));
 
     const {
       candle,
@@ -943,15 +921,17 @@ export function TickerChart({
     candleSeriesRef.current = candle;
     const subPaneAxes = paneSpecs.map((spec, i) => addSubPane(chart, spec, data, i + 1, colors));
 
-    // Axis options: the price scales they act on. Only the 2H range's panes are listed with options on, but the main
-    // pane is always registered so the same list serves every range once its sub-panes are wired (lib/chartAxis.ts).
-    const barIndexByTime = new Map(retime(data.bars, data).map((b, i) => [b.time as string | number, i]));
+    // Axis options: the price scales the hide-overlap toggle acts on -- the price pane and every sub-pane.
+    const barTimes = retime(data.bars, data).map((b) => b.time as string | number);
+    const barIndexByTime = new Map(barTimes.map((t, i) => [t, i]));
+    const stageMaByTime = new Map(retime(data.weinstein_ma ?? [], data).map((p) => [p.time as string | number, p.value]));
     axisPanesRef.current = [
       {
         paneIndex: 0,
         owner: candle,
-        // The tags on the price axis: the last visible bar's close (the candle series' last-value label) and each
-        // visible LP zone's level whose line has started by the last visible bar.
+        // The tags on the price axis: the last visible bar's close (the candle series' last-value label), each visible
+        // LP zone's level whose line has started by the last visible bar, and (W/4Y, while shown) the Weinstein MA's
+        // value at the last visible bar (its last-value label).
         tags: () => {
           const lastBar = data.bars.length - 1;
           if (lastBar < 0) return [];
@@ -963,12 +943,18 @@ export function TickerChart({
             const start = barIndexByTime.get(zone.points[0].time as string | number) ?? 0;
             if (start <= lastVisible) prices.push(zone.price);
           }
+          if (stageMaSeries?.options().visible) {
+            for (let k = lastVisible; k >= 0; k--) {
+              const ma = stageMaByTime.get(barTimes[k]);
+              if (ma !== undefined) {
+                prices.push(ma);
+                break;
+              }
+            }
+          }
           return prices;
         },
         format: "default",
-        subPane: false,
-        refLines: [],
-        midLabel: null,
       },
       ...subPaneAxes.filter((pane): pane is AxisPane => pane !== null),
     ];
@@ -1256,15 +1242,15 @@ export function TickerChart({
     candle.setData(buildStageColoredBars(data.bars, data.weinstein_stages, stagePalette));
   }, [showStage, data]);
 
-  // Axis options: applied to the live chart on a change, never recreating it. After the LP visibility effects above
-  // because the overlap test reads which LP lines are visible. Also runs once after creation, where all-off is a no-op.
+  // Hide-overlap toggle: applied to the live chart on a change, never recreating it. After the LP and Stage visibility
+  // effects above because the overlap test reads which of those lines are visible. Also runs once after creation, where
+  // off is a no-op.
   useEffect(() => {
     const chart = chartStateRef.current?.chart;
-    const colors = colorsRef.current;
-    if (!chart || !colors) return;
+    if (!chart) return;
     axisHideOverlapRef.current = axisOptions.hideOverlap;
-    applyAxisOptions(chart, axisPanesRef.current, axisOptions, colors.textSecondary, colors.page);
-  }, [data, axisOptions, showLpSupport, showLpResistance]);
+    applyAxisOptions(chart, axisPanesRef.current, axisOptions);
+  }, [data, axisOptions, showLpSupport, showLpResistance, showStage]);
 
   // Derived at render time from current props (see hoveredEvent's comment above).
   const eventTooltip = hoveredEvent

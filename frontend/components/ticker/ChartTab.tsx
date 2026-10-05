@@ -12,7 +12,7 @@ import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
 import type { ChartRange } from "@/lib/api/types";
 import { DEFAULT_SIGNAL_TOGGLES, effectiveToggles, INTRADAY_CHART_RANGE, visibleToggleOptions } from "@/lib/chartToggles";
 import type { SignalToggles } from "@/lib/chartToggles";
-import { axisOptionsOffered, DEFAULT_AXIS_OPTIONS, effectiveAxisOptions, loadAxisOptions, saveAxisOptions } from "@/lib/chartAxis";
+import { DEFAULT_AXIS_OPTIONS, loadAxisOptions, saveAxisOptions } from "@/lib/chartAxis";
 import type { AxisOptions } from "@/lib/chartAxis";
 
 interface Props {
@@ -98,9 +98,9 @@ export function ChartTab({ ticker, isEtf }: Props) {
     setToggleState({ loaded: true, toggles: loadSignalToggles() });
   }
   const signalToggles = toggleState.toggles;
-  // Axis readability options (lib/chartAxis.ts): all off by default, kept for the browser session only (sessionStorage,
-  // loaded during render like the toggles above), and only handed to a range that offers them -- every other range is
-  // told all-off.
+  // The Axis dropdown's one toggle (lib/chartAxis.ts, hide overlapping labels): off by default, kept for the browser
+  // session only (sessionStorage, loaded during render like the toggles above), offered on every range. The other
+  // axis settings are permanent and live in the chart itself.
   const [axisState, setAxisState] = useState<{ loaded: boolean; options: AxisOptions }>({ loaded: false, options: DEFAULT_AXIS_OPTIONS });
   if (!axisState.loaded) {
     setAxisState({ loaded: true, options: loadAxisOptions() });
@@ -175,9 +175,7 @@ export function ChartTab({ ticker, isEtf }: Props) {
           ))}
         </div>
         <div className="flex items-center gap-1">
-          {axisOptionsOffered(range) && (
-            <ChartAxisMenu options={axisOptions} onChange={handleAxisChange} />
-          )}
+          <ChartAxisMenu options={axisOptions} onChange={handleAxisChange} />
           <Button variant="outline" size="sm" onClick={() => setZoomIndex((i) => Math.max(0, i - 1))} disabled={!chartShown || !zoomBounds.canZoomOut}>
             Zoom out
           </Button>
@@ -218,7 +216,7 @@ export function ChartTab({ ticker, isEtf }: Props) {
           showSma50={shown.sma50}
           showSma200={shown.sma200}
           showStage={shown.stage}
-          axisOptions={effectiveAxisOptions(axisOptions, range)}
+          axisOptions={axisOptions}
           zoomIndex={zoomIndex}
           onZoomBoundsChange={handleZoomBoundsChange}
         />

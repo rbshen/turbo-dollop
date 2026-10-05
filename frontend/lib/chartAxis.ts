@@ -1,43 +1,23 @@
-import type { ChartRange } from "@/lib/api/types";
-
-// Shared Chart-tab axis readability options. Four independent toggles, all off by default; with all four off the
-// axes are exactly what the chart drew before they existed (every function below returns the original value then).
-// Browser-session state only (sessionStorage; no DB, no localStorage), so they survive a tab or ticker change while
-// comparing but are off again in a new session.
+// Chart-tab axis readability, shared by every range.
 //
-// The options are chart-level config, not 2H-specific: TickerChart applies them to every price scale it was told
-// about (see the AxisPane list in TickerChart.tsx). Which ranges offer the dropdown at all is AXIS_OPTION_RANGES --
-// extending the toggles to another range is adding it there (and, for the daily/weekly ranges, handing their RSI /
-// Stochastic sub-panes to the same AxisPane list; docs/specs/chart-tab.md, "Axis options").
+// Three settings are PERMANENT on every chart (price pane and every sub-pane), with no toggle:
+//   - Brighter: the axis label color is AXIS_TEXT_COLOR (the size is untouched, 12 px);
+//   - Fewer ticks: every price scale uses AXIS_TICK_MARK_DENSITY (twice the library's minimum label spacing);
+//   - Tabular numerals: the axis font is the page's concrete monospace family (equal-width digits).
+// One option stays a toggle, default off, in the Chart toolbar's "Axis" dropdown so it can be compared before/after:
+//   - Hide overlapping labels: blank any regular tick label that would overlap a price tag.
+// The toggle is browser-session state only (sessionStorage; no DB, no localStorage).
 
 export interface AxisOptions {
-  /** Hide any regular tick label that would overlap a price tag (current price, LP levels, a sub-pane's level tag). */
+  /** Hide any regular tick label that would overlap a price tag (current price, LP levels, the Weinstein MA, a sub-pane's level tags). */
   hideOverlap: boolean;
-  /** Brighter axis label color (the size is not changed). */
-  brighter: boolean;
-  /** Lower tick density: about twice the spacing between price tick labels. */
-  fewerTicks: boolean;
-  /** Monospace (equal-width) digits so the numbers line up. */
-  tabular: boolean;
-  /** Warren sub-panes only: no axis tags for the dotted reference lines, and one tick label at the pane's middle. */
-  cleanSubPanes: boolean;
 }
 
 export const DEFAULT_AXIS_OPTIONS: AxisOptions = {
   hideOverlap: false,
-  brighter: false,
-  fewerTicks: false,
-  tabular: false,
-  cleanSubPanes: false,
 };
 
-export const AXIS_OPTION_ITEMS: { key: keyof AxisOptions; label: string }[] = [
-  { key: "hideOverlap", label: "Hide overlapping labels" },
-  { key: "brighter", label: "Brighter" },
-  { key: "fewerTicks", label: "Fewer ticks" },
-  { key: "tabular", label: "Tabular numerals" },
-  { key: "cleanSubPanes", label: "Clean sub-pane axes" },
-];
+export const AXIS_OPTION_ITEMS: { key: keyof AxisOptions; label: string }[] = [{ key: "hideOverlap", label: "Hide overlapping labels" }];
 
 const AXIS_STORAGE_KEY = "fathom-chart-axis-options";
 
@@ -47,11 +27,8 @@ export function loadAxisOptions(): AxisOptions {
     const raw = window.sessionStorage.getItem(AXIS_STORAGE_KEY);
     if (!raw) return DEFAULT_AXIS_OPTIONS;
     const parsed = JSON.parse(raw);
-    const result = { ...DEFAULT_AXIS_OPTIONS };
-    for (const key of Object.keys(result) as (keyof AxisOptions)[]) {
-      if (typeof parsed?.[key] === "boolean") result[key] = parsed[key];
-    }
-    return result;
+    // Only the known keys are read: entries saved when there were five options carry extra fields, which are ignored.
+    return { hideOverlap: parsed?.hideOverlap === true };
   } catch {
     return DEFAULT_AXIS_OPTIONS;
   }
@@ -65,31 +42,17 @@ export function saveAxisOptions(options: AxisOptions) {
   }
 }
 
-/** Ranges that offer the Axis dropdown. Anything else is told DEFAULT_AXIS_OPTIONS, i.e. behaves as it always did. */
-export const AXIS_OPTION_RANGES: ReadonlySet<ChartRange> = new Set<ChartRange>(["2H_90D"]);
-
-export function axisOptionsOffered(range: ChartRange): boolean {
-  return AXIS_OPTION_RANGES.has(range);
-}
-
-/** What the chart is told: the user's choices on a range that offers them, all off on every other range. */
-export function effectiveAxisOptions(options: AxisOptions, range: ChartRange): AxisOptions {
-  return axisOptionsOffered(range) ? options : DEFAULT_AXIS_OPTIONS;
-}
-
-// --- Font and color (chart-wide: lightweight-charts has one `layout` for every price scale AND the time axis) ---
+// --- Permanent layout ---------------------------------------------------------------------------------------------
 
 export const AXIS_FONT_SIZE = 12;
 /** The design system's text-primary (oklch(93% 0.006 260)) as the plain hex Tailwind's fallback declaration carries;
  * a literal for the same reason the other chrome colors are (lib/chartTokens.ts: lab() is not parseable). */
-export const AXIS_TEXT_BRIGHTER = "#e5e8ec";
-/** The chart's original axis font stack (what the chart has always been created with). */
-export const AXIS_FONT_FAMILY = "var(--font-mono), ui-monospace, monospace";
+export const AXIS_TEXT_COLOR = "#e5e8ec";
 const MONO_FALLBACK = "ui-monospace, monospace";
 
 /** The page's concrete monospace family (the next/font `--font-mono` value), e.g. `'IBM Plex Mono', 'IBM Plex Mono
- * Fallback'`. A canvas `ctx.font` cannot resolve `var(...)`, so the tabular option names the family itself. Client
- * only (reads `document`); empty-safe where it can't resolve. */
+ * Fallback'`. A canvas `ctx.font` cannot resolve `var(...)`, so the axis font names the family itself. Client only
+ * (reads `document`); falls back to the generic monospace stack where it can't resolve. */
 export function readMonoFontFamily(): string {
   if (typeof document === "undefined") return MONO_FALLBACK;
   const resolved = getComputedStyle(document.documentElement).getPropertyValue("--font-mono").trim();
@@ -102,12 +65,8 @@ export interface AxisLayout {
   fontFamily: string;
 }
 
-export function axisLayout(options: AxisOptions, baseTextColor: string, monoFamily: string): AxisLayout {
-  return {
-    textColor: options.brighter ? AXIS_TEXT_BRIGHTER : baseTextColor,
-    fontSize: AXIS_FONT_SIZE,
-    fontFamily: options.tabular ? monoFamily : AXIS_FONT_FAMILY,
-  };
+export function axisLayout(monoFamily: string): AxisLayout {
+  return { textColor: AXIS_TEXT_COLOR, fontSize: AXIS_FONT_SIZE, fontFamily: monoFamily };
 }
 
 // --- Tick density -----------------------------------------------------------------------------------------------
@@ -118,10 +77,7 @@ export const BASE_TICK_MARK_DENSITY = 2.5;
  * price step to a 1/2/2.5/5/10 ladder, so doubling the pixel spacing takes a $5 step to $10 (and $0.50 to $1) at
  * any price level, rather than hardcoding a price step. */
 export const FEWER_TICKS_FACTOR = 2;
-
-export function tickMarkDensity(options: AxisOptions): number {
-  return options.fewerTicks ? BASE_TICK_MARK_DENSITY * FEWER_TICKS_FACTOR : BASE_TICK_MARK_DENSITY;
-}
+export const AXIS_TICK_MARK_DENSITY = BASE_TICK_MARK_DENSITY * FEWER_TICKS_FACTOR;
 
 // --- Overlap ------------------------------------------------------------------------------------------------------
 
@@ -152,4 +108,45 @@ export function tickLabelsHidingOverlap(
   const tagYs = tagPrices.map(yOf).filter((y): y is number => y !== null);
   const hide = overlappingTicks(prices.map(yOf), tagYs, clearance);
   return prices.map((p, i) => (hide[i] ? "" : formatAxisPrice(p)));
+}
+
+// --- Close axis tags: nudging -------------------------------------------------------------------------------------
+
+/** Height of a price-axis tag in px: the font plus the library's vertical padding (2.5 px each side at 12 px). */
+export function axisTagHeightPx(fontSize: number): number {
+  return Math.ceil(fontSize + (2 * 2.5 * fontSize) / 12);
+}
+
+/** Tag y positions pushed apart just enough that no two tags (each `height` px tall) overlap. A pair closer than
+ * `height` is separated symmetrically: the upper tag moves up and the lower tag down by half the shortfall each, the
+ * minimum total movement. Tags already clear of each other do not move. Results keep the input order (and so each tag
+ * stays tied to its own line); null stays null. The result is clamped to [min, max] so a tag never leaves the pane. */
+export function nudgeTagYs(ys: (number | null)[], height: number, min: number, max: number): (number | null)[] {
+  const order = ys
+    .map((y, i) => ({ y, i }))
+    .filter((e): e is { y: number; i: number } => e.y !== null)
+    .sort((a, b) => a.y - b.y);
+  const pos = order.map((e) => e.y);
+  for (let pass = 0; pass < pos.length * 2; pass++) {
+    let moved = false;
+    for (let k = 1; k < pos.length; k++) {
+      const gap = pos[k] - pos[k - 1];
+      if (gap < height - 1e-9) {
+        const half = (height - gap) / 2;
+        pos[k - 1] -= half;
+        pos[k] += half;
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  // Keep inside the pane, then restore spacing against the pane edge (top-down, then bottom-up).
+  for (let k = 0; k < pos.length; k++) pos[k] = Math.min(max, Math.max(min, pos[k]));
+  for (let k = 1; k < pos.length; k++) pos[k] = Math.max(pos[k], pos[k - 1] + height);
+  for (let k = pos.length - 2; k >= 0; k--) pos[k] = Math.min(pos[k], pos[k + 1] - height);
+  const out: (number | null)[] = ys.map(() => null);
+  order.forEach((e, k) => {
+    out[e.i] = pos[k];
+  });
+  return out;
 }

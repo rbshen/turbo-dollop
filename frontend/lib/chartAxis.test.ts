@@ -2,78 +2,41 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  AXIS_FONT_FAMILY,
   AXIS_FONT_SIZE,
-  AXIS_TEXT_BRIGHTER,
   AXIS_OPTION_ITEMS,
+  AXIS_TEXT_COLOR,
+  AXIS_TICK_MARK_DENSITY,
   axisLayout,
-  axisOptionsOffered,
+  axisTagHeightPx,
   BASE_TICK_MARK_DENSITY,
   DEFAULT_AXIS_OPTIONS,
-  effectiveAxisOptions,
   FEWER_TICKS_FACTOR,
   formatAxisPrice,
   loadAxisOptions,
+  nudgeTagYs,
   overlapClearancePx,
   overlappingTicks,
   saveAxisOptions,
   tickLabelsHidingOverlap,
-  tickMarkDensity,
 } from "@/lib/chartAxis";
 
-const ON = { hideOverlap: true, brighter: true, fewerTicks: true, tabular: true, cleanSubPanes: true };
-
-describe("axis options: defaults and ranges", () => {
-  it("every option is off by default", () => {
-    expect(Object.values(DEFAULT_AXIS_OPTIONS)).toEqual([false, false, false, false, false]);
-  });
-
-  it("only 2H·90D offers them; every other range is told all-off whatever the user chose", () => {
-    expect(axisOptionsOffered("2H_90D")).toBe(true);
-    for (const r of ["D_6M", "D_1Y", "D_2Y", "W_4Y"] as const) {
-      expect(axisOptionsOffered(r)).toBe(false);
-      expect(effectiveAxisOptions(ON, r)).toBe(DEFAULT_AXIS_OPTIONS);
-    }
-    expect(effectiveAxisOptions(ON, "2H_90D")).toBe(ON);
+describe("the one toggle", () => {
+  it("is 'Hide overlapping labels', off by default, and the only item in the dropdown", () => {
+    expect(DEFAULT_AXIS_OPTIONS).toEqual({ hideOverlap: false });
+    expect(AXIS_OPTION_ITEMS).toEqual([{ key: "hideOverlap", label: "Hide overlapping labels" }]);
   });
 });
 
-describe("axisLayout / tickMarkDensity", () => {
-  it("all off = the chart's original axis color, size and font", () => {
-    expect(axisLayout(DEFAULT_AXIS_OPTIONS, "#9499a0", "Mono, monospace")).toEqual({
-      textColor: "#9499a0",
-      fontSize: 12,
-      fontFamily: "var(--font-mono), ui-monospace, monospace",
-    });
-    expect(tickMarkDensity(DEFAULT_AXIS_OPTIONS)).toBe(BASE_TICK_MARK_DENSITY);
+describe("the permanent settings", () => {
+  it("brighter is a color only: #e5e8ec at the unchanged 12 px, in the given monospace family", () => {
+    expect(AXIS_TEXT_COLOR).toBe("#e5e8ec");
+    expect(axisLayout("Mono, monospace")).toEqual({ textColor: "#e5e8ec", fontSize: 12, fontFamily: "Mono, monospace" });
+    expect(AXIS_FONT_SIZE).toBe(12);
   });
 
-  it("brighter changes the color only (never the size); tabular changes the font only", () => {
-    expect(AXIS_TEXT_BRIGHTER).toBe("#e5e8ec");
-    expect(axisLayout({ ...DEFAULT_AXIS_OPTIONS, brighter: true }, "#9499a0", "Mono")).toEqual({
-      textColor: AXIS_TEXT_BRIGHTER,
-      fontSize: AXIS_FONT_SIZE,
-      fontFamily: AXIS_FONT_FAMILY,
-    });
-    expect(axisLayout(ON, "#9499a0", "Mono").fontSize).toBe(AXIS_FONT_SIZE);
-    expect(axisLayout({ ...DEFAULT_AXIS_OPTIONS, tabular: true }, "#9499a0", "Mono")).toEqual({
-      textColor: "#9499a0",
-      fontSize: 12,
-      fontFamily: "Mono",
-    });
-  });
-
-  it("fewer ticks multiplies the minimum label spacing (a rule, not a price step)", () => {
-    expect(tickMarkDensity({ ...DEFAULT_AXIS_OPTIONS, fewerTicks: true })).toBe(BASE_TICK_MARK_DENSITY * FEWER_TICKS_FACTOR);
-  });
-});
-
-describe("clean sub-pane axes option", () => {
-  it("is the fifth item, labelled as in the dropdown, and only changes the sub-panes (no layout or density effect)", () => {
-    expect(AXIS_OPTION_ITEMS.map((i) => i.label)).toEqual(["Hide overlapping labels", "Brighter", "Fewer ticks", "Tabular numerals", "Clean sub-pane axes"]);
-    const clean = { ...DEFAULT_AXIS_OPTIONS, cleanSubPanes: true };
-    expect(axisLayout(clean, "#9499a0", "Mono")).toEqual(axisLayout(DEFAULT_AXIS_OPTIONS, "#9499a0", "Mono"));
-    expect(tickMarkDensity(clean)).toBe(BASE_TICK_MARK_DENSITY);
+  it("fewer ticks is a density rule: twice the library's minimum label spacing", () => {
+    expect(AXIS_TICK_MARK_DENSITY).toBe(BASE_TICK_MARK_DENSITY * FEWER_TICKS_FACTOR);
+    expect(AXIS_TICK_MARK_DENSITY).toBe(5);
   });
 });
 
@@ -101,17 +64,52 @@ describe("overlap hiding", () => {
   });
 });
 
+describe("nudging close axis tags", () => {
+  const H = axisTagHeightPx(12);
+
+  it("a tag is 17 px tall at 12 px (font plus the library's padding)", () => {
+    expect(H).toBe(17);
+    expect(axisTagHeightPx(14)).toBeGreaterThan(H);
+  });
+
+  it("separates a colliding pair symmetrically: upper tag up, lower tag down, half the shortfall each", () => {
+    // RSI 84.75 (upper, y 30) and 80.81 (lower, y 34), 4 px apart; input order is [80.81, 84.75].
+    const out = nudgeTagYs([34, 30], H, 8.5, 91.5);
+    expect(out[1]).toBeCloseTo(30 - 6.5); // 84.75: up
+    expect(out[0]).toBeCloseTo(34 + 6.5); // 80.81: down
+    expect(out[0]! - out[1]!).toBeCloseTo(H); // exactly one tag height apart: the minimum
+  });
+
+  it("leaves tags that already clear each other exactly where they are", () => {
+    expect(nudgeTagYs([20, 20 + H, 90], H, 8.5, 91.5)).toEqual([20, 20 + H, 90]);
+    expect(nudgeTagYs([50], H, 8.5, 91.5)).toEqual([50]);
+  });
+
+  it("keeps each tag's own slot (input order), passes null through, and stays inside the pane", () => {
+    expect(nudgeTagYs([null, 40, 41], H, 8.5, 91.5).map((y) => y === null)).toEqual([true, false, false]);
+    const top = nudgeTagYs([10, 9], H, 8.5, 91.5); // would be pushed above the pane top
+    expect(Math.min(...(top as number[]))).toBeGreaterThanOrEqual(8.5);
+    expect(top[1]!).toBeLessThan(top[0]!); // the tag of the higher line (smaller y) stays above
+    expect(top[0]! - top[1]!).toBeGreaterThanOrEqual(H - 1e-9);
+  });
+});
+
 describe("session persistence", () => {
   afterEach(() => window.sessionStorage.clear());
 
-  it("round-trips through sessionStorage and falls back to all-off on junk", () => {
+  it("round-trips through sessionStorage and falls back to off on junk", () => {
     expect(loadAxisOptions()).toEqual(DEFAULT_AXIS_OPTIONS);
-    saveAxisOptions({ ...DEFAULT_AXIS_OPTIONS, fewerTicks: true });
-    expect(loadAxisOptions()).toEqual({ ...DEFAULT_AXIS_OPTIONS, fewerTicks: true });
-    // An entry saved before the fifth option existed loads with it off.
-    window.sessionStorage.setItem("fathom-chart-axis-options", JSON.stringify({ hideOverlap: true, brighter: true, fewerTicks: false, tabular: false }));
-    expect(loadAxisOptions()).toEqual({ ...DEFAULT_AXIS_OPTIONS, hideOverlap: true, brighter: true });
+    saveAxisOptions({ hideOverlap: true });
+    expect(loadAxisOptions()).toEqual({ hideOverlap: true });
     window.sessionStorage.setItem("fathom-chart-axis-options", "{not json");
     expect(loadAxisOptions()).toEqual(DEFAULT_AXIS_OPTIONS);
+  });
+
+  it("an entry saved when there were five options still loads: the removed keys are ignored", () => {
+    window.sessionStorage.setItem(
+      "fathom-chart-axis-options",
+      JSON.stringify({ hideOverlap: true, brighter: true, fewerTicks: true, tabular: true, cleanSubPanes: true }),
+    );
+    expect(loadAxisOptions()).toEqual({ hideOverlap: true });
   });
 });

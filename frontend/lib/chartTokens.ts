@@ -74,7 +74,7 @@ const FALLBACK_COLORS: Omit<ChartColors, keyof typeof CHART_CHROME> = {
   chartRefline: "#52525B",
   chartZoneBrokenSupport: "#FF9800",
   chartZoneBrokenResistance: "#E040FB",
-  chartWarrenYellow: "#F59E0B",
+  chartWarrenYellow: "#FFFF00",
   chartWarrenGray: "#A1A1AA",
   chartEventEarnings: "#22D3EE",
   chartEventDividend: "#A78BFA",

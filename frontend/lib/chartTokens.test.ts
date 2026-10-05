@@ -4,7 +4,8 @@ import { readChartColors } from "@/lib/chartTokens";
 // Default (node) test environment, matching every other lib/*.test.ts in this project -- `document` is
 // undefined here, so this exercises readChartColors' fallback path, the same path a server render hits.
 // Protects against accidental color drift: these are the exact legacy hex values every chart element already
-// rendered with before this session's migration onto named tokens.
+// rendered with before this session's migration onto named tokens -- except chartWarrenYellow, deliberately changed from
+// the legacy amber #F59E0B to TOS's pure Color.YELLOW (#FFFF00) so the Warren yellow arrows read as yellow, not orange.
 const EXPECTED_LEGACY_PALETTE: Record<string, string> = {
   chartUp: "#10B981",
   chartDown: "#EF4444",
@@ -16,7 +17,7 @@ const EXPECTED_LEGACY_PALETTE: Record<string, string> = {
   chartRefline: "#52525B",
   chartZoneBrokenSupport: "#FF9800",
   chartZoneBrokenResistance: "#E040FB",
-  chartWarrenYellow: "#F59E0B",
+  chartWarrenYellow: "#FFFF00",
   chartWarrenGray: "#A1A1AA",
   chartEventEarnings: "#22D3EE",
   chartEventDividend: "#A78BFA",

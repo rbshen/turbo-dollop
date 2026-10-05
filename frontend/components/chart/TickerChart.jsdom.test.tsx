@@ -6,7 +6,7 @@ import { afterEach, beforeAll, expect, it, vi } from "vitest";
 
 import { TickerChart } from "@/components/chart/TickerChart";
 import type { ChartOut } from "@/lib/api/types";
-import { AXIS_TEXT_BRIGHTER, DEFAULT_AXIS_OPTIONS } from "@/lib/chartAxis";
+import { AXIS_TEXT_COLOR, DEFAULT_AXIS_OPTIONS } from "@/lib/chartAxis";
 import { etIsoToFakeUtc } from "@/lib/chartTime";
 import { computeRightOffset } from "@/lib/chartZoom";
 
@@ -15,10 +15,16 @@ import { computeRightOffset } from "@/lib/chartZoom";
 // factors, time-axis options, and that nothing throws on 2h data (this caught a price-scale-before-pane-exists bug).
 let created: IChartApi | null = null;
 let allSeries: ISeriesApi<SeriesType>[] = [];
+// Every marker array handed to createSeriesMarkers (BB+RSI and Warren each create one plugin).
+let markerSets: Record<string, unknown>[][] = [];
 vi.mock("lightweight-charts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("lightweight-charts")>();
   return {
     ...actual,
+    createSeriesMarkers: (...args: Parameters<typeof actual.createSeriesMarkers>) => {
+      markerSets.push(args[1] as unknown as Record<string, unknown>[]);
+      return actual.createSeriesMarkers(...args);
+    },
     createChart: (...args: Parameters<typeof actual.createChart>) => {
       const chart = actual.createChart(...args);
       const addSeries = chart.addSeries.bind(chart) as (...a: unknown[]) => ISeriesApi<SeriesType>;
@@ -46,6 +52,7 @@ afterEach(() => {
   cleanup();
   created = null;
   allSeries = [];
+  markerSets = [];
 });
 
 const SESSION_TIMES = ["09:30", "11:30", "13:30", "15:30"];
@@ -178,93 +185,113 @@ it("daily ranges keep their date-only axis and the two RSI/Stochastic panes (580
 
 // --- Warren pane reference lines ---
 
-it("2H·90D: the RSI pane draws only the dashed 12, 80.81 and 84.75 lines (12 tagged); ADX only the dotted 40", () => {
+const tagsOf = (pane: number) =>
+  allSeries.filter((s) => s.getPane().paneIndex() === pane).flatMap((s) => s.priceLines().map((l) => [l.options().price, l.options().axisLabelVisible]));
+
+it("2H·90D: the RSI pane draws only the dashed 12, 80.81 and 84.75 lines; ADX only the dashed 40; WVF only 0.40", () => {
   render(<TickerChart data={twoHData()} {...props} />);
-  const lines = (pane: number) =>
-    allSeries.filter((s) => s.getPane().paneIndex() === pane).flatMap((s) => s.priceLines().map((l) => l.options()));
-  const rsi = lines(1);
-  expect(rsi.map((l) => l.price)).toEqual([12, 80.81, 84.75]);
-  expect(rsi.every((l) => l.lineStyle === LineStyle.Dashed)).toBe(true);
-  expect(rsi.map((l) => l.axisLabelVisible)).toEqual([true, false, false]);
-  const adx = lines(2);
-  expect(adx.map((l) => l.price)).toEqual([40]);
-  expect(adx[0].lineStyle).toBe(LineStyle.Dashed);
+  const styles = (pane: number) => allSeries.filter((s) => s.getPane().paneIndex() === pane).flatMap((s) => s.priceLines().map((l) => l.options().lineStyle));
+  expect(tagsOf(1).map(([price]) => price)).toEqual([12, 80.81, 84.75]);
+  expect(tagsOf(2).map(([price]) => price)).toEqual([40]);
+  expect(tagsOf(3).map(([price]) => price)).toEqual([0.4]);
+  for (const pane of [1, 2, 3]) expect(styles(pane).every((st) => st === LineStyle.Dashed)).toBe(true);
 });
 
-// --- Axis options ---
+it("2H·90D: every dotted line has an axis tag; RSI's close pair is tagged by the nudging primitive instead of the library", () => {
+  render(<TickerChart data={twoHData()} {...props} />);
+  expect(tagsOf(1)).toEqual([[12, true], [80.81, false], [84.75, false]]); // 80.81 / 84.75: LevelTagsPrimitive draws these two
+  expect(tagsOf(2)).toEqual([[40, true]]);
+  expect(tagsOf(3)).toEqual([[0.4, true]]);
+});
+
+// --- Permanent axis settings (every range) ---
 
 const layoutOf = () => created!.options().layout;
 const densityOf = (pane: number) => created!.priceScale("right", pane).options().tickMarkDensity;
 const formatOf = (pane: number) => allSeries.filter((s) => s.getPane().paneIndex() === pane)[0].options().priceFormat;
 
-it("axis options all off: the layout, density and price formats are exactly the originals", () => {
-  render(<TickerChart data={twoHData()} {...props} axisOptions={DEFAULT_AXIS_OPTIONS} />);
-  expect(layoutOf().textColor).toBe("#9499a0");
-  expect(layoutOf().fontSize).toBe(12);
-  expect(layoutOf().fontFamily).toBe("var(--font-mono), ui-monospace, monospace");
-  for (const pane of [0, 1, 2, 3]) {
-    expect(densityOf(pane)).toBe(2.5);
-    expect(formatOf(pane)).toMatchObject({ type: "price", precision: 2, minMove: 0.01 });
-  }
-});
-
-it("axis options: brighter, tabular, fewer ticks and overlap hiding apply live, and turn back off to the originals", () => {
-  const data = twoHData();
-  const { rerender } = render(<TickerChart data={data} {...props} />);
-  const all = { hideOverlap: true, brighter: true, fewerTicks: true, tabular: true, cleanSubPanes: false };
-  rerender(<TickerChart data={data} {...props} axisOptions={all} />);
-  expect(layoutOf().textColor).toBe(AXIS_TEXT_BRIGHTER);
-  expect(layoutOf().fontSize).toBe(12); // brighter never changes the size
-  expect(layoutOf().fontFamily).not.toContain("var(");
-  for (const pane of [0, 1, 2, 3]) {
-    expect(densityOf(pane)).toBe(5);
-    expect(formatOf(pane).type).toBe("custom");
-  }
-  expect(created!.panes()).toHaveLength(4); // applied to the live chart, not a rebuild
-  rerender(<TickerChart data={data} {...props} axisOptions={DEFAULT_AXIS_OPTIONS} />);
-  expect(layoutOf().textColor).toBe("#9499a0");
-  expect(layoutOf().fontSize).toBe(12);
-  expect(layoutOf().fontFamily).toBe("var(--font-mono), ui-monospace, monospace");
-  for (const pane of [0, 1, 2, 3]) {
-    expect(densityOf(pane)).toBe(2.5);
-    expect(formatOf(pane)).toMatchObject({ type: "price", precision: 2, minMove: 0.01 });
-  }
-});
-
-it("axis options: each toggle changes only its own setting", () => {
-  const data = twoHData();
-  const { rerender } = render(<TickerChart data={data} {...props} />);
-  rerender(<TickerChart data={data} {...props} axisOptions={{ ...DEFAULT_AXIS_OPTIONS, fewerTicks: true }} />);
-  expect(densityOf(0)).toBe(5);
-  expect(layoutOf().fontSize).toBe(12);
-  expect(formatOf(0).type).toBe("price");
-  rerender(<TickerChart data={data} {...props} axisOptions={{ ...DEFAULT_AXIS_OPTIONS, hideOverlap: true }} />);
-  expect(densityOf(0)).toBe(2.5);
-  expect(formatOf(0).type).toBe("custom");
-});
-
-it("axis options on a daily chart's panes: the RSI/Stochastic scales are left alone", () => {
-  const dates = ["2026-07-06", "2026-07-07", "2026-07-08"];
-  const data = {
-    ...base(), range: "D_6M", timeframe: "daily",
+function dailyData(range: "D_6M" | "W_4Y" = "D_6M"): ChartOut {
+  const dates = ["2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03"];
+  return {
+    ...base(), range, timeframe: range === "W_4Y" ? "weekly" : "daily",
     bars: dates.map((time, i) => ({ time, open: 100 + i, high: 102 + i, low: 99 + i, close: 101 + i })),
-    rsi: dates.map((time, i) => ({ time, value: 40 + i })),
+    rsi: dates.map((time, i) => ({ time, value: i === 1 ? 85 : 50 })),
     stochastic: dates.map((time, i) => ({ time, k: 30 + i, d: 31 + i })),
   } as ChartOut;
-  render(<TickerChart data={data} {...props} axisOptions={{ ...DEFAULT_AXIS_OPTIONS, hideOverlap: true, fewerTicks: true, cleanSubPanes: true }} />);
-  expect(densityOf(0)).toBe(5);
-  expect(densityOf(1)).toBe(2.5);
-  expect(densityOf(2)).toBe(2.5);
+}
+
+it("every range: brighter color at the unchanged 12 px, monospace face, and fewer ticks on every pane's scale", () => {
+  render(<TickerChart data={twoHData()} {...props} />);
+  expect(layoutOf().textColor).toBe(AXIS_TEXT_COLOR);
+  expect(layoutOf().fontSize).toBe(12);
+  expect(layoutOf().fontFamily).not.toContain("var(");
+  for (const pane of [0, 1, 2, 3]) expect(densityOf(pane)).toBe(5);
+  cleanup();
+  render(<TickerChart data={dailyData()} {...props} />); // daily: price + RSI + Stochastic
+  expect(layoutOf().textColor).toBe(AXIS_TEXT_COLOR);
+  expect(layoutOf().fontSize).toBe(12);
+  expect(layoutOf().fontFamily).not.toContain("var(");
+  expect(created!.panes()).toHaveLength(3);
+  for (const pane of [0, 1, 2]) expect(densityOf(pane)).toBe(5);
 });
 
-// --- RSI line color and the clean sub-pane axes ---
+// --- Hide overlapping labels (the one toggle) ---
 
-const tagsOf = (pane: number) =>
-  allSeries.filter((s) => s.getPane().paneIndex() === pane).flatMap((s) => s.priceLines().map((l) => [l.options().price, l.options().axisLabelVisible]));
-const blankTicks = (pane: number) => {
-  const fmt = formatOf(pane) as unknown as { tickmarksFormatter?: (p: number[]) => string[] };
-  return fmt.tickmarksFormatter?.([10, 20, 30]);
-};
+it("hide overlapping labels: off = the library's default price formats on every pane; on = the overlap formatter on every pane; off again restores", () => {
+  for (const data of [twoHData(), dailyData()]) {
+    const { rerender } = render(<TickerChart data={data} {...props} />);
+    const panes = created!.panes().map((_, i) => i);
+    for (const pane of panes) expect(formatOf(pane)).toMatchObject({ type: "price", precision: 2, minMove: 0.01 });
+    rerender(<TickerChart data={data} {...props} axisOptions={{ hideOverlap: true }} />);
+    for (const pane of panes) expect(formatOf(pane).type).toBe("custom");
+    expect(created!.panes()).toHaveLength(panes.length); // applied to the live chart, not a rebuild
+    rerender(<TickerChart data={data} {...props} axisOptions={DEFAULT_AXIS_OPTIONS} />);
+    for (const pane of panes) expect(formatOf(pane)).toMatchObject({ type: "price", precision: 2, minMove: 0.01 });
+    cleanup();
+    allSeries = [];
+  }
+});
+
+// With the series' y mapping stubbed to the identity, the overlap formatter blanks exactly the ticks within the tag clearance.
+function tickLabels(pane: number, prices: number[]) {
+  const owner = allSeries.filter((s) => s.getPane().paneIndex() === pane)[0];
+  owner.priceToCoordinate = ((p: number) => p) as typeof owner.priceToCoordinate;
+  const fmt = owner.options().priceFormat as unknown as { tickmarksFormatter: (p: number[]) => string[] };
+  return fmt.tickmarksFormatter(prices);
+}
+
+it("hide overlapping labels: the W·4Y Weinstein MA's last value is a price tag (only while the Stage line is shown)", () => {
+  const data = {
+    ...dailyData("W_4Y"),
+    weinstein_ma: ["2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03"].map((time, i) => ({ time, value: 150 + i })),
+    weinstein_ma_label: "EMA30", weinstein_stages: [],
+  } as unknown as ChartOut;
+  const { rerender } = render(<TickerChart data={data} {...props} showStage axisOptions={{ hideOverlap: true }} />);
+  // The tags are the last close (105) and the MA at the last bar (154); ticks within 16px of either are blanked.
+  expect(tickLabels(0, [100, 105, 154, 200])).toEqual(["", "", "", "200.00"]);
+  rerender(<TickerChart data={data} {...props} showStage={false} axisOptions={{ hideOverlap: true }} />);
+  expect(tickLabels(0, [100, 105, 154, 200])).toEqual(["", "", "154.00", "200.00"]); // MA hidden: its tag is gone
+});
+
+it("hide overlapping labels: LP levels are tags only while their LP toggle is on; sub-pane ticks avoid the pane's own level tags", () => {
+  const base2h = twoHData();
+  // Zones far from the candles (~100), so only the zone's own tag can hide a tick at its level.
+  const data = { ...base2h, zones: [{ side: "support", price: 300, formed_at: base2h.bars[30].time, broken: false }] } as ChartOut;
+  const { rerender } = render(<TickerChart data={data} {...props} axisOptions={{ hideOverlap: true }} />);
+  expect(tickLabels(0, [300, 600])).toEqual(["", "600.00"]); // the support level is a tag while LP Support is on
+  rerender(<TickerChart data={data} {...props} showLpSupport={false} axisOptions={{ hideOverlap: true }} />);
+  expect(tickLabels(0, [300, 600])).toEqual(["300.00", "600.00"]);
+  // RSI pane tags include 80.81 / 84.75: a tick on 84 is hidden, one on 50 is kept.
+  expect(tickLabels(1, [50, 84])).toEqual(["50.00", ""]);
+  // Daily RSI pane: 70 / 30 are tags.
+  cleanup();
+  allSeries = [];
+  render(<TickerChart data={dailyData()} {...props} axisOptions={{ hideOverlap: true }} />);
+  expect(tickLabels(1, [30, 50, 70])).toEqual(["", "50.00", ""]);
+  expect(tickLabels(2, [20, 50, 80])).toEqual(["", "50.00", ""]); // Stochastic 20 / 80
+});
+
+// --- RSI line color ---
 
 it("2H·90D: the Warren RSI line is one color (no red beyond 30/70); the daily RSI pane keeps its per-point red", () => {
   render(<TickerChart data={twoHData()} {...props} />);
@@ -272,47 +299,26 @@ it("2H·90D: the Warren RSI line is one color (no red beyond 30/70); the daily R
   expect(rsi2h.data().some((d) => "color" in d)).toBe(false);
   cleanup();
   allSeries = [];
-  const dates = ["2026-07-06", "2026-07-07", "2026-07-08"];
-  const daily = {
-    ...base(), range: "D_6M", timeframe: "daily",
-    bars: dates.map((time, i) => ({ time, open: 100 + i, high: 102 + i, low: 99 + i, close: 101 + i })),
-    rsi: dates.map((time, i) => ({ time, value: i === 1 ? 85 : 50 })),
-    stochastic: [],
-  } as ChartOut;
-  render(<TickerChart data={daily} {...props} />);
+  render(<TickerChart data={dailyData()} {...props} />);
   const rsiDaily = allSeries.find((s) => s.getPane().paneIndex() === 1)!;
   expect(rsiDaily.data().every((d) => "color" in d)).toBe(true);
 });
 
-it("clean sub-pane axes: off = today's tags and ticks; on = no level tags and blank ticks on the three Warren panes only; off again restores", () => {
-  const data = twoHData();
-  const { rerender } = render(<TickerChart data={data} {...props} />);
-  const before = [1, 2, 3].map(tagsOf);
-  expect(before).toEqual([[[12, true], [80.81, false], [84.75, false]], [[40, true]], [[0.4, true]]]);
+// --- Arrow text ---
 
-  rerender(<TickerChart data={data} {...props} axisOptions={{ ...DEFAULT_AXIS_OPTIONS, cleanSubPanes: true }} />);
-  for (const pane of [1, 2, 3]) {
-    expect(tagsOf(pane).every(([, tag]) => tag === false)).toBe(true);
-    expect(blankTicks(pane)).toEqual(["", "", ""]);
-  }
-  expect(tagsOf(1).map(([price]) => price)).toEqual([12, 80.81, 84.75]); // the dotted lines themselves stay
-  expect(formatOf(0)).toMatchObject({ type: "price" }); // the price pane is untouched
-  expect(densityOf(0)).toBe(2.5);
-
-  rerender(<TickerChart data={data} {...props} />);
-  expect([1, 2, 3].map(tagsOf)).toEqual(before);
-  for (const pane of [1, 2, 3]) expect(formatOf(pane)).toMatchObject({ type: "price", precision: 2, minMove: 0.01 });
-});
-
-it("clean sub-pane axes: leaves the daily RSI/Stochastic panes alone", () => {
-  const dates = ["2026-07-06", "2026-07-07", "2026-07-08"];
-  const data = {
-    ...base(), range: "D_6M", timeframe: "daily",
-    bars: dates.map((time, i) => ({ time, open: 100 + i, high: 102 + i, low: 99 + i, close: 101 + i })),
-    rsi: dates.map((time, i) => ({ time, value: 40 + i })),
-    stochastic: dates.map((time, i) => ({ time, k: 30 + i, d: 31 + i })),
+it("signal arrows carry no text, on 2H·90D and on the daily ranges (BB+RSI and Warren)", () => {
+  const twoH = twoHData();
+  render(<TickerChart data={twoH} {...props} />);
+  expect(markerSets.flat().length).toBe(twoH.entry_signal_markers.length + twoH.warren_signal_markers.length);
+  expect(markerSets.flat().every((m) => !("text" in m) && typeof m.shape === "string")).toBe(true);
+  cleanup();
+  markerSets = [];
+  const daily = {
+    ...dailyData(),
+    entry_signal_markers: [{ time: "2026-07-13", label: "BB+RSI", kind: "bb_rsi" }],
+    warren_signal_markers: [{ time: "2026-07-20", label: "Gray Down", kind: "gray_down" }],
   } as ChartOut;
-  render(<TickerChart data={data} {...props} axisOptions={{ ...DEFAULT_AXIS_OPTIONS, cleanSubPanes: true }} />);
-  for (const pane of [0, 1, 2]) expect(formatOf(pane)).toMatchObject({ type: "price" });
-  expect(tagsOf(1)).toEqual([[70, true], [30, true]]);
+  render(<TickerChart data={daily} {...props} />);
+  expect(markerSets.flat()).toHaveLength(2);
+  expect(markerSets.flat().every((m) => !("text" in m))).toBe(true);
 });

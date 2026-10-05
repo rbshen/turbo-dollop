@@ -161,7 +161,7 @@ TickerChart.tsx`, `lib/chartTime.ts`, `chartPanes.ts`, `chartToggles.ts`, `chart
   series the state machine read** (`replay_with_series`, `ChartOut.warren_rsi/adx/wvf`; the response still carries `warren_plus_di`/`warren_minus_di`, which the chart no longer plots), plus `warren_levels`
   read from the engine constants (RSI 12/30/70/80.81/84.75, ADX 40, WVF 0.40; RSI 12, the ANY-TICKER Blue trigger, is omitted for SPY/QQQ/TQQQ/TECL, which have their own Blue profile, `docs/specs/warren-signal.md`). The existing `rsi` field (EWM RSI) is not reused. For SPY/QQQ/TQQQ/TECL the replay reads volume-guarded candles (`data/warren_signal_data.py::signal_candles`, the same step the nightly store uses; daily volume from the cached 1d bars, else one uncached FMP daily fetch): the candles the chart displays are unchanged and the response has no volume field (`docs/specs/warren-signal.md`, "Volume guard").
 - **BB+RSI** markers: `check_buy_signal` on every visible candle, **one marker per firing candle** (no first-per-day/week bucketing as on
-  the daily ranges). Warren markers: one per (candle, kind), as before.
+  the daily ranges). Warren markers: one per (candle, kind), as before. Arrows are drawn without text on every range ("Signal arrows" below).
 - **LP:** computed over the full 730-day 2h series with the shared settings, **except `breach_recency_bars`, hardcoded to 20 candles (5 sessions)** for
   2h only (`LP_2H_BREACH_RECENCY_BARS`; no Settings UI), then **filtered to zones whose swing candle is inside the 90-day window**
   (cap, then filter, as on the daily chart; zone lines start at the swing candle). Because it is a live recompute it uses the **current
@@ -170,10 +170,11 @@ TickerChart.tsx`, `lib/chartTime.ts`, `chartPanes.ts`, `chartToggles.ts`, `chart
   Nothing in this range's UI says "not tracked" or "monitored".
 - **Sub-panes** (replacing RSI and Stochastic, same 580 main / 100 px sub-pane stretch factors): Warren RSI, Warren ADX, Warren WVF.
   Lines reuse existing chart tokens: RSI `chart-band` grey, **one color on this range (no red beyond 30/70; the daily RSI pane keeps its per-point red)**, ADX `chart-ema21` blue
-  (**the ADX line only: +DI and -DI are not plotted, and have no legend entry or header text**), WVF `chart-warren-yellow`. Reference lines are `chart-refline`, all dashed:
+  (**the ADX line only: +DI and -DI are not plotted, and have no legend entry or header text**), WVF `chart-warren-yellow` (pure yellow `#FFFF00` since 2026-10-05, see "Signal arrows" below). Reference lines are `chart-refline`, all dashed:
   RSI 12, 80.81 and 84.75; ADX 40; WVF 0.40. **The classic RSI 30/70 lines are not drawn** (no line, no axis tag, not in the pane label;
-  `lib/chartPanes.ts::drawnRsiLevels` filters them out of `warren_levels.rsi`, which the backend still reports unchanged). Axis labels are drawn only where
-  they cannot collide (RSI 12, ADX 40, WVF 0.40; 80.81 and 84.75 are about 3 px apart), and each pane's own label lists all its drawn levels. Each series' autoscale is widened to include its levels
+  `lib/chartPanes.ts::drawnRsiLevels` filters them out of `warren_levels.rsi`, which the backend still reports unchanged). **Every dashed line has a price-axis tag** (RSI 12, 80.81, 84.75; ADX 40; WVF 0.40), and each pane's own header text lists all its drawn levels.
+  80.81 and 84.75 are only about 4 px apart on the 100 px pane, so their two tags would overlap: those two lines are drawn without a library tag and `components/chart/LevelTagsPrimitive.ts`
+  draws their tags instead, nudging the **upper (84.75) tag up and the lower (80.81) tag down by half the shortfall each**, the minimum that stops them overlapping (`lib/chartAxis.ts::nudgeTagYs`; see "Axis options"). The lines stay at their true levels. Each series' autoscale is widened to include its levels
   and the pane keeps 22% top headroom, so a pane label can never sit on a reference line (`lib/chartPanes.ts`).
 - **Toggles** in this range: BB+RSI, Warren, LP Support, LP Resistance only. Every other toggle is hidden and forced off in what the chart is told,
   and the saved values in `fathom-chart-signal-toggles` are never touched, so switching back restores them (the Stage-toggle precedent).
@@ -184,39 +185,41 @@ Warm monitored ticker ~100 ms (170 ms first call); uncached ticker 1.4-2.1 s; pa
 vectorised-builder equivalence, and the consistency check against stored events (Warren latest state 105/105; stored-only events and the BB+RSI tie-break
 differences) are in `docs/specs/warren-signal.md`.
 
-### Axis options (2H·90D only for now)
+### Axis options (every range)
 
-Five independent axis-readability toggles, **all off by default**, in an **Axis** dropdown in the Chart toolbar (`components/chart/ChartAxisMenu.tsx`, left of Zoom out;
-button label "Axis", or "Axis (n)" with n on). Browser-session state only (`sessionStorage` key `fathom-chart-axis-options`; nothing in the DB, nothing in the
-`fathom-chart-signal-toggles` localStorage entry). With all five off the chart is created and left exactly as before (`axisLayout` returns the original color,
-12 px size and font stack; density is the library's 2.5; no price format is touched). The logic is chart-level config in `lib/chartAxis.ts` and `TickerChart`'s
-`AxisPane` list, not 2H-specific code; **which ranges offer the dropdown is `AXIS_OPTION_RANGES` (currently `{2H_90D}`)**, and a range outside it is handed
-`DEFAULT_AXIS_OPTIONS` whatever the user chose (the choices come back on returning to 2H). The first four apply to the price axis and the three Warren panes; "Clean sub-pane axes" applies to the Warren panes only. The options are listed in the dropdown in this order and "Axis (n)" counts all five.
+Chart-level axis settings in `lib/chartAxis.ts`, applied by `TickerChart` to the price pane and **every** sub-pane on **all five ranges** (2H·90D, D·6M, D·1Y, D·2Y, W·4Y), including the daily RSI and Stochastic panes.
 
-- **Hide overlapping labels:** a regular tick label is blanked when its y is within `overlapClearancePx(fontSize)` (fontSize + 4 px, center to center) of a price tag on the
-  same scale. Tags: on the price pane, the last visible bar's close (the candle's last-value tag, which follows panning) and every visible LP zone level whose line has
-  started by the last visible bar; in a Warren pane, its labelled reference levels (RSI 12, ADX 40, WVF 0.40). Done by giving each pane's first series a `custom` priceFormat whose
-  `tickmarksFormatter` blanks those labels and otherwise prints the default two-decimal text (`formatAxisPrice`); off restores the library default `price` format. The tags themselves, the crosshair label and the
-  pane's own header text are untouched. The price pane re-tests on every pan (the current-price tag moves) and on an LP toggle.
-- **Brighter:** axis text color `#e5e8ec` (the text-primary token; default `#9499a0`). Color only: the axis font size stays 12 px. (It was "Brighter and larger" with a 14 px font in the first version; the size change was removed.)
-- **Fewer ticks:** `tickMarkDensity` x `FEWER_TICKS_FACTOR` (2): twice the minimum pixel gap between tick labels. A density rule, not a price step: the library snaps the step
-  to its 1/2/2.5/5/10 ladder, so $5 becomes $10 on a price pane of this height at any price level.
-- **Tabular numerals:** the axis font becomes the page's concrete monospace family (`readMonoFontFamily`, the next/font `--font-mono` value plus `ui-monospace, monospace`).
-  A canvas font cannot take `font-variant-numeric`, so equal-width digits means a monospace face; the default stack names the `--font-mono` variable by `var(...)`, which a canvas `font`
-  string may not resolve, so this option also guarantees the face actually reaching the canvas.
-- **Clean sub-pane axes** (Warren RSI, ADX and WVF panes only; the price pane is untouched): (1) the axis tags of all the dotted reference lines are removed (RSI 12, 80.81, 84.75; ADX 40; WVF 0.40; `axisLabelVisible` false, each restored to its previous value when the option goes off); the dotted lines stay drawn
-  and the pane header text (which lists those levels) is unchanged, so it is now the only place their values appear. (2) The regular tick labels are all blanked (a `blank` priceFormat mode on the pane's first series, which also removes the stray top "100.00" in RSI and
-  the clipped label between the ADX and WVF panes) and replaced by **exactly one label at the middle of the pane's visible axis range**: `components/chart/PaneMidLabelPrimitive.ts`, a series primitive whose price-axis view is drawn at
-  `fixedCoordinate = paneHeight / 2` with the text `formatAxisPrice(series.coordinateToPrice(paneHeight / 2))`, both read at draw time, so it follows autoscale and panning. Same rule for all three panes: the value is whatever price the scale puts at the pane's
-  vertical middle (autoscale range, widened to the reference levels and clamped to 0-100 for RSI, plus the pane's 22% top / 8% bottom margins), so it is near, not exactly, 50 for RSI. It looks like a plain tick label (page-colored box, no tick line, the axis text color, so Brighter applies). With the option on, it supersedes Hide overlapping labels in those panes.
-- **Chart-wide side effects (lightweight-charts has one `layout`):** Brighter and Tabular also change the time axis and the BB+RSI/Warren marker text, which share
-  `layout.textColor/fontFamily`. The E/D letters (own 13 px font) and the pane header text (DOM) are unaffected.
+**Permanent (no toggle, no storage):**
+- **Brighter:** axis text color `#e5e8ec` (the text-primary token; it was `#9499a0`). Color only: the axis font size stays 12 px.
+- **Fewer ticks:** `tickMarkDensity` 5 on every pane's price scale (`AXIS_TICK_MARK_DENSITY` = the library's 2.5 x `FEWER_TICKS_FACTOR` 2): twice the minimum pixel gap between tick labels. A density rule, not a price step: the
+  library snaps the step to its 1/2/2.5/5/10 ladder, so $5 becomes $10 on a price pane of this height at any price level. In a 100 px sub-pane the 60 px minimum gap leaves one or two tick labels; the dashed-line tags still show.
+- **Tabular numerals:** the axis font is the page's concrete monospace family (`readMonoFontFamily`, the next/font `--font-mono` value plus `ui-monospace, monospace`). A canvas font cannot take `font-variant-numeric`, so
+  equal-width digits means a monospace face; the previous stack named `var(--font-mono)`, which a canvas `font` string may not resolve, so this also guarantees the face actually reaching the canvas.
+- Brighter and Tabular are the chart's single `layout` (lightweight-charts has no per-axis font), so they also colour/face the time axis and the marker text, if any. The E/D letters (own 13 px font) and the pane header text (DOM) are unaffected.
+  The three permanent settings replace the first-version toggles ("Brighter and larger" 14 px, "Fewer ticks", "Tabular numerals"); "Clean sub-pane axes" and its middle-label primitive were tried and removed the same day.
 
-**Extending to another range:** add the range to `AXIS_OPTION_RANGES`. The price pane is already registered for every range. For D·6M/D·1Y/D·2Y/W·4Y also (1) return an `AxisPane` from
-`addSubPane` for the `rsi` / `stochastic` panes (their `tags` are the 30/70 and 20/80 reference lines with axis labels; the RSI/Stochastic scales share the owner-series rule), (2) add the
-Weinstein MA's last-value tag (W·4Y) to the price pane's `tags`, (3) for "Clean sub-pane axes", give the daily RSI/Stochastic `AxisPane`s `subPane: true` and their reference lines in `refLines`, and (4) update the tests in
-`chartAxis.test.ts` / `ChartTab.test.tsx` that pin "only 2H offers it".
+**The one toggle: Hide overlapping labels** (default off), in an **Axis** dropdown in the Chart toolbar (`components/chart/ChartAxisMenu.tsx`, left of Zoom out, shown on every range; button "Axis", or "Axis (n)" with n toggles on, so
+"Axis (1)" when on). Browser-session state only (`sessionStorage` key `fathom-chart-axis-options`, holding `{hideOverlap}`; nothing in the DB, nothing in `fathom-chart-signal-toggles`). A saved entry from the earlier five-option version
+still loads (only `hideOverlap` is read). When on, a regular tick label is blanked when its y is within `overlapClearancePx(fontSize)` (fontSize + 4 px, center to center) of a price tag on the same scale. Done by giving each pane's first
+series a `custom` priceFormat whose `tickmarksFormatter` blanks those labels and otherwise prints the default two-decimal text (`formatAxisPrice`); off restores the library default `price` format. The tags, the crosshair label and the pane
+header text are untouched. Tags per pane (`AxisPane.tags`):
+- **Price pane:** the last visible bar's close (the candle's last-value tag, which follows panning); each LP zone level whose line is visible (its LP toggle on) and has started by the last visible bar; and, on W·4Y while the Stage line is shown,
+  the Weinstein MA's value at the last visible bar (its last-value tag). The price pane re-tests on every pan and on an LP or Stage toggle.
+- **Daily RSI pane:** 70 and 30. **Stochastic pane:** 80 and 20.
+- **Warren panes (2H):** every dashed line: RSI 12, 80.81, 84.75; ADX 40; WVF 0.40 (at their true prices; the nudged RSI tags move at most about 7 px from the line).
 
-**Not verified on screen** (no browser in the build environment): the exact pixel clearance at which a tag and a tick label touch (`overlapClearancePx` is derived from the font
-size, not measured), how many ticks `fewerTicks` leaves in a 100 px Warren pane (the library's spacing is `ceil(fontSize x density)` = 60 px at density 5, so 1 to 2), the
-rendered face with Tabular on, and the look and exact placement of the clean axis' middle label (the primitive's axis view is exercised only with a fake series). Pinned by tests instead: defaults, the applied layout/density/price-format values, live toggling without a rebuild, and the pure overlap math.
+**Nudging the RSI 80.81 / 84.75 tags** (`LevelTagsPrimitive` + `nudgeTagYs`, read at draw time so it follows autoscale and panning): a tag is `axisTagHeightPx(fontSize)` tall (the font plus the library's padding: 17 px at 12 px). Each tag's y starts at its
+line's y (`priceToCoordinate`). Only when two tags are closer than one tag height are they separated, symmetrically: the upper tag moves up and the lower tag down by half the shortfall each (so the pair ends exactly one tag height apart, the
+minimum), clamped inside the pane. Tags already clear of each other do not move. The tags are placed with `fixedCoordinate`, which the library never moves itself, so each stays tied to its own line (its text is its own level). With the pane ~1 px per
+RSI point, 80.81 and 84.75 sit about 4 px apart, so each tag moves about 6.5 px. The library's own overlap fix would have pushed only the upper tag, by the whole shortfall.
+
+**Not verified on screen** (no browser in the build environment): the exact pixel clearance at which a tag and a tick label touch (derived from the font size, not measured); the look of the nudged tags (the primitive's text color is white on the
+`chart-refline` fill, approximating the library's own tag contrast color); the rendered monospace face; and how many ticks the density rule leaves per pane. Pinned by tests instead: the permanent layout and density on every pane of every range,
+the toggle's formatters on every pane, the tag lists (including the W·4Y MA and the LP toggle), and the nudge geometry.
+
+### Signal arrows (every range)
+
+The BB+RSI and Warren arrows are **glyphs only**: the markers are built without `text`, so no label ("BB+RSI", "Blue Up", "Yellow Down", "Gray Down", ...) is drawn next to an arrow on any range. The marker `label`/`kind` still travel in the response
+(`ChartOut.*_markers`) and are used elsewhere (Technical tab, Screener); the chart ignores `label`. The E/D letter row (section 2) is not an arrow label and is unchanged. Nothing else read the marker text: no chart tooltip uses it (the only chart tooltip is the E/D one).
+
+Warren yellow arrows (and the WVF line, which shares the token) are `chart-warren-yellow`, **`#FFFF00`** (TOS `Color.YELLOW`) since 2026-10-05; it was `#F59E0B` (Tailwind amber-500), which reads orange. The yellow stop line is not drawn on the chart, so there was nothing else to change.
