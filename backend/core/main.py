@@ -16,6 +16,7 @@ from sqlmodel import Session, func, select
 from data.analyst_ratings_data import get_analyst_ratings_data
 from data.institutional_ownership_data import get_institutional_ownership_data
 from helpers.bank_capital_metrics import get_ticker_bank_capital_metrics, set_ticker_bank_capital_metrics
+from core.cache import track_fetch_failures
 from core.config import settings  # noqa: F401  (tests patch main.settings)
 from core.cron_health import get_cron_health
 from clients.fmp_client import fmp_client
@@ -821,7 +822,11 @@ async def ticker_refresh(ticker: str) -> RefreshResult:
     # used to be -- same motivation as update_ticker_moat/
     # update_ticker_bank_capital_metrics below, cache_only flipped because
     # there's no pre-existing warm cache to read yet.
-    await compute_ticker_score(ticker, cache_only=False)
+    # track_fetch_failures: if FMP fails during this synchronous re-fetch, a failed fetch with a cached row serves that row
+    # (the Refresh kept it, marked stale) instead of an empty answer, and compute_ticker_score will not overwrite the last
+    # good TickerScore with one built from missing inputs (core/cache.py::track_fetch_failures).
+    with track_fetch_failures():
+        await compute_ticker_score(ticker, cache_only=False)
     return result
 
 

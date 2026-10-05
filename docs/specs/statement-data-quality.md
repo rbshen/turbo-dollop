@@ -240,3 +240,27 @@ the cutoff arrives (`tests/test_nightly_recheck.py`). It never refetches annual 
 
 **Cost.** At most 60 calls a night (about 1 minute at the 220/min pacing). A ticker unhealed through its whole window
 costs 25 attempts = 75 calls (7 daily, then every third night); a healed one far fewer.
+
+## 6. Refresh fallback (ticker-page Refresh, 2026-10-05)
+
+`POST /api/tickers/{t}/refresh` keeps every history row (statements, ratios, ...) but marks it stale (`INVALIDATED_AT`),
+deletes the rest, then re-fetches live through `compute_ticker_score(cache_only=False)`. Before this fix, a live fetch that
+failed (error, timeout, rate limit) went `get_or_fetch_earnings_aware` -> `safe_fetch` -> `{}`: the kept row was bypassed,
+the steps read it as "no data", and `compute_ticker_score` **upserted a degraded TickerScore** over the last good one
+(reproduced with the real step chain and mocked FMP: a good score of 88 became `overall_score = NULL`, `step4_verdict =
+insufficient_data`, with the cached statements sitting in the table).
+
+**Now**, only inside the Refresh (`core/cache.py::track_fetch_failures`, a per-task `ContextVar`; opted into by
+`ticker_refresh` alone):
+
+- a failed live fetch that has a cached row **serves that row** (no write, no re-stamp: the row keeps its stale marker,
+  so the next normal fetch retries), so the steps score from the last real statements instead of from nothing;
+- a failed fetch with **nothing cached** to fall back on is recorded, and `compute_ticker_score` then **does not persist**
+  the row (a warning names the failed fetches): the previous TickerScore stays until the next successful refresh or the
+  nightly recompute. This is deliberately conservative: any unrecovered failure, not only a statement one, blocks the write
+  (a missed price-history fetch would otherwise null `perf_5y_vs_spy_pct`);
+- every other caller (page loads, nightly jobs, `get_or_fetch` anywhere else) behaves exactly as before.
+
+**Not changed:** the tabs the frontend re-requests after a Refresh are ordinary requests, outside the tracker: if FMP is
+still down they still read empty (their stale rows are bypassed by `safe_fetch`'s `{}`). Serving the stale row on failure for
+every caller is a wider behaviour change and is not part of this fix. The endpoint's response is unchanged (no "degraded" flag).

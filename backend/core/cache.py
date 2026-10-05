@@ -1,7 +1,10 @@
 import json
 import logging
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Iterator
 
 import httpx
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -100,8 +103,40 @@ def _describe_body(data: object) -> str:
     return "no body" if data is None else f"a non-list body ({type(data).__name__})"
 
 
+@dataclass
+class FetchFailureTracker:
+    """What went wrong with live fetches while a `track_fetch_failures()` block is active (the ticker-page Refresh
+    only). `served_from_cache`: a fetch failed but the cached row (marked stale by the Refresh, still the last real
+    answer) was served instead. `unrecovered`: a fetch failed with nothing cached to fall back on (safe_fetch's {}).
+    compute_ticker_score reads `unrecovered` to decide whether the score it just built is safe to persist."""
+
+    served_from_cache: list[str] = field(default_factory=list)
+    unrecovered: list[str] = field(default_factory=list)
+
+
+_failure_tracker: ContextVar[FetchFailureTracker | None] = ContextVar("fetch_failure_tracker", default=None)
+
+
+@contextmanager
+def track_fetch_failures() -> Iterator[FetchFailureTracker]:
+    """Opt-in, per-task (a ContextVar, so a concurrent request is unaffected): within the block a failed live fetch
+    that has a cached row serves that row instead of failing (no write, the row keeps its stale marker so the next
+    normal fetch retries), and every failure is recorded on the yielded tracker. Used by ticker_refresh only; every
+    other caller keeps today's behaviour exactly."""
+    tracker = FetchFailureTracker()
+    token = _failure_tracker.set(tracker)
+    try:
+        yield tracker
+    finally:
+        _failure_tracker.reset(token)
+
+
+def current_fetch_failure_tracker() -> FetchFailureTracker | None:
+    return _failure_tracker.get()
+
+
 async def _fetch_or_serve_cached(
-    fetch_fn: Callable[[], Awaitable[dict | list]], row: FundamentalsCache | None
+    fetch_fn: Callable[[], Awaitable[dict | list]], row: FundamentalsCache | None, label: str = ""
 ) -> tuple[bool, dict | list]:
     """(fetched, payload). A request VARIANT FMP refuses with a confirmed 402 (core/data_groups.py "Request
     variants") raises FMPVariantUnavailableError with no network call: the cached row, however stale, is served
@@ -113,6 +148,15 @@ async def _fetch_or_serve_cached(
     except FMPVariantUnavailableError:
         if row is None:
             raise
+        return False, json.loads(row.raw_json)
+    except httpx.HTTPError as exc:
+        # Only inside track_fetch_failures() (the Refresh): a failed live fetch (error, timeout, rate limit) with a
+        # cached row serves that row rather than an empty answer. Anywhere else this still raises, to safe_fetch.
+        tracker = _failure_tracker.get()
+        if tracker is None or row is None:
+            raise
+        logger.warning("Live fetch failed for %s (%s); serving the cached row", label or "statement", exc)
+        tracker.served_from_cache.append(label)
         return False, json.loads(row.raw_json)
 
 
@@ -146,7 +190,7 @@ async def get_or_fetch(
         # throughout step*_data.py).
         return json.loads(row.raw_json) if row else None
 
-    fetched, data = await _fetch_or_serve_cached(fetch_fn, row)
+    fetched, data = await _fetch_or_serve_cached(fetch_fn, row, f"{statement_type}/{period}")
     return _write_cache_row(session, ticker, statement_type, period, data, now) if fetched else data
 
 
@@ -205,7 +249,7 @@ async def get_or_fetch_earnings_aware(
         # See get_or_fetch's own comment on this same condition.
         return json.loads(row.raw_json) if row else None
 
-    fetched, data = await _fetch_or_serve_cached(fetch_fn, row)
+    fetched, data = await _fetch_or_serve_cached(fetch_fn, row, f"{statement_type}/{period}")
     return _write_cache_row(session, ticker, statement_type, period, data, datetime.now()) if fetched else data
 
 
@@ -242,7 +286,9 @@ async def force_fetch(
             group=group,
         )
 
-    fetched, data = await _fetch_or_serve_cached(fetch_fn, _load_cache_row(session, ticker, statement_type, period))
+    fetched, data = await _fetch_or_serve_cached(
+        fetch_fn, _load_cache_row(session, ticker, statement_type, period), f"{statement_type}/{period}"
+    )
     return _write_cache_row(session, ticker, statement_type, period, data, datetime.now()) if fetched else data
 
 
@@ -254,4 +300,7 @@ async def safe_fetch(label: str, coro: Awaitable[dict | list]) -> dict | list:
         return await coro
     except httpx.HTTPError as exc:
         logger.warning("FMP fetch failed for %s: %s", label, exc)
+        tracker = _failure_tracker.get()
+        if tracker is not None:
+            tracker.unrecovered.append(label)
         return {}

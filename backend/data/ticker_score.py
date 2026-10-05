@@ -5,6 +5,7 @@ from typing import Awaitable, TypeVar
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session
 
+from core.cache import current_fetch_failure_tracker
 from core.db import engine
 from core.models import TechnicalEntrySignal, TickerScore, TrendAnalysis
 from core.tickers import normalize_ticker
@@ -174,6 +175,18 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False, persist_et
     )
 
     if summary.is_etf and not persist_etf:
+        return row
+
+    # Inside the ticker-page Refresh (core/cache.py::track_fetch_failures): a live fetch that failed with nothing cached
+    # to fall back on left some input empty, so this row would overwrite the last good one with a degraded score.
+    # Keep the previous row; the nightly jobs and the next successful refresh re-score it.
+    tracker = current_fetch_failure_tracker()
+    if tracker is not None and tracker.unrecovered:
+        logger.warning(
+            "compute_ticker_score: %s not persisted -- live fetch(es) failed during the refresh with no cached row to use: %s",
+            ticker,
+            ", ".join(sorted(set(tracker.unrecovered))),
+        )
         return row
 
     values = row.model_dump()
