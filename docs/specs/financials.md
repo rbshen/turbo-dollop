@@ -141,8 +141,8 @@ how close to recovery TTM actually is used to conflate a dip 0.1% from its own b
 thousands of percent below it. Now graduates linearly between `MULTIPLE_DIPS_FLOOR` (40, the old
 flat value, preserved as the worst-case floor) and `MULTIPLE_DIPS_CEILING` (70) as `shortfall_frac`
 — `(baseline − TTM) / abs(baseline)` — moves from 0% to `MULTIPLE_DIPS_SEVERE_FRAC` (30%). A
-mandatory companion fix raised `NET_INCOME_BACKUP_THRESHOLD` from 40 to 70 (see "Net Income's
-Operating Income backup" below) so a mildly-graduated NI score doesn't silently fall outside the
+mandatory companion fix raised `NET_INCOME_BACKUP_THRESHOLD` from 40 to 70 (and K4 later to 79,
+2026-10-05; see "Net Income's Operating Income backup" below) so a mildly-graduated NI score doesn't silently fall outside the
 backup's own trigger range.
 
 **`multiple_dips_resolved` / `dip_durably_resolved` graduated (2026-09-10, "bucket b").** Both
@@ -157,8 +157,8 @@ Severity is dip **depth relative to the series' current (TTM) scale**, not peak-
 against today's scale stays well-behaved for a near-zero baseline. Every `RECOVERY_PATTERNS`
 membership test (Step 1's FCF recovery check, Step 3's method-selection tree ×2, Step 4's
 ROE/ROIC recovery checks ×2 — 6 call sites) tests `.pattern` only and is unaffected by the
-score-value change. Note that a resolved score of 65–70 now falls at or under
-`NET_INCOME_BACKUP_THRESHOLD`, so a Net Income read of that shape can consult the Operating
+score-value change. Note that a resolved score of 65–75 now falls at or under
+`NET_INCOME_BACKUP_THRESHOLD` (79), so a Net Income read of that shape can consult the Operating
 Income backup (subject to its recency gate).
 
 ## Positivity gate (Revenue, Net Income, CFO)
@@ -190,8 +190,9 @@ times before settling positive for the last two periods) still scores
 
 ## Net Income's Operating Income backup
 
-If Net Income's positivity-gated score is **≤ `NET_INCOME_BACKUP_THRESHOLD` (70, raised from 40
-on 2026-09-10 as a companion to the `multiple_dips` graduation above)**, Operating Income is
+If Net Income's positivity-gated score is **≤ `NET_INCOME_BACKUP_THRESHOLD` (79; raised from 40
+to 70 on 2026-09-10 as a companion to the `multiple_dips` graduation above, and from 70 to 79 on
+2026-10-05, see "The trigger is 79" below)**, Operating Income is
 consulted as a backup signal — but only when the disqualifying dip is recent enough to plausibly
 be a one-off:
 
@@ -247,12 +248,21 @@ dip landing in the TTM transition itself) — excluding it would mean the most c
 a charge in the latest reported period, could never qualify. Net Income having too few points for
 any notion of recency (`insufficient_data`) still unconditionally consults Operating Income.
 
-`NET_INCOME_BACKUP_THRESHOLD` must equal `trend.MULTIPLE_DIPS_CEILING` (enforced by
-`scoring/test_step1.py::test_net_income_backup_threshold_matches_multiple_dips_ceiling`). The
-backup gate is an exact-value comparison against `classify_trend`'s own output — unlike the
-`RECOVERY_PATTERNS` consumers, which test pattern membership and are immune to score-value
-changes — so a graduated `multiple_dips` score above the threshold would silently lose an
-Operating-Income rescue it would otherwise still get.
+**The trigger is 79 (2026-10-05, "K4").** At 70 there was a cliff: a Net Income score of 70 could
+be lifted to the 80 cap while a 71 — a near-identical business, e.g. a `multiple_dips_resolved`
+score of 71–75 — got nothing. 79 is `NET_INCOME_BACKUP_CAP - 1`: every score the backup could still
+improve is eligible, and a score of 80 or more is left alone (the cap could not change it). The
+quality gates above apply to the newly eligible 71–79 range too. Simulation (gates and trigger
+together): about 39 Step 1 scores change versus the pre-gate baseline, about 17 tickers are newly
+lifted by 1–2 points, no step or Overall verdict flips.
+
+The threshold must stay **≥ `trend.MULTIPLE_DIPS_CEILING`** (70; enforced by
+`scoring/test_step1.py::test_net_income_backup_threshold_covers_multiple_dips_ceiling`, which also
+pins it at `NET_INCOME_BACKUP_CAP - 1`). It used to have to *equal* the ceiling. The backup gate is
+an exact-value comparison against `classify_trend`'s own output — unlike the `RECOVERY_PATTERNS`
+consumers, which test pattern membership and are immune to score-value changes — so a graduated
+`multiple_dips` score above the threshold would silently lose an Operating-Income rescue it would
+otherwise still get.
 
 ## Margins classification
 

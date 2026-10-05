@@ -1,6 +1,9 @@
 import pytest
 
+import scoring.step1 as step1_module
+
 from scoring.step1 import (
+    NET_INCOME_BACKUP_CAP,
     NET_INCOME_BACKUP_THRESHOLD,
     _classify_fcf,
     _classify_margins,
@@ -176,7 +179,7 @@ def test_fcf_exemption_mirrors_cfo_exemption_ignores_fcf_data_entirely():
 
 def test_net_income_backup_rule_uses_operating_income():
     # Net income is badly inconsistent (raw multiple_dips score 65, still
-    # <= NET_INCOME_BACKUP_THRESHOLD's 70) but operating income is clean.
+    # <= NET_INCOME_BACKUP_THRESHOLD's 79) but operating income is clean.
     weak_net_income = [100, 60, 90, 55, 95]
     result = score_step1(
         revenue=GROWING,
@@ -381,19 +384,81 @@ def test_net_income_oi_fallback_triggers_for_recent_one_off_dip():
     assert result["components"]["net_income"]["score"] == 80
 
 
-def test_net_income_backup_threshold_matches_multiple_dips_ceiling():
-    # Mandatory companion fix (2026-09-10): NET_INCOME_BACKUP_THRESHOLD
-    # must stay equal to MULTIPLE_DIPS_CEILING, not drift independently.
-    # The backup gate is `score <= NET_INCOME_BACKUP_THRESHOLD` -- since
-    # classify_trend's graduated "multiple_dips" score can now go as high
-    # as MULTIPLE_DIPS_CEILING (never above it), leaving the threshold at
-    # the old flat value (40) would silently stop considering the OI
-    # backup for any near-recovered dip scoring above 40, even though it
-    # used to be eligible when the score was pinned at exactly 40. See
-    # scoring/trend.py::MULTIPLE_DIPS_CEILING's own comment and CLAUDE.md's
-    # Step 1 deviations for the full investigation (37 tickers regressed
-    # in simulation before this alignment was added).
-    assert NET_INCOME_BACKUP_THRESHOLD == MULTIPLE_DIPS_CEILING
+def test_net_income_backup_threshold_covers_multiple_dips_ceiling():
+    # Mandatory companion fix (2026-09-10): the backup gate is `score <=
+    # NET_INCOME_BACKUP_THRESHOLD`, an exact comparison against
+    # classify_trend's output, and classify_trend's graduated "multiple_dips"
+    # score can go as high as MULTIPLE_DIPS_CEILING. A threshold BELOW that
+    # ceiling silently stops considering the OI backup for near-recovered
+    # dips (37 tickers regressed in simulation at the old flat 40). It was
+    # equal to the ceiling (70) until K4 (2026-10-05) raised it to 79 =
+    # CAP - 1, so the invariant is now ">=", not "==".
+    assert NET_INCOME_BACKUP_THRESHOLD >= MULTIPLE_DIPS_CEILING
+    assert NET_INCOME_BACKUP_THRESHOLD == NET_INCOME_BACKUP_CAP - 1 == 79
+
+
+def _backup_with_forced_ni_score(monkeypatch, ni_score):
+    """Run score_step1 with Net Income's own trend score forced to `ni_score`
+    (the backup trigger is an exact score comparison, and natural series
+    don't land on every integer), Operating Income clean and passing every
+    K2 gate. Returns (net_income component)."""
+    real = step1_module._classify_positive_trend
+    ni_series = [50, 60, 70, 80, 30]  # recent dip (age 0): passes the recency gate
+
+    def fake(series, revenue_for_scale=None):
+        if list(series) == ni_series:
+            return step1_module.TrendResult("forced", ni_score)
+        return real(series, revenue_for_scale)
+
+    monkeypatch.setattr(step1_module, "_classify_positive_trend", fake)
+    return score_step1(
+        revenue=GROWING,
+        net_income=ni_series,
+        operating_income=GROWING,
+        cfo=GROWING,
+        gross_margin=STABLE_MARGINS,
+        net_margin=NET_MARGINS_STABLE,
+        cfo_exempt=False,
+    )["components"]["net_income"]
+
+
+def test_backup_trigger_boundary_79_is_lifted_80_is_not_considered(monkeypatch):
+    lifted = _backup_with_forced_ni_score(monkeypatch, 79)
+    assert lifted["score"] == 80 and lifted["used_operating_income_backup"] is True
+    untouched = _backup_with_forced_ni_score(monkeypatch, 80)
+    assert untouched["score"] == 80 and untouched["used_operating_income_backup"] is False
+
+
+def test_backup_trigger_boundary_old_70_71_cliff_is_gone(monkeypatch):
+    assert _backup_with_forced_ni_score(monkeypatch, 70)["score"] == 80
+    assert _backup_with_forced_ni_score(monkeypatch, 71)["score"] == 80  # was unlifted at 71 before K4
+
+
+def test_backup_range_71_to_79_naturally_reached_by_a_resolved_series():
+    # SYM's CFO shape scores 73 (multiple_dips_resolved) -- inside the newly
+    # eligible range. Used here as a Net Income series with a recent (age 2)
+    # sign-flip; a clean, healthy Operating Income lifts it to the 80 cap.
+    assert _classify_positive_trend(SYM_CFO).score == 73
+    ni = _backup_case(
+        [200, 220, 240, 260, 280, 300, 320, 340],
+        revenue=[600, 650, 700, 800, 850, 900, 950, 1000],
+        net_income=SYM_CFO,
+    )
+    assert ni["score"] == 80 and ni["used_operating_income_backup"] is True
+
+
+def test_backup_range_71_to_79_still_obeys_the_k2_gates(monkeypatch):
+    # Same newly-eligible score, but TTM OI margin just under 5% -> no lift.
+    result = score_step1(
+        revenue=[600, 650, 700, 800, 850, 900, 950, 1000],
+        net_income=SYM_CFO,
+        operating_income=[30, 35, 40, 42, 44, 46, 48, 49.99],
+        cfo=GROWING,
+        gross_margin=STABLE_MARGINS,
+        net_margin=NET_MARGINS_STABLE,
+        cfo_exempt=False,
+    )["components"]["net_income"]
+    assert result["score"] == 73 and result["used_operating_income_backup"] is False
 
 
 def test_net_income_oi_fallback_still_considered_for_a_near_ceiling_graduated_score():
@@ -423,7 +488,7 @@ def test_net_income_oi_fallback_does_not_trigger_when_classify_trend_already_res
     # (see trend.py::_dip_durably_resolved) now recognizes this as durably
     # resolved on its own merits. Its graduated severity score (66, as of
     # 2026-09-10 -- baseline=100 vs TTM=70 is a 30% depth relative to
-    # current scale) is now BELOW NET_INCOME_BACKUP_THRESHOLD (70), so the
+    # current scale) is BELOW NET_INCOME_BACKUP_THRESHOLD (79, 70 when this was written), so the
     # OI fallback IS score-eligible here -- but it still doesn't trigger,
     # because the dip's age (6 periods) is well outside
     # NET_INCOME_BACKUP_RECENCY_YEARS (2). The recency gate, not the score
@@ -459,7 +524,7 @@ def test_net_income_oi_fallback_does_not_trigger_for_a_still_unresolved_old_dip(
     # (not the old flat 40) -- but the point of this test is that the OI
     # fallback's own RECENCY gate, not the score itself, is what keeps this
     # unrescued: 45 is still comfortably <= NET_INCOME_BACKUP_THRESHOLD
-    # (70), so the backup would be attempted on score alone, but
+    # (79), so the backup would be attempted on score alone, but
     # ni_recent_enough is False, so it never actually applies.
     # Confirms the OI fallback's recency gate still holds for a genuinely
     # bad, not-yet-old-enough-to-excuse score -- not just for cases the new

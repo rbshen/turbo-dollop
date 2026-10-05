@@ -125,7 +125,9 @@ def _graduated_declining_points(pct_change: float) -> int:
 # further -- confirmed via simulation to regress 37 tickers (e.g. CTVA
 # 94->88, CL 88->82, AEP 84->80) purely from losing an OI rescue they used
 # to get, with zero change to the underlying business data. Raising the
-# threshold to 70 eliminates all 37 regressions.
+# threshold to 70 eliminates all 37 regressions. (The threshold was later
+# raised again to 79 -- 2026-10-05 -- so it now only has to stay >= this
+# ceiling, not equal it.)
 MULTIPLE_DIPS_CEILING = 70
 MULTIPLE_DIPS_FLOOR = 40
 MULTIPLE_DIPS_SEVERE_FRAC = 0.30

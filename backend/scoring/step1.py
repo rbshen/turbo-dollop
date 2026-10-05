@@ -97,7 +97,16 @@ FCF_RECOVERY_WINDOW = 3
 # regress 37 tickers (e.g. CTVA 94->88, CL 88->82, AEP 84->80) purely from
 # losing an already-computed OI rescue, with zero underlying data change.
 # See CLAUDE.md's Step 1 deviations for the full investigation.
-NET_INCOME_BACKUP_THRESHOLD = 70
+#
+# Raised again from 70 to 79 (2026-10-05, "K4") to remove a cliff: at <= 70 a
+# Net Income score of 70 could be lifted to the 80 cap while a 71 (a
+# near-identical business, e.g. a multiple_dips_resolved 71-75) got nothing.
+# 79 is CAP - 1: every score the backup could still improve is now eligible,
+# and 80+ is left alone (the cap would not change it). The K2 quality gates
+# below apply to this whole range. No longer equal to MULTIPLE_DIPS_CEILING
+# -- the invariant that matters is THRESHOLD >= MULTIPLE_DIPS_CEILING (see
+# test_net_income_backup_threshold_covers_multiple_dips_ceiling).
+NET_INCOME_BACKUP_THRESHOLD = 79
 NET_INCOME_BACKUP_CAP = 80
 # "1 or 2 years in the past" -- deliberately includes age 0 (the dip
 # landing in the TTM transition itself). Excluding age 0 would mean the
