@@ -675,6 +675,10 @@ group on its first ticker, refresh nothing for the rest and still report success
   unavailable variant; `nightly_fundamentals_fetch` appends `, N variant-unavailable (V request types refused by the
   plan)` to its message. It is informational: it never enters `check_failure_threshold`, and the `failed` count (a real
   exception escaping a ticker) is judged exactly as before, so it hides no real per-ticker error.
+- **Statement recheck.** After its per-ticker pass `nightly_fundamentals_fetch` runs the targeted recheck of flagged
+  quarterly statements (<= 60 calls a night, behind the same `fundamentals` gate; spec:
+  [statement-data-quality.md](statement-data-quality.md) section 5) and appends `, recheck: S selected, H healed, F still
+  flagged, G gave up, D deferred` to its message when anything happened. Informational, never in the failure threshold.
 - **Not variant groups** keep the group-level canary unchanged. Opting one in is one line in `VARIANT_GROUPS`.
 
 Existing group-level rows (a `fundamentals` group already `plan_restricted` in the DB, none known) still clear through the

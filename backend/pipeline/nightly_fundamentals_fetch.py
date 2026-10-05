@@ -1,8 +1,9 @@
 """Standalone script: nightly fundamentals refresh for every ticker in the
-tracked universe (data/tracked_universe.py::load_tracked_universe: index
-constituents, any watchlist, tickers with manual data, and
-tickers viewed in the last 30 days; delisted-flagged tickers excluded), minus
-known ETFs/funds, via the app's existing cache-aware
+tracked universe (data/tracked_universe.py::load_tracked_universe: S&P 500,
+Nasdaq-100 and Dow constituents, any watchlist, system tickers, tickers with
+manual data, added tickers, and tickers browsed in the last 30 days;
+delisted-flagged tickers excluded), minus known ETFs/funds
+(load_fundamentals_fetch_universe), via the app's existing cache-aware
 fetch pipeline --
 get_step1_data / get_step2_data / get_step4_data / get_step5_data /
 get_summary / get_segmentation_data. Nothing bespoke here: these are the
@@ -28,6 +29,17 @@ the data was just cached moments earlier in this exact function, so this
 adds zero extra FMP calls. See recompute_ticker_scores.py for the separate
 on-demand path that re-scores every ticker from already-cached data alone,
 without running this full fetch first.
+
+Last step, after the per-ticker pass: the statement RECHECK
+(data/statement_recheck_data.py, docs/specs/statement-data-quality.md
+section 5). A ticker whose newest cached quarterly statements trip a
+read-time rule (placeholder cash flow, debt/current-assets remap, scale
+break) or whose newest quarter never landed at FMP is refetched -- the three
+quarterly statements only, through force_fetch -- every night for its first
+7 attempts and every third night after, until 60 days past its anchor date,
+capped at 60 calls (20 tickers) a night. It runs only on the non-skipped path
+(after job_skip_reason("fundamentals")), never changes the earnings-aware
+staleness rule, and its failure never fails the run.
 
 Default schedule: 2am server time, nightly (see crontab.txt in this
 directory). To change the schedule, edit that one crontab line -- nothing
@@ -60,6 +72,7 @@ from core.models import IndexConstituent
 from core.tickers import normalize_ticker
 from data.etf_data import known_etf_tickers
 from data.segmentation_data import get_segmentation_data
+from data.statement_recheck_data import run_statement_recheck
 from data.step1_data import get_step1_data
 from data.step2_data import get_step2_data
 from data.step4_data import get_step4_data
@@ -189,6 +202,14 @@ async def main(tickers: list[str] | None = None) -> dict:
             logger.error("[%d/%d] %s: FAILED - %s", i, len(tickers), ticker, exc)
             failures.append((ticker, str(exc)))
 
+    # Statement recheck (module docstring). After the normal pass so it sees what that pass fetched; a failure here is
+    # logged and swallowed -- it must never fail the run or change a per-ticker count above.
+    recheck: dict = {}
+    try:
+        recheck = (await run_statement_recheck(engine, tickers, rescore=compute_ticker_score)).as_dict()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Statement recheck FAILED (the normal fetch above is unaffected): %s", exc)
+
     duration = time.monotonic() - start_time
     calls_made = fmp_client.request_count - start_request_count
 
@@ -230,11 +251,12 @@ async def main(tickers: list[str] | None = None) -> dict:
         "variants_unavailable": len(variant_unavailable.variants()),
         "history_clamped": clamped,
         "history_empty_kept": empty_kept,
+        "recheck": recheck,
     }
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Nightly S&P 500 fundamentals refresh.")
+    parser = argparse.ArgumentParser(description="Nightly fundamentals refresh for the tracked universe, plus the statement recheck.")
     parser.add_argument("--limit", type=int, default=None, help="Only process the first N stored tickers (for testing).")
     parser.add_argument(
         "--tickers", type=str, default=None, help="Comma-separated explicit ticker list, overrides the stored list (for testing)."
@@ -255,7 +277,7 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
 
 def record_outcome(result: dict, run) -> None:
     """Heartbeat mapping: "skipped" for a gated run, else a "N refreshed, F failed, C FMP calls,
-    D min[, N variant-unavailable (V request types refused by the plan)][, N history-clamped][, M empty-body kept]" message that raises (heartbeat "failure") past core.cron_health.check_failure_threshold.
+    D min[, N variant-unavailable (V request types refused by the plan)][, N history-clamped][, M empty-body kept][, recheck: S selected, H healed, F still flagged, G gave up, D deferred]" message that raises (heartbeat "failure") past core.cron_health.check_failure_threshold.
     Only exceptions that escape a ticker's refresh are counted; get_stepN_data swallows most
     per-statement FMP errors internally (safe_fetch), so those never reach this count."""
     if result.get("skipped"):
@@ -274,6 +296,14 @@ def record_outcome(result: dict, run) -> None:
         message += f", {result['history_clamped']} history-clamped"
     if result.get("history_empty_kept"):
         message += f", {result['history_empty_kept']} empty-body kept"
+    recheck = result.get("recheck") or {}
+    if any(recheck.get(k) for k in ("selected", "healed", "healed_by_cache", "gave_up", "deferred", "guard_hits")):
+        message += (
+            f", recheck: {recheck.get('selected', 0)} selected, {recheck.get('healed', 0) + recheck.get('healed_by_cache', 0)} healed, "
+            f"{recheck.get('still_flagged', 0)} still flagged, {recheck.get('gave_up', 0)} gave up, {recheck.get('deferred', 0)} deferred"
+        )
+        if recheck.get("guard_hits"):
+            message += f", {recheck['guard_hits']} guard hit(s)"
     check_failure_threshold(processed, failed, message)
     run.message = message
 

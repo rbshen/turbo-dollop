@@ -199,3 +199,44 @@ the window. Only a healed row, or an anchor more than 60 days later than the sto
 is left. A ticker is not rechecked on the night the normal pass has just refetched its quarterly rows (it would
 only re-read what it just got): a ticker seeded from a cache fetched on an earlier day is due the same night.
 Chronic: one recheck, then **at most once every 365 days**.
+
+**The nightly step** (`data/statement_recheck_data.py`, called by `pipeline/nightly_fundamentals_fetch.py` after its
+per-ticker pass, only on the non-skipped path: after `job_skip_reason("fundamentals")`, so the FMP master switch and
+the `fundamentals` group gate it). Per night: scan the run's tickers (cache only) and move their `RecheckState`;
+take the due rows, **oldest attempt first** (never-attempted first, then oldest anchor); **cap 60 calls = 20
+tickers** (deferrals are logged at info, and counted); per ticker refetch the **three quarterly statements only**
+(income, balance sheet, cash flow, `TOTAL_QUARTERS_NEEDED`) through the production `core.cache.force_fetch`, so the
+history merge and the `fetched_at` stamp are production's. Then re-evaluate the rules on the cached rows:
+
+- no rule trips -> `healed` (`healed_at`, `days_to_heal_from_anchor` = days from the anchor to tonight);
+- still flagged -> `attempts + 1`, state kept, no retry the same night ("a recheck that finds the same bad row" is a
+  normal outcome, never a loop); past the window -> `gave_up`; chronic -> `chronic`;
+- a refreshed ticker's Screener row is recomputed from the cache (`compute_ticker_score(cache_only=True)`, no FMP call).
+
+**What is not an attempt.** A call blocked by a group toggle, the master switch, a restricted request variant or a
+402/plan error makes no network call (or fails), writes nothing and records no attempt (`last_result = blocked`); a
+timeout, 429 or 5xx is the same (`error`), as is an empty or non-list answer (`empty`, not written: stricter than
+production, which would stamp `fetched_at` on it). An attempt counts only when all three statements got a live answer.
+Whatever did succeed before a later failure stays written (production semantics), and a row cleared by it is `healed`.
+A failed fetch raises out of `force_fetch` before any write, so cached rows are never wiped or re-stamped.
+
+**Regression guard (the only guard).** A live payload is not written when its newest row trips a rule of that
+statement - balance sheet: `debt_remap` / `current_assets_remap`; cash flow: `placeholder_cf` (against the live income
+statement) / `scale_break` - that the cached newest row does not. It is logged as a warning, counted (`guard hits`), and
+the attempt still counts (`last_result = regression_guard`). There is no plug-line allowlist: the manual catch-up's is
+not part of this feature.
+
+**Per-recheck log (info):** `Statement recheck TICKER: trigger T, attempt N, rules before -> after, filingDate
+(income / balance / cash flow) before -> after, result R`. This is the heal-time evidence the repo lacked.
+
+**Summary.** The job result carries `recheck` (`selected, healed, healed_by_cache, still_flagged, gave_up, deferred,
+guard_hits, not_counted, errors, calls, scanned_flagged`); the `CronRunLog` message appends `, recheck: S selected, H
+healed, F still flagged, G gave up, D deferred` (+ `, N guard hit(s)`) only when something happened. Informational: it
+never enters `check_failure_threshold`; a gated no-op is still a success. A recheck failure is logged and swallowed.
+
+**The earnings-aware path is untouched.** The recheck only moves the three quarterly rows' `fetched_at` forward after
+the normal pass has run, like any fetch of those rows; a row stamped before a new earnings cutoff still reads stale once
+the cutoff arrives (`tests/test_nightly_recheck.py`). It never refetches annual statements, ratios or any other key.
+
+**Cost.** At most 60 calls a night (about 1 minute at the 220/min pacing). A ticker unhealed through its whole window
+costs 25 attempts = 75 calls (7 daily, then every third night); a healed one far fewer.

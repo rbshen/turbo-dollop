@@ -517,6 +517,25 @@ its warm cache.
   on it.
 - `backfill_fmp_daily_bars` no longer has `--scope`/a parity gate (US only; non-US tickers are skipped).
 
+### Statement recheck (2026-10-05)
+
+After its normal pass the 2:00 fundamentals job refetches the three **quarterly** statements of tickers whose newest cached
+rows look wrong or never landed (spec: docs/specs/statement-data-quality.md, section 5). What you will see:
+
+- **Message** gains `, recheck: S selected, H healed, F still flagged, G gave up, D deferred` (and `, N guard hit(s)`) on a night
+  something happened. Informational; the job does not go red for it. `D deferred` > 0 means more than 20 tickers were due (60-call cap).
+- **Log** (`nightly_fundamentals_fetch.log`): one `Statement recheck TICKER: trigger ..., attempt N, rules before -> after, filingDate
+  ... before -> after, result ...` line per recheck, `Statement recheck scan TICKER: new|healed|gave_up|...` for state moves, a
+  warning per regression-guard veto, an info line when the cap defers tickers.
+- **State** is table `RecheckState` (one row per ticker): `SELECT ticker, trigger, anchor_date, status, attempts, last_attempt_at,
+  last_result, days_to_heal_from_anchor FROM recheckstate ORDER BY status, anchor_date;` (`days_to_heal_from_anchor` is the heal-time evidence).
+- **Nothing happens while the `fundamentals` group or the master switch is off** (the job is `skipped`), and a blocked/402/failed
+  call is never counted as an attempt. A `last_result` of `blocked`/`error`/`empty` that persists for a ticker means its calls are not
+  getting through: check the data-group page and the log's FMP errors.
+- **Rollback:** the feature only adds fetches of rows the app already caches; to stop it, stop the job or comment out the
+  `run_statement_recheck` call in `pipeline/nightly_fundamentals_fetch.py`. `RecheckState` can be dropped/emptied at any time (the
+  next run re-seeds it from the cache; rows already past their 60-day window are re-recorded as `gave_up` and never retried).
+
 ### History protection and the cache history audit (2026-10-02)
 
 A shorter, empty or error FMP answer never shortens a cached statement history (`core/history_merge.py`; spec: docs/specs/fmp-data-and-bar-cache.md,

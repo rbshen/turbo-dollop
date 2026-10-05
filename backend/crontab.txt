@@ -137,6 +137,8 @@
 # the redirect below is only a catch-all for a crash before that log is configured.
 # When the `fundamentals` data group (or the FMP master switch) is off, this job
 # records a real "skipped" run (not a success) -- see CLAUDE.md "Data groups".
+# Ends with the statement recheck (<= 60 extra calls, ~1 min): flagged quarterly statements are
+# refetched on a bounded schedule -- docs/specs/statement-data-quality.md section 5.
 0 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_fundamentals_fetch >> /home/shen/fathom/backend/logs/nightly_fundamentals_fetch_cron.log 2>&1
 
 # 3:10 Daily price-target-consensus snapshot (was monthly until 2026-09-26;
