@@ -837,3 +837,11 @@ ranking, leveraged funds not filtered, only the top 5 served (the full ranking i
 current snapshot's, instead of the second-newest date, so a mid-month manual snapshot (the stock table has 2026-09-23) no longer shadows the real month-end (2026-08-31). The 2026-09-23 stock snapshot was kept as is. ETF snapshots for
 2026-08-31 and 2026-09-30 were backfilled from cached bars with today's universe (not point-in-time).
 
+### 2026-10-05 — "Moat not rated" cannot pass (Overall verdict only)
+The owner's framework treats Moat as non-negotiable: Wide or Narrow passes, No Moat is already a Fail (0 Moat points cap Overall at 69), so an **unset** Moat must not be able to pass either. Before this, an unrated ticker was scored on
+the four automated steps alone and could read Pass (22 non-ETF tickers on 2026-10-05: WSM, CINF, EG, PDD, AFL, JBHT, MAS, CNI, PPG, RF, CCEP, FITB, HST, PWR, DOC, PNR, DHI, EFX, BBY, COO, UNP, WCN). **Rule:** Moat unset + all four steps
+complete + the steps-only verdict Pass / Pass with caution / Strong Pass => the Overall verdict is `moat_not_rated` ("Moat not rated", neutral tone, reason "Moat not rated: rate the moat to enable a Pass"); Fail stays Fail, incomplete stays
+incomplete, ETFs have no Moat or Overall and are unchanged. **`overall_score` is unchanged for every ticker** (the steps-only blend), so Screener sorting, filtering and saved views are unaffected; this deliberately supersedes the old
+overview.md line that an unrated Moat "does not … force a Fail" for the *verdict* only. Implemented in `scoring/overall.py` and mirrored in `lib/overallScore.ts` (one shared case file, `backend/tests/fixtures/overall_verdict_cases.json`).
+No new column: the key is stored in `TickerScore.overall_verdict`; the reason text is a constant in both implementations. `PUT /api/tickers/{t}/moat` already recomputed the ticker's row (cache only), so rating flips the verdict at once; there is no
+"clear Moat" endpoint. `PUT /api/config/moat` (the points settings) does not recompute stored rows (they catch up at the nightly recompute); that does not affect unrated tickers, whose verdict does not depend on the points.

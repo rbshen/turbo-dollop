@@ -78,17 +78,38 @@ to "Pass" text (see [Growth Rate](growth-rate.md)).
 
 ## What happens if Economic Moat isn't set
 
-Economic Moat is the one manual, opt-in input in the whole blend. If you haven't set a Moat
-rating for a ticker yet, Overall Assessment simply reports the pure blend of the four automated
-checks (Financials, Growth Rate, Profitability, Debt), reweighted to add up to 100% on their
-own. **Leaving Moat unrated does not penalize the score or force a Fail** — it's treated as
-"not yet part of the picture," not as a bad rating.
+Economic Moat is the one manual, opt-in input in the whole blend, and it is **non-negotiable for
+a Pass**. If you haven't set a Moat rating for a ticker yet, the **score** is still the pure blend
+of the four automated checks (Financials, Growth Rate, Profitability, Debt), reweighted to add up
+to 100% on their own — leaving Moat unrated does not penalize the number — but the **verdict**
+cannot read a Pass:
+
+- When Moat is unset, all four checks are complete, and the blend would read **Pass**, **Pass with
+  caution** or **Strong Pass**, the Overall verdict is **Moat not rated** (stable key
+  `moat_not_rated`, with the reason "Moat not rated: rate the moat to enable a Pass"). It is
+  neither displayed nor counted as a Pass, and it is neutral-toned (not green, not red).
+- An unrated ticker whose blend already reads **Fail** stays Fail; an **incomplete** one stays
+  incomplete (no verdict). ETFs have no Moat and no Overall, so they are unaffected.
+- The numeric `overall_score` is **exactly** the steps-only score it always was, including for
+  unrated tickers, so Screener sorting, filtering and saved views are unaffected. Only the verdict
+  text changed (2026-10-05; before that, an unrated ticker could read Pass, and this page said
+  leaving Moat unrated "does not penalize the score or force a Fail" — still true of the score,
+  no longer of the verdict).
+- Rating the ticker (Economic Moat tab) recomputes its stored row immediately (cache only), so
+  "Moat not rated" flips to the normal verdict for the new rating.
 
 Once you do set a Moat rating, it's folded in at its full 31% weight. This means a "No Moat"
 rating is itself a real, negative input — it's not a neutral default, it's an explicit judgment
 that actively pulls the blended score down. Only an explicit "No Moat" selection has this
-effect; the unrated state does not. See [Economic Moat](economic-moat.md) for the two-stage
-formula this actually uses.
+effect; the unrated state does not affect the score. See [Economic Moat](economic-moat.md) for
+the two-stage formula this actually uses.
+
+The rule lives in two places that must agree: `backend/scoring/overall.py::compute_overall_assessment`
+and `frontend/lib/overallScore.ts::computeOverallAssessment`. Both are tested against one shared case
+file, `backend/tests/fixtures/overall_verdict_cases.json`. Display: `lib/tierColor.ts::verdictLabel`
+("Moat not rated", neutral tone) in the ticker header chip, the Analysis card (reason line), the Screener
+card and the Watchlist Analysis pill (reason as its tooltip). Filters, sorts and the Momentum badge read
+`overall_score` only and never see the verdict.
 
 ## What happens if a check can't be completed
 
@@ -102,7 +123,7 @@ depending on why:
 - If a check comes back **not supported** — a structural exemption, such as a Bank ticker
   before its CET1 ratio has been entered, or Insurance for Debt — that one check is simply
   excluded from the blend and the remaining checks are reweighted to fill the gap, the same way
-  an unset Economic Moat is handled. It does **not** block the rest of Overall Assessment from
+  an unset Economic Moat is handled for the score. It does **not** block the rest of Overall Assessment from
   being computed.
 
 See the [Glossary](glossary.md) for how both differ from a genuine Fail, and for the additional

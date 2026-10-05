@@ -66,6 +66,10 @@ Overall Assessment uses these same labels, with two additions worth knowing:
   Strong Pass — a real caveat on one check isn't allowed to disappear once it's folded into the
   bigger picture.
 
+- If **Economic Moat** hasn't been rated and the blend would read Pass, Pass with caution or Strong
+  Pass, the Overall verdict is **Moat not rated** — not a Pass and not a Fail. The score is
+  unchanged; rate the moat to get a real verdict.
+
 See [Overview](overview.md) for how Overall Assessment is built.
 
 # Glossary: P/E

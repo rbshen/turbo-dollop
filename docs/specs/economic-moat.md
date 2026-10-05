@@ -28,10 +28,13 @@ checks on its own (see [Overview](overview.md) for the full weighting). This is 
 design choice: a durable competitive advantage is treated as at least as important to a
 company's long-term investment case as any one quarter's worth of financial performance.
 
-Until you set a rating, Overall Assessment simply reports the blend of the four automated checks
-on their own — leaving Moat unrated doesn't drag the score down or count against the company.
-It's only once you actively select **No Moat** that it becomes a real, negative input pulling
-the blended score down; the unrated state and "No Moat" are not the same thing.
+Until you set a rating, the Overall **score** is simply the blend of the four automated checks on
+their own — leaving Moat unrated doesn't drag the number down. But Moat is non-negotiable for a
+Pass, so an unrated ticker whose blend would read Pass, Pass with caution or Strong Pass shows the
+verdict **Moat not rated** instead until you rate it (a would-be Fail stays Fail). It's only once
+you actively select **No Moat** that it becomes a real, negative input pulling the blended score
+down; the unrated state and "No Moat" are not the same thing. See [Overview](overview.md), "What
+happens if Economic Moat isn't set".
 
 ## It doesn't persist automatically until you confirm it
 
@@ -84,7 +87,9 @@ differently:
 - **Not set** (the default for every ticker until a user picks a rating): Overall Assessment
   uses the pure four-check blend on its own (`steps_score` above, with `display_scale = 1.0`),
   reweighted to sum to 100% — Moat is simply absent from the picture, not treated as a zero or a
-  penalty.
+  penalty. The verdict, though, can never be a Pass: a would-be Pass-family verdict reads **Moat
+  not rated** (`moat_not_rated`) until the ticker is rated; `PUT /api/tickers/{t}/moat` recomputes
+  the stored row (cache only), so rating it flips the verdict immediately.
 - **No Moat** (an explicit user selection): scores its full 0 points at the full 31% weight — a
   real, negative input that actively pulls the blended score down, and (combined with the
   four-check blend) can cap the overall score below the Pass threshold regardless of how well the
