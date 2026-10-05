@@ -49,7 +49,7 @@ from data.custom_valuation_data import (
 from data.step2_data import get_step2_data
 from helpers.ttm import (
     TOTAL_QUARTERS_NEEDED,
-    drop_placeholder_cash_flow_rows,
+    clean_cash_flow_statements,
     is_ttm_period_duplicate_of_last_fy,
     sum_last_four_quarters,
 )
@@ -381,12 +381,13 @@ async def get_step3_data(
     income_quarterly = income_quarterly if isinstance(income_quarterly, list) else []
     cash_flow_annual = cash_flow_annual if isinstance(cash_flow_annual, list) else []
     cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
-    # Placeholder (empty-skeleton) cash-flow rows are treated as missing --
-    # see ttm.py::drop_placeholder_cash_flow_rows (quarterly: the newest run
-    # is dropped so TTM covers the last four valid quarters; annual: blanked
-    # in place).
-    cash_flow_annual = drop_placeholder_cash_flow_rows(cash_flow_annual, income_annual, drop_leading=False)
-    cash_flow_quarterly = drop_placeholder_cash_flow_rows(cash_flow_quarterly, income_quarterly)
+    # Placeholder cash-flow rows and mis-scaled rows are treated as missing --
+    # see ttm.py::clean_cash_flow_statements (quarterly: the newest run is
+    # dropped so TTM covers the last four valid quarters; annual: blanked in
+    # place).
+    cash_flow_annual, cash_flow_quarterly = clean_cash_flow_statements(
+        cash_flow_annual, cash_flow_quarterly, income_annual, income_quarterly
+    )
     balance_sheet_quarterly = balance_sheet_quarterly if isinstance(balance_sheet_quarterly, list) else []
     balance_sheet_annual = balance_sheet_annual if isinstance(balance_sheet_annual, list) else []
     ratios_annual = ratios_annual if isinstance(ratios_annual, list) else []

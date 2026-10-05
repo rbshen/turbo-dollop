@@ -1,3 +1,4 @@
+import math
 import statistics
 from typing import NamedTuple
 
@@ -51,6 +52,27 @@ PLACEHOLDER_CASH_FLOW_ZERO_FIELDS = (
     "netCashProvidedByInvestingActivities",
     "netCashProvidedByFinancingActivities",
 )
+
+
+# Whole-row scale breaks: FMP sometimes serves one row in a different unit from
+# the same ticker's other periods (AMCR's FY2026 cash-flow row is in unscaled
+# millions -- CFO 2,151 -- beside neighbouring rows in dollars -- CFO
+# 1,390,000,000). A row is a scale break only when it is a *whole-row* shift:
+# at least SCALE_BREAK_MIN_LINES numeric lines are comparable with the nearest
+# SCALE_BREAK_NEIGHBOURS other rows, at least SCALE_BREAK_LINE_FRACTION of them
+# sit at least SCALE_BREAK_MIN_RATIO away in the SAME direction (10**2.5, the
+# midpoint between a 100x and a 1,000x shift), and their log10 ratios cluster
+# tightly (interquartile range <= SCALE_BREAK_MAX_LOG_IQR decades) -- i.e. one
+# common unit factor rather than a young company simply being far smaller than
+# its neighbours (VRT's pre-merger 2016 balance sheet: 89% of lines are far off,
+# but spread over 1.2 decades). One tiny line (EME, MCHP, POOL, SYM) can never
+# trigger it.
+SCALE_BREAK_NEIGHBOURS = 4
+SCALE_BREAK_MIN_LINES = 8
+SCALE_BREAK_MIN_RATIO = 10**2.5
+SCALE_BREAK_LINE_FRACTION = 0.8
+SCALE_BREAK_MAX_LOG_IQR = 0.5
+_NON_MONETARY_KEYS = {"fiscalYear", "cik"}
 
 
 class FlaggedQuarter(NamedTuple):
@@ -223,37 +245,115 @@ def is_placeholder_cash_flow_row(cash_flow_row: dict, income_rows: list[dict]) -
     return net_income is not None and net_income != 0
 
 
-def drop_placeholder_cash_flow_rows(
-    cash_flow_rows: list[dict], income_rows: list[dict], drop_leading: bool = True
-) -> list[dict]:
-    """Treats placeholder cash-flow rows (is_placeholder_cash_flow_row) as
-    missing. `cash_flow_rows` most-recent-first.
+def _monetary_lines(row: dict) -> dict[str, float]:
+    return {
+        k: v
+        for k, v in row.items()
+        if k not in _NON_MONETARY_KEYS and isinstance(v, (int, float)) and not isinstance(v, bool)
+    }
 
-    Quarterly lists (`drop_leading=True`): the contiguous run of placeholders
-    at the NEWEST end is removed, so the TTM window slides back to the last
-    four valid quarters (AZO: Q4 FY2026 is a placeholder, so TTM CFO covers
-    Q4 FY2025..Q3 FY2026). A placeholder anywhere else is kept in place but
-    blanked (every numeric field None, identity fields kept): a TTM window that
-    would contain it reads None rather than silently summing a gap, since
-    skipping an interior quarter would stretch the window past 12 months. With
-    fewer than four valid quarters left the TTM is None, never partial.
 
-    Annual lists (`drop_leading=False`): placeholders are blanked in place, never
-    removed, because the annual series are read positionally and by fiscalYear
-    next to the income and balance-sheet series -- removing the newest year
-    would shift every year's CFO onto the wrong fiscal year.
+def is_scale_broken_row(rows: list[dict], index: int) -> bool:
+    """True when rows[index] looks like a whole-row unit/scale break against
+    its nearest SCALE_BREAK_NEIGHBOURS other rows in the same list (see
+    SCALE_BREAK_MIN_RATIO and friends). `rows` is the ticker's own series of
+    one statement and period; a list too short to supply two non-zero
+    neighbours for a line contributes nothing for that line."""
+    nearest = sorted((j for j in range(len(rows)) if j != index), key=lambda j: abs(j - index))
+    neighbours = [_monetary_lines(rows[j]) for j in nearest[:SCALE_BREAK_NEIGHBOURS]]
+    log_ratios: list[float] = []
+    for key, value in _monetary_lines(rows[index]).items():
+        if value == 0:
+            continue
+        magnitudes = [abs(n[key]) for n in neighbours if n.get(key)]
+        if len(magnitudes) < 2:
+            continue
+        log_ratios.append(math.log10(abs(value) / statistics.median(magnitudes)))
+    if len(log_ratios) < SCALE_BREAK_MIN_LINES:
+        return False
+    direction = 1 if statistics.median(log_ratios) > 0 else -1
+    threshold = math.log10(SCALE_BREAK_MIN_RATIO)
+    far = sum(1 for lr in log_ratios if direction * lr >= threshold)
+    if far / len(log_ratios) < SCALE_BREAK_LINE_FRACTION:
+        return False
+    ordered = sorted(log_ratios)
+    q1, q3 = ordered[len(ordered) // 4], ordered[(3 * len(ordered)) // 4]
+    return q3 - q1 <= SCALE_BREAK_MAX_LOG_IQR
 
-    Only cash-flow rows are touched; income and balance-sheet rows never go
-    through this."""
+
+def _blank(row: dict) -> dict:
+    return {k: (None if isinstance(v, (int, float)) and not isinstance(v, bool) else v) for k, v in row.items()}
+
+
+def _treat_as_missing(rows: list[dict], is_missing: list[bool], drop_leading: bool) -> list[dict]:
+    """Quarterly (`drop_leading=True`): the contiguous run of missing rows at
+    the NEWEST end is removed, so the TTM window slides back to the last four
+    valid quarters; a missing row anywhere else is kept but blanked (numeric
+    fields None, identity fields kept), so a TTM window containing it reads
+    None -- skipping an interior quarter would stretch the window past 12
+    months. Annual (`drop_leading=False`): missing rows are blanked in place,
+    never removed, because annual series are read positionally and by fiscal
+    year beside the income and balance-sheet series. With fewer than four valid
+    quarters left the TTM is missing, never partial."""
     cleaned: list[dict] = []
     leading = drop_leading
-    for row in cash_flow_rows:
-        if not is_placeholder_cash_flow_row(row, income_rows):
+    for row, missing in zip(rows, is_missing):
+        if not missing:
             leading = False
             cleaned.append(row)
         elif not leading:
-            cleaned.append({k: (None if isinstance(v, (int, float)) and not isinstance(v, bool) else v) for k, v in row.items()})
+            cleaned.append(_blank(row))
     return cleaned
+
+
+def drop_placeholder_cash_flow_rows(
+    cash_flow_rows: list[dict], income_rows: list[dict], drop_leading: bool = True
+) -> list[dict]:
+    """Treats only placeholder cash-flow rows (is_placeholder_cash_flow_row) as
+    missing -- see _treat_as_missing for the quarterly (`drop_leading=True`) vs
+    annual (`drop_leading=False`) handling. `cash_flow_rows` most-recent-first."""
+    return _treat_as_missing(
+        cash_flow_rows, [is_placeholder_cash_flow_row(row, income_rows) for row in cash_flow_rows], drop_leading
+    )
+
+
+def clean_cash_flow_statements(
+    cash_flow_annual: list[dict],
+    cash_flow_quarterly: list[dict],
+    income_annual: list[dict],
+    income_quarterly: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    """The one entry point Steps 1, 3, 4 and 5 call right after loading the
+    cash-flow statements. Treats as MISSING (see _treat_as_missing for how
+    quarterly vs annual lists handle that):
+
+    1. placeholder rows (is_placeholder_cash_flow_row: empty skeletons beside a
+       real income statement), annual and quarterly;
+    2. whole-row scale breaks (is_scale_broken_row), annual and quarterly; and
+       the "Q4" quarterly row of any fiscal year whose ANNUAL row is a scale
+       break, because FMP derives every Q4 as annual minus the other three
+       quarters, so a mis-scaled annual poisons its Q4 (AMCR: Q4 net income
+       -716,998,894 = 1,106 - 717,000,000, against +389M on the income
+       statement, which is how TTM CFO came out as 22.7M instead of ~2.15B).
+
+    Returns (annual, quarterly), both most-recent-first. Only cash-flow rows are
+    touched; income and balance-sheet rows never go through this."""
+    annual_scale = [is_scale_broken_row(cash_flow_annual, i) for i in range(len(cash_flow_annual))]
+    broken_years = {row.get("fiscalYear") for row, broken in zip(cash_flow_annual, annual_scale) if broken}
+    annual_missing = [
+        broken or is_placeholder_cash_flow_row(row, income_annual)
+        for row, broken in zip(cash_flow_annual, annual_scale)
+    ]
+    quarterly_missing = [
+        is_scale_broken_row(cash_flow_quarterly, i)
+        or is_placeholder_cash_flow_row(row, income_quarterly)
+        or (row.get("period") == "Q4" and row.get("fiscalYear") in broken_years)
+        for i, row in enumerate(cash_flow_quarterly)
+    ]
+    return (
+        _treat_as_missing(cash_flow_annual, annual_missing, drop_leading=False),
+        _treat_as_missing(cash_flow_quarterly, quarterly_missing, drop_leading=True),
+    )
 
 
 def is_ttm_period_duplicate_of_last_fy(annual_rows: list[dict], quarterly_rows: list[dict]) -> bool:

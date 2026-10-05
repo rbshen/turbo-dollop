@@ -1,4 +1,6 @@
 from helpers.ttm import (
+    clean_cash_flow_statements,
+    is_scale_broken_row,
     drop_placeholder_cash_flow_rows,
     is_placeholder_cash_flow_row,
     FlaggedQuarter,
@@ -588,3 +590,138 @@ def test_a_blanked_annual_row_stops_the_defect_b_correction_from_using_a_zero_to
     a = drop_placeholder_cash_flow_rows(annual, income_a, drop_leading=False)
 
     assert sum_last_four_quarters(q, "netCashProvidedByOperatingActivities", a).total == 2_800
+
+
+# --- Whole-row scale breaks ----------------------------------------------------
+
+# 12 monetary lines, each with its own magnitude (1e6..1e11) so a row-wide
+# shift is visible on every line.
+LINES = [f"line{i}" for i in range(12)]
+
+
+def _row(scale=1.0, growth=1.0, only=None):
+    row = {"date": "d", "period": "FY", "fiscalYear": "2026"}
+    for i, key in enumerate(LINES):
+        factor = scale if only is None or key in only else 1.0
+        row[key] = (10 ** (6 + i % 6)) * (1 + i / 10) * growth * factor
+    return row
+
+
+def _series(target_index, target_row):
+    rows = [_row(growth=1.0 + 0.05 * i) for i in range(6)]
+    rows[target_index] = target_row
+    return rows
+
+
+def test_a_whole_row_in_unscaled_millions_is_a_scale_break_amcr_shaped():
+    rows = _series(0, _row(scale=1e-6, growth=1.6))
+
+    assert is_scale_broken_row(rows, 0) is True
+    # ... and none of its (consistent) neighbours is flagged because of it.
+    assert [is_scale_broken_row(rows, i) for i in range(1, 6)] == [False] * 5
+
+
+def test_a_scale_consistent_row_is_not_flagged_even_when_it_grew_a_lot():
+    # 10x year-on-year growth on every line is real, not a unit break.
+    rows = _series(0, _row(growth=10.0))
+
+    assert is_scale_broken_row(rows, 0) is False
+
+
+def test_a_shift_of_100x_is_below_the_threshold_but_1000x_is_not():
+    assert is_scale_broken_row(_series(0, _row(scale=1e-2)), 0) is False
+    assert is_scale_broken_row(_series(0, _row(scale=1e-3)), 0) is True
+    assert is_scale_broken_row(_series(0, _row(scale=1e3)), 0) is True  # either direction
+
+
+def test_one_tiny_line_in_an_otherwise_consistent_row_is_not_a_scale_break():
+    # EME / MCHP / POOL / SYM-shaped: a single line is off by 1000x or more.
+    assert is_scale_broken_row(_series(0, _row(scale=1e-6, only={"line3"})), 0) is False
+
+
+def test_the_line_fraction_boundary_is_80_percent():
+    # 12 comparable lines: 10 broken = 83% -> flagged; 9 broken = 75% -> not.
+    ten = {f"line{i}" for i in range(10)}
+    nine = {f"line{i}" for i in range(9)}
+
+    assert is_scale_broken_row(_series(0, _row(scale=1e-4, only=ten)), 0) is True
+    assert is_scale_broken_row(_series(0, _row(scale=1e-4, only=nine)), 0) is False
+
+
+def test_far_off_lines_spread_over_many_decades_are_a_young_company_not_a_unit_break():
+    # VRT-shaped pre-merger year: most lines far smaller than the neighbours but by
+    # wildly different factors, not one common unit factor.
+    row = _row()
+    for i, key in enumerate(LINES):
+        row[key] = row[key] * 10 ** (-3 - i * 0.4)
+    rows = _series(0, row)
+
+    assert is_scale_broken_row(rows, 0) is False
+
+
+def test_too_few_comparable_lines_or_neighbours_is_never_a_scale_break():
+    few_lines = [{"a": 1.0, "b": 2.0}, {"a": 1e6, "b": 2e6}, {"a": 1e6, "b": 2e6}]
+    assert is_scale_broken_row(few_lines, 0) is False
+    two_rows = [_row(scale=1e-6), _row()]
+    assert is_scale_broken_row(two_rows, 0) is False  # a line needs two non-zero neighbours
+
+
+def _amcr_cash_flow(date, period, year, cfo, net_income):
+    row = {"date": date, "period": period, "fiscalYear": year}
+    for i, key in enumerate(LINES):
+        row[key] = 1.0 + i  # filler lines so the row has enough monetary lines
+    row["netCashProvidedByOperatingActivities"] = cfo
+    row["netIncome"] = net_income
+    return row
+
+
+def test_scale_broken_annual_row_blanks_it_and_drops_its_derived_q4_so_ttm_uses_the_last_four_valid_quarters():
+    # AMCR FY2026: annual row in unscaled millions (CFO 2,151), and FMP's
+    # derived Q4 (= annual - Q1..Q3) is garbage (-556M). Everything else is in dollars.
+    def line_row(date, period, year, scale, growth):
+        row = {**_row(scale=scale, growth=growth), "date": date, "period": period, "fiscalYear": year}
+        row["netCashProvidedByOperatingActivities"] = 2_000_000_000 * growth * scale
+        return row
+
+    annual = [line_row("2026-06-30", "FY", "2026", 1e-6, 1.6)] + [
+        line_row(f"{2025 - i}-06-30", "FY", str(2025 - i), 1.0, 1.0 + 0.05 * i) for i in range(5)
+    ]
+    quarterly = [
+        {"date": "2026-06-30", "period": "Q4", "fiscalYear": "2026", "netCashProvidedByOperatingActivities": -556_000_000},
+        {"date": "2026-03-05", "period": "Q3", "fiscalYear": "2026", "netCashProvidedByOperatingActivities": 208_000_000},
+        {"date": "2025-12-31", "period": "Q2", "fiscalYear": "2026", "netCashProvidedByOperatingActivities": 504_000_000},
+        {"date": "2025-09-30", "period": "Q1", "fiscalYear": "2026", "netCashProvidedByOperatingActivities": -133_000_000},
+        {"date": "2025-06-30", "period": "Q4", "fiscalYear": "2025", "netCashProvidedByOperatingActivities": 1_114_000_000},
+        {"date": "2025-03-31", "period": "Q3", "fiscalYear": "2025", "netCashProvidedByOperatingActivities": 300_000_000},
+    ]
+
+    clean_annual, clean_quarterly = clean_cash_flow_statements(annual, quarterly, [], [])
+
+    assert len(clean_annual) == len(annual)  # blanked in place, never removed
+    assert clean_annual[0]["netCashProvidedByOperatingActivities"] is None
+    assert clean_annual[0]["fiscalYear"] == "2026"
+    assert clean_annual[1] == annual[1]
+    # The poisoned Q4 FY2026 is dropped; TTM = Q3 + Q2 + Q1 FY26 + Q4 FY25 (not the 22.7M-style sum).
+    assert [q["date"] for q in clean_quarterly][:4] == ["2026-03-05", "2025-12-31", "2025-09-30", "2025-06-30"]
+    assert sum_last_four_quarters(clean_quarterly, "netCashProvidedByOperatingActivities").total == 208_000_000 + 504_000_000 - 133_000_000 + 1_114_000_000
+
+
+def test_a_q4_row_is_only_dropped_when_its_own_fiscal_years_annual_row_is_the_scale_break():
+    annual = [_row(growth=1.0 + 0.05 * i) for i in range(6)]  # nothing broken
+    for i, row in enumerate(annual):
+        row["fiscalYear"] = str(2026 - i)
+    quarterly = [{"date": "2026-06-30", "period": "Q4", "fiscalYear": "2026", "netCashProvidedByOperatingActivities": 5}]
+
+    clean_annual, clean_quarterly = clean_cash_flow_statements(annual, quarterly, [], [])
+
+    assert clean_annual == annual and clean_quarterly == quarterly
+
+
+def test_clean_cash_flow_statements_still_applies_the_placeholder_rule():
+    dates = ["2026-09-30", "2026-06-30", "2026-03-31", "2025-12-31", "2025-09-30"]
+    quarterly = [_cf(dates[0]), *[_real_cf(d) for d in dates[1:]]]
+    income = [_inc(d) for d in dates]
+
+    _, clean_quarterly = clean_cash_flow_statements([], quarterly, [], income)
+
+    assert [q["date"] for q in clean_quarterly] == dates[1:]

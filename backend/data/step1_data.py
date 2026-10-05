@@ -10,7 +10,7 @@ from core.schemas import OutlierWarning, Step1Out
 from core.tickers import normalize_ticker
 from scoring.classification import classify_company_type
 from scoring.step1 import MARGINS_SEVERITY_CARVEOUT_TYPES, score_step1
-from helpers.ttm import TOTAL_QUARTERS_NEEDED, drop_placeholder_cash_flow_rows, sum_last_four_quarters
+from helpers.ttm import TOTAL_QUARTERS_NEEDED, clean_cash_flow_statements, sum_last_four_quarters
 
 
 # Banks (2026-09-10): Margins is excluded from scoring entirely, on top of
@@ -155,12 +155,13 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
     income_quarterly = income_quarterly if isinstance(income_quarterly, list) else []
     cash_flow_annual = cash_flow_annual if isinstance(cash_flow_annual, list) else []
     cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
-    # Placeholder (empty-skeleton) cash-flow rows are treated as missing --
-    # see ttm.py::drop_placeholder_cash_flow_rows (quarterly: the newest run
-    # is dropped so TTM covers the last four valid quarters; annual: blanked
-    # in place).
-    cash_flow_annual = drop_placeholder_cash_flow_rows(cash_flow_annual, income_annual, drop_leading=False)
-    cash_flow_quarterly = drop_placeholder_cash_flow_rows(cash_flow_quarterly, income_quarterly)
+    # Placeholder cash-flow rows and mis-scaled rows are treated as missing --
+    # see ttm.py::clean_cash_flow_statements (quarterly: the newest run is
+    # dropped so TTM covers the last four valid quarters; annual: blanked in
+    # place).
+    cash_flow_annual, cash_flow_quarterly = clean_cash_flow_statements(
+        cash_flow_annual, cash_flow_quarterly, income_annual, income_quarterly
+    )
 
     years, revenue = _annual_series(income_annual, "revenue")
     _, net_interest_income = _annual_series(income_annual, "netInterestIncome")

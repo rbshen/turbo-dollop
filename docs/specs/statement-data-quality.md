@@ -88,9 +88,9 @@ raw sum (−246.7M) instead of the annual −53.8M (TEAM revenue and CFO are sti
 
 ## 3. Placeholder cash-flow rows (the "P4" variant)
 
-`helpers/ttm.py::is_placeholder_cash_flow_row` / `drop_placeholder_cash_flow_rows`, applied in
-`get_step1_data`, `get_step3_data`, `get_step4_data` and `get_step5_data` right after the
-statements are loaded.
+`helpers/ttm.py::is_placeholder_cash_flow_row` / `drop_placeholder_cash_flow_rows`, applied (with
+section 4, through the single entry point `clean_cash_flow_statements`) in `get_step1_data`,
+`get_step3_data`, `get_step4_data` and `get_step5_data` right after the statements are loaded.
 
 FMP sometimes serves a period's cash-flow row as an empty skeleton beside a real income statement:
 AZO's FY2026 annual row has 39 of 39 numeric lines 0 and its Q4 row 38 of 39 (one stray inventory
@@ -125,3 +125,35 @@ source for the Defect-B correction (section 2).
 **Not covered.** The Financials tab keeps showing the raw rows exactly as FMP reported them (its TTM
 column is the raw sum), and Speculative Growth's last-two-quarters CFO direction reads the raw newest
 quarters.
+
+## 4. Scale breaks (whole-row unit errors)
+
+`helpers/ttm.py::is_scale_broken_row`, applied to cash-flow rows by `clean_cash_flow_statements`.
+
+AMCR's FY2026 annual cash-flow row is in unscaled **millions** (CFO 2,151; net income 1,106) while
+every other row is in dollars (CFO 1,390,000,000 the year before). FMP derives every fiscal-year Q4
+as annual minus the other three quarters, so the mis-scaled annual also poisoned the Q4 FY2026 row
+(net income −716,998,894 = 1,106 − 717,000,000, against +389M on the income statement) and TTM CFO
+came out as 22.7M instead of about 2.15B.
+
+**The test.** A row is a scale break when, against the median of its **nearest four other rows** in
+the same series (a line needs two non-zero neighbours), **at least 8** monetary lines are
+comparable and **at least 80%** of them sit **at least 10^2.5 ≈ 316× away in the same direction**
+(the midpoint between a 100× and a 1,000× shift; 100× is not flagged, 1,000× is) **and** the
+log₁₀ ratios of those lines **cluster** (interquartile range ≤ 0.5 decades): one common unit factor,
+not a young company that is simply much smaller than its later years. One tiny line can never
+trigger it, so EME, MCHP, POOL and SYM are not flagged.
+
+**Universe check before keeping the rule (2026-10-05).** All 38,131 cached statement rows (every
+cached ticker × income, balance sheet and cash flow × annual and quarterly) were scanned: **exactly
+one row is flagged, AMCR's FY2026 annual cash-flow row**, a genuine scale break. The closest
+non-flag is VRT's pre-merger FY2016 balance sheet (89% of lines far off) which is a different
+(shell) entity, spread over 1.2 decades, and is correctly not a unit shift.
+
+**What happens.** The flagged annual row is blanked in place (as for placeholders), and the **Q4
+quarterly row of the same fiscal year is treated as missing as well** (a derived row, see above):
+being the newest quarter it is dropped, so AMCR's TTM CFO covers Q4 FY2025 to Q3 FY2026
+(≈1.69B). This is *not* a rescale: the annual row is not multiplied back up, because that would
+invent a figure; the cost is a TTM that is one quarter old and understated against the true
+≈2.15B. A scale-broken quarterly row is handled the same way as a placeholder row.
+Income-statement and balance-sheet rows are never touched by this rule (none is flagged today).
