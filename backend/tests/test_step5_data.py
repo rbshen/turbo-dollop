@@ -844,3 +844,151 @@ def test_sec_cross_check_still_fires_by_default_with_outliers_present(monkeypatc
     assert warnings_by_metric["net_interest_expense_ttm"].sec_cross_check is not None
     assert warnings_by_metric["cfo_ttm"].sec_cross_check is not None
     assert set(calls) == {"interest_expense", "cfo"}
+
+
+# ---- newest-quarter completeness gate (helpers/balance_sheet_gate.py) ----
+
+
+def _gate_bs(date, long_term_debt, total_liabilities, total_debt=None, total_assets=15_000, current_assets=6_000):
+    return {
+        "date": date,
+        "period": "Q",
+        "totalCurrentAssets": current_assets,
+        "totalCurrentLiabilities": 2_000,
+        "shortTermDebt": 0,
+        "longTermDebt": long_term_debt,
+        "totalDebt": long_term_debt if total_debt is None else total_debt,
+        "totalAssets": total_assets,
+        "totalLiabilities": total_liabilities,
+        "deferredRevenue": 0,
+    }
+
+
+# Five income / cash-flow quarters, newest first, ebitda 100 each except the
+# newest (1_000) so a TTM that wrongly still includes it is detectable.
+GATE_INCOME = [
+    {"date": "2026-06-30", "ebitda": 1_000, "operatingIncome": 80, "interestExpense": 10, "netInterestIncome": -10},
+    {"date": "2026-03-31", "ebitda": 100, "operatingIncome": 80, "interestExpense": 10, "netInterestIncome": -10},
+    {"date": "2025-12-31", "ebitda": 100, "operatingIncome": 80, "interestExpense": 10, "netInterestIncome": -10},
+    {"date": "2025-09-30", "ebitda": 100, "operatingIncome": 80, "interestExpense": 10, "netInterestIncome": -10},
+    {"date": "2025-06-30", "ebitda": 100, "operatingIncome": 80, "interestExpense": 10, "netInterestIncome": -10},
+]
+GATE_CASH_FLOW = [
+    {"date": "2026-06-30", "netCashProvidedByOperatingActivities": 900, "freeCashFlow": 900},
+    *[{"date": d, "netCashProvidedByOperatingActivities": 50, "freeCashFlow": 40} for d in
+      ("2026-03-31", "2025-12-31", "2025-09-30", "2025-06-30")],
+]
+
+
+def _patch_gate(monkeypatch, balance_sheet_quarterly, sector="Technology", industry="Consumer Electronics"):
+    _patch_fmp(monkeypatch, sector=sector, industry=industry, income_quarterly=GATE_INCOME)
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return balance_sheet_quarterly if period == "quarter" else BALANCE_SHEET_ANNUAL
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return GATE_CASH_FLOW if period == "quarter" else []
+
+    monkeypatch.setattr(step5_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+    monkeypatch.setattr(step5_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+
+def test_zts_shaped_partial_newest_quarter_uses_prior_balance_sheet_and_aligned_ttm(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_gate(
+        monkeypatch,
+        [
+            _gate_bs("2026-06-30", long_term_debt=190, total_liabilities=11_929),
+            _gate_bs("2026-03-31", long_term_debt=9_045, total_liabilities=11_921),
+        ],
+    )
+
+    result = asyncio.run(get_step5_data("zts"))
+
+    # Debt comes from the prior quarter (9,045), and EBITDA TTM is the four
+    # quarters ending 2026-03-31 (4 x 100 = 400) -- not the partial quarter's 1,000.
+    assert result.ratios["debt_to_ebitda"].value == 9_045 / 400
+    assert result.ratios["debt_to_ebitda"].label == "severe"
+    assert result.verdict == "Fail"
+    # CFO TTM aligned the same way: net interest 40 / CFO (4 x 50 = 200) = 20%.
+    assert result.ratios["debt_servicing_ratio"].value == 40 / 200 * 100
+    assert result.balance_sheet_fallback is not None
+    assert result.balance_sheet_fallback.reason == "debt_remap"
+    assert result.balance_sheet_fallback.incomplete_quarter_date == "2026-06-30"
+    assert result.balance_sheet_fallback.used_quarter_date == "2026-03-31"
+
+
+def test_complete_newest_quarter_is_used_as_is_with_no_fallback_note(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_gate(
+        monkeypatch,
+        [
+            _gate_bs("2026-06-30", long_term_debt=900, total_liabilities=3_000),
+            _gate_bs("2026-03-31", long_term_debt=9_045, total_liabilities=11_921),
+        ],
+    )
+
+    result = asyncio.run(get_step5_data("zts"))
+
+    # Genuine paydown (liabilities fell with the debt) -- newest quarter stays,
+    # and the newest income quarter stays in the TTM (1,000 + 3 x 100 = 1,300).
+    assert result.balance_sheet_fallback is None
+    assert result.ratios["debt_to_ebitda"].value == 900 / 1_300
+
+
+def test_adp_shaped_current_assets_remap_uses_prior_balance_sheet(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_gate(
+        monkeypatch,
+        [
+            _gate_bs("2026-06-30", long_term_debt=100, total_liabilities=57_162, total_assets=63_193, current_assets=8_603),
+            _gate_bs("2026-03-31", long_term_debt=100, total_liabilities=58_134, total_assets=64_484, current_assets=54_234),
+        ],
+    )
+
+    result = asyncio.run(get_step5_data("adp"))
+
+    assert result.balance_sheet_fallback is not None
+    assert result.balance_sheet_fallback.reason == "current_assets_remap"
+    # Prior quarter's current assets 54,234 over its current liabilities 2,000.
+    assert result.ratios["current_ratio"].value == 54_234 / 2_000
+
+
+def test_doc_shaped_reit_gearing_uses_prior_quarter_total_debt(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_gate(
+        monkeypatch,
+        [
+            _gate_bs("2026-06-30", long_term_debt=0, total_liabilities=12_182, total_assets=21_680),
+            _gate_bs("2026-03-31", long_term_debt=9_530, total_debt=10_713, total_liabilities=12_556, total_assets=21_616),
+        ],
+        sector="Real Estate",
+        industry="REIT - Healthcare Facilities",
+    )
+
+    result = asyncio.run(get_step5_data("doc"))
+
+    assert result.company_type == "REIT/Property Developer"
+    assert result.ratios["gearing_ratio"].value == 10_713 / 21_616 * 100
+    assert result.balance_sheet_fallback is not None
+    assert result.balance_sheet_fallback.reason == "debt_remap"
+
+
+def test_reit_current_assets_collapse_is_not_gated(monkeypatch):
+    # Current assets are irrelevant to REIT gearing -- the current-assets rule
+    # must not move a REIT off its newest balance sheet.
+    _fresh_engine(monkeypatch)
+    _patch_gate(
+        monkeypatch,
+        [
+            _gate_bs("2026-06-30", long_term_debt=5_000, total_liabilities=9_000, total_assets=20_000, current_assets=100),
+            _gate_bs("2026-03-31", long_term_debt=5_000, total_liabilities=9_000, total_assets=20_000, current_assets=5_000),
+        ],
+        sector="Real Estate",
+        industry="REIT - Retail",
+    )
+
+    result = asyncio.run(get_step5_data("wel"))
+
+    assert result.balance_sheet_fallback is None
+    assert result.ratios["gearing_ratio"].value == 5_000 / 20_000 * 100

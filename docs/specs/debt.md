@@ -98,7 +98,10 @@ for the detection order and the manually-verified overrides.
 ### Standard path: the three ratios
 
 All figures are the latest reported quarter (balance sheet) or trailing twelve months (flow
-figures), never fiscal-year-end.
+figures), never fiscal-year-end. When FMP's newest quarterly balance sheet is partly filled in
+(debt or current assets remapped into another line), the prior quarter's balance sheet is used
+instead and the TTM windows are aligned to it — see
+[Statement data quality](statement-data-quality.md), "Newest-quarter completeness gate".
 
 ```
 Current Ratio            = Current Assets / Current Liabilities

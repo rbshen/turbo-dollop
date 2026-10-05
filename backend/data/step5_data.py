@@ -7,12 +7,18 @@ from helpers.bank_capital_metrics import get_ticker_bank_capital_metrics
 from core.cache import get_or_fetch, get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
 from core.db import engine
+from helpers.balance_sheet_gate import (
+    DEBT_BASIS_SHORT_PLUS_LONG,
+    DEBT_BASIS_TOTAL_DEBT,
+    align_quarters_to_balance_sheet,
+    select_complete_balance_sheet,
+)
 from helpers.debt_metrics import MetricOutlierFlags, compute_debt_metrics
 from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from helpers.npl import compute_npl_ratio
-from core.schemas import BreachContextSignal, OutlierWarning, SecCrossCheck, Step5Out, Step5RatioResult
+from core.schemas import BalanceSheetFallback, BreachContextSignal, OutlierWarning, SecCrossCheck, Step5Out, Step5RatioResult
 from core.tickers import normalize_ticker
 from scoring.step5 import classify_company_type, score_npl, score_step5_bank, score_step5_reit, score_step5_standard
 from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
@@ -443,6 +449,33 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
     income_annual_for_ttm = income_annual_for_ttm if isinstance(income_annual_for_ttm, list) else []
     cash_flow_annual = cash_flow_annual if isinstance(cash_flow_annual, list) else []
 
+    # Newest-quarter completeness gate (helpers/balance_sheet_gate.py): when
+    # FMP served the newest balance sheet partly filled in (debt or current
+    # assets remapped into another line), use the prior quarter's balance
+    # sheet. The income and cash-flow quarters are cut off at that same
+    # period end so the TTM windows stay aligned with the balance sheet. A
+    # read-time decision only -- the cached rows are untouched. Step 5's
+    # scoring rules are unchanged; the debt basis watched is the one the path
+    # being scored actually reads (REIT gearing: totalDebt; Standard:
+    # short + long term debt), and current assets only matter on Standard.
+    is_reit = company_type == "REIT/Property Developer"
+    selection = select_complete_balance_sheet(
+        balance_sheet if isinstance(balance_sheet, list) else [balance_sheet_row],
+        DEBT_BASIS_TOTAL_DEBT if is_reit else DEBT_BASIS_SHORT_PLUS_LONG,
+        check_current_assets=not is_reit,
+    )
+    balance_sheet_fallback = None
+    if selection.fallback_used:
+        balance_sheet_row = selection.row
+        income_quarterly = align_quarters_to_balance_sheet(income_quarterly, selection.used_date)
+        cash_flow_quarterly = align_quarters_to_balance_sheet(cash_flow_quarterly, selection.used_date)
+        balance_sheet_fallback = BalanceSheetFallback(
+            reason=selection.reason,
+            incomplete_quarter_date=selection.incomplete_date,
+            used_quarter_date=selection.used_date,
+            detail=selection.detail,
+        )
+
     # Shared with the ticker header's raw metric tiles -- single source of
     # truth so the two views can never diverge for the same ticker.
     debt_metrics = compute_debt_metrics(balance_sheet_row, income_quarterly, income_annual_for_ttm)
@@ -472,7 +505,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
     total_assets = balance_sheet_row.get("totalAssets")
     deferred_revenue = balance_sheet_row.get("deferredRevenue")
 
-    if company_type == "REIT/Property Developer":
+    if is_reit:
         if total_debt is None or not total_assets:
             return Step5Out(
                 ticker=ticker,
@@ -480,6 +513,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
                 score=None,
                 verdict="insufficient_data",
                 outlier_warnings=outlier_warnings,
+                balance_sheet_fallback=balance_sheet_fallback,
             )
 
         gearing_pct = total_debt / total_assets * 100
@@ -494,6 +528,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
             hard_fail=result["hard_fail"],
             weights=result["weights"],
             outlier_warnings=outlier_warnings,
+            balance_sheet_fallback=balance_sheet_fallback,
         )
 
     # Standard path.
@@ -552,6 +587,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
             score=None,
             verdict="insufficient_data",
             outlier_warnings=outlier_warnings,
+            balance_sheet_fallback=balance_sheet_fallback,
         )
 
     # Breach-context inputs -- only fetched/computed once we know we're
@@ -660,4 +696,5 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
         debt_to_ebitda_years=[y or "—" for y in years] + ["TTM"],
         debt_to_ebitda_series=debt_to_ebitda_series + [debt_to_ebitda],
         outlier_warnings=outlier_warnings,
+        balance_sheet_fallback=balance_sheet_fallback,
     )

@@ -33,6 +33,19 @@ class OutlierWarning(BaseModel):
     sec_cross_check: SecCrossCheck | None = None
 
 
+class BalanceSheetFallback(BaseModel):
+    """Step 5 only: the newest quarterly balance sheet looked incomplete (a
+    debt or current-assets line remapped into another -- see
+    helpers/balance_sheet_gate.py), so the prior quarter's balance sheet, and
+    income/cash-flow TTM windows aligned to it, were used instead. Records the
+    fact for a later Watch state; the scoring rules are unchanged."""
+
+    reason: str  # "debt_remap" | "current_assets_remap"
+    incomplete_quarter_date: str | None = None
+    used_quarter_date: str | None = None
+    detail: str | None = None
+
+
 class RefreshResult(BaseModel):
     ticker: str
     cleared_entries: int
@@ -376,6 +389,9 @@ class Step5Out(BaseModel):
     # for Bank (no composite score exists to weight).
     weights: dict[str, float] = {}
     outlier_warnings: list[OutlierWarning] = []
+    # Set only when the newest-quarter completeness gate fell back to the
+    # prior quarter's balance sheet (helpers/balance_sheet_gate.py).
+    balance_sheet_fallback: BalanceSheetFallback | None = None
     # True only when this ticker actually reached score_step5_standard (the
     # Current Ratio / Debt-to-EBITDA / Debt Servicing Ratio path) and scored
     # -- i.e. Standard or Utility company_type with none of the 3 ratios'
