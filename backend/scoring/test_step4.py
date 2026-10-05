@@ -211,7 +211,9 @@ def test_score_roe_lhx_shaped_structural_decline_still_regresses_below_marginal(
     # 0/hard_fail -- still a real, meaningful demotion from its
     # pre-exclusion Marginal/60 read, just an honest number instead of a
     # manufactured hard fail.
-    lhx_roe = [18.5, 23.3, 28.2, 0.0, 5.4, 9.6, 5.7, 6.5, 7.7, 8.2, 9.5]
+    # (The 0.0 trough is written 0.1: an exact 0.0 now reads as missing, and
+    # this test is about a real crash year.)
+    lhx_roe = [18.5, 23.3, 28.2, 0.1, 5.4, 9.6, 5.7, 6.5, 7.7, 8.2, 9.5]
     result = score_roe(lhx_roe, [100.0] * 11, [10.0] * 11)
     assert result == ("weak_but_positive", 55, False)
 
@@ -874,12 +876,75 @@ def test_score_step4_no_divergence_note_when_not_applicable():
     assert result["roe_roic_divergence_note"] is None
 
 
+# --- Exact 0.0 ROE/ROIC/equity points are missing (A1) ----------------------
+
+
+def test_roe_exact_zero_as_first_point_is_dropped_not_averaged():
+    # ARM/VLTO-shaped: a 0.0 placeholder year first. As a real zero it would
+    # drag the average to ~13.3 (below the 15 "excellent" bar); dropped, it
+    # is a clean 16% "excellent".
+    result = score_roe([0.0, 16.0, 16.0, 16.0, 16.0, 16.0], POSITIVE_EQUITY, [10.0] * 6)
+    assert result == ("excellent", 100, False)
+
+
+def test_roe_exact_zero_mid_series_is_dropped_too():
+    result = score_roe([16.0, 16.0, 0.0, 16.0, 16.0, 16.0], POSITIVE_EQUITY, [10.0] * 6)
+    assert result == ("excellent", 100, False)
+
+
+def test_roe_tiny_nonzero_value_is_still_a_real_point():
+    # 0.01 is a measured (if awful) year, not a placeholder: it still counts
+    # as the (recent) series minimum and breaks min-year consistency, where
+    # the same position holding an exact 0.0 is dropped (next test's twin).
+    result = score_roe([16.0, 16.0, 16.0, 16.0, 16.0, 0.01], POSITIVE_EQUITY, [10.0] * 6)
+    assert result.label == "marginal"
+    assert score_roe([16.0, 16.0, 16.0, 16.0, 16.0, 0.0], POSITIVE_EQUITY, [10.0] * 6).label == "excellent"
+
+
+def test_roe_all_exact_zero_is_insufficient_data_like_an_all_none_series():
+    assert score_roe([0.0] * 6, POSITIVE_EQUITY, [10.0] * 6) == ("insufficient_data", 0, False)
+    assert score_roe([None] * 6, POSITIVE_EQUITY, [10.0] * 6) == ("insufficient_data", 0, False)
+
+
+def test_roe_one_real_point_left_is_scored_as_is_no_minimum_points_guard():
+    # Pins today's behaviour (no guard): a single surviving point is scored.
+    result = score_roe([0.0, 0.0, 0.0, 0.0, 0.0, 18.0], POSITIVE_EQUITY, [10.0] * 6)
+    assert result == ("excellent", 100, False)
+
+
+def test_roic_exact_zero_first_point_and_mid_series_are_dropped():
+    assert score_roic([0.0, 14.0, 14.0, 14.0, 14.0, 14.0]) == ("good", 85, False)
+    assert score_roic([14.0, 14.0, 0.0, 14.0, 14.0, 14.0]) == ("good", 85, False)
+    assert score_roic([0.0] * 6) == ("insufficient_data", 0, False)
+
+
+def test_roic_one_real_point_left_is_scored_as_is_no_minimum_points_guard():
+    assert score_roic([0.0, 0.0, 0.0, 14.0]) == ("good", 85, False)
+
+
+def test_zero_equity_is_missing_not_negative_equity():
+    # KKR-shaped: a 0.0 equity placeholder must not trigger the substitute;
+    # ROE tiers normally off the real ROE series.
+    equity = [0.0, 100.0, 100.0, 100.0, 100.0, 100.0]
+    result = score_roe([20.0] * 6, equity, [10.0] * 6)
+    assert result == ("excellent", 100, False)
+
+
+def test_negative_equity_still_triggers_the_substitute_next_to_a_zero_equity():
+    equity = [0.0, 100.0, -1.0, 100.0, 100.0, 100.0]
+    result = score_roe([20.0] * 6, equity, [10.0, 12.0, 14.0, 16.0, 18.0, 20.0])
+    assert result == ("positive_despite_negative_equity", 100, False)
+
+
 # --- Below-floor graduated scale + companion floor (2026-08-13) -------------
 
 
 def test_roe_roic_graduated_scale_boundaries():
     # At exactly avg=0 (WEAK_FLOOR_SCORE): floor of the graduated range.
-    at_zero = score_roe([0.0] * 6, POSITIVE_EQUITY, [10.0] * 6)
+    # (A flat run of exact 0.0 is no longer a real avg=0 -- exact 0.0 points
+    # are missing now, see the exact-0.0 tests below -- so this uses a
+    # series that genuinely averages 0.)
+    at_zero = score_roe([1.0, -1.0, 1.0, -1.0, 1.0, -1.0], POSITIVE_EQUITY, [10.0] * 6)
     assert at_zero == ("weak_but_positive", 20, False)
 
     # Just under avg=8.0 (ROE_MARGINAL_AVG): near the graduated ceiling

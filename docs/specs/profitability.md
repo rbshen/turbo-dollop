@@ -146,6 +146,18 @@ metric's own tiering changed.
 
 Both metrics share the same tiering logic, applied independently to each series (10yr+TTM):
 
+0. **Exact `0.0` points are missing (2026-10-05).** Before anything below, every point that is
+   `None` **or exactly `0.0`** is dropped from the ROE/ROIC series (`real_ratio_points`,
+   `scoring/step4.py`; first, mid-series or last position alike). FMP reports an exact `0.0` for a
+   period with no real figure — pre-IPO and spin-off placeholder years (ARM, VLTO, GEV, GEHC,
+   FDXF, KKR…) — and a genuinely weak year reads as a small non-zero number, never exactly `0.0`.
+   Scored as real zeros they dragged the average and the minimum-year check down. A series left
+   with no real points is `insufficient_data` (0 points, not a hard fail), same as an all-`None`
+   one. **There is no minimum-points guard**: a series left with a single real point is scored on
+   that point (ROIC is dropped from the blend only when fewer than 2 points survive the
+   `None`-only alignment cleaning in `step4_data.py`, which runs before this filter and still counts
+   a `0.0` as present). The ROE/ROIC notes apply the same filter, so their excluded-years text
+   matches the scored series.
 1. **Spike-robust average**: the plain average of the series, except the series **maximum** is
    excluded if it's at least **2×** the median of the remaining points. The series **minimum** is
    never excluded.
@@ -218,8 +230,10 @@ stating how many years were excluded and their fiscal-year span.
 
 ### ROE's negative-equity substitute
 
-If shareholders' equity is **≤ 0 in any period**, raw ROE is unreliable for the entire metric,
-and the normal avg/min-year tiering is replaced entirely:
+If shareholders' equity is **negative (< 0) in any period**, raw ROE is unreliable for the
+entire metric, and the normal avg/min-year tiering is replaced entirely. An **exact `0.0` equity
+is missing, not non-positive equity** (2026-10-05, same placeholder logic as the ROE/ROIC points
+above) — it does not trigger the substitute (KKR was wrongly triggering it):
 
 - If Net Income has **no** non-positive periods at all → passes if the final (TTM) value is
   **≥** the first value in the window (a simple last-vs-first bar, not a full trend
@@ -433,6 +447,11 @@ to catch).
 
 Validation facts behind the current numbers; the full investigation narratives are in
 `docs/archive/claude-md-history-scoring.md`.
+
+- **Exact 0.0 ROE/ROIC/equity = missing (2026-10-05)**: about 24 tickers carried exact `0.0`
+  placeholder points. Simulation: about 9 Step 4 scores change, 1 step verdict flip (VLTO 64 → 78,
+  Fail → Pass), 0 Overall verdict flips; GEV 36 → 28 and KKR 42 → 30 move *down* (KKR's `0.0`
+  equity had wrongly triggered the negative-equity substitute).
 
 - **Recovery-aware exclusion (2026-08-08)**: 68 of 90 affected hard-fails resolved; 13 accepted
   regressions are structural decliners (e.g. LHX/LUV/MU) whose only strong years sit before a

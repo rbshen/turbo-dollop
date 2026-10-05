@@ -19,6 +19,7 @@ from scoring.step4 import (
     DIP_RECOVERY_RECENCY_YEARS,
     income_recovery_detail,
     RatioResult,
+    real_ratio_points,
     recovery_excluded_prefix_length,
     score_revenue_vs_ar,
     score_roe,
@@ -83,6 +84,13 @@ def _clean_aligned(*series: list) -> list[list]:
     n = len(series[0])
     keep = [i for i in range(n) if all(s[i] is not None for s in series)]
     return [[s[i] for i in keep] for s in series]
+
+
+def _drop_exact_zero_pairs(values: list[float], years: list[str]) -> tuple[list[float], list[str]]:
+    """Drop the exact-0.0 ROE/ROIC points (see scoring.step4.real_ratio_points)
+    together with their years, so a note's index maths matches the scored series."""
+    keep = [i for i, v in enumerate(values) if real_ratio_points([v])]
+    return [values[i] for i in keep], [years[i] for i in keep]
 
 
 def _compute_ccc_series(
@@ -224,11 +232,12 @@ def _fmt_money(value: float | None) -> str:
 
 
 def _equity_history_sentence(years: list[str], equity: list[float | None]) -> str:
-    """Which fiscal year(s) equity was <=0, and whether it's since
+    """Which fiscal year(s) equity was negative (an exact 0.0 is missing,
+    same as score_roe), and whether it's since
     recovered -- from the same raw, 1:1 index-aligned years/equity arrays
     get_step4_data already builds (TTM included), so no realignment
     against the scoring-only _clean_aligned series is needed."""
-    negative_idx = [i for i, e in enumerate(equity) if e is not None and e <= 0]
+    negative_idx = [i for i, e in enumerate(equity) if e is not None and e < 0]
     if not negative_idx:
         return ""
     runs: list[list[int]] = []
@@ -511,16 +520,20 @@ def _build_roe_note(
             )
         return " ".join(s for s in sentences if s)
 
-    excluded = recovery_excluded_prefix_length(roe_clean)
-    return _recovery_exclusion_sentence(years_for_roe[:excluded])
+    # Same exact-0.0-is-missing filter score_roe applies, with the years
+    # filtered in step so the excluded prefix still maps onto the right years.
+    roe_real, years_real = _drop_exact_zero_pairs(roe_clean, years_for_roe)
+    excluded = recovery_excluded_prefix_length(roe_real)
+    return _recovery_exclusion_sentence(years_real[:excluded])
 
 
 def _build_roic_note(roic_result: RatioResult, roic_clean: list[float], years_for_roic: list[str]) -> str | None:
     """ROIC has no negative-equity-substitute-equivalent path -- the only
     note-worthy mechanism today is recovery-aware exclusion, re-derived
     here the same way _build_roe_note re-derives it for ROE."""
-    excluded = recovery_excluded_prefix_length(roic_clean)
-    return _recovery_exclusion_sentence(years_for_roic[:excluded])
+    roic_real, years_real = _drop_exact_zero_pairs(roic_clean, years_for_roic)
+    excluded = recovery_excluded_prefix_length(roic_real)
+    return _recovery_exclusion_sentence(years_real[:excluded])
 
 
 async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:

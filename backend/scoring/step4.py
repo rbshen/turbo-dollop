@@ -352,17 +352,32 @@ def _net_income_consistent_and_positive(net_income: list[float]) -> bool:
     return income_recovery_detail(net_income).consistent
 
 
+def real_ratio_points(values: list[float | None]) -> list[float]:
+    """The ROE/ROIC points that count: None AND an exact 0.0 are both
+    missing. An exact 0.0 return is FMP's placeholder for a period with no
+    real figure (pre-IPO / spin-off years: ARM, VLTO, GEV, GEHC, KKR, ...),
+    not a measured zero -- a genuinely weak year reads as a small non-zero
+    number, never exactly 0.0. Applied everywhere an ROE/ROIC series is
+    scored or explained (score_roe, score_roic, the note builders), so the
+    scored series and the note's recovery-exclusion years can't drift. No
+    minimum-points guard: a series left with 0 points is "insufficient_data"
+    exactly as an all-None one always was."""
+    return [v for v in values if v is not None and v != 0.0]
+
+
 def score_roe(roe: list[float], equity: list[float | None], net_income: list[float]) -> RatioResult:
     """ROE tiering with the negative-equity exception: if shareholders'
-    equity is <=0 in any period, raw ROE is unreliable/sign-flipped for the
-    whole metric -- substitute a positive-and-growing-net-income check
-    instead of the normal avg/min-year tiering (see step4 assessment doc)."""
-    if any(e is not None and e <= 0 for e in equity):
+    equity is negative in any period, raw ROE is unreliable/sign-flipped for
+    the whole metric -- substitute a positive-and-growing-net-income check
+    instead of the normal avg/min-year tiering (see step4 assessment doc).
+    An exact 0.0 equity is missing (the same placeholder as a 0.0 ROE), not
+    non-positive equity -- it must not trigger the substitute (KKR)."""
+    if any(e is not None and e < 0 for e in equity):
         if _net_income_consistent_and_positive(net_income):
             return RatioResult("positive_despite_negative_equity", 100, False)
         return RatioResult("negative_equity_inconsistent_income", 60, False)
 
-    valid = [v for v in roe if v is not None]
+    valid = real_ratio_points(roe)
     if not valid:
         return RatioResult("insufficient_data", 0, False)
     scoring_values = valid[recovery_excluded_prefix_length(valid):]
@@ -374,7 +389,7 @@ def score_roe(roe: list[float], equity: list[float | None], net_income: list[flo
 
 
 def score_roic(roic: list[float]) -> RatioResult:
-    valid = [v for v in roic if v is not None]
+    valid = real_ratio_points(roic)
     if not valid:
         return RatioResult("insufficient_data", 0, False)
     scoring_values = valid[recovery_excluded_prefix_length(valid):]

@@ -1040,3 +1040,21 @@ def test_recovery_exclusion_note_on_hwm_shaped_roe_and_roic(monkeypatch):
     # the wording is mechanism-only, never a claimed improvement.
     assert "improve" not in roe["note"]
     assert "improve" not in roic["note"]
+
+
+# --- Exact 0.0 ROE/ROIC/equity points are missing (A1) ----------------------
+
+
+def test_equity_history_sentence_ignores_an_exact_zero_equity():
+    years = ["2021", "2022", "2023", "TTM"]
+    assert step4_data._equity_history_sentence(years, [0.0, 50.0, 60.0, 70.0]) == ""
+    sentence = step4_data._equity_history_sentence(years, [0.0, -5.0, 60.0, 70.0])
+    assert "negative in 2022 and has since recovered" in sentence
+
+
+def test_roe_and_roic_notes_drop_exact_zero_points_with_their_years():
+    # The 0.0 placeholder and its year go together, so the excluded-prefix
+    # index (computed on the filtered series) maps onto the right year.
+    roe_real, years_real = step4_data._drop_exact_zero_pairs([0.0, 30.0, 10.0, 30.0, 31.0, 32.0], ["a", "b", "c", "d", "e", "f"])
+    assert roe_real == [30.0, 10.0, 30.0, 31.0, 32.0]
+    assert years_real == ["b", "c", "d", "e", "f"]
