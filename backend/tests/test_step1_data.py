@@ -441,3 +441,68 @@ def test_backup_gates_read_the_real_ttm_slots(monkeypatch):
     # One quarter's OI missing -> TTM OI is None -> gate fails (even though
     # the cleaned annual series alone would pass every gate).
     assert _run_backup_case(monkeypatch, _backup_quarters([70, 70, 70, None]))["used_operating_income_backup"] is False
+
+
+# AZO-shaped: the newest quarter's cash-flow row (and the FY annual row) is an
+# all-zero placeholder beside a real income statement.
+def _azo_income_quarter(date, period, net_income=100):
+    return {"date": date, "period": period, "fiscalYear": "2026", "revenue": 1000, "netInterestIncome": 0,
+            "grossProfit": 500, "operatingIncome": 200, "netIncome": net_income}
+
+
+def _azo_cash_flow_quarter(date, period, cfo=200, capex=-50):
+    return {"date": date, "period": period, "fiscalYear": "2026", "netCashProvidedByOperatingActivities": cfo,
+            "capitalExpenditure": capex, "freeCashFlow": cfo + capex, "netCashProvidedByInvestingActivities": capex,
+            "netCashProvidedByFinancingActivities": -10}
+
+
+def test_get_step1_data_treats_placeholder_cash_flow_rows_as_missing(monkeypatch):
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(test_engine)
+    monkeypatch.setattr(step1_data, "engine", test_engine)
+
+    quarters = [("2026-08-29", "Q4"), ("2026-05-09", "Q3"), ("2026-02-14", "Q2"), ("2025-11-22", "Q1"), ("2025-08-30", "Q4")]
+    income_quarterly = [_azo_income_quarter(d, p) for d, p in quarters]
+    cash_flow_quarterly = [
+        {**_azo_cash_flow_quarter(*quarters[0], cfo=0, capex=0), "freeCashFlow": 0, "netCashProvidedByInvestingActivities": 0,
+         "netCashProvidedByFinancingActivities": 0},
+        *[_azo_cash_flow_quarter(d, p) for d, p in quarters[1:]],
+    ]
+    income_annual = [
+        {"date": "2026-08-29", "period": "FY", "fiscalYear": "2026", "revenue": 4000, "netInterestIncome": 0, "grossProfit": 2000,
+         "operatingIncome": 800, "netIncome": 400},
+        {"date": "2025-08-30", "period": "FY", "fiscalYear": "2025", "revenue": 3800, "netInterestIncome": 0, "grossProfit": 1900,
+         "operatingIncome": 760, "netIncome": 380},
+    ]
+    cash_flow_annual = [
+        {"date": "2026-08-29", "period": "FY", "fiscalYear": "2026", "netCashProvidedByOperatingActivities": 0,
+         "capitalExpenditure": 0, "freeCashFlow": 0, "netCashProvidedByInvestingActivities": 0,
+         "netCashProvidedByFinancingActivities": 0},
+        {"date": "2025-08-30", "period": "FY", "fiscalYear": "2025", "netCashProvidedByOperatingActivities": 780,
+         "capitalExpenditure": -190, "freeCashFlow": 590, "netCashProvidedByInvestingActivities": -190,
+         "netCashProvidedByFinancingActivities": -40},
+    ]
+
+    async def fake_profile(ticker):
+        return PROFILE
+
+    async def fake_income_statement(ticker, period, limit):
+        return income_annual if period == "annual" else income_quarterly
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return cash_flow_annual if period == "annual" else cash_flow_quarterly
+
+    monkeypatch.setattr(step1_data.fmp_client, "get_profile", fake_profile)
+    monkeypatch.setattr(step1_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step1_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+
+    result = asyncio.run(get_step1_data("azo"))
+
+    # TTM CFO is the last four VALID quarters (Q3, Q2, Q1 FY26 and Q4 FY25 = 4 x 200),
+    # not 0 and not a 3-quarter 600. Revenue TTM keeps the real newest quarter.
+    assert result.cfo[-1] == 800
+    assert result.revenue[-1] == 4000
+    # The placeholder FY2026 annual CFO reads as missing, not as a reported 0, and
+    # FY2025 stays aligned to its own year.
+    assert result.cfo[result.years.index("2026")] is None
+    assert result.cfo[result.years.index("2025")] == 780

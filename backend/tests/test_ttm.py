@@ -1,4 +1,6 @@
 from helpers.ttm import (
+    drop_placeholder_cash_flow_rows,
+    is_placeholder_cash_flow_row,
     FlaggedQuarter,
     is_quarter_content_duplicate_of_annual,
     is_ttm_period_duplicate_of_last_fy,
@@ -442,3 +444,147 @@ def test_defect_b_zero_mean_is_never_corrected_and_changes_nothing():
     result = sum_last_four_quarters(_defect_b_quarters(500, [0, 0, 0]), "value", _annual(500))
 
     assert result.total == 500
+
+
+# --- Placeholder cash-flow rows ------------------------------------------------
+
+
+def _cf(date, cfo=0, fcf=0, capex=0, investing=0, financing=0, **extra):
+    return {
+        "date": date,
+        "period": "Q",
+        "fiscalYear": "2026",
+        "netCashProvidedByOperatingActivities": cfo,
+        "freeCashFlow": fcf,
+        "capitalExpenditure": capex,
+        "netCashProvidedByInvestingActivities": investing,
+        "netCashProvidedByFinancingActivities": financing,
+        **extra,
+    }
+
+
+def _real_cf(date, cfo=100, capex=-30):
+    return _cf(date, cfo=cfo, fcf=cfo + capex, capex=capex, investing=capex, financing=-20)
+
+
+def _inc(date, net_income=50):
+    return {"date": date, "period": "Q", "fiscalYear": "2026", "netIncome": net_income}
+
+
+def test_all_zero_cash_flow_row_with_nonzero_income_net_income_is_a_placeholder():
+    # AZO FY2026-shaped: every cash-flow line 0, the income statement real.
+    assert is_placeholder_cash_flow_row(_cf("2026-08-29"), [_inc("2026-08-29", 931_603_000)]) is True
+
+
+def test_skeleton_row_with_only_net_income_and_an_offsetting_plug_is_a_placeholder():
+    # ITW/LEN/ECL-shaped: netIncome and an otherNonCashItems plug are the only
+    # non-zero lines (CFO sums to 0), plus AZO's one stray tiny inventory line.
+    row = _cf("2026-06-30", netIncome=815, otherNonCashItems=-815, inventory=-337_600)
+
+    assert is_placeholder_cash_flow_row(row, [_inc("2026-06-30", 815)]) is True
+
+
+def test_a_legitimately_zero_capex_line_beside_a_real_cfo_is_not_a_placeholder():
+    # An asset-light company: capex and its FCF-inclusive lines can be 0, but a
+    # real CFO, investing or financing total means the row is genuine.
+    assert is_placeholder_cash_flow_row(_cf("d", cfo=500, fcf=500, capex=0), [_inc("d")]) is False
+    assert is_placeholder_cash_flow_row(_cf("d", cfo=500, fcf=500, financing=-100), [_inc("d")]) is False
+
+
+def test_zero_cfo_with_any_investing_or_financing_activity_is_not_a_placeholder():
+    # RJF-shaped: CFO exactly 0 but a (tiny) investing total is reported.
+    assert is_placeholder_cash_flow_row(_cf("d", investing=5), [_inc("d")]) is False
+    assert is_placeholder_cash_flow_row(_cf("d", financing=-5), [_inc("d")]) is False
+    assert is_placeholder_cash_flow_row(_cf("d", capex=-5), [_inc("d")]) is False
+    assert is_placeholder_cash_flow_row(_cf("d", fcf=5), [_inc("d")]) is False
+
+
+def test_all_zero_row_is_not_a_placeholder_without_a_nonzero_income_net_income():
+    assert is_placeholder_cash_flow_row(_cf("d"), [_inc("d", 0)]) is False  # genuinely nothing happened
+    unrelated = {"date": "other-date", "period": "Q1", "fiscalYear": "2025", "netIncome": 50}
+    assert is_placeholder_cash_flow_row(_cf("d"), [unrelated]) is False  # no income row for the period
+    assert is_placeholder_cash_flow_row(_cf("d"), []) is False
+    assert is_placeholder_cash_flow_row({"date": "d", "netIncome": 5}, [_inc("d")]) is False  # lines absent, not zero
+
+
+def test_income_row_is_matched_by_fiscal_year_and_period_when_dates_differ():
+    row = {**_cf("2026-08-29"), "period": "Q4", "fiscalYear": "2026"}
+    income = [{"date": "2026-08-30", "period": "Q4", "fiscalYear": "2026", "netIncome": 10}]
+
+    assert is_placeholder_cash_flow_row(row, income) is True
+
+
+def test_leading_placeholder_quarter_is_dropped_and_ttm_covers_the_last_four_valid_quarters():
+    dates = ["2026-09-30", "2026-06-30", "2026-03-31", "2025-12-31", "2025-09-30", "2025-06-30"]
+    cash_flow = [_cf(dates[0]), *[_real_cf(d, cfo=100 + i) for i, d in enumerate(dates[1:])]]
+    income = [_inc(d) for d in dates]
+
+    cleaned = drop_placeholder_cash_flow_rows(cash_flow, income)
+
+    assert [r["date"] for r in cleaned] == dates[1:]
+    # The window slides back one quarter: 100 + 101 + 102 + 103.
+    assert sum_last_four_quarters(cleaned, "netCashProvidedByOperatingActivities").total == 406
+
+
+def test_ttm_is_missing_not_partial_when_fewer_than_four_valid_quarters_remain():
+    dates = ["2026-09-30", "2026-06-30", "2026-03-31", "2025-12-31"]
+    cash_flow = [_cf(dates[0]), *[_real_cf(d) for d in dates[1:]]]
+
+    cleaned = drop_placeholder_cash_flow_rows(cash_flow, [_inc(d) for d in dates])
+
+    assert len(cleaned) == 3
+    assert sum_last_four_quarters(cleaned, "netCashProvidedByOperatingActivities").total is None
+
+
+def test_an_interior_placeholder_blanks_the_window_instead_of_stretching_it():
+    dates = ["2026-09-30", "2026-06-30", "2026-03-31", "2025-12-31", "2025-09-30", "2025-06-30"]
+    cash_flow = [_real_cf(dates[0]), _cf(dates[1]), *[_real_cf(d) for d in dates[2:]]]
+
+    cleaned = drop_placeholder_cash_flow_rows(cash_flow, [_inc(d) for d in dates])
+
+    assert len(cleaned) == 6  # nothing removed...
+    assert cleaned[1]["netCashProvidedByOperatingActivities"] is None  # ...the gap is blank
+    assert cleaned[1]["date"] == dates[1] and cleaned[1]["fiscalYear"] == "2026"  # identity kept
+    assert sum_last_four_quarters(cleaned, "netCashProvidedByOperatingActivities").total is None
+
+
+def test_annual_placeholder_is_blanked_in_place_never_removed():
+    annual = [_cf("2026-08-29"), _real_cf("2025-08-30", cfo=3_000), _real_cf("2024-08-31", cfo=2_900)]
+    annual[0]["fiscalYear"] = "2026"
+    annual[1]["fiscalYear"] = "2025"
+    income = [_inc("2026-08-29", 2_572), _inc("2025-08-30"), _inc("2024-08-31")]
+
+    cleaned = drop_placeholder_cash_flow_rows(annual, income, drop_leading=False)
+
+    assert len(cleaned) == 3
+    assert cleaned[0]["netCashProvidedByOperatingActivities"] is None
+    assert cleaned[0]["fiscalYear"] == "2026"
+    assert cleaned[1]["netCashProvidedByOperatingActivities"] == 3_000
+
+
+def test_clean_rows_pass_through_untouched_and_the_input_is_not_mutated():
+    dates = ["2026-06-30", "2026-03-31"]
+    cash_flow = [_real_cf(d) for d in dates]
+    before = [dict(r) for r in cash_flow]
+
+    cleaned = drop_placeholder_cash_flow_rows(cash_flow, [_inc(d) for d in dates])
+
+    assert cleaned == before and cash_flow == before
+
+
+def test_a_blanked_annual_row_stops_the_defect_b_correction_from_using_a_zero_total():
+    # AZO-shaped end to end: zero annual + zero Q4 placeholder. Cleaned, the
+    # newest quarter is gone and the blanked annual row is no duplicate source.
+    dates = ["2026-08-29", "2026-05-09", "2026-02-14", "2025-11-22", "2025-08-30"]
+    quarterly = [_cf(dates[0]), *[_real_cf(d, cfo=700) for d in dates[1:]]]
+    for row in quarterly:
+        row["fiscalYear"] = "2026"
+    quarterly[0]["period"] = "Q4"
+    annual = [{**_cf("2026-08-29"), "period": "FY", "fiscalYear": "2026"}]
+    income_q = [_inc(d) for d in dates]
+    income_a = [{"date": "2026-08-29", "period": "FY", "fiscalYear": "2026", "netIncome": 2_572}]
+
+    q = drop_placeholder_cash_flow_rows(quarterly, income_q)
+    a = drop_placeholder_cash_flow_rows(annual, income_a, drop_leading=False)
+
+    assert sum_last_four_quarters(q, "netCashProvidedByOperatingActivities", a).total == 2_800

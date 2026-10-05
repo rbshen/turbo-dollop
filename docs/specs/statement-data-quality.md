@@ -85,3 +85,43 @@ their revenue/EBITDA/net income/CFO corrections are unaffected.
 isolated Q4 net income is +139.1M against three loss quarters, so TEAM's net income TTM is now the
 raw sum (−246.7M) instead of the annual −53.8M (TEAM revenue and CFO are still corrected; Step 1
 72 → 71). Distinguishing the two would need cross-line evidence, which is out of scope.
+
+## 3. Placeholder cash-flow rows (the "P4" variant)
+
+`helpers/ttm.py::is_placeholder_cash_flow_row` / `drop_placeholder_cash_flow_rows`, applied in
+`get_step1_data`, `get_step3_data`, `get_step4_data` and `get_step5_data` right after the
+statements are loaded.
+
+FMP sometimes serves a period's cash-flow row as an empty skeleton beside a real income statement:
+AZO's FY2026 annual row has 39 of 39 numeric lines 0 and its Q4 row 38 of 39 (one stray inventory
+line); ITW, BX, LEN and ECL's newest quarter has only `netIncome` and an offsetting
+`otherNonCashItems` plug non-zero. 16 tickers had a newest-quarter CFO of exactly 0 beside non-zero
+net income. That is "not reported yet", not a real zero.
+
+**The test (deliberately conservative).** A cash-flow row is a placeholder only when **all** of
+these hold: CFO, free cash flow, capital expenditure, net investing and net financing cash flow are
+each **present and exactly 0**, **and** the same period's income-statement net income (matched on
+period-end date, else fiscal year + period) is **non-zero**. Nothing else is inspected, so a row with
+a real CFO and a legitimately zero capex, buyback or debt line never matches, nor does any bank,
+insurer or REIT row that reports activity; a period with no income row or a zero net income is never
+a placeholder (it cannot be proven). There is **no** blanket "exact 0.0 means missing" rule for
+revenue, net income, operating income, debt or capex: debt-free companies and pre-revenue names have
+genuine zeros.
+
+**Quarterly lists (most-recent-first).** The contiguous run of placeholders at the **newest end is
+removed**, so the TTM window slides back to the **last four valid quarters**: AZO's Q4 FY2026 is a
+placeholder, so TTM CFO covers Q4 FY2025 to Q3 FY2026. Only cash-flow rows move; the income
+statement's window keeps its real newest quarter, so a ratio mixing the two (e.g. Step 5's Debt
+Servicing Ratio) compares an income TTM with a cash-flow TTM one quarter older. A placeholder
+**not** at the newest end is kept but blanked (numeric fields `None`, identity fields kept), so a TTM
+window containing it reads **missing**: skipping an interior quarter would stretch the window beyond
+12 months. With fewer than four valid quarters the TTM is **missing, never partial**.
+
+**Annual lists.** Placeholders are blanked in place and never removed: the annual series are read
+positionally and by fiscal year beside the income and balance-sheet series, so removing the newest
+year would shift every year's CFO onto the wrong fiscal year. The blanked row is also no longer a
+source for the Defect-B correction (section 2).
+
+**Not covered.** The Financials tab keeps showing the raw rows exactly as FMP reported them (its TTM
+column is the raw sum), and Speculative Growth's last-two-quarters CFO direction reads the raw newest
+quarters.

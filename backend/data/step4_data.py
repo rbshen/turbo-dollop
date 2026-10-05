@@ -26,7 +26,7 @@ from scoring.step4 import (
     score_roic,
     score_step4,
 )
-from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
+from helpers.ttm import TOTAL_QUARTERS_NEEDED, drop_placeholder_cash_flow_rows, sum_last_four_quarters
 
 ROIC_EXEMPT_TYPES = {"Bank", "Insurance", "Utility", "REIT/Property Developer"}
 # CCC (Cash Conversion Cycle) has no comparable inventory/receivables cash-
@@ -690,6 +690,12 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     key_metrics_annual = key_metrics_annual if isinstance(key_metrics_annual, list) else []
     cash_flow_annual = cash_flow_annual if isinstance(cash_flow_annual, list) else []
     cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
+    # Placeholder (empty-skeleton) cash-flow rows are treated as missing --
+    # see ttm.py::drop_placeholder_cash_flow_rows (quarterly: the newest run
+    # is dropped so TTM covers the last four valid quarters; annual: blanked
+    # in place).
+    cash_flow_annual = drop_placeholder_cash_flow_rows(cash_flow_annual, income_annual, drop_leading=False)
+    cash_flow_quarterly = drop_placeholder_cash_flow_rows(cash_flow_quarterly, income_quarterly)
     balance_sheet_latest = _first(balance_sheet_quarterly)
 
     years = _annual_years(income_annual, balance_sheet_annual, key_metrics_annual)

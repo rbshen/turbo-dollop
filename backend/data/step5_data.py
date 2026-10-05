@@ -21,7 +21,7 @@ from helpers.npl import compute_npl_ratio
 from core.schemas import BalanceSheetFallback, BreachContextSignal, OutlierWarning, SecCrossCheck, Step5Out, Step5RatioResult
 from core.tickers import normalize_ticker
 from scoring.step5 import classify_company_type, score_npl, score_step5_bank, score_step5_reit, score_step5_standard
-from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
+from helpers.ttm import TOTAL_QUARTERS_NEEDED, drop_placeholder_cash_flow_rows, sum_last_four_quarters
 
 # Same 10yr fetch window/cache key Step 4 already populates
 # ("balance_sheet_statement"/"annual", "income_statement"/"annual") -- for
@@ -448,6 +448,12 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
     cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
     income_annual_for_ttm = income_annual_for_ttm if isinstance(income_annual_for_ttm, list) else []
     cash_flow_annual = cash_flow_annual if isinstance(cash_flow_annual, list) else []
+    # Placeholder (empty-skeleton) cash-flow rows are treated as missing --
+    # see ttm.py::drop_placeholder_cash_flow_rows (quarterly: the newest run
+    # is dropped so TTM covers the last four valid quarters; annual: blanked
+    # in place).
+    cash_flow_annual = drop_placeholder_cash_flow_rows(cash_flow_annual, income_annual_for_ttm, drop_leading=False)
+    cash_flow_quarterly = drop_placeholder_cash_flow_rows(cash_flow_quarterly, income_quarterly)
 
     # Newest-quarter completeness gate (helpers/balance_sheet_gate.py): when
     # FMP served the newest balance sheet partly filled in (debt or current

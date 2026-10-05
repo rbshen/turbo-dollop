@@ -32,6 +32,27 @@ DEFECT_B_MAX_RATIO_TO_MEAN = 4.0
 DEFECT_B_MIN_RATIO_TO_MEAN = 0.25
 
 
+# Placeholder cash-flow rows: FMP sometimes serves a period's cash-flow row as
+# an empty skeleton -- the section totals all exactly 0 -- beside a real income
+# statement (AZO FY2026: 39 of 39 numeric lines 0 on the annual row, 38 of 39 on
+# the Q4 row; ITW/BX/LEN/ECL's newest quarter: only netIncome and an offsetting
+# otherNonCashItems plug non-zero). That is "not reported yet", not a real
+# result of zero cash generated. A row is a placeholder only when ALL of these
+# lines are present and exactly 0 AND the same period's income-statement net
+# income is non-zero -- i.e. no operating, investing or financing activity at
+# all in a period that earned (or lost) money. Deliberately NOT a blanket
+# "0 means missing" rule: a legitimately zero capex, buyback or debt line on a
+# row with a real CFO never matches, and neither does any bank/insurer/REIT row
+# that reports activity.
+PLACEHOLDER_CASH_FLOW_ZERO_FIELDS = (
+    "netCashProvidedByOperatingActivities",
+    "freeCashFlow",
+    "capitalExpenditure",
+    "netCashProvidedByInvestingActivities",
+    "netCashProvidedByFinancingActivities",
+)
+
+
 class FlaggedQuarter(NamedTuple):
     date: str | None
     value: float
@@ -171,6 +192,68 @@ def sum_last_four_quarters(quarters: list[dict], field: str, annual_rows: list[d
                     flagged.append(FlaggedQuarter(date=row.get("date"), value=value, trailing_median=median))
 
     return TTMResult(total=total, flagged=flagged)
+
+
+def _period_net_income(cash_flow_row: dict, income_rows: list[dict]) -> float | None:
+    """The same period's income-statement net income -- matched on the
+    period-end date first, then on (fiscalYear, period). None when the
+    income statement has no such row or no value."""
+    date = cash_flow_row.get("date")
+    for row in income_rows:
+        if date and row.get("date") == date:
+            return row.get("netIncome")
+    key = (cash_flow_row.get("fiscalYear"), cash_flow_row.get("period"))
+    if None not in key:
+        for row in income_rows:
+            if (row.get("fiscalYear"), row.get("period")) == key:
+                return row.get("netIncome")
+    return None
+
+
+def is_placeholder_cash_flow_row(cash_flow_row: dict, income_rows: list[dict]) -> bool:
+    """True when `cash_flow_row` is an empty-skeleton row (see
+    PLACEHOLDER_CASH_FLOW_ZERO_FIELDS): CFO, FCF, capex and the investing and
+    financing totals are all present and exactly 0, while the same period's
+    income-statement net income is non-zero. Not provable without that net
+    income, so a row whose period has no income row is never a placeholder."""
+    # `!= 0` is also True for a missing (None) field, so an absent line is never read as a zero.
+    if any(cash_flow_row.get(field) != 0 for field in PLACEHOLDER_CASH_FLOW_ZERO_FIELDS):
+        return False
+    net_income = _period_net_income(cash_flow_row, income_rows)
+    return net_income is not None and net_income != 0
+
+
+def drop_placeholder_cash_flow_rows(
+    cash_flow_rows: list[dict], income_rows: list[dict], drop_leading: bool = True
+) -> list[dict]:
+    """Treats placeholder cash-flow rows (is_placeholder_cash_flow_row) as
+    missing. `cash_flow_rows` most-recent-first.
+
+    Quarterly lists (`drop_leading=True`): the contiguous run of placeholders
+    at the NEWEST end is removed, so the TTM window slides back to the last
+    four valid quarters (AZO: Q4 FY2026 is a placeholder, so TTM CFO covers
+    Q4 FY2025..Q3 FY2026). A placeholder anywhere else is kept in place but
+    blanked (every numeric field None, identity fields kept): a TTM window that
+    would contain it reads None rather than silently summing a gap, since
+    skipping an interior quarter would stretch the window past 12 months. With
+    fewer than four valid quarters left the TTM is None, never partial.
+
+    Annual lists (`drop_leading=False`): placeholders are blanked in place, never
+    removed, because the annual series are read positionally and by fiscalYear
+    next to the income and balance-sheet series -- removing the newest year
+    would shift every year's CFO onto the wrong fiscal year.
+
+    Only cash-flow rows are touched; income and balance-sheet rows never go
+    through this."""
+    cleaned: list[dict] = []
+    leading = drop_leading
+    for row in cash_flow_rows:
+        if not is_placeholder_cash_flow_row(row, income_rows):
+            leading = False
+            cleaned.append(row)
+        elif not leading:
+            cleaned.append({k: (None if isinstance(v, (int, float)) and not isinstance(v, bool) else v) for k, v in row.items()})
+    return cleaned
 
 
 def is_ttm_period_duplicate_of_last_fy(annual_rows: list[dict], quarterly_rows: list[dict]) -> bool:
