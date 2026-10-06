@@ -40,8 +40,10 @@ current-assets check; everything else: short + long term debt); what a consumer 
 Alignment only happens when the gate falls back, one step back, with the 10-day tolerance (section 1). A statement a consumer
 does not need can be left out (Step 1 reads no balance sheet: no gate, no alignment).
 
-**Consumers.** Step 1 (cash flow only), Step 5. The ticker header, Step 3 Valuation inputs, Step 4 balance-sheet inputs and
-Speculative Growth join in the following commits (see "Other readers" in section 1 for what each still read raw until then).
+**Consumers.** Step 1 (cash flow only), Step 5, the **ticker header's** debt and EBITDA tiles (with the annual income rows,
+so the Defect-B correction applies there too; shares still come from the quote) and **Speculative Growth's** cash and
+last-two-quarters CFO direction (its qualification gate reads only Step 1, Step 2 and Moat and is unchanged). Step 3
+Valuation inputs and Step 4 balance-sheet inputs join in the following commits.
 
 **The data-quality function.** `data_quality_flags(raw, earnings, company_type, today)` returns the rules that currently trip
 as structured `DataQualityFlag`s (`core/schemas.py`): `rule` (`placeholder_cf`, `scale_break`, `partial_balance_sheet`,
@@ -88,10 +90,11 @@ sheet. One step back only; the prior quarter is not itself re-checked. The fact 
 `Step5Out.balance_sheet_fallback` (`reason`, `incomplete_quarter_date`, `used_quarter_date`,
 `detail`) for a later Watch state; there is no UI for it yet.
 
-**Other readers of the same rows.** Only Step 5 inherits the gate. The ticker header's debt tiles
-(`ticker_summary.py`), Valuation (`step3_data.py`, net debt / `compute_debt_metrics`), Step 4's
-invested capital, the Ratios tab and Speculative Growth still read the raw newest quarter and show
-the bad row; this is reported, not changed.
+**Other readers of the same rows.** Every consumer that does arithmetic on the balance sheet reads it through the shared
+loader (see "The shared loader"), so the gate applies to the ticker header's debt tiles, Speculative Growth's cash and (as the
+following commits land) Valuation and Step 4's balance-sheet series. Not routed, by design: the Financials and Ratios tabs keep
+showing the raw rows, and FMP's own derived rows (key-metrics, ratios, enterprise values, which carry ROIC/ROE, P/B, EV) cannot
+be cleaned here.
 
 ## 2. Plausibility check on the duplicate-annual-quarter correction ("Defect B")
 
@@ -161,8 +164,8 @@ year would shift every year's CFO onto the wrong fiscal year. The blanked row is
 source for the Defect-B correction (section 2).
 
 **Not covered.** The Financials tab keeps showing the raw rows exactly as FMP reported them (its TTM
-column is the raw sum), and Speculative Growth's last-two-quarters CFO direction reads the raw newest
-quarters.
+column is the raw sum). Speculative Growth's last-two-quarters CFO direction reads the cleaned quarters (a placeholder newest
+quarter is skipped), since the loader landed.
 
 ## 4. Scale breaks (whole-row unit errors)
 

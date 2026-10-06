@@ -18,6 +18,10 @@ Trailing growth, gross margin, CFO sign/direction, cash runway, and PSG are info
 gates. An empty or missing net-income series fails closed (it reads as durably profitable, i.e. the
 ticker does not qualify), matching every other gate in the module.
 
+The informational cash and last-two-quarters CFO direction read the cleaned statements ([Statement data
+quality](statement-data-quality.md), "The shared loader"): the gated balance sheet (prior quarter when the newest is partly
+filled in) and the cash-flow quarters with a placeholder newest quarter skipped. The qualification gate reads none of them.
+
 ## Profitability gate (added 2026-08-15)
 
 `scoring/speculative_growth.py::is_not_durably_profitable` returns true when **net income is negative in

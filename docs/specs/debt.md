@@ -101,7 +101,8 @@ All figures are the latest reported quarter (balance sheet) or trailing twelve m
 figures), never fiscal-year-end. When FMP's newest quarterly balance sheet is partly filled in
 (debt or current assets remapped into another line), the prior quarter's balance sheet is used
 instead and the TTM windows are aligned to it — see
-[Statement data quality](statement-data-quality.md), "Newest-quarter completeness gate".
+[Statement data quality](statement-data-quality.md), "Newest-quarter completeness gate". The ticker header's Total debt and
+EBITDA tiles read the same cleaned rows through the shared loader, so they match this card.
 
 ```
 Current Ratio            = Current Assets / Current Liabilities

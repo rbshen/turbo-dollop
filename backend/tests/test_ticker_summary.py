@@ -330,7 +330,9 @@ def test_get_summary_maps_fields_and_caches(monkeypatch):
         "analyst_estimates": 1,
         "earnings": 1,
         "balance_sheet": 1,
-        "income_statement": 1,
+        # 2, not 1: the header now reads the cleaned statements (helpers/statement_view.py), which include the
+        # annual income rows (TEAM Defect B's correction) beside the quarterly ones -- the same cache key Step 1 fills.
+        "income_statement": 2,
         "enterprise_values": 1,
         "ratios_ttm": 1,
         "historical_price_eod": 1,

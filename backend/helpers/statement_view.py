@@ -85,6 +85,7 @@ def debt_basis_for(company_type: str | None) -> str:
 
 @dataclass(frozen=True)
 class StatementView:
+    raw: RawStatements  # the rows as cached, before any cleaning or alignment
     company_type: str | None
     debt_basis: str
     income_annual: list[dict]  # untouched
@@ -132,6 +133,7 @@ def build_statement_view(raw: RawStatements, company_type: str | None, *, use_ba
         )
 
     return StatementView(
+        raw=raw,
         company_type=company_type,
         debt_basis=basis,
         income_annual=raw.income_annual,

@@ -22,7 +22,8 @@ from helpers.shares import compute_shares_outstanding, is_implausible_magnitude_
 from data.step2_data import get_step2_data
 from data.step3_data import get_active_valuation
 from helpers.trailing_pe import compute_trailing_pe
-from helpers.ttm import TOTAL_QUARTERS_NEEDED
+from helpers.statement_view import StatementView, load_statement_view
+from scoring.classification import classify_company_type
 
 logger = logging.getLogger(__name__)
 
@@ -144,18 +145,18 @@ class _StockOnlyData(NamedTuple):
 
     earnings_data: dict | list
     most_recent_earnings_date: date | None
-    balance_sheet_data: dict | list
-    income_quarterly_data: dict | list
+    # The cleaned statements the header's debt/EBITDA tiles read (helpers/statement_view.py); None for a fund.
+    statement_view: StatementView | None
     enterprise_values_data: dict | list
     ratios_ttm: dict
     financial_growth: dict
 
 
-_NO_STOCK_ONLY_DATA = _StockOnlyData([], None, {}, {}, {}, {}, {})
+_NO_STOCK_ONLY_DATA = _StockOnlyData([], None, None, {}, {}, {})
 
 
 async def _fetch_stock_only_data(
-    session: Session, ticker: str, staleness_days: int, cache_only: bool
+    session: Session, ticker: str, staleness_days: int, cache_only: bool, company_type: str | None
 ) -> _StockOnlyData:
     earnings_data = await safe_fetch(
         "earnings",
@@ -189,42 +190,22 @@ async def _fetch_stock_only_data(
             cache_only,
         ),
     )
-    # Same cache key Step 4/Step 5/the Financials tab also populate
-    # ("balance_sheet_statement"/"quarterly") -- limit is
-    # TOTAL_QUARTERS_NEEDED to match them (bumped from 1 in the
-    # Financials tab commit; this call site was missed then, and its
-    # limit-1 fetch racing against theirs on a fresh ticker page load
-    # would win and cache a thin 1-row result for everyone, since this
-    # is the default tab and fetches first). This call site still only
-    # reads row 0 below, so the deeper fetch doesn't change anything
-    # here. compute_debt_metrics is the same shared calculation Step 5's
-    # debt ratios use, so the header and Step 5's card can never show
-    # inconsistent numbers for the same ticker.
-    balance_sheet_data = await safe_fetch(
-        "balance_sheet_statement_quarterly",
-        get_or_fetch_earnings_aware(
-            session,
-            ticker,
-            "balance_sheet_statement",
-            "quarterly",
-            lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-            staleness_days,
-            most_recent_earnings_date,
-            cache_only,
-        ),
-    )
-    income_quarterly_data = await safe_fetch(
-        "income_statement_quarterly",
-        get_or_fetch_earnings_aware(
-            session,
-            ticker,
-            "income_statement",
-            "quarterly",
-            lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-            staleness_days,
-            most_recent_earnings_date,
-            cache_only,
-        ),
+    # The header's debt and EBITDA tiles read the same cleaned rows as the Analysis tab
+    # (helpers/statement_view.py): the newest-quarter balance-sheet gate with its prior-quarter fallback, the
+    # income quarters aligned to the balance sheet used, and the annual income rows so TEAM Defect B's
+    # correction applies. Same cache keys/limits Step 1/4/5 and the Financials tab populate (the quarterly
+    # limit is TOTAL_QUARTERS_NEEDED to match them -- a limit-1 fetch racing against theirs on a fresh ticker
+    # page load would win and cache a thin 1-row result for everyone, since this is the default tab and
+    # fetches first). Cash flow is not read here. compute_debt_metrics (inside the view) is the same shared
+    # calculation Step 5's debt ratios use, so the header and Step 5's card can never show inconsistent numbers.
+    statement_view = await load_statement_view(
+        session,
+        ticker,
+        company_type,
+        most_recent_earnings_date=most_recent_earnings_date,
+        staleness_days=staleness_days,
+        cache_only=cache_only,
+        cash_flow=False,
     )
     enterprise_values_data = await safe_fetch(
         "enterprise_values",
@@ -275,8 +256,7 @@ async def _fetch_stock_only_data(
     return _StockOnlyData(
         earnings_data,
         most_recent_earnings_date,
-        balance_sheet_data,
-        income_quarterly_data,
+        statement_view,
         enterprise_values_data,
         ratios_ttm,
         financial_growth,
@@ -443,15 +423,20 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
         (
             earnings_data,
             most_recent_earnings_date,
-            balance_sheet_data,
-            income_quarterly_data,
+            statement_view,
             enterprise_values_data,
             ratios_ttm,
             financial_growth,
         ) = (
             _NO_STOCK_ONLY_DATA
             if is_etf
-            else await _fetch_stock_only_data(session, ticker, staleness_days, cache_only)
+            else await _fetch_stock_only_data(
+                session,
+                ticker,
+                staleness_days,
+                cache_only,
+                classify_company_type(profile.get("sector"), profile.get("industry"), ticker),
+            )
         )
         # ~45 calendar days is enough to cover both the 30-calendar-day
         # average-volume window and the 20-trading-day average-dollar-volume
@@ -484,7 +469,8 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
 
     earnings = earnings_data if isinstance(earnings_data, list) else []
     price = quote.get("price")
-    income_quarterly = income_quarterly_data if isinstance(income_quarterly_data, list) else []
+    # Raw income quarters (reportedCurrency, share-count fallback); the debt/EBITDA tiles below read the cleaned view.
+    income_quarterly = statement_view.raw.income_quarterly if statement_view else []
     # Same source/convention financials_data.py/ratios_data.py/step3_data.py
     # use (reportedCurrency off the income statement) -- quarterly here
     # since that's the series already fetched above, no new FMP call.
@@ -496,7 +482,7 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
     # is why the two can differ and the FX code is kept.
     reported_currency = _first(income_quarterly).get("reportedCurrency")
     quote_currency = profile.get("currency") or "USD"
-    debt_metrics = compute_debt_metrics(_first(balance_sheet_data), income_quarterly)
+    debt_metrics = statement_view.debt_metrics if statement_view else compute_debt_metrics({}, [])
     shares_outstanding, shares_outstanding_source = compute_shares_outstanding(quote, income_quarterly)
     enterprise_values_row = _first(enterprise_values_data)
     # Guards against FMP's freshly-filed-quarter units defect (confirmed:

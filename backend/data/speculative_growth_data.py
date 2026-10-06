@@ -1,6 +1,6 @@
 from sqlmodel import Session
 
-from core.cache import get_or_fetch, get_or_fetch_earnings_aware, safe_fetch
+from core.cache import get_or_fetch, safe_fetch
 from core.config import settings
 from core.db import engine
 from clients.fmp_client import fmp_client
@@ -20,7 +20,7 @@ from scoring.speculative_growth import (
     psg_ratio,
     trailing_revenue_growth_pct,
 )
-from helpers.ttm import TOTAL_QUARTERS_NEEDED
+from helpers.statement_view import load_statement_view
 
 
 async def get_speculative_growth_data(ticker: str, cache_only: bool = False) -> SpeculativeGrowthOut:
@@ -72,37 +72,17 @@ async def get_speculative_growth_data(ticker: str, cache_only: bool = False) -> 
         # step2_data.py's own REIT-only resolve_most_recent_earnings_date call).
         most_recent_earnings_date = await resolve_most_recent_earnings_date(session, ticker, staleness_days, cache_only)
 
-        # Same cache key Step 1/Step 5 already populate ("cash_flow_statement"/
-        # "quarterly") -- fetched here in raw quarterly form (rather than
-        # reusing Step1Out.cfo, which is annual+TTM only) purely for
-        # cfo_recent_direction's last-2-quarters read.
-        cash_flow_quarterly = await safe_fetch(
-            "cash_flow_statement_quarterly",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "cash_flow_statement",
-                "quarterly",
-                lambda: fmp_client.get_cash_flow_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        # Same cache key Step 5/ticker_summary already populate
-        # ("balance_sheet_statement"/"quarterly").
-        balance_sheet_quarterly = await safe_fetch(
-            "balance_sheet_statement_quarterly",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "balance_sheet_statement",
-                "quarterly",
-                lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
+        # Cash and the last-two-quarters CFO read the same cleaned rows as the Analysis tab
+        # (helpers/statement_view.py): the gated balance sheet (prior quarter when the newest is partly
+        # filled in) and the cash-flow quarters with a placeholder newest quarter dropped. Same cache keys
+        # Step 1/Step 5 already populate. The qualification gate below reads only Step 1, Step 2 and Moat.
+        view = await load_statement_view(
+            session,
+            ticker,
+            company_type,
+            most_recent_earnings_date=most_recent_earnings_date,
+            staleness_days=staleness_days,
+            cache_only=cache_only,
         )
         # Same cache key ticker_summary.py already populates ("ratios"/"latest").
         ratios = _first(
@@ -113,9 +93,6 @@ async def get_speculative_growth_data(ticker: str, cache_only: bool = False) -> 
                 ),
             )
         )
-
-    cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
-    balance_sheet_quarterly = balance_sheet_quarterly if isinstance(balance_sheet_quarterly, list) else []
 
     step1_out = await get_step1_data(ticker, cache_only)
     step2_out = await get_step2_data(ticker, cache_only)
@@ -143,11 +120,12 @@ async def get_speculative_growth_data(ticker: str, cache_only: bool = False) -> 
     net_income_ttm = step1_out.net_income[-1] if step1_out.net_income else None
     cfo_ttm = step1_out.cfo[-1] if step1_out.cfo else None
 
-    latest_bs = _first(balance_sheet_quarterly)
+    latest_bs = view.balance_sheet_row
     cash_and_st_investments = latest_bs.get("cashAndShortTermInvestments")
     if cash_and_st_investments is None:
         cash_and_st_investments = latest_bs.get("cashAndCashEquivalents")
 
+    cash_flow_quarterly = view.cash_flow_quarterly
     q0 = cash_flow_quarterly[0].get("netCashProvidedByOperatingActivities") if cash_flow_quarterly else None
     q1 = cash_flow_quarterly[1].get("netCashProvidedByOperatingActivities") if len(cash_flow_quarterly) >= 2 else None
     cfo_direction = cfo_recent_direction(q0, q1)
