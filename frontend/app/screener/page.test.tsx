@@ -415,3 +415,51 @@ describe("the sidebar across a universe switch", () => {
     expect(screen.getByText(/3 of 500 S&P 500 tickers/)).toBeInTheDocument();
   });
 });
+
+describe("the Review status filter on the real page", () => {
+  const REASON = { step: "step5", score: 43, verdict: "Fail", hint: "unclear", raw_hint: "unclear", guarded: false, rule: "not_covered", evidence: "e" };
+  const withStatus = (ticker: string, status: string | null) =>
+    scoreRow(ticker, {
+      overall_verdict: "Pass",
+      review_status: status as never,
+      review_reasons: status ? ([REASON] as never) : null,
+      conviction: status ? "high" : null,
+    });
+
+  beforeEach(() => {
+    h.rows.all = [withStatus("UNC", "review_unclear"), withStatus("DAT", "data_uncertain"), withStatus("OK", null)];
+  });
+
+  const openReview = () => fireEvent.click(screen.getByRole("button", { name: /^Review status/ }));
+
+  it("narrows the cards to the picked statuses and Reset clears it", () => {
+    render(<ScreenerPage />);
+    expect(cards().sort()).toEqual(["DAT", "OK", "UNC"]);
+    openReview();
+    fireEvent.click(within(screen.getByRole("listbox")).getByText("Review (unclear)"));
+    expect(cards()).toEqual(["UNC"]);
+    fireEvent.click(within(screen.getByRole("listbox")).getByText("Data uncertain"));
+    expect(cards().sort()).toEqual(["DAT", "UNC"]);
+    expect(screen.getByRole("button", { name: /^Review status/ })).toHaveClass("text-filter-active");
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect(cards().sort()).toEqual(["DAT", "OK", "UNC"]);
+    expect(screen.getByRole("button", { name: /^Review status/ })).not.toHaveClass("text-filter-active");
+  });
+
+  it("a view saved before the key existed loads with no review filtering", () => {
+    h.saved = [savedView({ name: "Old", filters: { overallScore: { min: 40, max: null } } as never })];
+    render(<ScreenerPage />);
+    loadSavedView("Old");
+    expect(cards().sort()).toEqual(["DAT", "OK", "UNC"]);
+    expect(screen.getByRole("button", { name: /^Review status/ })).not.toHaveClass("text-filter-active");
+  });
+
+  it("a saved view that carries the key restores the selection", () => {
+    h.saved = [savedView({ name: "Big", filters: { ...DEFAULT_FILTER_STATE, reviewStatuses: ["data_uncertain"] } })];
+    render(<ScreenerPage />);
+    loadSavedView("Big");
+    expect(cards()).toEqual(["DAT"]);
+    expect(screen.getByRole("button", { name: /^Review status/ })).toHaveClass("text-filter-active");
+  });
+});

@@ -68,6 +68,10 @@ export function reviewTooltip(
   return parts.join(" ");
 }
 
+/** The stored fields a surface passes in: a TickerScoreOut, a Watchlist row or a Momentum row all carry them (optional
+ * on the row payloads, read as null when absent). */
+export type StoredReview = Partial<Pick<TickerScoreOut, "overall_verdict" | "review_status" | "review_reasons" | "conviction">>;
+
 export interface DisplayedReview {
   status: ReviewStatus;
   reasons: ReviewReason[];
@@ -78,7 +82,7 @@ export interface DisplayedReview {
  * the step endpoints) a stored row whose overall_verdict is not that verdict is stale: nothing is shown rather than a
  * label that may no longer apply. */
 export function displayedReview(
-  stored: Pick<TickerScoreOut, "overall_verdict" | "review_status" | "review_reasons" | "conviction"> | null | undefined,
+  stored: StoredReview | null | undefined,
   liveVerdict?: string | null,
 ): DisplayedReview | null {
   if (!stored?.review_status || !stored.review_reasons?.length) return null;

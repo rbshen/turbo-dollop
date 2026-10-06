@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { ReviewPill } from "@/components/shared/ReviewMarkers";
 import { MoatPill } from "@/components/ticker/MoatPill";
 import { PerfVsSpyPill } from "@/components/ticker/PerfVsSpyPill";
 import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGrowthPill";
@@ -46,7 +47,11 @@ export function ScreenerCard({ data }: Props) {
           </p>
         </div>
         {data.overall_score != null && data.overall_verdict != null ? (
-          <ScoreBadge score={data.overall_score} verdict={data.overall_verdict} />
+          // The score and verdict badge as always; a stored Review status sits right under it (nothing renders without one).
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <ScoreBadge score={data.overall_score} verdict={data.overall_verdict} />
+            <ReviewPill review={data} overallScore={data.overall_score} />
+          </div>
         ) : (
           <span className="shrink-0 text-xs font-medium text-text-tertiary">Incomplete</span>
         )}

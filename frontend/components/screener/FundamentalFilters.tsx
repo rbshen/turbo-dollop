@@ -9,6 +9,7 @@ import {
   FUNDAMENTAL_FILTER_KEYS,
   MARKET_CAP_SUFFIXES,
   MOAT_FILTER_OPTIONS,
+  REVIEW_STATUS_FILTER_OPTIONS,
   VALUATION_FILTER_OPTIONS,
   type ScreenerFilterState,
 } from "@/lib/screenerFilters";
@@ -80,6 +81,12 @@ export function FundamentalFilters({ filters, onFiltersChange, sectors, companyT
             options={VALUATION_FILTER_OPTIONS}
             selected={filters.valuationVerdict}
             onChange={(s) => patch({ valuationVerdict: s })}
+          />
+          <MultiSelectDropdown
+            label="Review status"
+            options={REVIEW_STATUS_FILTER_OPTIONS}
+            selected={filters.reviewStatuses}
+            onChange={(s) => patch({ reviewStatuses: s })}
           />
           {/* A chip: the checked fill is the applied signal, not orange. */}
           <Checkbox
