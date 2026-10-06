@@ -3,7 +3,14 @@ from typing import NamedTuple
 import numpy as np
 
 from scoring.series_trend import analyze_series_direction, robust_late_direction
-from scoring.trend import RECOVERY_PATTERNS, TrendResult, classify_trend, resolved_dip_events
+from scoring.trend import (
+    RECOVERY_PATTERNS,
+    THIN_HISTORY_MIN_POINTS,
+    THIN_HISTORY_SCORE_CAP,
+    TrendResult,
+    classify_trend,
+    resolved_dip_events,
+)
 
 # --- ROE / ROIC tiers (percent) ---------------------------------------------
 ROE_EXCELLENT_AVG = 15.0
@@ -400,6 +407,23 @@ def score_roic(roic: list[float]) -> RatioResult:
     return RatioResult(label, points, hard_fail)
 
 
+def thin_history_points(
+    roe: list[float | None],
+    equity: list[float | None],
+    net_income: list[float],
+    roic: list[float | None] | None,
+) -> int:
+    """The data-point count the thin-history cap reads (same series score_roe / score_roic score): the real ROE points
+    (exact 0.0 and None are missing, see real_ratio_points), or the Net Income series length on the negative-equity
+    substitute path (ROE is not what is scored there); and the real ROIC points when ROIC is scored. The minimum of
+    the two. `roic=None` (exempt, or too few points to score) does not count."""
+    roe_points = len(net_income) if any(e is not None and e < 0 for e in equity) else len(real_ratio_points(roe))
+    counts = [roe_points]
+    if roic is not None:
+        counts.append(len(real_ratio_points(roic)))
+    return min(counts)
+
+
 def check_roe_roic_divergence(roe: RatioResult, roic: RatioResult | None) -> str | None:
     """Surfaces the doc's own ROIC rationale ("closes a blind spot... a
     company can inflate ROE by loading up on debt to fund buybacks") as an
@@ -751,6 +775,7 @@ def score_step4(
     ar: ARResult | None,
     roic: RatioResult | None,
     ccc: TrendResult | None,
+    history_points: int | None = None,
 ) -> dict:
     """Pure scoring function: weighted blend (see BASE_WEIGHTS -- ROIC 35% /
     ROE 25% / AR 20% / CCC 20% when all 4 apply) among whatever metrics are
@@ -775,6 +800,10 @@ def score_step4(
     weights = {key: BASE_WEIGHTS[key] / base_total for key, _ in applicable}
     weighted_sum = sum(points * weights[key] for key, points in applicable)
     score = max(0, min(100, round(weighted_sum)))
+    # Thin-history cap (thin_history_points computes the count; None = not supplied, never capped, which is what
+    # direct scoring-function callers get). See THIN_HISTORY_MIN_POINTS in scoring/trend.py.
+    if history_points is not None and history_points < THIN_HISTORY_MIN_POINTS:
+        score = min(score, THIN_HISTORY_SCORE_CAP)
 
     hard_fail = roe.hard_fail or (roic.hard_fail if roic is not None else False)
 

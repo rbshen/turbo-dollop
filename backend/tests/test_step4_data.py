@@ -280,8 +280,10 @@ def test_score_differs_between_5yr_only_and_full_10yr_scoring_data(monkeypatch):
     _patch_fmp(monkeypatch)  # full 10-year fixture
     extended = asyncio.run(get_step4_data("aapl"))
 
-    assert baseline.score == 100
-    assert baseline.verdict == "Strong Pass"
+    # Every metric scores 100, but the 5yr-only series has 6 real ROE/ROIC points, under the 8 the thin-history cap
+    # (H1) needs for a Strong Pass: capped at 90, a plain Pass.
+    assert baseline.score == 90
+    assert baseline.verdict == "Pass"
     assert baseline.components["roe"]["label"] == "excellent"
     assert baseline.components["roic"]["label"] == "excellent"
 

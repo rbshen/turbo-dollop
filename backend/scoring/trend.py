@@ -357,6 +357,14 @@ def _graduated_resolved_score(events: list[DipEvent], ttm: float) -> int:
     return round(RESOLVED_CEILING - (RESOLVED_CEILING - RESOLVED_FLOOR) * fraction)
 
 
+# Thin-history cap ("H1"): a step with fewer than THIN_HISTORY_MIN_POINTS data points cannot be a Strong Pass (the
+# line is above 90), so its score is capped at THIN_HISTORY_SCORE_CAP. The verdict stays a plain Pass; no flag. Step 1
+# counts the cleaned Revenue series handed to score_step1 (TTM included; Net Interest Income for a Bank). Step 4 has
+# its own count (scoring/step4.py); both import these two constants.
+THIN_HISTORY_MIN_POINTS = 8
+THIN_HISTORY_SCORE_CAP = 90
+
+
 def classify_trend(values: list[float]) -> TrendResult:
     """Classify a chronological (oldest fiscal year -> TTM) metric series into
     one of the Step 1 methodology's trend patterns (grows_every_year,

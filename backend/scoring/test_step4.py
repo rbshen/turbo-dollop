@@ -2,6 +2,8 @@ import pytest
 
 from scoring.step4 import (
     AR_DSO_TREND_MATERIALITY_DAYS,
+    ARResult,
+    RatioResult,
     check_roe_roic_divergence,
     classify_ccc_trend,
     income_recovery_detail,
@@ -10,6 +12,7 @@ from scoring.step4 import (
     score_roe,
     score_roic,
     score_step4,
+    thin_history_points,
 )
 from scoring.trend import TrendResult
 
@@ -1023,3 +1026,68 @@ def test_glw_shaped_roic_and_ccc_stay_fail_with_the_companion_floor():
     assert result["score"] == 58
     assert result["hard_fail"] is False
     assert result["verdict"] == "Fail"
+
+
+# --- Thin-history cap on Strong Pass (H1) ------------------------------------
+
+_ALL_100_ROE = RatioResult("excellent", 100, False)
+_ALL_100_ROIC = RatioResult("excellent", 100, False)
+_CCC_100 = TrendResult("declining_or_stable", 100)
+_AR_100 = ARResult("healthy", 100, False, None, None, 0, 1)
+
+
+def _blend(history_points, roe=_ALL_100_ROE, roic=_ALL_100_ROIC):
+    return score_step4(roe, _AR_100, roic, _CCC_100, history_points=history_points)
+
+
+def test_step4_7_points_caps_100_at_90_and_reads_pass():
+    result = _blend(7)
+    assert result["score"] == 90
+    assert result["verdict"] == "Pass"
+
+
+def test_step4_8_points_is_not_capped():
+    result = _blend(8)
+    assert result["score"] == 100
+    assert result["verdict"] == "Strong Pass"
+
+
+def test_step4_without_a_history_count_is_never_capped():
+    assert _blend(None)["score"] == 100
+
+
+def test_step4_cap_leaves_a_pass_range_score_alone():
+    roe = RatioResult("good", 40, False)  # blends to 85
+    assert _blend(5, roe=roe)["score"] == _blend(10, roe=roe)["score"] < 90
+
+
+def test_step4_cap_keeps_a_91_at_90_but_not_a_90_lower():
+    # 100/100 with AR 70 and CCC 100 blends to 94: capped to 90 when thin, 94 Strong Pass otherwise.
+    ar70 = ARResult("outpacing_isolated", 70, False, None, None, 1, 4)
+    thin = score_step4(_ALL_100_ROE, ar70, _ALL_100_ROIC, _CCC_100, history_points=6)
+    full = score_step4(_ALL_100_ROE, ar70, _ALL_100_ROIC, _CCC_100, history_points=9)
+    assert (thin["score"], thin["verdict"]) == (90, "Pass")
+    assert (full["score"], full["verdict"]) == (94, "Strong Pass")
+
+
+def test_thin_history_points_is_the_minimum_of_real_roe_and_real_roic_points():
+    roe = [10.0] * 9
+    roic = [10.0] * 6 + [None, None, None]
+    assert thin_history_points(roe, [1.0] * 9, [5.0] * 9, roic) == 6
+    assert thin_history_points([10.0] * 5, [1.0] * 5, [5.0] * 5, [10.0] * 9) == 5
+
+
+def test_thin_history_points_excludes_exact_zero_placeholders():
+    # 8 raw ROE entries but two are the FMP 0.0 placeholder: 6 real points.
+    assert thin_history_points([0.0, 0.0, 10, 11, 12, 13, 14, 15], [1.0] * 8, [5.0] * 8, None) == 6
+
+
+def test_thin_history_points_ignores_an_exempt_roic():
+    assert thin_history_points([10.0] * 9, [1.0] * 9, [5.0] * 9, None) == 9
+
+
+def test_thin_history_points_uses_net_income_length_on_the_negative_equity_path():
+    roe = [10.0] * 3  # junk ROE: not what is scored when equity is negative
+    equity = [-5.0] + [1.0] * 8
+    assert thin_history_points(roe, equity, [5.0] * 9, None) == 9
+    assert thin_history_points(roe, equity, [5.0] * 4, None) == 4

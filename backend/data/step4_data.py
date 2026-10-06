@@ -25,6 +25,7 @@ from scoring.step4 import (
     score_roe,
     score_roic,
     score_step4,
+    thin_history_points,
 )
 from helpers.statement_view import cached_data_quality, load_statement_view
 
@@ -784,7 +785,15 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
         if len(ccc_series) >= 2:
             ccc_result = classify_ccc_trend(ccc_series)
 
-    result = score_step4(roe_result, ar_result, roic_result, ccc_result)
+    result = score_step4(
+        roe_result,
+        ar_result,
+        roic_result,
+        ccc_result,
+        history_points=thin_history_points(
+            roe_clean, equity_clean, net_income_clean, roic_clean if roic_result is not None else None
+        ),
+    )
     if result["components"]["revenue_vs_ar"] is not None:
         result["components"]["revenue_vs_ar"]["note"] = _build_ar_note(ar_result, net_income, ocf)
     result["components"]["roe"]["note"] = _build_roe_note(

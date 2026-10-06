@@ -1,7 +1,14 @@
 import numpy as np
 
 from scoring.series_trend import analyze_series_direction, robust_early_direction, robust_late_direction
-from scoring.trend import RECOVERY_PATTERNS, TrendResult, classify_trend, most_recent_real_dip_age
+from scoring.trend import (
+    RECOVERY_PATTERNS,
+    THIN_HISTORY_MIN_POINTS,
+    THIN_HISTORY_SCORE_CAP,
+    TrendResult,
+    classify_trend,
+    most_recent_real_dip_age,
+)
 
 # Revenue > CFO > Net Income priority hierarchy per a refined reading of
 # the methodology doc: Revenue is the foundation ("if revenue isn't
@@ -718,6 +725,8 @@ def score_step1(
         + (fcf_result.score if fcf_result else 0) * weights["fcf"]
     )
     score = max(0, min(100, round(weighted_sum)))
+    if len(revenue) < THIN_HISTORY_MIN_POINTS:
+        score = min(score, THIN_HISTORY_SCORE_CAP)
 
     net_income_component = {
         "score": net_income_result.score,

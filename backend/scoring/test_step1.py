@@ -13,6 +13,9 @@ from scoring.step1 import (
 from scoring.trend import MULTIPLE_DIPS_CEILING
 
 GROWING = [100, 110, 121, 133, 146]
+# 8 points: the shortest Revenue series the thin-history cap (H1) lets reach Strong Pass. The tests that assert a 100
+# Strong Pass pass it as `revenue` so they keep pinning what they were written for (weights, exemptions).
+LONG_GROWING = [100, 110, 121, 133, 146, 161, 177, 195]
 DECLINING = [146, 133, 121, 110, 100]
 STABLE_MARGINS = [40, 41, 40, 42, 43]
 NET_MARGINS_STABLE = [20, 20.5, 20, 21, 21.5]
@@ -30,7 +33,7 @@ SYM_CFO = [17.185, -124.307, 109.567, -148.247, 230.794, -58.077, 866.939, 845.2
 
 def test_strong_pass_all_growing():
     result = score_step1(
-        revenue=GROWING,
+        revenue=LONG_GROWING,
         net_income=GROWING,
         operating_income=GROWING,
         cfo=GROWING,
@@ -71,7 +74,7 @@ def test_fail_all_declining():
 
 def test_cfo_exemption_redistributes_weights():
     result = score_step1(
-        revenue=GROWING,
+        revenue=LONG_GROWING,
         net_income=GROWING,
         operating_income=GROWING,
         cfo=None,
@@ -98,7 +101,7 @@ def test_margins_exemption_redistributes_weights_proportionally_for_banks():
     # preserving their existing WEIGHTS_CFO_EXEMPT ratio (28:19). Works out
     # to Revenue 28/47 (~59.57%), Net Income 19/47 (~40.43%).
     result = score_step1(
-        revenue=GROWING,
+        revenue=LONG_GROWING,
         net_income=GROWING,
         operating_income=GROWING,
         cfo=None,
@@ -125,7 +128,7 @@ def test_margins_exemption_ignores_margin_data_entirely():
     # called (not just that its result is discarded).
     sharply_declining_margins = [80, 60, 40, 20, 5]
     result = score_step1(
-        revenue=GROWING,
+        revenue=LONG_GROWING,
         net_income=GROWING,
         operating_income=GROWING,
         cfo=None,
@@ -163,7 +166,7 @@ def test_fcf_exemption_mirrors_cfo_exemption_ignores_fcf_data_entirely():
     # `fcf` argument entirely rather than only skipping it "usually".
     fcf_sustained_burn = [-10, -20, -30, -15, -25, -5]
     result = score_step1(
-        revenue=GROWING,
+        revenue=LONG_GROWING,
         net_income=GROWING,
         operating_income=GROWING,
         cfo=None,
@@ -1013,3 +1016,59 @@ def test_fcf_capex_driven_softening_requires_cfo_argument():
     pattern, score = _classify_fcf(_CAPEX_HEAVY_FCF)
     assert pattern == "sustained_cash_burn"
     assert score == 0
+
+
+# --- Thin-history cap on Strong Pass (H1) ------------------------------------
+
+
+def _strong(revenue):
+    return score_step1(
+        revenue=revenue,
+        net_income=GROWING,
+        operating_income=GROWING,
+        cfo=GROWING,
+        gross_margin=STABLE_MARGINS,
+        net_margin=NET_MARGINS_STABLE,
+        cfo_exempt=False,
+        fcf=FCF_ALL_POSITIVE,
+    )
+
+
+def test_thin_history_7_points_caps_a_would_be_100_at_90_and_reads_pass():
+    result = _strong(LONG_GROWING[:7])
+    assert result["score"] == 90
+    assert result["verdict"] == "Pass"
+
+
+def test_history_of_8_points_is_not_capped():
+    result = _strong(LONG_GROWING)
+    assert result["score"] == 100
+    assert result["verdict"] == "Strong Pass"
+
+
+def test_cap_leaves_a_score_at_or_below_90_alone():
+    # CFO strong, net income weak (a Pass-range blend): a thin series must not move it.
+    thin = score_step1(
+        revenue=GROWING, net_income=[100, 90, 80, 70, 60], operating_income=[100, 90, 80, 70, 60], cfo=GROWING,
+        gross_margin=STABLE_MARGINS, net_margin=NET_MARGINS_STABLE, cfo_exempt=False, fcf=FCF_ALL_POSITIVE,
+    )
+    long = score_step1(
+        revenue=LONG_GROWING, net_income=[100, 90, 80, 70, 60], operating_income=[100, 90, 80, 70, 60], cfo=GROWING,
+        gross_margin=STABLE_MARGINS, net_margin=NET_MARGINS_STABLE, cfo_exempt=False, fcf=FCF_ALL_POSITIVE,
+    )
+    assert thin["score"] == long["score"] <= 90
+
+
+def test_exactly_90_is_not_lowered_and_a_thin_100_lands_on_it():
+    # The cap line is 90 itself: a thin series that would score 100 reads 90 / Pass, and 90 is never reduced further.
+    thin = _strong(LONG_GROWING[:5])
+    assert thin["score"] == 90 and thin["verdict"] == "Pass"
+
+
+def test_the_count_is_the_revenue_series_not_the_other_series():
+    # Revenue has 8 points, CFO only 5: not thin (Revenue is the counted series).
+    result = score_step1(
+        revenue=LONG_GROWING, net_income=GROWING, operating_income=GROWING, cfo=GROWING,
+        gross_margin=STABLE_MARGINS, net_margin=NET_MARGINS_STABLE, cfo_exempt=False, fcf=FCF_ALL_POSITIVE,
+    )
+    assert result["score"] == 100
