@@ -238,6 +238,14 @@ The gates only govern the lift. Operating Income is still scored whenever it is 
 is unchanged. `components.net_income.used_operating_income_backup` keeps its meaning: true only
 when the backup actually changed the score.
 
+**"Backup used" note (2026-10-06).** When that flag is true, the Financials card shows a muted line
+under the Net Income bullet, "Score lifted using Operating Income (backup)", with a tooltip quoting
+the Net Income score before and after the lift and the two measured gates (TTM Operating Income
+margin against its 5% bar, positive periods against its 4-of-5 bar). `score_step1` adds
+`components.net_income.score_before_backup` and `backup_gates` (`ttm_oi_margin_pct`,
+`min_ttm_oi_margin_pct`, `positive_periods`, `min_positive_periods`, `window`) **only** when the
+flag is true; nothing is shown, and no key is added, otherwise, so every other payload is unchanged.
+
 **Applies to every company type** (Bank, Insurance, REIT, Utility and the rest alike): the backup
 has never been exempted by company type, and the gates are not either. This was previously
 undocumented.
@@ -411,9 +419,18 @@ FCF = CFO + `capitalExpenditure` (FMP reports capital expenditure as already neg
 | 70–90 | Pass |
 | 0–69 | Fail |
 
+**Thin-history cap (2026-10-06, "H1").** A step cannot be a Strong Pass on fewer than **8 data
+points**: when the count is below `THIN_HISTORY_MIN_POINTS` (8, `scoring/trend.py`) the blended score
+is capped at `THIN_HISTORY_SCORE_CAP` (90, the line below the Strong Pass band), so the verdict reads
+Pass. For Financials the count is the length of the cleaned Revenue series handed to `score_step1`,
+TTM included (Net Interest Income for a Bank); the simulation found the Net Income and CFO series
+give the same thin list. The cap sits where the score is finalized, so the stored score, the verdict
+and the card agree; no caution flag is added. A score already at or below 90 is untouched. Profitability
+has its own count (see [Profitability](profitability.md)).
+
 The verdict is purely these bands applied to the final blended score (`_verdict_for` over
 `VERDICT_BANDS`) — no per-component gate on any individual pattern or score exists, so graduated
-component scores cannot interact with a hidden floor. Growth Rate uses the same bands, but its
+component scores cannot interact with a hidden floor (the one exception is the thin-history cap above, which only ever holds a score at 90). Growth Rate uses the same bands, but its
 Fail is gated on the sign of projected growth instead (see [Growth Rate](growth-rate.md)).
 
 **Badge shading.** The score badge splits the 70–90 "Pass" band into two color shades without a

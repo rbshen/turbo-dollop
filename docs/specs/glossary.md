@@ -24,7 +24,8 @@ fundamentally sound company — it doesn't mean "perfect," just "meets the bar."
 ## Strong Pass
 
 The check came back excellent across the board — a step up from a normal Pass, reserved for
-results that are strong not just on average but consistently so.
+results that are strong not just on average but consistently so. Financials and Profitability need at
+least 8 data points to reach it; a shorter history is held at a plain Pass (score 90).
 
 ## Pass with caution
 

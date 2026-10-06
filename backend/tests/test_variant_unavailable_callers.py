@@ -82,7 +82,8 @@ def test_step1_ttm_cell_is_blank_and_the_score_is_unchanged(monkeypatch, written
     assert result.years == ["2023", "2024", "2025", "TTM"]  # the column stays...
     assert result.revenue == [200.0, 250.0, 300.0, None]  # ...its cell is blank
     assert result.cfo[-1] is None and result.net_income[-1] is None
-    assert (result.score, result.verdict) == (100, "Strong Pass")  # scored on the annual points
+    # Scored on the annual points: 100, held to 90 / Pass by the thin-history cap (H1: 3 points, under 8).
+    assert (result.score, result.verdict) == (90, "Pass")
     _assert_nothing_quarterly_was_cached(written)
 
 

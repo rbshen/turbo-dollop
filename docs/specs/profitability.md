@@ -203,6 +203,41 @@ Both metrics share the same tiering logic, applied independently to each series 
    the tier is demoted one notch: `excellent` → `good` (85), `good` → `marginal` (60). `marginal`
    is never demoted further.
 
+### Negative latest reading caps that metric at 40 (2026-10-06, "I1")
+
+In the **normal** ROE and ROIC path, if the **latest** real reading is below 0, that metric's points
+are capped at `NEGATIVE_LATEST_SCORE_CAP` (40) before it is blended, whatever the multi-year average
+says (INTC: a strong history, a loss-making latest year). The label, `hard_fail` and every other rule,
+threshold and weight (ROIC 35, ROE 25, AR 20, CCC 20) are unchanged; a score already at or below 40
+(including a `fail`) is untouched.
+
+- **"Latest"** is the last point of `real_ratio_points(...)`: the TTM slot for every series but one ROE
+  series. It is read from that series **before** the recovery-aware exclusion and the spike filter
+  (the exclusion only drops a prefix and the spike filter only the maximum, so neither can hide the
+  last point, but the rule does not depend on what survived them).
+- **An exact `0.0` is missing (A1)**, so it is never "negative" and never "latest": the latest real
+  point is the one before it. `-0.01` is negative; `0.0` is skipped; a positive reading is untouched.
+- **Not applied** to ROE's negative-equity Net Income substitute path (it returns before the cap) or
+  to an exempt metric (ROIC for Bank/Insurance/Utility is not scored at all).
+- When both ROE and ROIC are negative, each is capped and the blend uses both.
+
+Effect on the tracked universe (582 tickers, cache only): 8 Step 4 score changes (APD 40 to 35, CRL 54
+to 50, GILD 50 to 38, GIS 70 to 65, INTC 45 to 40, IP 43 to 41, LYB 64 to 59, TRMB 48 to 43), one Step 4
+verdict flip (GIS Pass to Fail), one Overall verdict flip (GILD 70 Pass to 68 Fail, accepted: see
+`docs/decisions.md` 2026-10-06).
+
+### Thin-history cap on Strong Pass (2026-10-06, "H1")
+
+The Step 4 score is capped at `THIN_HISTORY_SCORE_CAP` (90) when its data-point count is below
+`THIN_HISTORY_MIN_POINTS` (8), so a short history reads Pass, never Strong Pass (see
+[Financials](financials.md), "Verdict bands"). The count (`thin_history_points`, `scoring/step4.py`,
+passed to `score_step4` as `history_points`) is the **minimum of the real ROE points and the real ROIC
+points** (None and exact `0.0` excluded, as everywhere in this step). On the negative-equity substitute
+path the ROE term is the **Net Income series length** (ROE is not what is scored there). An exempt
+ROIC, or one with too few points to be scored, does not count against the minimum. A caller that
+passes no count (a direct scoring-function call) is never capped. Effect: 0 Step 4 score changes in
+the tracked universe.
+
 ### Recovery-aware exclusion (2026-08-08)
 
 The avg/min-year tiering runs on the full 10yr+TTM window as a flat, unweighted average — an old,
@@ -442,7 +477,7 @@ hard_fail = ROE hard-failed, OR (ROIC applicable AND ROIC hard-failed)
   `hard_fail` is false — a mandatory companion to the ROE/ROIC/CCC graduated-scale fixes: before
   this, there was **no** blended-score floor at all, so any non-hard-fail result displayed "Pass"
   regardless of how low the score was.
-- **Strong Pass** if the blended score is **> 90**.
+- **Strong Pass** if the blended score is **> 90** (and the history is at least 8 data points: the thin-history cap holds a shorter one at 90).
 - **Pass** otherwise.
 
 This floor is global, not scoped to the graduated-scale fix — confirmed via a full-universe
