@@ -1,6 +1,7 @@
 "use client";
 
 import { AnalysisSectionCard, type ReasoningBullet, weightScoreSuffix } from "@/components/shared/AnalysisSectionCard";
+import { FmpRatiosNote } from "@/components/shared/DataQualityNote";
 import { useStep4 } from "@/lib/hooks/useStep4";
 
 interface Props {
@@ -127,6 +128,7 @@ export function Step4Card({ ticker }: Props) {
       {data.ccc_exempt_reason && <p className="text-xs text-text-tertiary">{data.ccc_exempt_reason}</p>}
       {data.revenue_vs_ar_exempt_reason && <p className="text-xs text-text-tertiary">{data.revenue_vs_ar_exempt_reason}</p>}
       {data.roe_roic_divergence_note && <p className="text-xs text-warn">{data.roe_roic_divergence_note}</p>}
+      <FmpRatiosNote flags={data.data_quality} />
     </>
   );
 

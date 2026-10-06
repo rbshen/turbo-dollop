@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 
+import { NotLandedLine } from "@/components/shared/DataQualityNote";
 import { FinancialsStatementTable } from "@/components/ticker/FinancialsStatementTable";
 import { HistoricalTrendsGrid } from "@/components/ticker/HistoricalTrendsGrid";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Tabs } from "@/components/ui/tabs";
 import type { FinancialsStatementOut } from "@/lib/api/types";
+import type { StatementKind } from "@/lib/dataQuality";
 import { useFinancials } from "@/lib/hooks/useFinancials";
 
 type StatementKey = "income" | "balanceSheet" | "cashFlow";
@@ -17,6 +19,12 @@ const STATEMENT_TABS: { key: StatementKey; label: string }[] = [
   { key: "balanceSheet", label: "Balance Sheet" },
   { key: "cashFlow", label: "Cash Flow" },
 ];
+
+const STATEMENT_KIND: Record<StatementKey, StatementKind> = {
+  income: "income",
+  balanceSheet: "balance_sheet",
+  cashFlow: "cash_flow",
+};
 
 const PERIOD_OPTIONS: { value: Period; label: string }[] = [
   { value: "annual", label: "Annual" },
@@ -83,11 +91,15 @@ export function FinancialsTab({ ticker }: Props) {
         )}
       </p>
 
+      <NotLandedLine flags={data.data_quality} />
+
       <FinancialsStatementTable
         ticker={ticker}
         periodType={period}
         data={statementData[period]}
         reportedCurrency={data.reported_currency ?? "USD"}
+        statement={STATEMENT_KIND[statement]}
+        dataQuality={data.data_quality}
       />
     </div>
   );

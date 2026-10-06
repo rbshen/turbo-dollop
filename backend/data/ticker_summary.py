@@ -22,7 +22,7 @@ from helpers.shares import compute_shares_outstanding, is_implausible_magnitude_
 from data.step2_data import get_step2_data
 from data.step3_data import get_active_valuation
 from helpers.trailing_pe import compute_trailing_pe
-from helpers.statement_view import StatementView, load_statement_view
+from helpers.statement_view import StatementView, cached_data_quality, load_statement_view
 from scoring.classification import classify_company_type
 
 logger = logging.getLogger(__name__)
@@ -438,6 +438,9 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
                 classify_company_type(profile.get("sector"), profile.get("industry"), ticker),
             )
         )
+        # Display markers only: the rules currently tripping on the cached statements (cache read, no fetch; a fund has
+        # no statements).
+        data_quality = [] if is_etf else cached_data_quality(session, ticker)
         # ~45 calendar days is enough to cover both the 30-calendar-day
         # average-volume window and the 20-trading-day average-dollar-volume
         # window (see DAILY_PRICE_LOOKBACK_DAYS) -- the 6 performance tiles
@@ -588,6 +591,7 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
         interest_expense_ttm=debt_metrics.interest_expense_ttm,
         interest_income_ttm=debt_metrics.interest_income_ttm,
         outlier_warnings=outlier_warnings,
+        data_quality=data_quality,
         fair_value_price=step3_out.intrinsic_value_per_share if step3_out else None,
         fair_value_verdict=step3_out.verdict if step3_out else None,
         fair_value_method=fair_value_method,

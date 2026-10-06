@@ -26,7 +26,7 @@ from scoring.step4 import (
     score_roic,
     score_step4,
 )
-from helpers.statement_view import load_statement_view
+from helpers.statement_view import cached_data_quality, load_statement_view
 
 ROIC_EXEMPT_TYPES = {"Bank", "Insurance", "Utility", "REIT/Property Developer"}
 # CCC (Cash Conversion Cycle) has no comparable inventory/receivables cash-
@@ -580,6 +580,8 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
             cache_only=cache_only,
             annual_balance_sheet=True,
         )
+        # Display markers only: the rules currently tripping on the cached statements (cache read, no fetch).
+        data_quality = cached_data_quality(session, ticker)
         key_metrics_annual = await safe_fetch(
             "key_metrics_annual",
             get_or_fetch_earnings_aware(
@@ -759,6 +761,7 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
             score=None,
             verdict="insufficient_data",
             outlier_warnings=outlier_warnings,
+            data_quality=data_quality,
         )
 
     roe_result = score_roe(roe_clean, equity_clean, net_income_clean)
@@ -833,4 +836,5 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
         weights=weights,
         roe_roic_divergence_note=result["roe_roic_divergence_note"],
         outlier_warnings=outlier_warnings,
+        data_quality=data_quality,
     )

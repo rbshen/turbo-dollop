@@ -5,6 +5,7 @@ from core.config import settings
 from core.db import engine
 from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.first import _first
+from helpers.statement_view import cached_data_quality
 from clients.fmp_client import fmp_client
 from core.schemas import FinancialsGroup, FinancialsLineItem, RatiosOut
 from core.tickers import normalize_ticker
@@ -273,6 +274,9 @@ async def get_ratios_data(ticker: str, cache_only: bool = False) -> RatiosOut:
                 cache_only,
             ),
         )
+        # Display markers only (docs/specs/statement-data-quality.md, "Display markers"): the rules currently tripping on
+        # the cached statements FMP's ratios are computed from. Cache read, no fetch; no row below is altered by it.
+        data_quality = cached_data_quality(session, ticker)
 
     key_metrics_annual = key_metrics_annual if isinstance(key_metrics_annual, list) else []
     ratios_annual = ratios_annual if isinstance(ratios_annual, list) else []
@@ -294,4 +298,6 @@ async def get_ratios_data(ticker: str, cache_only: bool = False) -> RatiosOut:
     # this schema all come from the "ratios" source (see PER_SHARE_FIELDS).
     reported_currency = _first(ratios_annual).get("reportedCurrency")
 
-    return RatiosOut(ticker=ticker, periods=periods, groups=groups, reported_currency=reported_currency)
+    return RatiosOut(
+        ticker=ticker, periods=periods, groups=groups, reported_currency=reported_currency, data_quality=data_quality
+    )

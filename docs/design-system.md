@@ -278,6 +278,10 @@ Two bugs found in the browser (the Speculative growth tooltips and the expanded 
 - **Icon-only buttons without an `aria-label`:** none.
 - **Text glyphs in controls:** none in a button. Content glyphs remain: the pills' "▲ ▼", "⚠" and "ⓘ" in table and metric cells (title-only spans, mouse only), "Saved ✓" and "Recomputed ✓", "↳" sub-bullets and the arrows inside chart labels.
 
+### Data-quality markers (2026-10-06)
+
+Warnings that a number on a raw-display tab may be built from a bad row (spec: `docs/specs/statement-data-quality.md`, "Display markers"). They annotate; no value is hidden or replaced, and no new token is introduced. **Column marker:** the Phosphor `Info` icon (13px, bold, decorative inside a `role="img"` span whose `aria-label` is the sentence) in the `warn` tone, before the column's header text in `FinancialsStatementTable`, with a native `title` carrying the sentence and the evidence (the same `title` idiom as the Income Taxes Paid and Interest Paid icons). **Box:** `PartialBalanceSheetNote` is the `OutlierWarningNote` box (`rounded-md border border-warn/40 bg-warn/10 p-3`, Phosphor `Warning`, an `sr-only` "Warning:" prefix) with the sentence in `text-sm text-warn` and the evidence line in `text-xs text-warn/80`; a separate component so the existing note and `/styleguide` are untouched. **Muted line:** `NotLandedLine`, `text-xs text-text-tertiary`. **Inline note:** `FmpRatiosNote`, `text-xs text-warn`, on the Ratios tab and in the Step 4 card's notes. All wording lives in `lib/dataQuality.ts` (sentence case, no new terms); the backend sends facts only.
+
 ## Settings layout
 
 Every Settings section is built from four components in `components/settings/SettingsLayout.tsx` (built 2026-09-30, shown in `/styleguide`, used by all five form sections of the Settings page; Scheduled jobs and FMP data groups are not built from it, see "Immediate-apply sections" below):

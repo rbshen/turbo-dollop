@@ -1,5 +1,6 @@
 "use client";
 
+import { FmpRatiosNote } from "@/components/shared/DataQualityNote";
 import { RatiosTable } from "@/components/ticker/RatiosTable";
 import { RatioTrendsGrid } from "@/components/ticker/RatioTrendsGrid";
 import { useRatios } from "@/lib/hooks/useRatios";
@@ -48,6 +49,7 @@ export function RatiosTab({ ticker }: Props) {
             </>
           )}
         </p>
+        <FmpRatiosNote flags={data.data_quality} />
         <RatiosTable data={data} />
       </div>
     </div>

@@ -5,7 +5,8 @@ import { Fragment, useState } from "react";
 
 import { SecCellCheckButton, type SecCellCheckField } from "@/components/ticker/SecCellCheckButton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { FinancialsPeriodOut } from "@/lib/api/types";
+import type { DataQualityFlag, FinancialsPeriodOut } from "@/lib/api/types";
+import { columnMarkers, type StatementKind } from "@/lib/dataQuality";
 import { fmtNumber, fmtTableNumber } from "@/lib/format";
 
 interface Props {
@@ -18,6 +19,10 @@ interface Props {
   periodType: "annual" | "quarterly";
   data: FinancialsPeriodOut;
   reportedCurrency?: string;
+  // Read-time data-quality markers (backend data_quality_flags): an icon with a title tooltip on the affected column
+  // headers. They only annotate -- no value in the table is hidden or replaced.
+  statement?: StatementKind;
+  dataQuality?: DataQualityFlag[];
 }
 
 // Confirmed by investigation: FMP's data for these two specific fields is
@@ -60,7 +65,7 @@ function formatValue(value: number | null, unit: string): string {
 // a row's content (e.g. an empty group-header cell) rendered at a different
 // height than its counterpart. One <tr> per line item can't drift out of
 // alignment with itself.
-export function FinancialsStatementTable({ ticker, periodType, data, reportedCurrency = "USD" }: Props) {
+export function FinancialsStatementTable({ ticker, periodType, data, reportedCurrency = "USD", statement, dataQuality }: Props) {
   const columnCount = data.periods.length + 1;
   // Every group starts expanded (matches the pre-collapse behavior) --
   // groups without a label (Income Statement's flat rows) never appear in
@@ -88,6 +93,18 @@ export function FinancialsStatementTable({ ticker, periodType, data, reportedCur
               key={i}
               className="sticky top-0 z-20 whitespace-nowrap border-b border-border-subtle bg-page text-right"
             >
+              {statement &&
+                columnMarkers(dataQuality, statement, periodType, period).map((marker, mi) => (
+                  <span
+                    key={mi}
+                    role="img"
+                    aria-label={marker.message}
+                    className="mr-1.5 inline-flex align-middle text-warn"
+                    title={marker.evidence ? `${marker.message} (${marker.evidence})` : marker.message}
+                  >
+                    <Info size={13} weight="bold" aria-hidden="true" />
+                  </span>
+                ))}
               {period}
             </TableHead>
           ))}

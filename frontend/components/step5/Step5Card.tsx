@@ -1,5 +1,6 @@
 "use client";
 
+import { PartialBalanceSheetNote } from "@/components/shared/DataQualityNote";
 import { OutlierWarningNote } from "@/components/shared/OutlierWarningNote";
 import { AnalysisSectionCard, type ReasoningBullet, weightScoreSuffix } from "@/components/shared/AnalysisSectionCard";
 import { BankCapitalMetricsForm } from "@/components/step5/BankCapitalMetricsForm";
@@ -207,6 +208,7 @@ export function Step5Card({ ticker }: Props) {
 
   const notes = (
     <>
+      <PartialBalanceSheetNote flags={data.data_quality} />
       <OutlierWarningNote warnings={data.outlier_warnings} labels={OUTLIER_METRIC_LABELS} />
       {isBank && !data.bank_capital_metrics_editable && (
         <p className="text-xs text-text-tertiary">{data.classification_note}</p>

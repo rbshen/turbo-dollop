@@ -16,14 +16,16 @@ trip, structurally, for the display markers (and later Watch); it persists nothi
 
 The raw cached rows are never modified: a bad row stays cached as FMP served it; this decides what to *use*."""
 
+import json
 from dataclasses import dataclass
 from datetime import date
 from typing import Literal, NamedTuple
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from clients.fmp_client import fmp_client
 from core.cache import get_or_fetch_earnings_aware, safe_fetch
+from core.models import FundamentalsCache
 from core.schemas import BalanceSheetFallback, DataQualityFlag
 from helpers import statement_recheck as sr
 from helpers.balance_sheet_gate import (
@@ -34,6 +36,7 @@ from helpers.balance_sheet_gate import (
     select_complete_balance_sheet,
 )
 from helpers.debt_metrics import DebtMetrics, compute_debt_metrics
+from scoring.classification import classify_company_type
 from helpers.ttm import (
     TOTAL_QUARTERS_NEEDED,
     TTMResult,
@@ -246,6 +249,7 @@ def _cash_flow_flags(raw: RawStatements) -> list[DataQualityFlag]:
     ):
         for index, row in enumerate(rows):
             in_ttm = period == "quarterly" and index < _RAW_TTM_QUARTERS
+            newest = index == 0
             if is_placeholder_cash_flow_row(row, income):
                 net_income = _period_net_income(row, income)
                 flags.append(
@@ -255,7 +259,7 @@ def _cash_flow_flags(raw: RawStatements) -> list[DataQualityFlag]:
                         period=period,
                         period_end=_date_of(row),
                         evidence=f"all cash-flow section totals are 0 while net income is {net_income:,.0f}",
-                        detail={"net_income": net_income, "in_ttm_window": in_ttm},
+                        detail={"net_income": net_income, "in_ttm_window": in_ttm, "newest_period": newest},
                     )
                 )
                 continue
@@ -271,7 +275,13 @@ def _cash_flow_flags(raw: RawStatements) -> list[DataQualityFlag]:
                         period=period,
                         period_end=_date_of(row),
                         evidence=f"{lines} lines are about {10 ** abs(log_ratio):,.0f} times {'larger' if log_ratio > 0 else 'smaller'} than the neighbouring rows",
-                        detail={"lines": lines, "log10_ratio": round(log_ratio, 2), "derived_q4": False, "in_ttm_window": in_ttm},
+                        detail={
+                            "lines": lines,
+                            "log10_ratio": round(log_ratio, 2),
+                            "derived_q4": False,
+                            "in_ttm_window": in_ttm,
+                            "newest_period": newest,
+                        },
                     )
                 )
     # The Q4 of a fiscal year whose annual row is a scale break is FMP's annual-minus-three-quarters: poisoned, and treated as
@@ -286,7 +296,7 @@ def _cash_flow_flags(raw: RawStatements) -> list[DataQualityFlag]:
                     period="quarterly",
                     period_end=_date_of(row),
                     evidence=f"Q4 {row.get('fiscalYear')} is derived from a scale-broken annual row",
-                    detail={"derived_q4": True, "in_ttm_window": index < _RAW_TTM_QUARTERS},
+                    detail={"derived_q4": True, "in_ttm_window": index < _RAW_TTM_QUARTERS, "newest_period": index == 0},
                 )
             )
     return flags
@@ -322,6 +332,7 @@ def data_quality_flags(
                         "incomplete_quarter_date": selection.incomplete_date,
                         "used_quarter_date": selection.used_date,
                         "in_ttm_window": True,
+                        "newest_period": True,
                     },
                 )
             )
@@ -341,7 +352,64 @@ def data_quality_flags(
                 period="quarterly",
                 period_end=newest,
                 evidence=f"earnings reported {landed.anchor.isoformat()}; newest income period ends {newest}",
-                detail={"reported_on": landed.anchor.isoformat(), "in_ttm_window": False},
+                detail={"reported_on": landed.anchor.isoformat(), "in_ttm_window": False, "newest_period": False},
             )
         )
     return flags
+
+
+# --- cache-only read for the display markers --------------------------------------------------------------------
+
+_CACHED_STATEMENTS = {
+    ("income_statement", "annual"): "income_annual",
+    ("income_statement", "quarterly"): "income_quarterly",
+    ("cash_flow_statement", "annual"): "cash_flow_annual",
+    ("cash_flow_statement", "quarterly"): "cash_flow_quarterly",
+    ("balance_sheet_statement", "annual"): "balance_sheet_annual",
+    ("balance_sheet_statement", "quarterly"): "balance_sheet_quarterly",
+}
+
+
+def _cached_rows(raw_json: str) -> list[dict]:
+    try:
+        data = json.loads(raw_json)
+    except ValueError:
+        return []
+    return [row for row in data if isinstance(row, dict)] if isinstance(data, list) else []
+
+
+def read_cached_inputs(session: Session, ticker: str) -> tuple[RawStatements, list[dict], str | None]:
+    """The ticker's cached statement rows, earnings and company type, read straight from `FundamentalsCache`. Never fetches
+    and never writes: a payload builder calls it after its own fetches, so the markers add no FMP call."""
+    cached = session.exec(
+        select(FundamentalsCache).where(
+            FundamentalsCache.ticker == ticker,
+            FundamentalsCache.statement_type.in_(
+                ["income_statement", "cash_flow_statement", "balance_sheet_statement", "earnings", "profile"]
+            ),
+        )
+    ).all()
+    lists: dict[str, list[dict]] = {name: [] for name in _CACHED_STATEMENTS.values()}
+    earnings: list[dict] = []
+    profile: dict = {}
+    for row in cached:
+        name = _CACHED_STATEMENTS.get((row.statement_type, row.period))
+        if name is not None:
+            lists[name] = _cached_rows(row.raw_json)
+        elif row.statement_type == "earnings":
+            earnings = _cached_rows(row.raw_json)
+        elif row.statement_type == "profile":
+            parsed = _cached_rows(row.raw_json)
+            profile = parsed[0] if parsed else {}
+    company_type = classify_company_type(
+        profile.get("sector"), profile.get("industry"), ticker, is_fund=bool(profile.get("isEtf") or profile.get("isFund"))
+    )
+    return RawStatements(**lists), earnings, company_type
+
+
+def cached_data_quality(session: Session, ticker: str, today: date | None = None) -> list[DataQualityFlag]:
+    """`data_quality_flags` over the cached rows: what the display markers on the Financials, Ratios, summary, Step 4 and
+    Step 5 payloads carry. A flag appears only while its rule currently trips on the cached row and disappears when the row
+    heals (the next read finds the healed row)."""
+    raw, earnings, company_type = read_cached_inputs(session, ticker)
+    return data_quality_flags(raw, earnings, company_type, today)

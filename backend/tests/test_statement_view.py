@@ -100,7 +100,7 @@ def test_placeholder_flag_carries_the_net_income_and_is_inside_the_raw_ttm_windo
     assert rules_of(flags) == [PLACEHOLDER_CF]
     flag = flags[0]
     assert (flag.statement, flag.period, flag.period_end) == ("cash_flow", "quarterly", "2026-06-30")
-    assert flag.detail == {"net_income": 100.0, "in_ttm_window": True}
+    assert flag.detail == {"net_income": 100.0, "in_ttm_window": True, "newest_period": True}
     assert "all cash-flow section totals are 0" in flag.evidence and "100" in flag.evidence
 
 
@@ -112,7 +112,9 @@ def test_an_old_placeholder_outside_the_four_newest_quarters_is_flagged_but_not_
         raw(income_quarterly=quarterly(income, ends), cash_flow_quarterly=cf), earnings("2026-08-04"), None, TODAY
     )
 
-    assert [(f.rule, f.period_end, f.detail["in_ttm_window"]) for f in flags] == [(PLACEHOLDER_CF, "2024-12-31", False)]
+    assert [(f.rule, f.period_end, f.detail["in_ttm_window"], f.detail["newest_period"]) for f in flags] == [
+        (PLACEHOLDER_CF, "2024-12-31", False, False)
+    ]
 
 
 # ---- scale break -----------------------------------------------------------------------------------------
@@ -233,6 +235,7 @@ def test_partial_balance_sheet_flag_names_the_dates_and_the_gate_reason():
         "incomplete_quarter_date": "2026-06-30",
         "used_quarter_date": "2026-03-31",
         "in_ttm_window": True,
+        "newest_period": True,
     }
     assert flag.evidence.startswith("total debt")
 
@@ -293,7 +296,7 @@ def test_not_landed_flag_when_the_newest_reported_quarter_is_missing_from_the_st
     flags = data_quality_flags(statements, earnings("2026-08-04", "2026-05-05"), None, TODAY)
 
     assert rules_of(flags) == [NOT_LANDED]
-    assert flags[0].detail == {"reported_on": "2026-08-04", "in_ttm_window": False}
+    assert flags[0].detail == {"reported_on": "2026-08-04", "in_ttm_window": False, "newest_period": False}
     assert flags[0].period_end == "2026-03-31"
     assert data_quality_flags(statements, [], None, TODAY) == []  # no earnings history: never fires
 

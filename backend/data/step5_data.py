@@ -15,7 +15,7 @@ from helpers.npl import compute_npl_ratio
 from core.schemas import BreachContextSignal, OutlierWarning, SecCrossCheck, Step5Out, Step5RatioResult
 from core.tickers import normalize_ticker
 from scoring.step5 import classify_company_type, score_npl, score_step5_bank, score_step5_reit, score_step5_standard
-from helpers.statement_view import load_statement_view
+from helpers.statement_view import cached_data_quality, load_statement_view
 from helpers.ttm import TOTAL_QUARTERS_NEEDED
 
 # Same 10yr fetch window/cache key Step 4 already populates
@@ -400,6 +400,8 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
             cache_only=cache_only,
             balance_sheet_quarterly_rows=balance_sheet if isinstance(balance_sheet, list) else [balance_sheet_row],
         )
+        # Display markers only: the rules currently tripping on the cached statements (cache read, no fetch).
+        data_quality = cached_data_quality(session, ticker)
 
     is_reit = company_type == "REIT/Property Developer"
     income_quarterly = view.income_quarterly
@@ -445,6 +447,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
                 verdict="insufficient_data",
                 outlier_warnings=outlier_warnings,
                 balance_sheet_fallback=balance_sheet_fallback,
+                data_quality=data_quality,
             )
 
         gearing_pct = total_debt / total_assets * 100
@@ -460,6 +463,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
             weights=result["weights"],
             outlier_warnings=outlier_warnings,
             balance_sheet_fallback=balance_sheet_fallback,
+            data_quality=data_quality,
         )
 
     # Standard path.
@@ -519,6 +523,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
             verdict="insufficient_data",
             outlier_warnings=outlier_warnings,
             balance_sheet_fallback=balance_sheet_fallback,
+            data_quality=data_quality,
         )
 
     # Breach-context inputs -- only fetched/computed once we know we're
@@ -628,4 +633,5 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
         debt_to_ebitda_series=debt_to_ebitda_series + [debt_to_ebitda],
         outlier_warnings=outlier_warnings,
         balance_sheet_fallback=balance_sheet_fallback,
+        data_quality=data_quality,
     )

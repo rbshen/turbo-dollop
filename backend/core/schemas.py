@@ -57,6 +57,8 @@ class DataQualityFlag(BaseModel):
     statement: Literal["income", "balance_sheet", "cash_flow"]
     period: Literal["annual", "quarterly"]
     period_end: str | None = None
+    # The display column label of the payload that carries the flag (Financials only; set by that payload's builder).
+    column: str | None = None
     evidence: str
     detail: dict = {}
 
@@ -165,6 +167,9 @@ class TickerSummaryOut(BaseModel):
     interest_expense_ttm: float | None = None
     interest_income_ttm: float | None = None
     outlier_warnings: list[OutlierWarning] = []
+    # Read-time data-quality findings on the cached statements (helpers/statement_view.py); display markers only --
+    # no value in this payload is altered by them.
+    data_quality: list[DataQualityFlag] = []
     # Sourced from Step 3's valuation result (see step3_data.py::get_step3_data)
     # -- None when Step 3 selected PASS (no valuation method applies) or
     # couldn't compute a value from available data.
@@ -404,6 +409,9 @@ class Step5Out(BaseModel):
     # for Bank (no composite score exists to weight).
     weights: dict[str, float] = {}
     outlier_warnings: list[OutlierWarning] = []
+    # Read-time data-quality findings on the cached statements (helpers/statement_view.py); display markers only --
+    # no value in this payload is altered by them.
+    data_quality: list[DataQualityFlag] = []
     # Set only when the newest-quarter completeness gate fell back to the
     # prior quarter's balance sheet (helpers/balance_sheet_gate.py).
     balance_sheet_fallback: BalanceSheetFallback | None = None
@@ -499,6 +507,9 @@ class Step4Out(BaseModel):
     # (see ttm.py::sum_last_four_quarters). Previously computed but silently
     # discarded here (2026-08-16 fix).
     outlier_warnings: list[OutlierWarning] = []
+    # Read-time data-quality findings on the cached statements (helpers/statement_view.py); display markers only --
+    # no value in this payload is altered by them.
+    data_quality: list[DataQualityFlag] = []
 
 
 class Step3MethodStep(BaseModel):
@@ -2000,6 +2011,9 @@ class FinancialsOut(BaseModel):
     # purely so the frontend can caption the table with which currency
     # that raw number actually is.
     reported_currency: str | None = None
+    # Read-time data-quality findings on the cached statements (helpers/statement_view.py); display markers only --
+    # no value in this payload is altered by them.
+    data_quality: list[DataQualityFlag] = []
 
 
 class RatiosOut(BaseModel):
@@ -2016,6 +2030,9 @@ class RatiosOut(BaseModel):
     # per-share/money rows here stay raw/un-converted; ratio/percent rows
     # are dimensionless and the label doesn't apply to them at all.
     reported_currency: str | None = None
+    # Read-time data-quality findings on the cached statements (helpers/statement_view.py); display markers only --
+    # no value in this payload is altered by them.
+    data_quality: list[DataQualityFlag] = []
 
 
 class SegmentationOut(BaseModel):

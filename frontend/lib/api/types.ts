@@ -129,6 +129,23 @@ export interface TickerSearchResult {
   is_etf?: boolean;
 }
 
+// One read-time data-quality rule currently tripping on a ticker's cached statements (backend
+// helpers/statement_view.py::data_quality_flags). Facts only: the wording is lib/dataQuality.ts's. `column` is the
+// display column label in the payload that carries the flag (Financials only); `detail.in_ttm_window` marks a row
+// that the raw TTM column sums (or, for the balance sheet, reads); `detail.newest_period` marks the newest row of its
+// series.
+export type DataQualityRule = "placeholder_cf" | "scale_break" | "partial_balance_sheet" | "not_landed";
+
+export interface DataQualityFlag {
+  rule: DataQualityRule;
+  statement: "income" | "balance_sheet" | "cash_flow";
+  period: "annual" | "quarterly";
+  period_end: string | null;
+  column?: string | null;
+  evidence: string;
+  detail: Record<string, unknown>;
+}
+
 export type PerfVsSpyStatus = "outperform" | "underperform" | "match" | "no_data";
 
 export interface TickerSummaryOut {
@@ -200,6 +217,8 @@ export interface TickerSummaryOut {
   interest_expense_ttm: number | null;
   interest_income_ttm: number | null;
   outlier_warnings: OutlierWarning[];
+  // Optional only so existing fixtures keep compiling; the API always sends it.
+  data_quality?: DataQualityFlag[];
   fair_value_price: number | null;
   fair_value_verdict: "undervalued" | "overvalued" | "fair" | null;
   // e.g. "DCF" / "DFCF" / "DNI" / "DNI (Normalized)" / "P/B" / "PSG" -- null
@@ -402,6 +421,7 @@ export interface Step5Out {
   // Empty for Bank (no composite score exists to weight).
   weights: Record<string, number>;
   outlier_warnings: OutlierWarning[];
+  data_quality?: DataQualityFlag[];
   // Set only when the newest-quarter completeness gate used the prior
   // quarter's balance sheet (data layer, helpers/balance_sheet_gate.py).
   balance_sheet_fallback?: {
@@ -497,6 +517,7 @@ export interface Step4Out {
   // Informational only -- never changes score/verdict. Present when ROE is
   // "excellent"/"good" while ROIC is "marginal".
   roe_roic_divergence_note: string | null;
+  data_quality?: DataQualityFlag[];
 }
 
 export type MoatValue = "no_moat" | "narrow_moat" | "wide_moat";
@@ -815,6 +836,7 @@ export interface RatiosOut {
   // FMP's reportedCurrency (e.g. "TWD"), null for a USD reporter --
   // cosmetic label only, every row above stays raw/un-converted.
   reported_currency: string | null;
+  data_quality?: DataQualityFlag[];
 }
 
 export interface SegmentationOut {
@@ -837,6 +859,7 @@ export interface FinancialsOut {
   // FMP's reportedCurrency (e.g. "TWD"), null for a USD reporter --
   // cosmetic label only, every figure above stays raw/un-converted.
   reported_currency: string | null;
+  data_quality?: DataQualityFlag[];
 }
 
 // CF_NORMALIZED/FCF_NORMALIZED are Manual Calculation/Custom Valuation-only

@@ -1,5 +1,6 @@
 "use client";
 
+import { PartialBalanceSheetNote } from "@/components/shared/DataQualityNote";
 import { MetricsGrid } from "@/components/ticker/MetricsGrid";
 import { SegmentationSection } from "@/components/ticker/SegmentationSection";
 import { SegmentationSnapshotSection } from "@/components/ticker/SegmentationSnapshotSection";
@@ -43,6 +44,8 @@ export function SummaryTab({ ticker }: Props) {
   return (
     <div className="space-y-6 py-6">
       {data.description && <p className="text-sm leading-relaxed text-text-body">{data.description}</p>}
+
+      <PartialBalanceSheetNote flags={data.data_quality} />
 
       <MetricsGrid groups={METRIC_GROUPS} values={data} outlierWarnings={data.outlier_warnings} />
 

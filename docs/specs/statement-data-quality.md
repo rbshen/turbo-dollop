@@ -281,6 +281,37 @@ the cutoff arrives (`tests/test_nightly_recheck.py`). It never refetches annual 
 **Cost.** At most 60 calls a night (about 1 minute at the 220/min pacing). A ticker unhealed through its whole window
 costs 25 attempts = 75 calls (7 daily, then every third night); a healed one far fewer.
 
+## 7. Display markers (Financials, Ratios, summary, Step 4, Step 5)
+
+The Financials and Ratios tabs keep showing **raw** values: annual, quarterly and the TTM column exactly as FMP served them,
+the TTM column the raw four-quarter sum. Nothing is hidden or replaced. What those tabs (and the summary, Step 4 and Step 5
+cards) gain is a `data_quality` list on their payload, built by `helpers/statement_view.py::cached_data_quality` (section "The
+shared loader": a cache-only read of the same rows, no new FMP call) and drawn as warnings. A marker shows only while its rule
+**currently trips on the cached row** and disappears the first time the row is read healed. Backend:
+`FinancialsOut`, `RatiosOut`, `TickerSummaryOut`, `Step4Out`, `Step5Out` each carry `data_quality: list[DataQualityFlag]`;
+`tests/test_data_quality_markers.py` pins that every other value in each payload is identical with and without the field.
+Financials also echoes `column` on each flag (the exact header label the flagged row has in that table). `detail` carries
+`in_ttm_window` and `newest_period` (the row is the newest of its series).
+
+| Flag | Where | Wording (frontend `lib/dataQuality.ts`) |
+|---|---|---|
+| `placeholder_cf` | an icon in the flagged period's column header (Cash Flow table); the tooltip adds the evidence ("all cash-flow section totals are 0 while net income is X") | "No cash flow reported for this period — $0 is a placeholder, not a result." |
+| `placeholder_cf` in the raw TTM window | the Cash Flow table's TTM column header | "TTM sums the last four quarters as returned, including a placeholder quarter, so it is understated. The Analysis tab uses the last four valid quarters." The TTM value itself is not changed. |
+| `scale_break` | the annual cash-flow column header of the broken row (evidence: how many lines are how many times off) | "This row is in a different unit from its neighbours; scores ignore it." Its derived Q4 reads "This quarter is derived from a row in a different unit; scores ignore it." and the TTM column gets the same understated-sum warning worded for a different-unit quarter |
+| `partial_balance_sheet` | the newest-quarter and TTM column headers of the Balance Sheet table, a warn box on the summary tab and on the Step 5 card (evidence: the gate's own description) | "Newest balance sheet looks incomplete; the Analysis tab uses {used date}." |
+| `not_landed` | a muted line above the Financials table | "Latest earnings ({date}) are not in the statements yet." |
+| ratios note | the Ratios tab and the Step 4 ROIC/ROE notes, when the gate fired or a placeholder or scale break sits on a newest-period row; **not** for `not_landed` alone | "These ratios are computed by FMP and may be built from an incomplete newest quarter." |
+
+Styling: the Phosphor `Info` icon with a `title` tooltip (as beside the Income Taxes Paid / Interest Paid labels) in the `warn`
+tone, the warn-bordered box of `OutlierWarningNote` (a separate component, `DataQualityNote`), `text-tertiary` for the muted line.
+The ratios themselves (ROIC, ROE, P/B, EV multiples) are FMP-computed and are **never rescaled or recomputed here**: Step 4 has no
+invested-capital calculation, so a warning is all that can be said.
+
+**Stale FMP-derived rows.** `key-metrics`, `ratios` and `enterprise-values` are fetched separately from the statements and can
+be built from the same bad newest quarter. A statement that later heals (section 5) does not heal them: the recheck only
+refetches the three quarterly statements. Section 5's "Derived rows" refreshes the TTM rows for tickers it heals; others stay
+as fetched until their next earnings-aware refetch, which is why the ratios note above exists.
+
 ## 6. Refresh fallback (ticker-page Refresh, 2026-10-05)
 
 `POST /api/tickers/{t}/refresh` keeps every history row (statements, ratios, ...) but marks it stale (`INVALIDATED_AT`),

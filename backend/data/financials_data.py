@@ -10,8 +10,9 @@ from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.first import _first
 from helpers.shares import is_implausible_magnitude_shift
 from clients.fmp_client import fmp_client
-from core.schemas import FinancialsGroup, FinancialsLineItem, FinancialsOut, FinancialsPeriodOut, FinancialsStatementOut
+from core.schemas import DataQualityFlag, FinancialsGroup, FinancialsLineItem, FinancialsOut, FinancialsPeriodOut, FinancialsStatementOut
 from core.tickers import normalize_ticker
+from helpers.statement_view import cached_data_quality
 from helpers.ttm import TOTAL_QUARTERS_NEEDED, sum_last_four_quarters
 
 # Same 10yr+TTM window as Step 1/Step 4 (see CLAUDE.md's Step 4 deviations)
@@ -410,6 +411,25 @@ def _quarterly_period(
     return FinancialsPeriodOut(periods=labels, groups=_build_groups(rows, grouped_fields))
 
 
+def _with_columns(
+    flags: list[DataQualityFlag],
+    rows_by_statement: dict[str, tuple[list[dict], list[dict]]],
+) -> list[DataQualityFlag]:
+    """Echo each flag's display column label (the one `_annual_labels` / `_quarter_label` print for its row) so the frontend can
+    mark the right header without parsing labels. Display only: the statement values are never touched."""
+    out = []
+    for flag in flags:
+        annual_rows, quarterly_rows = rows_by_statement.get(flag.statement, ([], []))
+        column = None
+        if flag.period_end:
+            rows = annual_rows if flag.period == "annual" else quarterly_rows
+            row = next((r for r in rows if (r.get("date") or "")[:10] == flag.period_end), None)
+            if row is not None:
+                column = (row.get("date") or row.get("fiscalYear")) if flag.period == "annual" else _quarter_label(row)
+        out.append(flag.model_copy(update={"column": column}))
+    return out
+
+
 async def get_financials_data(ticker: str, cache_only: bool = False) -> FinancialsOut:
     """`cache_only=True` reads only whatever's already cached and never
     calls FMP -- same convention as get_step1_data/get_step4_data."""
@@ -502,6 +522,10 @@ async def get_financials_data(ticker: str, cache_only: bool = False) -> Financia
             ),
         )
 
+        # Display markers only (docs/specs/statement-data-quality.md, "Display markers"): a cache read of the rules currently
+        # tripping on these rows. No value below is hidden or replaced by it.
+        data_quality = cached_data_quality(session, ticker)
+
     income_annual = income_annual if isinstance(income_annual, list) else []
     income_quarterly = income_quarterly if isinstance(income_quarterly, list) else []
     cash_flow_annual = cash_flow_annual if isinstance(cash_flow_annual, list) else []
@@ -521,9 +545,19 @@ async def get_financials_data(ticker: str, cache_only: bool = False) -> Financia
     # during the original investigation).
     reported_currency = _first(income_annual).get("reportedCurrency")
 
+    data_quality = _with_columns(
+        data_quality,
+        {
+            "income": (income_annual, income_quarterly),
+            "balance_sheet": (balance_sheet_annual, balance_sheet_quarterly),
+            "cash_flow": (cash_flow_annual, cash_flow_quarterly),
+        },
+    )
+
     return FinancialsOut(
         ticker=ticker,
         reported_currency=reported_currency,
+        data_quality=data_quality,
         income_statement=FinancialsStatementOut(
             annual=_annual_period(income_annual, income_quarterly, income_fields, ttm_mode="sum"),
             quarterly=_quarterly_period(income_quarterly, income_fields),
