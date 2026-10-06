@@ -527,6 +527,10 @@ rows look wrong or never landed (spec: docs/specs/statement-data-quality.md, sec
 - **Log** (`nightly_fundamentals_fetch.log`): one `Statement recheck TICKER: trigger ..., attempt N, rules before -> after, filingDate
   ... before -> after, result ...` line per recheck, `Statement recheck scan TICKER: new|healed|gave_up|...` for state moves, a
   warning per regression-guard veto, an info line when the cap defers tickers.
+- **Derived rows (2026-10-06):** on the night a ticker turns `healed` the job also refetches `key_metrics`/`ttm` and `ratios`/`ttm`
+  (`/key-metrics-ttm`, `/ratios-ttm`; 2 calls, not recheck attempts, outside the 60-call cap, own cap of 80 calls). Message clause
+  `, derived rows: W written for N healed ticker(s) (C calls[, F not written])[, D deferred]`; log line `Statement recheck TICKER:
+  derived rows, ...`. A row left `not written` (blocked, failed or empty answer) keeps its old content and stamp; the ticker stays healed.
 - **State** is table `RecheckState` (one row per ticker): `SELECT ticker, trigger, anchor_date, status, attempts, last_attempt_at,
   last_result, days_to_heal_from_anchor FROM recheckstate ORDER BY status, anchor_date;` (`days_to_heal_from_anchor` is the heal-time evidence).
 - **Nothing happens while the `fundamentals` group or the master switch is off** (the job is `skipped`), and a blocked/402/failed

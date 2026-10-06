@@ -28,6 +28,22 @@ BAD_BALANCE = [balance("2026-06-30", long=300)] + [balance(d) for d in QUARTER_E
 GOOD_BALANCE = [balance("2026-06-30", long=1000, filing="2026-09-12")] + [balance(d) for d in QUARTER_ENDS[1:]]
 
 
+STALE_KEY_METRICS = [{"returnOnEquityTTM": 0.01}]
+STALE_RATIOS = [{"priceToEarningsRatioTTM": 99.0}]
+FRESH_KEY_METRICS = [{"returnOnEquityTTM": 0.31}]
+FRESH_RATIOS = [{"priceToEarningsRatioTTM": 18.0}]
+
+
+def seed_derived(engine, ticker):
+    """The ticker's cached key_metrics/ttm and ratios/ttm rows, stamped CACHED_AT (built from the bad quarter, say)."""
+    with Session(engine) as session:
+        for statement_type, payload in (("key_metrics", STALE_KEY_METRICS), ("ratios", STALE_RATIOS)):
+            session.add(
+                FundamentalsCache(ticker=ticker, statement_type=statement_type, period="ttm", fetched_at=CACHED_AT, raw_json=json.dumps(payload))
+            )
+        session.commit()
+
+
 def make_engine():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
@@ -92,6 +108,23 @@ class FakeFMP:
         monkeypatch.setattr(recheck.fmp_client, "get_income_statement", self._make("income"))
         monkeypatch.setattr(recheck.fmp_client, "get_balance_sheet_statement", self._make("balance"))
         monkeypatch.setattr(recheck.fmp_client, "get_cash_flow_statement", self._make("cash flow"))
+        # The FMP-derived TTM rows refreshed on the healed transition (recorded apart from `calls`, which stays the three statements).
+        self.derived_calls: list[tuple[str, str]] = []
+        self.derived_answers = {"key_metrics": FRESH_KEY_METRICS, "ratios": FRESH_RATIOS}
+        monkeypatch.setattr(recheck.fmp_client, "get_key_metrics_ttm", self._make_derived("key_metrics"))
+        monkeypatch.setattr(recheck.fmp_client, "get_ratios_ttm", self._make_derived("ratios"))
+
+    def _make_derived(self, kind):
+        async def call(ticker):
+            self.derived_calls.append((ticker, kind))
+            answer = self.derived_answers[kind]
+            if isinstance(answer, dict) and ticker in answer:
+                answer = answer[ticker]
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        return call
 
     def _make(self, kind):
         async def call(ticker, period, limit):
@@ -145,17 +178,32 @@ def test_a_healed_refetch_writes_the_new_rows_marks_the_state_healed_and_rescore
     assert state.healed_at == NOW and state.last_attempt_at == NOW
     raw, fetched_at = cache_row(engine, "ZTS", "balance_sheet_statement")
     assert json.loads(raw)[0]["filingDate"] == "2026-09-12" and fetched_at > CACHED_AT
-    assert rescored == [("ZTS", True)]
+    assert rescored == [("ZTS", True), ("ZTS", True)]  # after the statements, and again after the derived rows they unlocked
 
 
 def test_only_the_three_quarterly_statement_rows_are_touched(engine, monkeypatch):
+    # A recheck that heals also refreshes the two derived TTM rows (tests below); every OTHER key stays byte-identical.
     seed(engine, "ZTS")
+    seed_derived(engine, "ZTS")
     FakeFMP(monkeypatch)
     before = {key: cache_row(engine, "ZTS", *key) for key in [("cash_flow_statement", "annual"), ("earnings", "latest"), ("profile", "latest")]}
 
     run(engine, ["ZTS"])
 
     assert {key: cache_row(engine, "ZTS", *key) for key in before} == before
+
+
+def test_a_still_flagged_recheck_touches_no_derived_row(engine, monkeypatch):
+    seed(engine, "ZTS")
+    seed_derived(engine, "ZTS")
+    fmp = FakeFMP(monkeypatch, balance_rows=BAD_BALANCE)
+    before = {t: cache_row(engine, "ZTS", t, "ttm") for t in ("key_metrics", "ratios")}
+
+    summary = run(engine, ["ZTS"])
+
+    assert fmp.derived_calls == []
+    assert {t: cache_row(engine, "ZTS", t, "ttm") for t in before} == before
+    assert (summary.derived_tickers, summary.derived_calls) == (0, 0)
 
 
 def test_a_refetch_that_still_finds_the_bad_row_counts_the_attempt_keeps_the_state_and_never_loops(engine, monkeypatch):
@@ -194,6 +242,164 @@ def test_the_log_line_carries_trigger_attempt_rules_and_filing_dates(engine, mon
     assert "trigger debt_remap" in line and "attempt 1" in line
     assert "rules debt_remap -> -" in line
     assert "balance 2026-08-07" in line and "balance 2026-09-12" in line  # filingDate before -> after
+
+
+# ---- derived rows: key_metrics/ttm and ratios/ttm refreshed on the healed transition ----------------------------------
+
+
+def derived_rows(engine, ticker="ZTS"):
+    return {t: cache_row(engine, ticker, t, "ttm") for t in ("key_metrics", "ratios")}
+
+
+def test_a_healed_transition_refreshes_key_metrics_ttm_and_ratios_ttm_and_is_counted_apart_from_the_recheck(engine, monkeypatch):
+    seed(engine, "ZTS")
+    seed_derived(engine, "ZTS")
+    fmp = FakeFMP(monkeypatch)
+    rescored = []
+
+    async def rescore(ticker, cache_only=False):
+        rescored.append((ticker, cache_only))
+
+    summary = run(engine, ["ZTS"], rescore=rescore)
+
+    assert fmp.derived_calls == [("ZTS", "key_metrics"), ("ZTS", "ratios")]  # /key-metrics-ttm and /ratios-ttm, 2 calls
+    rows = derived_rows(engine)
+    assert json.loads(rows["key_metrics"][0]) == FRESH_KEY_METRICS and json.loads(rows["ratios"][0]) == FRESH_RATIOS
+    assert rows["key_metrics"][1] > CACHED_AT and rows["ratios"][1] > CACHED_AT  # production's fetched_at stamp
+    # not recheck attempts, not in `calls` (which stays the 3 statements), tracked in their own counters
+    assert (summary.calls, summary.healed) == (3, 1)
+    assert (summary.derived_tickers, summary.derived_calls, summary.derived_written, summary.derived_not_written) == (1, 2, 2, 0)
+    assert state_of(engine, "ZTS").attempts == 1  # the one statement attempt; the derived calls added none
+    assert rescored == [("ZTS", True), ("ZTS", True)]  # once after the statements, once after the derived rows
+
+
+def test_the_derived_refresh_happens_only_on_the_transition_night(engine, monkeypatch):
+    seed(engine, "ZTS")
+    seed_derived(engine, "ZTS")
+    fmp = FakeFMP(monkeypatch)
+
+    run(engine, ["ZTS"])
+    first = list(fmp.derived_calls)
+    asyncio.run(recheck.run_statement_recheck(engine, ["ZTS"], today=TODAY + timedelta(days=1), now=NOW + timedelta(days=1)))
+    asyncio.run(recheck.run_statement_recheck(engine, ["ZTS"], today=TODAY + timedelta(days=2), now=NOW + timedelta(days=2)))
+
+    assert first == [("ZTS", "key_metrics"), ("ZTS", "ratios")]
+    assert fmp.derived_calls == first  # healed stays healed: no further derived calls
+
+
+def test_a_ticker_the_normal_pass_already_healed_gets_its_derived_rows_on_the_scan_transition(engine, monkeypatch):
+    # The cached statements are already healthy (the normal pass refetched them), the state is still active: the scan flips it
+    # to healed with no recheck call, and that is the transition night for the derived rows.
+    seed(engine, "ZTS", healthy(balance_quarterly=GOOD_BALANCE))
+    seed_derived(engine, "ZTS")
+    fmp = FakeFMP(monkeypatch)
+
+    summary = run(engine, ["ZTS"])
+
+    assert fmp.calls == []  # no statement recheck needed
+    assert state_of(engine, "ZTS").status == sr.HEALED
+    assert fmp.derived_calls == [("ZTS", "key_metrics"), ("ZTS", "ratios")]
+    assert (summary.healed_by_cache, summary.derived_tickers, summary.derived_written, summary.calls) == (1, 1, 2, 0)
+
+
+def test_a_disabled_group_makes_no_derived_call_writes_nothing_and_keeps_the_healed_status(engine, monkeypatch):
+    seed(engine, "ZTS", healthy(balance_quarterly=GOOD_BALANCE))
+    seed_derived(engine, "ZTS")
+    fmp = FakeFMP(monkeypatch)
+    data_groups.set_group_enabled("fundamentals", False)
+    before = derived_rows(engine)
+
+    summary = run(engine, ["ZTS"])
+
+    assert fmp.derived_calls == []
+    assert derived_rows(engine) == before
+    assert state_of(engine, "ZTS").status == sr.HEALED
+    assert (summary.derived_calls, summary.derived_written, summary.derived_not_written) == (0, 0, 2)
+
+
+def test_the_master_switch_off_makes_no_derived_call(engine, monkeypatch):
+    seed(engine, "ZTS", healthy(balance_quarterly=GOOD_BALANCE))
+    seed_derived(engine, "ZTS")
+    fmp = FakeFMP(monkeypatch)
+    data_groups.set_master(False)
+
+    summary = run(engine, ["ZTS"])
+
+    assert fmp.derived_calls == [] and summary.derived_calls == 0
+    assert state_of(engine, "ZTS").status == sr.HEALED
+
+
+@pytest.mark.parametrize(
+    "error", [httpx.ReadTimeout("slow"), status_error(429), status_error(500), status_error(402)], ids=["timeout", "429", "500", "402"]
+)
+def test_a_failed_derived_fetch_never_wipes_restamps_or_unheals(engine, monkeypatch, error):
+    seed(engine, "ZTS")
+    seed_derived(engine, "ZTS")
+    fmp = FakeFMP(monkeypatch)
+    fmp.derived_answers = {"key_metrics": error, "ratios": FRESH_RATIOS}
+    before = derived_rows(engine)
+
+    summary = run(engine, ["ZTS"])
+
+    assert derived_rows(engine)["key_metrics"] == before["key_metrics"]  # byte-identical raw_json and fetched_at
+    assert json.loads(derived_rows(engine)["ratios"][0]) == FRESH_RATIOS  # the other row is independent
+    state = state_of(engine, "ZTS")
+    assert (state.status, state.last_result, state.attempts) == (sr.HEALED, "healed", 1)
+    assert (summary.derived_calls, summary.derived_written, summary.derived_not_written) == (2, 1, 1)
+
+
+@pytest.mark.parametrize("answer", [[], {}, [{}], {"Error Message": "nope"}], ids=["empty list", "empty dict", "empty row", "error body"])
+def test_an_empty_derived_answer_is_not_written(engine, monkeypatch, answer):
+    # key_metrics/ttm and ratios/ttm are not history keys, so production would store an empty body over the good row: vetoed here.
+    seed(engine, "ZTS")
+    seed_derived(engine, "ZTS")
+    fmp = FakeFMP(monkeypatch)
+    fmp.derived_answers = {"key_metrics": answer if answer != {"Error Message": "nope"} else [], "ratios": FRESH_RATIOS}
+    before = derived_rows(engine)
+
+    run(engine, ["ZTS"])
+
+    assert derived_rows(engine)["key_metrics"] == before["key_metrics"]
+    assert state_of(engine, "ZTS").status == sr.HEALED
+
+
+def test_an_unexpected_error_in_the_derived_refresh_is_swallowed(engine, monkeypatch):
+    seed(engine, "ZTS")
+    seed_derived(engine, "ZTS")
+    fmp = FakeFMP(monkeypatch)
+    fmp.derived_answers = {"key_metrics": ValueError("boom"), "ratios": FRESH_RATIOS}
+
+    summary = run(engine, ["ZTS"])
+
+    assert state_of(engine, "ZTS").status == sr.HEALED and summary.errors == 0
+    assert (summary.derived_written, summary.derived_not_written) == (1, 1)
+
+
+def test_the_derived_rows_have_their_own_nightly_cap_and_defer_the_rest(engine, monkeypatch, caplog):
+    for ticker in ("AAA", "BBB", "CCC"):
+        seed(engine, ticker, healthy(balance_quarterly=GOOD_BALANCE))
+        seed_derived(engine, ticker)
+    fmp = FakeFMP(monkeypatch)
+    monkeypatch.setattr(recheck, "DERIVED_MAX_CALLS_PER_NIGHT", 4)  # two healed tickers' worth
+
+    with caplog.at_level(logging.INFO, logger="data.statement_recheck_data"):
+        summary = run(engine, ["AAA", "BBB", "CCC"])
+
+    assert len(fmp.derived_calls) == 4
+    assert (summary.derived_tickers, summary.derived_calls, summary.derived_deferred) == (2, 4, 1)
+    assert any("derived rows deferred" in r.getMessage() for r in caplog.records)
+
+
+def test_each_healed_ticker_is_logged_with_its_derived_outcomes(engine, monkeypatch, caplog):
+    seed(engine, "ZTS")
+    seed_derived(engine, "ZTS")
+    FakeFMP(monkeypatch)
+
+    with caplog.at_level(logging.INFO, logger="data.statement_recheck_data"):
+        run(engine, ["ZTS"])
+
+    line = next(r.getMessage() for r in caplog.records if r.getMessage().startswith("Statement recheck ZTS: derived rows"))
+    assert "key_metrics ttm written" in line and "ratios ttm written" in line and "2 call(s)" in line
 
 
 # ---- never counted: blocked / failed / empty ----------------------------------------------------
@@ -512,6 +718,24 @@ def test_record_outcome_omits_the_recheck_clause_when_nothing_happened():
     result = {"processed": 3, "failed": 0, "calls_made": 10, "duration_seconds": 60.0, "recheck": {"selected": 0, "healed": 0, "deferred": 0}}
 
     assert "recheck" not in _message(result)
+
+
+def test_record_outcome_reports_the_derived_rows_with_their_calls_inside_the_total():
+    result = {
+        "processed": 3, "failed": 0, "calls_made": 10, "duration_seconds": 60.0,
+        "recheck": {"selected": 2, "healed": 2, "derived_tickers": 3, "derived_written": 5, "derived_calls": 6, "derived_not_written": 1, "derived_deferred": 2},
+    }
+
+    message = _message(result)
+
+    assert "derived rows: 5 written for 3 healed ticker(s) (6 calls, 1 not written), 2 deferred" in message
+    assert "10 FMP calls" in message  # the derived calls are real FMP calls, inside the job's own request count
+
+
+def test_record_outcome_omits_the_derived_clause_when_none_healed():
+    result = {"processed": 3, "failed": 0, "calls_made": 10, "duration_seconds": 60.0, "recheck": {"selected": 1, "healed": 0, "still_flagged": 1}}
+
+    assert "derived" not in _message(result)
 
 
 def test_record_outcome_reports_deferred_and_guard_hits():

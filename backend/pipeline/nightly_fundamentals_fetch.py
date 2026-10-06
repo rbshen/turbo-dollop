@@ -304,6 +304,18 @@ def record_outcome(result: dict, run) -> None:
         )
         if recheck.get("guard_hits"):
             message += f", {recheck['guard_hits']} guard hit(s)"
+    # The FMP-derived TTM rows (key-metrics, ratios) refreshed for tickers that healed tonight: real FMP calls (inside the
+    # "FMP calls" total above), but not recheck attempts and outside the recheck's own 60-call cap. Informational.
+    if recheck.get("derived_tickers") or recheck.get("derived_deferred"):
+        message += (
+            f", derived rows: {recheck.get('derived_written', 0)} written for {recheck.get('derived_tickers', 0)} healed "
+            f"ticker(s) ({recheck.get('derived_calls', 0)} calls"
+        )
+        if recheck.get("derived_not_written"):
+            message += f", {recheck['derived_not_written']} not written"
+        message += ")"
+        if recheck.get("derived_deferred"):
+            message += f", {recheck['derived_deferred']} deferred"
     check_failure_threshold(processed, failed, message)
     run.message = message
 

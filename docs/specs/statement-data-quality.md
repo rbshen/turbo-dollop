@@ -274,12 +274,37 @@ guard_hits, not_counted, errors, calls, scanned_flagged`); the `CronRunLog` mess
 healed, F still flagged, G gave up, D deferred` (+ `, N guard hit(s)`) only when something happened. Informational: it
 never enters `check_failure_threshold`; a gated no-op is still a success. A recheck failure is logged and swallowed.
 
+**Derived rows (2026-10-06).** FMP builds `key-metrics` and `ratios` (ROE/ROIC, P/E, PEG, margins, EV multiples) from the same
+newest quarter the statements carried, and nothing refetched them when a statement healed. On the night a ticker
+**transitions to healed** (its own recheck heals it, or the scan finds the normal pass already healed its rows) the job also
+refetches, through the production `core.cache.force_fetch` (so the stamp and write path are production's):
+
+| Cache key | FMP endpoint | Read by |
+|---|---|---|
+| `key_metrics` / `ttm` | `/key-metrics-ttm?symbol=T` | Step 4's ROE and ROIC TTM |
+| `ratios` / `ttm` | `/ratios-ttm?symbol=T` | the Ratios tab TTM column, the header's trailing P/E and PEG |
+
+At most 2 calls per healed ticker, only on the transition night (a ticker already `healed` yields no event, so nothing repeats),
+and a cache-only rescore follows when a row was written. Both keys map to the `fundamentals` data group, so the master switch,
+the group toggle and a restricted request variant gate them like the statements: a blocked call makes no network call and writes
+nothing. A failure (timeout, 429, 5xx, 402) writes nothing and re-stamps nothing, an empty or non-list answer is vetoed before
+the write (these two keys are not history keys, so production would otherwise store it), an unexpected exception is logged and
+swallowed, and none of it changes the healed status. **Counting:** they are not recheck attempts (`attempts` is untouched) and
+are not part of `calls` or the 60-call cap; they have their own counters in the job result (`derived_tickers`, `derived_calls`,
+`derived_written`, `derived_not_written`, `derived_deferred`) and their own night cap, `DERIVED_MAX_CALLS_PER_NIGHT` = 80 (40
+healed tickers; the rest are logged as deferred and counted, and are not retried). They are real FMP calls, so they are inside
+the job's "FMP calls" total. The `CronRunLog` message appends `, derived rows: W written for N healed ticker(s) (C calls[, F not
+written])[, D deferred]` only when something happened; the log has one `Statement recheck TICKER: derived rows, ...` line per
+healed ticker. Tickers healed *before* this existed (the manual catch-up) are not in `RecheckState`, so this step never touches
+them: see `docs/decisions.md` (2026-10-06) for the one-time refetch plan. `enterprise-values` (the header EV) is not refreshed.
+
 **The earnings-aware path is untouched.** The recheck only moves the three quarterly rows' `fetched_at` forward after
 the normal pass has run, like any fetch of those rows; a row stamped before a new earnings cutoff still reads stale once
-the cutoff arrives (`tests/test_nightly_recheck.py`). It never refetches annual statements, ratios or any other key.
+the cutoff arrives (`tests/test_nightly_recheck.py`). It never refetches annual statements or any other key (apart from the two
+derived TTM rows on a healed transition, above).
 
-**Cost.** At most 60 calls a night (about 1 minute at the 220/min pacing). A ticker unhealed through its whole window
-costs 25 attempts = 75 calls (7 daily, then every third night); a healed one far fewer.
+**Cost.** At most 60 calls a night (about 1 minute at the 220/min pacing), plus at most 80 derived-row calls. A ticker unhealed
+through its whole window costs 25 attempts = 75 calls (7 daily, then every third night); a healed one far fewer, plus 2 once.
 
 ## 7. Display markers (Financials, Ratios, summary, Step 4, Step 5)
 
