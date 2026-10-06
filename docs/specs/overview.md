@@ -67,6 +67,16 @@ restores the defaults. A weight of 0 removes a component from the blend only: a 
 and a hard fail still reads Fail. Saving does not rescore anything by itself; the stored rows stay on the older version until a full
 recompute (`compute_ticker_score`) re-scores them, and a ticker-header read of a row on an older version re-scores it (cache only).
 
+### Applying a change: the recompute job
+
+Every change that moves stored scores (saving or resetting the weights, saving the Moat points, the Screener's "Recompute all scores")
+goes through the full `compute_ticker_score` path as one **background job** (`data/score_recompute.py`,
+`pipeline/score_recompute_job.py`), never a SQL re-blend: the Review status, conviction and the "Moat not rated" verdict all depend on
+the Overall verdict. It runs in a subprocess so it cannot block the API, one run at a time (a second request is a 409 and is not
+queued), with a status row (`ScoreRecomputeRun`) the Settings page polls. The change is saved first, then the job starts, so it always
+scores with the new values. Until the job reaches a ticker its stored row keeps the old `weights_version`. Operations: OPS_RUNBOOK,
+"Score recompute job".
+
 ## Overall weighting: how the weights are stored, and the 2026-07-31 rebalance
 
 In code the four automated steps are stored as fractions of the 69% non-Moat portion:

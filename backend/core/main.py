@@ -41,6 +41,16 @@ from data.score_weights import (
     reset_score_weights,
     save_score_weights,
 )
+from data.score_recompute import (
+    RecomputeAlreadyRunning,
+    claim_run,
+    fail_run,
+    latest_run_out,
+    launch_run,
+    start_recompute,
+    summary_for,
+    wait_for_run,
+)
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
 from data.market_breadth_data import get_market_breadth
 from data.momentum_data import get_etf_momentum_snapshot, get_momentum_snapshot
@@ -51,7 +61,6 @@ from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config, u
 from core.models import IndexConstituent, SavedScreenerFilter, TickerCustomValuation, TickerScore, Watchlist
 from core.tickers import normalize_ticker
 from data.news_data import get_news_data
-from pipeline.recompute_ticker_scores import recompute_all
 from pipeline.refresh import clear_ticker_cache, groups_blocking_refresh
 from data.financials_data import get_cash_flow_cell_sec_check, get_financials_data
 from data.ratios_data import get_ratios_data
@@ -340,34 +349,72 @@ def moat_score_config() -> MoatScoreConfigOut:
 
 @app.put("/api/config/moat", response_model=MoatScoreConfigOut)
 def update_moat_score(body: MoatScoreConfigIn) -> MoatScoreConfigOut:
+    # The points feed every stored Overall score, so a save starts the same full background recompute as a weights save (it used
+    # to leave the stored rows on the old points until the nightly run). 409, nothing saved, when one is already running.
+    saved: list[MoatScoreConfigOut] = []
+
+    def save() -> None:
+        with Session(engine) as session:
+            row = update_moat_score_config(session, body.wide_moat_score, body.narrow_moat_score, body.no_moat_score)
+            saved.append(MoatScoreConfigOut(**row.model_dump()))
+
+    _save_then_recompute(save, "moat")
+    return saved[0]
+
+
+def _conflict(exc: RecomputeAlreadyRunning) -> HTTPException:
+    return HTTPException(status_code=409, detail=str(exc))
+
+
+def _score_weights_payload() -> ScoreWeightsOut:
     with Session(engine) as session:
-        row = update_moat_score_config(session, body.wide_moat_score, body.narrow_moat_score, body.no_moat_score)
-    return MoatScoreConfigOut(**row.model_dump())
+        row = get_score_weights_row(session)
+        return score_weights_out(row, recompute=latest_run_out(session))
 
 
 @app.get("/api/config/score-weights", response_model=ScoreWeightsOut)
 def score_weights_config() -> ScoreWeightsOut:
-    with Session(engine) as session:
-        row = get_score_weights_row(session)
-    return score_weights_out(row)
+    return _score_weights_payload()
+
+
+def _save_then_recompute(save, trigger: str) -> None:
+    """The one apply path for every change that moves scores (weights, reset, Moat points): reserve the single recompute slot
+    FIRST (409 when one is running, nothing saved), then save, then start the job so it reads the new values. A failed save frees
+    the slot again."""
+    try:
+        run_id = claim_run(trigger, engine)
+    except RecomputeAlreadyRunning as exc:
+        raise _conflict(exc) from exc
+    try:
+        save()
+    except BaseException:
+        fail_run(run_id, "The change was not saved, so nothing was recomputed.", engine)
+        raise
+    launch_run(run_id, bind=engine)
 
 
 @app.put("/api/config/score-weights", response_model=ScoreWeightsOut)
 def update_score_weights(body: WeightsIn) -> ScoreWeightsOut:
-    # Already validated (bounds, sums, whole numbers, no Moat field) by WeightsIn. Saving bumps weights_version; the stored
-    # TickerScore rows stay on the old version until a recompute re-scores them.
+    # Already validated (bounds, sums, whole numbers, no Moat field) by WeightsIn. Saving bumps weights_version and starts the full
+    # recompute in the background; the stored TickerScore rows stay on the old version until it reaches them.
     from scoring.weights import weights_from_dict
 
-    with Session(engine) as session:
-        row = save_score_weights(session, weights_from_dict(body.model_dump()))
-    return score_weights_out(row)
+    def save() -> None:
+        with Session(engine) as session:
+            save_score_weights(session, weights_from_dict(body.model_dump()))
+
+    _save_then_recompute(save, "weights")
+    return _score_weights_payload()
 
 
 @app.post("/api/config/score-weights/reset", response_model=ScoreWeightsOut)
 def reset_score_weights_config() -> ScoreWeightsOut:
-    with Session(engine) as session:
-        row = reset_score_weights(session)
-    return score_weights_out(row)
+    def save() -> None:
+        with Session(engine) as session:
+            reset_score_weights(session)
+
+    _save_then_recompute(save, "reset")
+    return _score_weights_payload()
 
 
 @app.get("/api/config/reit-dividend-yield", response_model=ReitDividendYieldConfigOut)
@@ -1054,8 +1101,16 @@ async def screener_recompute() -> RecomputeSummary:
     # calls configure_logging()/init_db(), which would hijack this already-
     # running app's logging setup on every request (see that module's
     # docstring).
-    summary = await recompute_all()
-    return RecomputeSummary(**summary)
+    # Same background job as a weights save (a worker subprocess), awaited with a non-blocking poll, so the request still returns the
+    # finished summary but the event loop is free for every other request meanwhile. 409 when a run is already in progress.
+    try:
+        run_id = start_recompute("screener", bind=engine)
+    except RecomputeAlreadyRunning as exc:
+        raise _conflict(exc) from exc
+    run = await wait_for_run(run_id, engine)
+    if run.state == "failed":
+        raise HTTPException(status_code=500, detail=run.error or "The score recompute failed.")
+    return RecomputeSummary(**summary_for(run_id, engine))
 
 
 # The ETFs screener (docs/specs/etf-screener.md). Deliberately NOT under /api/screener: the frontend's SWR keys

@@ -149,6 +149,17 @@ def _isolate_score_weights_cache():
 
 
 @pytest.fixture(autouse=True)
+def recompute_launches(monkeypatch):
+    """No test ever starts the real recompute worker (a subprocess): data.score_recompute.launcher records what WOULD have been
+    launched instead. A test of the worker itself runs pipeline.score_recompute_job.run_job in-process."""
+    import data.score_recompute as score_recompute
+
+    launches: list[tuple[int, list[str] | None]] = []
+    monkeypatch.setattr(score_recompute, "launcher", lambda run_id, tickers: launches.append((run_id, tickers)))
+    return launches
+
+
+@pytest.fixture(autouse=True)
 def _block_live_fmp_daily_bars(monkeypatch):
     """The shared-bars-cache daily path now tries FMP first (FMPDailySource ->
     fmp_client.get_historical_price_eod). No test may reach the real network

@@ -174,9 +174,12 @@ def test_put_saves_a_valid_set_and_bumps_the_version(monkeypatch):
 
 
 def test_reset_endpoint_restores_the_defaults(monkeypatch):
-    _engine(monkeypatch)
+    engine = _engine(monkeypatch)
+    import data.score_recompute as score_recompute
+
     with TestClient(main.app) as client:
         client.put("/api/config/score-weights", json=_body())
+        score_recompute.fail_run(1, "test: the first run is over", engine)  # one recompute at a time
         response = client.post("/api/config/score-weights/reset")
     assert response.status_code == 200
     assert response.json()["weights"] == weights_to_dict(DEFAULT_WEIGHTS) and response.json()["weights_version"] == 3

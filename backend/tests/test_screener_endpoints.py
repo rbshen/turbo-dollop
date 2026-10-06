@@ -135,23 +135,58 @@ def test_screener_list_universe_all_returns_every_cached_ticker_regardless_of_in
     assert {row["ticker"] for row in response.json()} == {"AAPL", "ARM"}
 
 
-def test_screener_recompute_calls_recompute_all_and_returns_its_summary(monkeypatch):
-    _fresh_engine(monkeypatch)
+def _run_worker_in_a_thread(monkeypatch, engine, compute, tickers):
+    """Stands in for the worker subprocess: runs the real job body (pipeline.score_recompute_job.run_job) on a thread, against the
+    test database, the way the subprocess would run it against the real one."""
+    import asyncio
+    import threading
 
-    async def fake_recompute_all(tickers=None):
-        assert tickers is None  # the endpoint always recomputes the full stored list
-        return {"processed": 503, "failed": 2, "duration_seconds": 12.3, "failures": [("BRK.B", "402"), ("BF.B", "402")]}
+    import data.score_recompute as score_recompute
+    import pipeline.score_recompute_job as job
 
-    monkeypatch.setattr(main, "recompute_all", fake_recompute_all)
+    for module in (score_recompute, job):
+        monkeypatch.setattr(module, "engine", engine)
+
+    def launch(run_id, requested):
+        threading.Thread(target=lambda: asyncio.run(job.run_job(run_id, tickers, compute=compute)), daemon=True).start()
+
+    monkeypatch.setattr(score_recompute, "launcher", launch)
+
+
+def test_screener_recompute_runs_the_background_job_and_returns_its_summary(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+
+    async def compute(ticker, cache_only=False, **kwargs):
+        assert cache_only is True  # never a live FMP fetch
+        if ticker in ("BRK.B", "BF.B"):
+            raise RuntimeError("402")
+        return object()
+
+    _run_worker_in_a_thread(monkeypatch, engine, compute, ["AAPL", "BRK.B", "BF.B"])
 
     with TestClient(main.app) as client:
         response = client.post("/api/screener/recompute")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["processed"] == 503
+    assert body["processed"] == 3  # the same shape as before: processed, failed, duration_seconds, failures
     assert body["failed"] == 2
     assert body["failures"] == [["BRK.B", "402"], ["BF.B", "402"]]
+    assert set(body) == {"processed", "failed", "duration_seconds", "failures"}
+
+
+def test_screener_recompute_is_a_409_while_another_run_is_in_progress(monkeypatch, recompute_launches):
+    _fresh_engine(monkeypatch)
+    import data.score_recompute as score_recompute
+
+    score_recompute.claim_run("weights", main.engine)  # a run is in progress (its worker never reports back here)
+
+    with TestClient(main.app) as client:
+        response = client.post("/api/screener/recompute")
+
+    assert response.status_code == 409
+    assert "already running" in response.json()["detail"]
+    assert recompute_launches == []  # not queued, not started
 
 
 def test_screener_meta_returns_the_total_constituent_count_for_the_selected_universe(monkeypatch):
@@ -262,30 +297,39 @@ def test_screener_meta_is_zero_when_no_constituents_stored(monkeypatch):
     assert response.json() == {"universe": "sp500", "total_constituents": 0}
 
 
-def test_screener_recompute_never_calls_the_script_entry_point(monkeypatch):
-    """Regression guard: the endpoint must call recompute_all() directly,
-    not recompute_ticker_scores.main() (which also reconfigures logging and
-    calls init_db() -- see recompute_ticker_scores.py's docstring)."""
-    _fresh_engine(monkeypatch)
-    calls = []
+def test_screener_recompute_never_runs_scoring_in_the_request(monkeypatch, recompute_launches):
+    """Regression guard for the old freeze: the request only claims the run and starts the worker; no step or score function
+    runs in the API process (the old endpoint ran ~40 s of scoring inline on the event loop)."""
+    import asyncio
 
-    async def fake_recompute_all(tickers=None):
-        calls.append(tickers)
-        return {"processed": 0, "failed": 0, "duration_seconds": 0.0, "failures": []}
+    import data.score_recompute as score_recompute
+
+    _fresh_engine(monkeypatch)
 
     def fail_if_called(*args, **kwargs):
-        raise AssertionError("the endpoint must not call recompute_ticker_scores.main()")
+        raise AssertionError("scoring must not run inside the request")
 
-    monkeypatch.setattr(main, "recompute_all", fake_recompute_all)
+    import data.ticker_score as ticker_score
     from pipeline import recompute_ticker_scores
 
+    monkeypatch.setattr(ticker_score, "compute_ticker_score", fail_if_called)
+    monkeypatch.setattr(recompute_ticker_scores, "recompute_all", fail_if_called)
     monkeypatch.setattr(recompute_ticker_scores, "main", fail_if_called)
 
+    async def finish_the_run_when_started():
+        # The worker would end the run; here the status row is closed after the launch so the awaiting request can return.
+        while not recompute_launches:
+            await asyncio.sleep(0.01)
+        score_recompute.fail_run(recompute_launches[0][0], "test: ended", main.engine)
+
     with TestClient(main.app) as client:
+        import threading
+
+        threading.Thread(target=lambda: asyncio.run(finish_the_run_when_started()), daemon=True).start()
         response = client.post("/api/screener/recompute")
 
-    assert response.status_code == 200
-    assert calls == [None]
+    assert len(recompute_launches) == 1
+    assert response.status_code == 500 and "test: ended" in response.json()["detail"]  # a failed run is reported, not hidden
 
 
 # --- delisted exclusion: every universe and the meta count -------------------------------------

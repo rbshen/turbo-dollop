@@ -684,6 +684,27 @@ at the flip.
 view in the last 30 days admits a ticker again, and the 25 grandfathered tickers are in through their (seed or real) views until about 2026-11-01. A cleared delisted flag is
 restored with `UPDATE tickerscore SET delisted_at = datetime('now') WHERE ticker = '...'`.
 
+## Score recompute job (2026-10-06)
+
+Saving or resetting the score weights, saving the Moat points and Settings/Screener "Recompute all scores" all start one
+**background full recompute**: `python -m pipeline.score_recompute_job <run_id>`, a subprocess the API launches (own session, so a
+`uvicorn --reload` does not kill it), cache only, zero FMP calls, ~40 s for the ~580 tracked tickers (about 4 s of it for 30). It
+re-scores every ticker through `compute_ticker_score` at the saved weights and stamps `TickerScore.weights_version`.
+
+- **Status:** table `ScoreRecomputeRun` (state running/done/failed, trigger, processed/total/failed, weights_version, error, heartbeat);
+  the newest row is the status, also returned as `recompute` by `GET /api/config/score-weights`. Log: `backend/logs/score_recompute_job.log`
+  (the worker's own) and `score_recompute_job_cron.log` (its stdout/stderr).
+- **One at a time.** A second request while a run is `running` gets **409** and is not queued; a weights/Moat save is refused before
+  anything is saved. A `running` row whose worker has not reported for 120 s, or whose process exited without finishing, is marked
+  `failed` automatically, so a dead worker never blocks the next run.
+- **A failed run** keeps the saved weights; the stored rows simply stay on the older `weights_version` where the worker did not reach
+  them (each score row is one atomic upsert, so none is ever half written). Retry with Screener > "Recompute all scores", or
+  `uv run python -m pipeline.recompute_ticker_scores` (the old script, unchanged, still runs inline and cache-only).
+- **Stuck `running` row you want gone now:** `UPDATE scorerecomputerun SET state='failed', error='manual', finished_at=datetime('now') WHERE state='running';`
+- **Not a cron job:** the nightly `nightly_score_recompute` (3:25) is separate and not coordinated with it; it also writes the current
+  `weights_version`, so a weights change made while it runs only leaves the rows it had already passed on the older version until the
+  next run.
+
 ## Database locking (2026-10-04) and WAL (enabled 2026-10-04)
 
 One SQLite file (`backend/fathom.db`), journal mode **WAL** since 2026-10-04 (it was `delete` before; see "WAL" below). Every connection that writes goes through

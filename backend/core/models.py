@@ -600,6 +600,29 @@ class ScoreWeightSettings(SQLModel, table=True):
     step5_debt_servicing: int
 
 
+class ScoreRecomputeRun(SQLModel, table=True):
+    """One full score recompute run (data/score_recompute.py): the status row behind "Recomputing scores, N of M" and the 409 that
+    keeps it to one run at a time. Written by the API when it claims the run and then by the worker subprocess
+    (pipeline/score_recompute_job.py) as it goes; the newest row is the current status. `state` is running / done / failed;
+    `trigger` is what asked for it (weights, reset, moat, screener); `heartbeat_at` is how a dead worker is noticed."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    state: str
+    trigger: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    heartbeat_at: datetime
+    processed: int = 0
+    skipped: int = 0
+    total: int = 0
+    failed: int = 0
+    weights_version: int | None = None
+    pid: int | None = None
+    error: str | None = None
+    # JSON list of [ticker, message] for the tickers that raised (capped), the old RecomputeSummary.failures.
+    failures_json: str | None = None
+
+
 class TickerBankCapitalMetrics(SQLModel, table=True):
     """Manually-entered CET1 (Common Equity Tier 1) ratio, plus an optional
     manual override for the NPL (non-performing loan) ratio Step 5 already
