@@ -170,7 +170,7 @@ stays IN the blend as a genuine Fail (2026-08-06 fix; previously read `insuffici
 silently blanking the entire Overall Assessment) — also fails Current Ratio's own breach-context
 primary gate. CFO ≤ 0 or unavailable → `excluded_negative_cfo` (2026-08-06 fix), a genuine
 neutral exclusion (`RatioResult.excluded=True`), drops out of the blend (see below) and its
-weight is redistributed across Current Ratio and Debt/EBITDA (50/50 when both apply) — the same
+weight is redistributed across Current Ratio and Debt/EBITDA (33:33, i.e. 50/50, when both apply) — the same
 proportional redistribution [Profitability](profitability.md) uses for its exempt metrics. Also
 fails both breach-context frameworks' primary gates. A temporary or seasonal negative-CFO period
 (a working-capital cycle, an inventory buildup) isn't evidence DSR itself is unhealthy, unlike
@@ -227,10 +227,14 @@ the ratio stays at its plain Borderline hard-fail result (0 points).
 
 ### Blend and verdict (Standard path)
 
+The default base weights are 33 / 33 / 34 (changed 2026-10-06 from exact thirds, because weights are whole
+numbers; 46 tracked tickers' Debt scores moved by 1 point, no verdict or Review status changed). See
+`scoring/weights.py::DEFAULT_WEIGHTS`.
+
 ```
 applicable = {current_ratio, debt_to_ebitda, debt_servicing_ratio} minus
              whichever is excluded this period (only debt_servicing_ratio can be excluded)
-weight[r]  = (1/3) / sum(1/3 for r in applicable)
+weight[r]  = base[r] / sum(base[a] for a in applicable)    # base = 33 / 33 / 34 (Current Ratio, Debt/EBITDA, Debt Servicing)
 score      = round(sum(points[r] * weight[r] for r in applicable))
 ```
 

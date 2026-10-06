@@ -628,8 +628,9 @@ def test_negative_ebitda_is_a_real_fail_not_insufficient_data():
     assert result["verdict"] == "Fail"
     # Still blends -- a negative-EBITDA Fail counts as a real 0-point
     # component of the ordinary 3-way split, not one that vanishes.
-    assert result["weights"] == {"current_ratio": 1 / 3, "debt_to_ebitda": 1 / 3, "debt_servicing_ratio": 1 / 3}
-    assert result["score"] == round((100 + 0 + 100) / 3)
+    # Default weights are 33/33/34 (Current Ratio, Debt/EBITDA, Debt Servicing).
+    assert result["weights"] == {"current_ratio": 0.33, "debt_to_ebitda": 0.33, "debt_servicing_ratio": 0.34}
+    assert result["score"] == round(100 * 0.33 + 0 * 0.33 + 100 * 0.34)
 
 
 def test_negative_ebitda_hard_fail_is_not_diluted_by_other_excellent_ratios():

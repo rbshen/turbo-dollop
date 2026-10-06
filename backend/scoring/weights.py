@@ -66,14 +66,14 @@ class ScoreWeights:
     step5: Step5Weights
 
 
-# The single source for the lazy seed, the reset and the tests. Step 5 is a relative 1:1:1 for now so the defaults reproduce
-# today's exact thirds (a later change makes it 33/33/34).
+# The single source for the lazy seed, the reset and the tests. Step 5's default is 33/33/34 (Current Ratio, Debt/EBITDA, Debt
+# Servicing): whole numbers cannot express exact thirds, so the third ratio carries the odd point (2026-10-06 decision).
 DEFAULT_WEIGHTS = ScoreWeights(
     overall=OverallWeights(financials=24, growth=10, profitability=20, debt=15),
     step1=Step1Weights(revenue=35, net_income=20, cfo=30, margins=10, fcf=5),
     step2=Step2Weights(magnitude=70, agreement=30),
     step4=Step4Weights(roe=25, roic=35, ar=20, ccc=20),
-    step5=Step5Weights(current_ratio=1, debt_to_ebitda=1, debt_servicing=1),
+    step5=Step5Weights(current_ratio=33, debt_to_ebitda=33, debt_servicing=34),
 )
 
 

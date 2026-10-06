@@ -33,7 +33,8 @@ def test_defaults_are_todays_weights():
     assert DEFAULT_WEIGHTS.step1 == Step1Weights(35, 20, 30, 10, 5)
     assert DEFAULT_WEIGHTS.step2 == Step2Weights(70, 30)
     assert DEFAULT_WEIGHTS.step4 == Step4Weights(25, 35, 20, 20)
-    assert DEFAULT_WEIGHTS.step5 == Step5Weights(1, 1, 1)  # relative: exact thirds
+    assert DEFAULT_WEIGHTS.step5 == Step5Weights(33, 33, 34)  # whole numbers: the third ratio carries the odd point
+    assert sum(vars(DEFAULT_WEIGHTS.step5).values()) == 100
     assert sum(vars(DEFAULT_WEIGHTS.overall).values()) == 69
     assert sum(vars(DEFAULT_WEIGHTS.step1).values()) == 100
     assert sum(vars(DEFAULT_WEIGHTS.step2).values()) == 100
@@ -261,10 +262,15 @@ def _step5(weights=DEFAULT_WEIGHTS.step5, dsr=25.0, **overrides):
     return score_step5_standard(**args, weights=weights)
 
 
-def test_step5_default_is_exact_thirds():
+def test_step5_default_is_33_33_34():
     result = _step5()
+    assert result["weights"] == {"current_ratio": 0.33, "debt_to_ebitda": 0.33, "debt_servicing_ratio": 0.34}
+    assert result["score"] == round(100 * 0.33 + 70 * 0.33 + 60 * 0.34)
+
+
+def test_step5_relative_equal_weights_still_give_exact_thirds():
+    result = _step5(Step5Weights(1, 1, 1))
     assert result["weights"] == {"current_ratio": 1 / 3, "debt_to_ebitda": 1 / 3, "debt_servicing_ratio": 1 / 3}
-    assert result["score"] == round((100 + 70 + 60) / 3)
 
 
 def test_step5_custom_weights():

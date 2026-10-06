@@ -359,7 +359,7 @@ def test_negative_ebitda_end_to_end_is_a_real_fail_not_insufficient_data(monkeyp
     assert result.ratios["debt_to_ebitda"].note is not None
     assert "EBITDA is negative" in result.ratios["debt_to_ebitda"].note
     # Still blended, all 3 ratios weighted.
-    assert result.weights == {"current_ratio": 1 / 3, "debt_to_ebitda": 1 / 3, "debt_servicing_ratio": 1 / 3}
+    assert result.weights == {"current_ratio": 0.33, "debt_to_ebitda": 0.33, "debt_servicing_ratio": 0.34}
 
 
 CASH_FLOW_QUARTERLY_NEGATIVE = [{"date": "2026-03-28", "netCashProvidedByOperatingActivities": -50} for _ in range(4)]
