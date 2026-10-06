@@ -278,6 +278,14 @@ def test_chart_available_false_when_fetch_returns_no_bars(monkeypatch):
     assert out.source == "fmp"
 
 
+@pytest.mark.parametrize("range_key", ["D_6M", "D_1Y", "D_2Y", "W_4Y"])
+def test_warren_instruction_is_none_on_every_range_but_2h_90d(monkeypatch, range_key):
+    _patch_bars(monkeypatch, _daily_df(600))
+    _no_other_sources(monkeypatch)
+    out = asyncio.run(chart_data.get_chart_data("AAPL", range_key))
+    assert out.chart_available and out.warren_instruction is None
+
+
 def test_daily_range_computes_full_warmup_then_slices_to_visible_window(monkeypatch):
     # 600 business days (~2.4y) fetched, of which D_1Y only shows the
     # trailing ~365 calendar days -- plenty of warm-up headroom before the

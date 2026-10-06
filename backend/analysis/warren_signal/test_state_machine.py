@@ -466,3 +466,70 @@ def test_reference_levels_omit_the_rsi_12_blue_line_only_for_per_ticker_profiles
     assert warren_reference_levels(ANY_TICKER) == warren_reference_levels()
     for p in (SPY, QQQ, TQQQ, TECL):
         assert warren_reference_levels(p) == {"rsi": [30.0, 70.0, 80.81, 84.75], "adx": [40.0], "wvf": [0.40]}, p.name
+
+
+# --- chart action-text inputs (stop_hit_at / first_yellow_after_blue_at): additive, never feed an arrow ---------
+
+
+def _run_bars(n, *, scan3=(), scan4=(), bear1=(), lows=None):
+    def flags(idx):
+        return [i in idx for i in range(n)]
+
+    lows = lows or [100.0] * n
+    return _replay_from_signals(
+        scan3=flags(scan3),
+        scan4=flags(scan4),
+        bear1=flags(bear1),
+        rsi_overbought=_all_false(n),
+        yellow_cond=_all_false(n),
+        rsi_vals=[50.0] * n,
+        close_vals=[x + 5 for x in lows],
+        low_vals=lows,
+        timestamps=_timestamps(n),
+    )
+
+
+def test_stop_hits_are_exposed_once_per_debounced_breach():
+    # Same hand-verified sequence as the gray-suppression test: stop events on bars 3 and 6, bar 4 debounced.
+    lows = [100.0, 100.0, 95.0, 80.0, 80.0, 70.0, 60.0, 50.0]
+    result = _run_bars(8, scan3=(0, 2, 5, 7), lows=lows)
+    ts = _timestamps(8)
+    assert result.stop_hit_at == [ts[3], ts[6]]
+
+
+def test_no_stop_hit_when_the_machine_is_not_armed():
+    # One yellow only (count 1 < 2): a breach is not a stop event.
+    result = _run_bars(5, scan3=(0,), lows=[100.0, 50.0, 50.0, 50.0, 50.0])
+    assert result.stop_hit_at == []
+
+
+def test_first_yellow_after_blue_is_the_first_yellow_arrow_within_20_bars_of_the_blue():
+    ts = _timestamps(30)
+    result = _run_bars(30, scan4=(2,), scan3=(5, 9, 21))
+    assert result.first_yellow_after_blue_at == [ts[5]]  # 2nd yellow (bar 9) is not first; bar 21 is a 3rd
+
+
+def test_first_yellow_after_blue_needs_the_blue_within_20_bars():
+    ts = _timestamps(40)
+    assert _run_bars(40, scan4=(0,), scan3=(20,)).first_yellow_after_blue_at == [ts[20]]  # exactly 20 bars: inside
+    assert _run_bars(40, scan4=(0,), scan3=(21,)).first_yellow_after_blue_at == []  # 21: outside
+    assert _run_bars(40, scan3=(5,)).first_yellow_after_blue_at == []  # no blue ever
+
+
+def test_a_blue_and_yellow_on_the_same_bar_is_not_a_first_yellow():
+    # The blue resets the count to 0 on that bar, so the yellow does not make it 1.
+    assert _run_bars(5, scan4=(2,), scan3=(2,)).first_yellow_after_blue_at == []
+
+
+def test_a_gray_up_is_never_a_first_yellow():
+    # Two stop-outs make the next yellow trigger gray; with the count past 1 it could never be a first yellow, and a
+    # blue-less stretch cannot reach count 1 after gray either, so the list stays empty.
+    lows = [100.0, 100.0, 95.0, 80.0, 80.0, 70.0, 60.0, 50.0]
+    assert _run_bars(8, scan3=(0, 2, 5, 7), lows=lows).first_yellow_after_blue_at == []
+
+
+def test_the_new_fields_default_empty_so_other_constructors_are_unaffected():
+    from analysis.warren_signal.types import WarrenReplayResult
+
+    r = WarrenReplayResult(as_of=datetime(2026, 1, 5), events=[], gray_suppressed=False, stop_count=0, live_stop_price=None)
+    assert r.stop_hit_at == [] and r.first_yellow_after_blue_at == []

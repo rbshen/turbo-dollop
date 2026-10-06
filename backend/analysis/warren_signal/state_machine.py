@@ -43,6 +43,8 @@ YELLOW_SELL_RSI_THRESHOLD = 84.75
 YELLOW_SELL_WVF_THRESHOLD = 0.40
 YELLOW_SELL_ADX_THRESHOLD = 40.0
 
+BLUE_UP_WITHIN_BARS = 20  # ToS `blueUpWithin20`: barsSinceBlueUp <= 20
+
 UP_KINDS = frozenset({"blue_up", "yellow_up", "gray_up"})
 
 
@@ -83,8 +85,14 @@ def _replay_from_signals(
     stop_count = 0
     yellow_is_gray = False
     seen_blue = seen_yellow = seen_gray = 0
+    # Chart action-text state only (never feeds an arrow): ToS entryIsGray (yellowIsGray latched on each yellow
+    # trigger) and barsSinceBlueUp (999 until the first Blue Up).
+    entry_is_gray = False
+    bars_since_blue_up = 999
 
     events: list[WarrenSignalEvent] = []
+    stop_hit_at: list[datetime] = []
+    first_yellow_after_blue_at: list[datetime] = []
 
     for i in range(n):
         is_scan3 = bool(scan3[i])
@@ -131,7 +139,15 @@ def _replay_from_signals(
             stop_count += 1
         yellow_is_gray = stop_count >= 2
 
+        if is_scan3:
+            entry_is_gray = yellow_is_gray
+        bars_since_blue_up = 0 if is_scan4 else bars_since_blue_up + 1
+        if stop_event:
+            stop_hit_at.append(timestamps[i])
+
         yellow_up = is_scan3 and not yellow_is_gray
+        if is_scan3 and not entry_is_gray and yellow_count_since_blue == 1 and bars_since_blue_up <= BLUE_UP_WITHIN_BARS:
+            first_yellow_after_blue_at.append(timestamps[i])
         gray_up = is_scan3 and yellow_is_gray
         blue_up = is_scan4
         any_buy = yellow_up or blue_up
@@ -177,6 +193,8 @@ def _replay_from_signals(
         gray_suppressed=yellow_is_gray,
         stop_count=stop_count,
         live_stop_price=live_stop_price,
+        stop_hit_at=stop_hit_at,
+        first_yellow_after_blue_at=first_yellow_after_blue_at,
     )
 
 

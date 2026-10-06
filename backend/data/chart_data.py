@@ -65,6 +65,7 @@ from analysis.entry_signal.indicators import BB_LENGTH, BB_STD, check_buy_signal
 from analysis.entry_signal.resample import build_2h_session_candles_fast, drop_forming_candles, index_by_window_start
 from analysis.trend_structure.stochastic import compute_stochastic
 from analysis.trend_structure.weinstein import compute_stage_series, resample_to_weekly
+from analysis.warren_signal.instructions import current_instruction
 from analysis.warren_signal.state_machine import replay_with_series, warren_reference_levels
 from clients.daily_bar_sources import _is_half_day, fmp_intraday_rows_to_frame, fmp_rows_to_frame
 from clients.fmp_client import fmp_client
@@ -91,6 +92,7 @@ from core.schemas import (
     ChartOut,
     ChartStagePointOut,
     ChartStochasticPointOut,
+    ChartWarrenInstructionOut,
     ChartWarrenLevelsOut,
     ChartZoneOut,
     LiquidityZoneOut,
@@ -642,6 +644,9 @@ async def _get_chart_data_2h(ticker: str, range_key: str, now: datetime | None =
         for idx, r in visible.iterrows()
     ]
     available = bool(bars)
+    # The action text reads the full replay (a signal just before the visible start still counts) over the
+    # completed candles only: the forming one was dropped above, so ages never count it.
+    instruction = current_instruction(result, [ts.to_pydatetime() for ts in candles.index], profile.name) if available else None
     return ChartOut(
         range=range_key,
         timeframe=cfg["timeframe"],
@@ -664,6 +669,19 @@ async def _get_chart_data_2h(ticker: str, range_key: str, now: datetime | None =
         warren_minus_di=_points_2h(series.minus_di, mask),
         warren_wvf=_points_2h(series.wvf, mask),
         warren_levels=ChartWarrenLevelsOut(**warren_reference_levels(profile)),
+        warren_instruction=(
+            ChartWarrenInstructionOut(
+                type=instruction.type,
+                kind=instruction.kind,
+                text=instruction.text,
+                tone=instruction.tone,
+                time=_iso(instruction.time),
+                bars_since=instruction.bars_since,
+                bars_left=instruction.bars_left,
+            )
+            if instruction is not None
+            else None
+        ),
         source="fmp",
         chart_available=available,
     )

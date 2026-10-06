@@ -746,3 +746,132 @@ def test_unlisted_profiled_ticker_whose_daily_fetch_fails_fails_closed_without_e
     seen = _capture_replay_input(monkeypatch)
     out = _run(chart_data._get_chart_data_2h, "QQQ", KEY, NOW)
     assert out.chart_available and seen["frame"]["volume"].isna().all()
+
+
+# --- Warren action text (ChartOut.warren_instruction) --------------------------------------------------------
+
+
+def _inject_warren(monkeypatch, events=(), stop_hits=(), first_yellows=()):
+    """Replaces the replay's events/stop hits/type-4 flags with hand-picked ones (the indicator series stay real),
+    so the instruction logic is driven by a known signal position. Times are naive datetimes of candle starts."""
+    import dataclasses
+
+    from analysis.warren_signal.types import WarrenSignalEvent
+
+    real = chart_data.replay_with_series
+
+    def fake(candles, profile):
+        result, series = real(candles, profile)
+        injected = [WarrenSignalEvent(kind=k, fired_at=t, close=1.0, rsi=None, stop_price=None) for t, k in events]
+        return dataclasses.replace(result, events=injected, stop_hit_at=list(stop_hits), first_yellow_after_blue_at=list(first_yellows)), series
+
+    monkeypatch.setattr(chart_data, "replay_with_series", fake)
+
+
+def _candle_time(raw, age: int):
+    """Naive start time of the candle `age` positions before the last completed one."""
+    return _full_candles(raw).index[-1 - age].to_pydatetime()
+
+
+def test_instruction_text_set_follows_the_profile_generic_for_any_ticker_shortened_for_qqq(monkeypatch):
+    raw = _bars_60m(LAST_SESSION)
+    _patch_source(monkeypatch, raw)
+    _seed_daily_volume("QQQ", _unflagged_eod(raw))
+    _inject_warren(monkeypatch, events=[(_candle_time(raw, 0), "blue_up")])
+
+    aapl = _run(chart_data._get_chart_data_2h, "AAPL", KEY, NOW).warren_instruction
+    qqq = _run(chart_data._get_chart_data_2h, "QQQ", KEY, NOW).warren_instruction
+
+    assert aapl.text == "BLUE UP - Use appropriate stop."
+    assert qqq.text == "BLUE UP = ENTRY, NO STOP"
+    for got in (aapl, qqq):
+        assert (got.type, got.kind, got.tone, got.bars_since, got.bars_left) == (2, "blue_up", "blue", 0, 30)
+        assert got.time == f"{LAST_SESSION}T15:30:00"
+
+
+def test_instruction_expires_after_age_30_on_the_chart(monkeypatch):
+    raw = _bars_60m(LAST_SESSION)
+    _patch_source(monkeypatch, raw)
+    seen = {}
+    for age in (29, 30, 31):
+        _inject_warren(monkeypatch, events=[(_candle_time(raw, age), "yellow_down")])
+        seen[age] = _run(chart_data._get_chart_data_2h, "AAPL", KEY, NOW).warren_instruction
+    assert (seen[29].bars_since, seen[29].bars_left) == (29, 1)
+    assert (seen[30].bars_since, seen[30].bars_left) == (30, 0)
+    assert seen[31] is None
+
+
+def test_no_signal_gives_no_instruction(monkeypatch):
+    raw = _bars_60m(LAST_SESSION)
+    _patch_source(monkeypatch, raw)
+    _inject_warren(monkeypatch)
+    out = _run(chart_data._get_chart_data_2h, "AAPL", KEY, NOW)
+    assert out.chart_available and out.warren_instruction is None
+
+
+def test_stop_hit_and_type_4_reach_the_wire(monkeypatch):
+    raw = _bars_60m(LAST_SESSION)
+    _patch_source(monkeypatch, raw)
+    _inject_warren(monkeypatch, events=[(_candle_time(raw, 5), "yellow_up")], first_yellows=[_candle_time(raw, 5)])
+    got = _run(chart_data._get_chart_data_2h, "AAPL", KEY, NOW)
+    assert (got.warren_instruction.type, got.warren_instruction.kind) == (4, "first_yellow_up")
+    _inject_warren(monkeypatch, events=[(_candle_time(raw, 5), "yellow_up")], stop_hits=[_candle_time(raw, 2)])
+    got = _run(chart_data._get_chart_data_2h, "AAPL", KEY, NOW)
+    assert (got.warren_instruction.type, got.warren_instruction.bars_since) == (100, 2)
+    assert [m.kind for m in got.warren_signal_markers] == ["yellow_up"]  # a stop hit adds no chart marker
+
+
+def test_a_signal_before_the_visible_window_start_still_shows_when_within_30_candles(monkeypatch):
+    # Data ends 2026-07-07, so the 90-day window (from 2026-07-04) holds only a few candles; the signal sits on a candle
+    # BEFORE the window start but only a handful of candles back, so it is live and must be reported.
+    raw = _bars_60m("2026-07-07")
+    _patch_source(monkeypatch, raw)
+    candles = _full_candles(raw)
+    visible_start = pd.Timestamp("2026-10-02") - pd.Timedelta(days=90)
+    before = candles.index[candles.index < visible_start]
+    signal_time = before[-1].to_pydatetime()
+    _inject_warren(monkeypatch, events=[(signal_time, "blue_down")])
+
+    out = _run(chart_data._get_chart_data_2h, "AAPL", KEY, NOW)
+
+    assert out.chart_available and 0 < len(out.bars) < 30
+    assert pd.Timestamp(out.warren_instruction.time) < visible_start
+    assert out.warren_instruction.type == 10
+    assert out.warren_instruction.bars_since == len(candles) - 1 - candles.index.get_loc(before[-1])
+    assert out.warren_signal_markers == []  # no marker: the arrow itself is outside the window
+
+
+def test_instruction_ages_never_count_the_forming_candle(monkeypatch):
+    # Mid-session the forming candle is dropped before the replay, so the newest COMPLETED candle is age 0.
+    raw = _bars_60m("2026-10-02")
+    now_et_1330 = datetime(2026, 10, 2, 17, 30, tzinfo=timezone.utc)  # 13:30 ET: the 11:30 candle just completed
+    raw_complete = raw[raw.index < pd.Timestamp("2026-10-02 12:30", tz=_NY)]  # the bars the feed has by then
+    _patch_source(monkeypatch, raw_complete)
+    candles = _full_candles(raw_complete, now_et_1330)
+    last = candles.index[-1].to_pydatetime()
+    _inject_warren(monkeypatch, events=[(last, "gray_up")])
+    out = _run(chart_data._get_chart_data_2h, "AAPL", KEY, now_et_1330)
+    assert out.warren_instruction.time == last.strftime("%Y-%m-%dT%H:%M:%S") == out.bars[-1].time
+    assert out.warren_instruction.bars_since == 0
+
+
+def test_engine_events_are_identical_to_the_pre_instruction_engine():
+    """Pins the arrow events byte for byte against the engine as it was before the action-text fields were added
+    (hashes recorded from the pre-change code on three seeded 730-day series: 351 / 331 / 319 events)."""
+    import hashlib
+    import json
+
+    from analysis.warren_signal.state_machine import replay
+
+    expected = {
+        1: (351, "849fc4d0911ff041b27a2389fec2369ed7589eead9b7d44499e98a1968cf2271"),
+        2: (331, "6d30786d789bc0320c621b93aea7dea63e702c86a0f2d32085de101cf87fdfb2"),
+        3: (319, "3816ae63b69cc0ad8a26f7abcd10ba261cbb8f4564a73e42a4a396297358d39f"),
+    }
+    for seed, want in expected.items():
+        r = replay(_full_candles(_bars_60m(LAST_SESSION, seed=seed)))
+        ev = [
+            (e.kind, e.fired_at.isoformat(), round(e.close, 6), None if e.rsi is None else round(e.rsi, 6), None if e.stop_price is None else round(e.stop_price, 6))
+            for e in r.events
+        ]
+        assert (len(ev), hashlib.sha256(json.dumps(ev).encode()).hexdigest()) == want

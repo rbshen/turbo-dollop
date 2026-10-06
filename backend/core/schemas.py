@@ -1556,6 +1556,22 @@ class ChartWarrenLevelsOut(BaseModel):
     wvf: list[float]
 
 
+class ChartWarrenInstructionOut(BaseModel):
+    """The Warren action text on the 2H_90D chart (analysis/warren_signal/instructions.py): `type` is the ToS
+    instruction type (100 stop hit, 30/20/10 gray/yellow/blue down, 4 first yellow up after blue, 3/2/1
+    yellow/blue/gray up), `kind` its name, `tone` red/gray/yellow/blue, `time` the signal candle's naive-ET start
+    stamp, `bars_since` its age in completed candles (0 = the latest) and `bars_left` how many more it stays
+    visible (0 on its last visible candle)."""
+
+    type: int
+    kind: str
+    text: str
+    tone: Literal["red", "gray", "yellow", "blue"]
+    time: str
+    bars_since: int
+    bars_left: int
+
+
 class ChartOut(BaseModel):
     """OHLC + indicators for one ticker-page Chart tab view -- see
     data/chart_data.py for the fetch/compute mechanism. Computed fully
@@ -1634,6 +1650,10 @@ class ChartOut(BaseModel):
     warren_minus_di: list[ChartLinePointOut] = []
     warren_wvf: list[ChartLinePointOut] = []
     warren_levels: ChartWarrenLevelsOut | None = None
+    # 2H_90D only: the current Warren action text, or None when there is no signal, the latest has expired
+    # (older than 30 completed candles), or on any other range. Computed from the full replay, so a signal that
+    # fired before the visible window start is still reported.
+    warren_instruction: ChartWarrenInstructionOut | None = None
     # Always "fmp" (Yahoo removed in Phase 6b); an empty chart is chart_available=False.
     source: str
     chart_available: bool  # False only for a genuinely bad/delisted ticker with no bars at all

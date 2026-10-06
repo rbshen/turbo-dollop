@@ -3,7 +3,7 @@
 structured returns.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 import pandas as pd
@@ -57,13 +57,21 @@ class WarrenReplayResult:
     latest EVENT in `events` happens to have landed on. gray_suppressed
     mirrors yellowIsGray; stop_count mirrors stopCount; live_stop_price
     mirrors yellowStopPrice (None if no yellow/gray entry has ever been
-    held)."""
+    held).
+
+    stop_hit_at / first_yellow_after_blue_at (additive, for the chart's action text -- analysis/warren_signal/
+    instructions.py; the nightly job never reads them): the candle timestamps of every ToS `stopEvent` (the
+    debounced one-shot stop breach, which is not an arrow) and of every Yellow Up arrow that is the FIRST yellow
+    since the last Blue Up, not gray, with that Blue Up at most BLUE_UP_WITHIN_BARS bars back (the ToS
+    `showFirstYellowAfterBlue and blueUpWithin20` type-4 condition, evaluated on the arrow bar itself)."""
 
     as_of: datetime
     events: list[WarrenSignalEvent]
     gray_suppressed: bool
     stop_count: int
     live_stop_price: float | None
+    stop_hit_at: list[datetime] = field(default_factory=list)
+    first_yellow_after_blue_at: list[datetime] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
