@@ -189,3 +189,21 @@ def test_step3_reads_its_statements_through_the_loader_with_the_annual_balance_s
     assert view.balance_sheet_fallback is not None and view.balance_sheet_fallback.reason == "debt_remap"
     assert result.inputs.total_debt == view.debt_metrics.total_debt == 1_000
     assert result.inputs.cash_and_st_investments == view.balance_sheet_row["cashAndShortTermInvestments"]
+
+
+# ---- Step 4 (data/step4_data.py) -----------------------------------------------------------------------------
+
+
+def test_step4_reads_its_statements_through_the_loader(monkeypatch, views):
+    import test_step4_data as t4
+    from data.step4_data import get_step4_data
+
+    t4._fresh_engine(monkeypatch)
+    t4._patch_gated_quarters(monkeypatch)
+
+    result = asyncio.run(get_step4_data("TEST"))
+
+    assert len(views) == 1
+    view, _ = views[0]
+    assert view.balance_sheet_fallback.reason == "debt_remap"
+    assert result.accounts_receivable[-1] == view.balance_sheet_row["accountsReceivables"] == 80.5255

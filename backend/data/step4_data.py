@@ -26,7 +26,7 @@ from scoring.step4 import (
     score_roic,
     score_step4,
 )
-from helpers.ttm import TOTAL_QUARTERS_NEEDED, clean_cash_flow_statements, sum_last_four_quarters
+from helpers.statement_view import load_statement_view
 
 ROIC_EXEMPT_TYPES = {"Bank", "Insurance", "Utility", "REIT/Property Developer"}
 # CCC (Cash Conversion Cycle) has no comparable inventory/receivables cash-
@@ -563,66 +563,22 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
             profile.get("sector"), profile.get("industry"), ticker, is_fund=bool(profile.get("isEtf") or profile.get("isFund"))
         )
 
-        # Same cache key + limit Step 1 already populates ("income_statement"
-        # / "annual", limit 10) -- requesting a different limit here would
-        # fight over the same cache row (see CLAUDE.md's caching policy).
-        income_annual = await safe_fetch(
-            "income_statement_annual",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "income_statement",
-                "annual",
-                lambda: fmp_client.get_income_statement(ticker, "annual", 10),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        income_quarterly = await safe_fetch(
-            "income_statement_quarterly",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "income_statement",
-                "quarterly",
-                lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        balance_sheet_annual = await safe_fetch(
-            "balance_sheet_statement_annual",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "balance_sheet_statement",
-                "annual",
-                lambda: fmp_client.get_balance_sheet_statement(ticker, "annual", ANNUAL_WINDOW),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        # Same cache key Step 5 and the Financials tab (financials_data.py)
-        # also populate ("balance_sheet_statement"/"quarterly") -- limit is
-        # TOTAL_QUARTERS_NEEDED so the Financials tab has real quarterly
-        # history; this call site still only reads row 0 (the latest
-        # quarter, used as the "TTM" column stand-in below), so the deeper
-        # fetch doesn't change anything here.
-        balance_sheet_quarterly = await safe_fetch(
-            "balance_sheet_statement_quarterly",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "balance_sheet_statement",
-                "quarterly",
-                lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
+        # The statements Step 4 reads, through the shared loader (helpers/statement_view.py): same cache keys and
+        # limits Steps 1/3/5 and the Financials tab populate (income and cash flow annual 10 / quarterly
+        # TOTAL_QUARTERS_NEEDED, balance sheet annual ANNUAL_WINDOW / quarterly TOTAL_QUARTERS_NEEDED -- requesting a
+        # different limit would fight over the same cache row, see CLAUDE.md's caching policy). Placeholder /
+        # scale-break cash-flow rows are treated as missing; when the newest quarterly balance sheet is partly filled
+        # in, the PRIOR quarter's supplies the TTM-slot figures below (receivables, inventory, payables, equity, debt)
+        # and the income and cash-flow quarters are aligned to it, as the Analysis tab's other steps do. The annual
+        # series are not gated, and ROE/ROIC still come from FMP's own key-metrics rows (never rescaled here).
+        view = await load_statement_view(
+            session,
+            ticker,
+            company_type,
+            most_recent_earnings_date=most_recent_earnings_date,
+            staleness_days=staleness_days,
+            cache_only=cache_only,
+            annual_balance_sheet=True,
         )
         key_metrics_annual = await safe_fetch(
             "key_metrics_annual",
@@ -652,52 +608,14 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
                 ),
             )
         )
-        # Same cache key + limit Step 1 already populates ("cash_flow_
-        # statement"/"annual" and "/quarterly") -- only used here for the
-        # AR manual-check note's OCF-vs-Net-Income cross-check, so for any
-        # ticker Step 1 has already scored this is a pure cache hit, zero
-        # new FMP calls.
-        cash_flow_annual = await safe_fetch(
-            "cash_flow_statement_annual",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "cash_flow_statement",
-                "annual",
-                lambda: fmp_client.get_cash_flow_statement(ticker, "annual", 10),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        cash_flow_quarterly = await safe_fetch(
-            "cash_flow_statement_quarterly",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "cash_flow_statement",
-                "quarterly",
-                lambda: fmp_client.get_cash_flow_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
 
-    income_annual = income_annual if isinstance(income_annual, list) else []
-    income_quarterly = income_quarterly if isinstance(income_quarterly, list) else []
-    balance_sheet_annual = balance_sheet_annual if isinstance(balance_sheet_annual, list) else []
+    income_annual = view.income_annual
+    income_quarterly = view.income_quarterly  # aligned to the balance sheet used
+    balance_sheet_annual = view.balance_sheet_annual
     key_metrics_annual = key_metrics_annual if isinstance(key_metrics_annual, list) else []
-    cash_flow_annual = cash_flow_annual if isinstance(cash_flow_annual, list) else []
-    cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
-    # Placeholder cash-flow rows and mis-scaled rows are treated as missing --
-    # see ttm.py::clean_cash_flow_statements (quarterly: the newest run is
-    # dropped so TTM covers the last four valid quarters; annual: blanked in
-    # place).
-    cash_flow_annual, cash_flow_quarterly = clean_cash_flow_statements(
-        cash_flow_annual, cash_flow_quarterly, income_annual, income_quarterly
-    )
-    balance_sheet_latest = _first(balance_sheet_quarterly)
+    cash_flow_annual = view.cash_flow_annual
+    cash_flow_quarterly = view.cash_flow_quarterly
+    balance_sheet_latest = view.balance_sheet_row  # the gated row
 
     years = _annual_years(income_annual, balance_sheet_annual, key_metrics_annual)
     revenue = _annual_series(income_annual, "revenue")
@@ -731,11 +649,11 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     roic = [v * 100 if v is not None else None for v in roic]
 
     years = years + ["TTM"]
-    revenue_result = sum_last_four_quarters(income_quarterly, "revenue", income_annual)
-    net_income_result = sum_last_four_quarters(income_quarterly, "netIncome", income_annual)
-    cost_of_revenue_result = sum_last_four_quarters(income_quarterly, "costOfRevenue", income_annual)
-    ocf_result = sum_last_four_quarters(cash_flow_quarterly, "netCashProvidedByOperatingActivities", cash_flow_annual)
-    buybacks_result = sum_last_four_quarters(cash_flow_quarterly, "commonStockRepurchased", cash_flow_annual)
+    revenue_result = view.ttm("income", "revenue")
+    net_income_result = view.ttm("income", "netIncome")
+    cost_of_revenue_result = view.ttm("income", "costOfRevenue")
+    ocf_result = view.ttm("cash_flow", "netCashProvidedByOperatingActivities")
+    buybacks_result = view.ttm("cash_flow", "commonStockRepurchased")
 
     revenue = revenue + [revenue_result.total]
     net_income = net_income + [net_income_result.total]

@@ -1058,3 +1058,69 @@ def test_roe_and_roic_notes_drop_exact_zero_points_with_their_years():
     roe_real, years_real = step4_data._drop_exact_zero_pairs([0.0, 30.0, 10.0, 30.0, 31.0, 32.0], ["a", "b", "c", "d", "e", "f"])
     assert roe_real == [30.0, 10.0, 30.0, 31.0, 32.0]
     assert years_real == ["b", "c", "d", "e", "f"]
+
+
+# ---- cleaned statements: the newest-quarter balance-sheet gate and alignment (helpers/statement_view.py) ---------
+
+
+def _gate_balance_row(date, accounts_receivable, long_term_debt, equity=100.0):
+    return {
+        "date": date,
+        "totalStockholdersEquity": equity,
+        "accountsReceivables": accounts_receivable,
+        "inventory": 30.0,
+        "accountPayables": 46.0,
+        "shortTermDebt": 0,
+        "longTermDebt": long_term_debt,
+        "totalDebt": long_term_debt,
+        "totalAssets": 20_000,
+        "totalLiabilities": 10_000,
+        "totalCurrentAssets": 5_000,
+        "totalCurrentLiabilities": 2_000,
+    }
+
+
+def _patch_gated_quarters(monkeypatch):
+    """GEV-shaped: the newest quarter's long-term debt is remapped (1,000 -> 100, total liabilities flat) and its
+    receivables read 5.0 (the real prior-quarter figure is 80.5255); the newest income quarter (revenue 400) must be cut
+    off with it, leaving the four quarters ending 2025-12-27."""
+    ends = ["2026-03-28", "2025-12-27", "2025-09-27", "2025-06-28", "2025-03-29"]
+    income = [{"date": d, "revenue": 400.0 if i == 0 else 40.25, "netIncome": 5.5, "costOfRevenue": 24.15} for i, d in enumerate(ends)]
+    cash_flow = [{"date": d, "netCashProvidedByOperatingActivities": 60.0 if i == 0 else 6.0} for i, d in enumerate(ends)]
+    balance_sheet = [_gate_balance_row(ends[0], 5.0, 100), _gate_balance_row(ends[1], 80.5255, 1_000)]
+    _patch_fmp(monkeypatch)
+
+    async def fake_income_statement(ticker, period, limit):
+        return INCOME_ANNUAL if period == "annual" else income
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return CASH_FLOW_ANNUAL if period == "annual" else cash_flow
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return BALANCE_SHEET_ANNUAL if period == "annual" else balance_sheet
+
+    monkeypatch.setattr(step4_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step4_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+    monkeypatch.setattr(step4_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+
+
+def test_ttm_slot_balance_sheet_figures_and_ttm_flows_follow_the_gated_balance_sheet(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_gated_quarters(monkeypatch)
+
+    result = asyncio.run(get_step4_data("TEST"))
+
+    assert result.accounts_receivable[-1] == 80.5255  # the prior quarter's receivables, not the partly filled 5.0
+    # revenue TTM covers the four quarters ending 2025-12-27 (4 x 40.25), not 400 + 3 x 40.25
+    assert result.revenue[-1] == 4 * 40.25
+    assert result.years[-1] == "TTM"
+
+
+def test_annual_series_and_key_metrics_are_not_gated(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_gated_quarters(monkeypatch)
+
+    result = asyncio.run(get_step4_data("TEST"))
+
+    assert result.accounts_receivable[-2] == 73.205  # FY2025 annual balance sheet, as cached
+    assert result.roe[-1] == 20.0 and result.roic[-1] == 18.0  # FMP key-metrics TTM, never rescaled or gated

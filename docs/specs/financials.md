@@ -41,6 +41,11 @@ reference below for exact weights and thresholds.
 sum of the 4 most recent reported quarters. All series are chronological, oldest fiscal year
 first, ending with TTM.
 
+**Cleaned statements (2026-10-06).** Step 1 reads its income and cash-flow rows through the shared loader ([Statement data
+quality](statement-data-quality.md), "The shared loader"): placeholder and scale-broken cash-flow rows are treated as missing, so
+the CFO and FCF series and TTM cover real quarters. (The Financials *tab* is a separate raw viewer; it shows FMP's rows as served
+and only adds warning markers, see the same document's "Display markers".)
+
 ## Weights
 
 | Metric | Standard weight | CFO-exempt weight |

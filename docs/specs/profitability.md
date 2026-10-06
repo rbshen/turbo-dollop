@@ -30,6 +30,16 @@ indicate, not independent headline signals. If either ROE or ROIC (when applicab
 genuinely weak, the whole Profitability check fails outright, regardless of how the other two
 metrics look.
 
+**Statement inputs (2026-10-06).** Step 4 reads its statements through the shared loader ([Statement data
+quality](statement-data-quality.md), "The shared loader"). The latest-quarter ("TTM" slot) balance-sheet figures
+(receivables, inventory, payables, equity, long- and short-term debt, total debt, total assets, retained earnings) come from the
+**gated** quarterly balance sheet: when FMP served the newest quarter partly filled in (a line remapped into another), the
+prior quarter's is used, and the income and cash-flow quarters behind the revenue, net income, cost-of-revenue and operating
+cash-flow TTMs are aligned to it. Placeholder and scale-broken cash-flow rows are treated as missing. The annual series are not
+gated. **ROE and ROIC are FMP's own key-metrics figures and are never rescaled or recomputed**: Step 4 has no invested-capital
+calculation, so when FMP builds a ratio from a bad newest quarter the card shows a data-quality note instead (the Analysis tab
+cannot clean a number it does not compute; see [Statement data quality](statement-data-quality.md), "Display markers").
+
 ROE and ROIC are judged on multiple years, not a single snapshot — but a rough patch that's
 genuinely behind the company (a real, multi-year rough stretch that's since given way to a
 sustained, durable recovery) doesn't keep dragging the reading down forever once it's clearly
