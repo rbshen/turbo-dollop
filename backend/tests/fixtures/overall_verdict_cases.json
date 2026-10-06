@@ -1,485 +1,191 @@
 {
- "_comment": "Shared by backend/tests/test_moat_not_rated.py and frontend/lib/overallScore.test.ts: both implementations of the Overall verdict must produce these results.",
- "cases": [
-  {
-   "name": "unrated, steps Pass (76)",
-   "steps": [
-    {
-     "key": "step1",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step2",
-     "score": 80,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step4",
-     "score": 70,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step5",
-     "score": 60,
-     "verdict": "Pass"
-    }
-   ],
-   "moat": null,
-   "expected": {
-    "status": "complete",
-    "score": 76,
-    "verdict": "moat_not_rated"
-   }
-  },
-  {
-   "name": "unrated, steps Pass at the 70 boundary",
-   "steps": [
-    {
-     "key": "step1",
-     "score": 70,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step2",
-     "score": 70,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step4",
-     "score": 70,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step5",
-     "score": 70,
-     "verdict": "Pass"
-    }
-   ],
-   "moat": null,
-   "expected": {
-    "status": "complete",
-    "score": 70,
-    "verdict": "moat_not_rated"
-   }
-  },
-  {
-   "name": "unrated, steps Fail at the 69 boundary",
-   "steps": [
-    {
-     "key": "step1",
-     "score": 69,
-     "verdict": "Fail"
-    },
-    {
-     "key": "step2",
-     "score": 69,
-     "verdict": "Fail"
-    },
-    {
-     "key": "step4",
-     "score": 69,
-     "verdict": "Fail"
-    },
-    {
-     "key": "step5",
-     "score": 69,
-     "verdict": "Fail"
-    }
-   ],
-   "moat": null,
-   "expected": {
-    "status": "complete",
-    "score": 69,
-    "verdict": "Fail"
-   }
-  },
-  {
-   "name": "unrated, steps Pass at 90 (top of Pass band)",
-   "steps": [
-    {
-     "key": "step1",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step2",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step4",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step5",
-     "score": 90,
-     "verdict": "Pass"
-    }
-   ],
-   "moat": null,
-   "expected": {
-    "status": "complete",
-    "score": 90,
-    "verdict": "moat_not_rated"
-   }
-  },
-  {
-   "name": "unrated, steps Strong Pass at 91",
-   "steps": [
-    {
-     "key": "step1",
-     "score": 91,
-     "verdict": "Strong Pass"
-    },
-    {
-     "key": "step2",
-     "score": 91,
-     "verdict": "Strong Pass"
-    },
-    {
-     "key": "step4",
-     "score": 91,
-     "verdict": "Strong Pass"
-    },
-    {
-     "key": "step5",
-     "score": 91,
-     "verdict": "Strong Pass"
-    }
-   ],
-   "moat": null,
-   "expected": {
-    "status": "complete",
-    "score": 91,
-    "verdict": "moat_not_rated"
-   }
-  },
-  {
-   "name": "unrated, steps Strong Pass at 100",
-   "steps": [
-    {
-     "key": "step1",
-     "score": 100,
-     "verdict": "Strong Pass"
-    },
-    {
-     "key": "step2",
-     "score": 100,
-     "verdict": "Strong Pass"
-    },
-    {
-     "key": "step4",
-     "score": 100,
-     "verdict": "Strong Pass"
-    },
-    {
-     "key": "step5",
-     "score": 100,
-     "verdict": "Strong Pass"
-    }
-   ],
-   "moat": null,
-   "expected": {
-    "status": "complete",
-    "score": 100,
-    "verdict": "moat_not_rated"
-   }
-  },
-  {
-   "name": "unrated, steps Pass with caution (94)",
-   "steps": [
-    {
-     "key": "step1",
-     "score": 100,
-     "verdict": "Strong Pass"
-    },
-    {
-     "key": "step2",
-     "score": 100,
-     "verdict": "Strong Pass"
-    },
-    {
-     "key": "step4",
-     "score": 100,
-     "verdict": "Strong Pass"
-    },
-    {
-     "key": "step5",
-     "score": 74,
-     "verdict": "Pass with caution"
-    }
-   ],
-   "moat": null,
-   "expected": {
-    "status": "complete",
-    "score": 94,
-    "verdict": "moat_not_rated"
-   }
-  },
-  {
-   "name": "unrated, steps Fail (40)",
-   "steps": [
-    {
-     "key": "step1",
-     "score": 40,
-     "verdict": "Fail"
-    },
-    {
-     "key": "step2",
-     "score": 40,
-     "verdict": "Fail"
-    },
-    {
-     "key": "step4",
-     "score": 40,
-     "verdict": "Fail"
-    },
-    {
-     "key": "step5",
-     "score": 40,
-     "verdict": "Fail"
-    }
-   ],
-   "moat": null,
-   "expected": {
-    "status": "complete",
-    "score": 40,
-    "verdict": "Fail"
-   }
-  },
-  {
-   "name": "unrated, a step has insufficient data: incomplete",
-   "steps": [
-    {
-     "key": "step1",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step2",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step4",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step5",
-     "score": null,
-     "verdict": "insufficient_data"
-    }
-   ],
-   "moat": null,
-   "expected": {
-    "status": "incomplete",
-    "score": null,
-    "verdict": null
-   }
-  },
-  {
-   "name": "unrated, Step 5 exempt (not_supported): renormalized, still not rated",
-   "steps": [
-    {
-     "key": "step1",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step2",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step4",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step5",
-     "score": null,
-     "verdict": "not_supported"
-    }
-   ],
-   "moat": null,
-   "expected": {
-    "status": "complete",
-    "score": 90,
-    "verdict": "moat_not_rated"
-   }
-  },
-  {
-   "name": "Wide Moat, steps 90",
-   "steps": [
-    {
-     "key": "step1",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step2",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step4",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step5",
-     "score": 90,
-     "verdict": "Pass"
-    }
-   ],
-   "moat": {
-    "moat": "wide_moat",
-    "score": 100
-   },
-   "expected": {
-    "status": "complete",
-    "score": 93,
-    "verdict": "Strong Pass"
-   }
-  },
-  {
-   "name": "Narrow Moat, steps 90",
-   "steps": [
-    {
-     "key": "step1",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step2",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step4",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step5",
-     "score": 90,
-     "verdict": "Pass"
-    }
-   ],
-   "moat": {
-    "moat": "narrow_moat",
-    "score": 65
-   },
-   "expected": {
-    "status": "complete",
-    "score": 82,
-    "verdict": "Pass"
-   }
-  },
-  {
-   "name": "No Moat, steps 90",
-   "steps": [
-    {
-     "key": "step1",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step2",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step4",
-     "score": 90,
-     "verdict": "Pass"
-    },
-    {
-     "key": "step5",
-     "score": 90,
-     "verdict": "Pass"
-    }
-   ],
-   "moat": {
-    "moat": "no_moat",
-    "score": 0
-   },
-   "expected": {
-    "status": "complete",
-    "score": 62,
-    "verdict": "Fail"
-   }
-  },
-  {
-   "name": "No Moat caps perfect steps at 69",
-   "steps": [
-    {
-     "key": "step1",
-     "score": 100,
-     "verdict": "Strong Pass"
-    },
-    {
-     "key": "step2",
-     "score": 100,
-     "verdict": "Strong Pass"
-    },
-    {
-     "key": "step4",
-     "score": 100,
-     "verdict": "Strong Pass"
-    },
-    {
-     "key": "step5",
-     "score": 100,
-     "verdict": "Strong Pass"
-    }
-   ],
-   "moat": {
-    "moat": "no_moat",
-    "score": 0
-   },
-   "expected": {
-    "status": "complete",
-    "score": 69,
-    "verdict": "Fail"
-   }
-  },
-  {
-   "name": "Wide Moat keeps Pass with caution",
-   "steps": [
-    {
-     "key": "step1",
-     "score": 100,
-     "verdict": "Strong Pass"
-    },
-    {
-     "key": "step2",
-     "score": 100,
-     "verdict": "Strong Pass"
-    },
-    {
-     "key": "step4",
-     "score": 100,
-     "verdict": "Strong Pass"
-    },
-    {
-     "key": "step5",
-     "score": 74,
-     "verdict": "Pass with caution"
-    }
-   ],
-   "moat": {
-    "moat": "wide_moat",
-    "score": 100
-   },
-   "expected": {
-    "status": "complete",
-    "score": 96,
-    "verdict": "Pass with caution"
-   }
-  }
- ]
+"_comment": "Shared by backend/tests/test_moat_not_rated.py and frontend/lib/overallScore.test.ts: both implementations of the Overall verdict must produce these results. A case's optional `weights.overall` is the saved weight set it runs under (absent = `defaults`); Moat is always 31. `rounding_cases` sit on an exact .5, where Python's round (half to even) and JS Math.round differ; `parity_cases` are generated random weight sets (expected values produced by the backend).",
+"cases": [
+  {"name":"unrated, steps Pass (76)","steps":[{"key":"step1","score":90,"verdict":"Pass"},{"key":"step2","score":80,"verdict":"Pass"},{"key":"step4","score":70,"verdict":"Pass"},{"key":"step5","score":60,"verdict":"Pass"}],"moat":null,"expected":{"status":"complete","score":76,"verdict":"moat_not_rated"}},
+  {"name":"unrated, steps Pass at the 70 boundary","steps":[{"key":"step1","score":70,"verdict":"Pass"},{"key":"step2","score":70,"verdict":"Pass"},{"key":"step4","score":70,"verdict":"Pass"},{"key":"step5","score":70,"verdict":"Pass"}],"moat":null,"expected":{"status":"complete","score":70,"verdict":"moat_not_rated"}},
+  {"name":"unrated, steps Fail at the 69 boundary","steps":[{"key":"step1","score":69,"verdict":"Fail"},{"key":"step2","score":69,"verdict":"Fail"},{"key":"step4","score":69,"verdict":"Fail"},{"key":"step5","score":69,"verdict":"Fail"}],"moat":null,"expected":{"status":"complete","score":69,"verdict":"Fail"}},
+  {"name":"unrated, steps Pass at 90 (top of Pass band)","steps":[{"key":"step1","score":90,"verdict":"Pass"},{"key":"step2","score":90,"verdict":"Pass"},{"key":"step4","score":90,"verdict":"Pass"},{"key":"step5","score":90,"verdict":"Pass"}],"moat":null,"expected":{"status":"complete","score":90,"verdict":"moat_not_rated"}},
+  {"name":"unrated, steps Strong Pass at 91","steps":[{"key":"step1","score":91,"verdict":"Strong Pass"},{"key":"step2","score":91,"verdict":"Strong Pass"},{"key":"step4","score":91,"verdict":"Strong Pass"},{"key":"step5","score":91,"verdict":"Strong Pass"}],"moat":null,"expected":{"status":"complete","score":91,"verdict":"moat_not_rated"}},
+  {"name":"unrated, steps Strong Pass at 100","steps":[{"key":"step1","score":100,"verdict":"Strong Pass"},{"key":"step2","score":100,"verdict":"Strong Pass"},{"key":"step4","score":100,"verdict":"Strong Pass"},{"key":"step5","score":100,"verdict":"Strong Pass"}],"moat":null,"expected":{"status":"complete","score":100,"verdict":"moat_not_rated"}},
+  {"name":"unrated, steps Pass with caution (94)","steps":[{"key":"step1","score":100,"verdict":"Strong Pass"},{"key":"step2","score":100,"verdict":"Strong Pass"},{"key":"step4","score":100,"verdict":"Strong Pass"},{"key":"step5","score":74,"verdict":"Pass with caution"}],"moat":null,"expected":{"status":"complete","score":94,"verdict":"moat_not_rated"}},
+  {"name":"unrated, steps Fail (40)","steps":[{"key":"step1","score":40,"verdict":"Fail"},{"key":"step2","score":40,"verdict":"Fail"},{"key":"step4","score":40,"verdict":"Fail"},{"key":"step5","score":40,"verdict":"Fail"}],"moat":null,"expected":{"status":"complete","score":40,"verdict":"Fail"}},
+  {"name":"unrated, a step has insufficient data: incomplete","steps":[{"key":"step1","score":90,"verdict":"Pass"},{"key":"step2","score":90,"verdict":"Pass"},{"key":"step4","score":90,"verdict":"Pass"},{"key":"step5","score":null,"verdict":"insufficient_data"}],"moat":null,"expected":{"status":"incomplete","score":null,"verdict":null}},
+  {"name":"unrated, Step 5 exempt (not_supported): renormalized, still not rated","steps":[{"key":"step1","score":90,"verdict":"Pass"},{"key":"step2","score":90,"verdict":"Pass"},{"key":"step4","score":90,"verdict":"Pass"},{"key":"step5","score":null,"verdict":"not_supported"}],"moat":null,"expected":{"status":"complete","score":90,"verdict":"moat_not_rated"}},
+  {"name":"Wide Moat, steps 90","steps":[{"key":"step1","score":90,"verdict":"Pass"},{"key":"step2","score":90,"verdict":"Pass"},{"key":"step4","score":90,"verdict":"Pass"},{"key":"step5","score":90,"verdict":"Pass"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":93,"verdict":"Strong Pass"}},
+  {"name":"Narrow Moat, steps 90","steps":[{"key":"step1","score":90,"verdict":"Pass"},{"key":"step2","score":90,"verdict":"Pass"},{"key":"step4","score":90,"verdict":"Pass"},{"key":"step5","score":90,"verdict":"Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":82,"verdict":"Pass"}},
+  {"name":"No Moat, steps 90","steps":[{"key":"step1","score":90,"verdict":"Pass"},{"key":"step2","score":90,"verdict":"Pass"},{"key":"step4","score":90,"verdict":"Pass"},{"key":"step5","score":90,"verdict":"Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":62,"verdict":"Fail"}},
+  {"name":"No Moat caps perfect steps at 69","steps":[{"key":"step1","score":100,"verdict":"Strong Pass"},{"key":"step2","score":100,"verdict":"Strong Pass"},{"key":"step4","score":100,"verdict":"Strong Pass"},{"key":"step5","score":100,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":69,"verdict":"Fail"}},
+  {"name":"Wide Moat keeps Pass with caution","steps":[{"key":"step1","score":100,"verdict":"Strong Pass"},{"key":"step2","score":100,"verdict":"Strong Pass"},{"key":"step4","score":100,"verdict":"Strong Pass"},{"key":"step5","score":74,"verdict":"Pass with caution"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":96,"verdict":"Pass with caution"}},
+  {"name":"custom weights: equal split 17/17/17/18, unrated","weights":{"overall":{"financials":17,"growth":17,"profitability":17,"debt":18}},"steps":[{"key":"step1","score":90,"verdict":"Pass"},{"key":"step2","score":80,"verdict":"Pass"},{"key":"step4","score":70,"verdict":"Pass"},{"key":"step5","score":60,"verdict":"Pass"}],"moat":null,"expected":{"status":"complete","score":75,"verdict":"moat_not_rated"}},
+  {"name":"custom weights: growth-heavy 17/30/11/11, Narrow Moat","weights":{"overall":{"financials":17,"growth":30,"profitability":11,"debt":11}},"steps":[{"key":"step1","score":90,"verdict":"Pass"},{"key":"step2","score":80,"verdict":"Pass"},{"key":"step4","score":70,"verdict":"Pass"},{"key":"step5","score":60,"verdict":"Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":74,"verdict":"Pass"}},
+  {"name":"custom weights: debt-heavy 15/8/16/30, Wide Moat","weights":{"overall":{"financials":15,"growth":8,"profitability":16,"debt":30}},"steps":[{"key":"step1","score":90,"verdict":"Pass"},{"key":"step2","score":80,"verdict":"Pass"},{"key":"step4","score":70,"verdict":"Pass"},{"key":"step5","score":60,"verdict":"Pass"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":80,"verdict":"Pass"}},
+  {"name":"custom weights: debt-heavy with Debt exempt renormalizes the other three","weights":{"overall":{"financials":15,"growth":8,"profitability":16,"debt":30}},"steps":[{"key":"step1","score":90,"verdict":"Pass"},{"key":"step2","score":80,"verdict":"Pass"},{"key":"step4","score":70,"verdict":"Pass"},{"key":"step5","score":null,"verdict":"not_supported"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":75,"verdict":"Pass"}},
+  {"name":"custom weights: profitability-heavy, a step incomplete stays incomplete","weights":{"overall":{"financials":15,"growth":8,"profitability":31,"debt":15}},"steps":[{"key":"step1","score":90,"verdict":"Pass"},{"key":"step2","score":80,"verdict":"Pass"},{"key":"step4","score":null,"verdict":"not_supported"},{"key":"step5","score":60,"verdict":"Pass"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":83,"verdict":"Pass"}},
+  {"name":"custom weights: minimum Financials and Debt 10/30/19/10","weights":{"overall":{"financials":10,"growth":30,"profitability":19,"debt":10}},"steps":[{"key":"step1","score":95,"verdict":"Pass"},{"key":"step2","score":60,"verdict":"Pass"},{"key":"step4","score":80,"verdict":"Pass"},{"key":"step5","score":55,"verdict":"Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":68,"verdict":"Fail"}},
+  {"name":"custom weights: No Moat still caps perfect steps at 69 (30/5/5/29)","weights":{"overall":{"financials":30,"growth":5,"profitability":5,"debt":29}},"steps":[{"key":"step1","score":100,"verdict":"Strong Pass"},{"key":"step2","score":100,"verdict":"Strong Pass"},{"key":"step4","score":100,"verdict":"Strong Pass"},{"key":"step5","score":100,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":69,"verdict":"Fail"}},
+  {"name":"custom weights: No Moat still caps perfect steps at 69 (10/30/19/10)","weights":{"overall":{"financials":10,"growth":30,"profitability":19,"debt":10}},"steps":[{"key":"step1","score":100,"verdict":"Strong Pass"},{"key":"step2","score":100,"verdict":"Strong Pass"},{"key":"step4","score":100,"verdict":"Strong Pass"},{"key":"step5","score":100,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":69,"verdict":"Fail"}}
+],
+"defaults": {"overall": {"financials": 24, "growth": 10, "profitability": 20, "debt": 15}, "overall_total": 69, "moat_weight": 31},
+"rounding_cases": [
+  {"name":"rounding: steps 50, moat points 0 -> exactly 34.5 (defaults)","weights":{"overall":{"financials":24,"growth":10,"profitability":20,"debt":15}},"steps":[{"key":"step1","score":50,"verdict":"Pass"},{"key":"step2","score":50,"verdict":"Pass"},{"key":"step4","score":50,"verdict":"Pass"},{"key":"step5","score":50,"verdict":"Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":34,"verdict":"Fail"}},
+  {"name":"rounding: steps 50, moat points 0 -> exactly 34.5 (equal split)","weights":{"overall":{"financials":17,"growth":17,"profitability":17,"debt":18}},"steps":[{"key":"step1","score":50,"verdict":"Pass"},{"key":"step2","score":50,"verdict":"Pass"},{"key":"step4","score":50,"verdict":"Pass"},{"key":"step5","score":50,"verdict":"Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":34,"verdict":"Fail"}},
+  {"name":"rounding: steps 15, moat points 65 -> exactly 30.5 (defaults)","weights":{"overall":{"financials":24,"growth":10,"profitability":20,"debt":15}},"steps":[{"key":"step1","score":15,"verdict":"Pass"},{"key":"step2","score":15,"verdict":"Pass"},{"key":"step4","score":15,"verdict":"Pass"},{"key":"step5","score":15,"verdict":"Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":30,"verdict":"Fail"}},
+  {"name":"rounding: steps 15, moat points 65 -> exactly 30.5 (equal split)","weights":{"overall":{"financials":17,"growth":17,"profitability":17,"debt":18}},"steps":[{"key":"step1","score":15,"verdict":"Pass"},{"key":"step2","score":15,"verdict":"Pass"},{"key":"step4","score":15,"verdict":"Pass"},{"key":"step5","score":15,"verdict":"Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":30,"verdict":"Fail"}},
+  {"name":"rounding: steps 50, moat points 100 -> exactly 65.5 (defaults)","weights":{"overall":{"financials":24,"growth":10,"profitability":20,"debt":15}},"steps":[{"key":"step1","score":50,"verdict":"Pass"},{"key":"step2","score":50,"verdict":"Pass"},{"key":"step4","score":50,"verdict":"Pass"},{"key":"step5","score":50,"verdict":"Pass"}],"moat":{"moat":"narrow_moat","score":100},"expected":{"status":"complete","score":66,"verdict":"Fail"}},
+  {"name":"rounding: steps 50, moat points 100 -> exactly 65.5 (equal split)","weights":{"overall":{"financials":17,"growth":17,"profitability":17,"debt":18}},"steps":[{"key":"step1","score":50,"verdict":"Pass"},{"key":"step2","score":50,"verdict":"Pass"},{"key":"step4","score":50,"verdict":"Pass"},{"key":"step5","score":50,"verdict":"Pass"}],"moat":{"moat":"narrow_moat","score":100},"expected":{"status":"complete","score":66,"verdict":"Fail"}},
+  {"name":"rounding: steps 51, moat points 1 -> exactly 35.5 (defaults)","weights":{"overall":{"financials":24,"growth":10,"profitability":20,"debt":15}},"steps":[{"key":"step1","score":51,"verdict":"Pass"},{"key":"step2","score":51,"verdict":"Pass"},{"key":"step4","score":51,"verdict":"Pass"},{"key":"step5","score":51,"verdict":"Pass"}],"moat":{"moat":"narrow_moat","score":1},"expected":{"status":"complete","score":36,"verdict":"Fail"}},
+  {"name":"rounding: steps 51, moat points 1 -> exactly 35.5 (equal split)","weights":{"overall":{"financials":17,"growth":17,"profitability":17,"debt":18}},"steps":[{"key":"step1","score":51,"verdict":"Pass"},{"key":"step2","score":51,"verdict":"Pass"},{"key":"step4","score":51,"verdict":"Pass"},{"key":"step5","score":51,"verdict":"Pass"}],"moat":{"moat":"narrow_moat","score":1},"expected":{"status":"complete","score":36,"verdict":"Fail"}}
+],
+"parity_cases": [
+  {"name":"parity 0","weights":{"overall":{"financials":28,"growth":19,"profitability":12,"debt":10}},"steps":[{"key":"step1","score":14,"verdict":"Pass with caution"},{"key":"step2","score":12,"verdict":"Pass with caution"},{"key":"step4","score":87,"verdict":"Pass with caution"},{"key":"step5","score":40,"verdict":"Pass with caution"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":41,"verdict":"Fail"}},
+  {"name":"parity 1","weights":{"overall":{"financials":20,"growth":29,"profitability":5,"debt":15}},"steps":[{"key":"step1","score":11,"verdict":"Pass with caution"},{"key":"step2","score":55,"verdict":"Pass with caution"},{"key":"step4","score":21,"verdict":"Pass with caution"},{"key":"step5","score":84,"verdict":"Pass with caution"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":63,"verdict":"Fail"}},
+  {"name":"parity 2","weights":{"overall":{"financials":20,"growth":21,"profitability":16,"debt":12}},"steps":[{"key":"step1","score":75,"verdict":"Pass"},{"key":"step2","score":32,"verdict":"Pass"},{"key":"step4","score":31,"verdict":"Pass"},{"key":"step5","score":73,"verdict":"Pass"}],"moat":{"moat":"no_moat","score":0.6},"expected":{"status":"complete","score":35,"verdict":"Fail"}},
+  {"name":"parity 3","weights":{"overall":{"financials":23,"growth":12,"profitability":15,"debt":19}},"steps":[{"key":"step1","score":12,"verdict":"Pass with caution"},{"key":"step2","score":97,"verdict":"Pass with caution"},{"key":"step4","score":19,"verdict":"Pass with caution"},{"key":"step5","score":52,"verdict":"Pass with caution"}],"moat":{"moat":"no_moat","score":0.1},"expected":{"status":"complete","score":27,"verdict":"Fail"}},
+  {"name":"parity 4","weights":{"overall":{"financials":26,"growth":12,"profitability":18,"debt":13}},"steps":[{"key":"step1","score":21,"verdict":"Pass with caution"},{"key":"step2","score":18,"verdict":"Pass with caution"},{"key":"step4","score":39,"verdict":"Pass with caution"},{"key":"step5","score":55,"verdict":"Pass with caution"}],"moat":null,"expected":{"status":"complete","score":32,"verdict":"Fail"}},
+  {"name":"parity 5","weights":{"overall":{"financials":25,"growth":5,"profitability":16,"debt":23}},"steps":[{"key":"step1","score":77,"verdict":"Strong Pass"},{"key":"step2","score":90,"verdict":"Strong Pass"},{"key":"step4","score":69,"verdict":"Strong Pass"},{"key":"step5","score":14,"verdict":"Strong Pass"}],"moat":{"moat":"narrow_moat","score":39.2},"expected":{"status":"complete","score":50,"verdict":"Fail"}},
+  {"name":"parity 6","weights":{"overall":{"financials":24,"growth":20,"profitability":5,"debt":20}},"steps":[{"key":"step1","score":77,"verdict":"Pass"},{"key":"step2","score":74,"verdict":"Pass"},{"key":"step4","score":21,"verdict":"Pass"},{"key":"step5","score":65,"verdict":"Pass"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":79,"verdict":"Pass"}},
+  {"name":"parity 7","weights":{"overall":{"financials":30,"growth":9,"profitability":15,"debt":15}},"steps":[{"key":"step1","score":46,"verdict":"Pass with caution"},{"key":"step2","score":55,"verdict":"Pass with caution"},{"key":"step4","score":24,"verdict":"Pass with caution"},{"key":"step5","score":60,"verdict":"Pass with caution"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":62,"verdict":"Fail"}},
+  {"name":"parity 8","weights":{"overall":{"financials":24,"growth":17,"profitability":17,"debt":11}},"steps":[{"key":"step1","score":95,"verdict":"Pass with caution"},{"key":"step2","score":28,"verdict":"Pass with caution"},{"key":"step4","score":50,"verdict":"Pass with caution"},{"key":"step5","score":84,"verdict":"Pass with caution"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":66,"verdict":"Fail"}},
+  {"name":"parity 9","weights":{"overall":{"financials":18,"growth":11,"profitability":10,"debt":30}},"steps":[{"key":"step1","score":55,"verdict":"Strong Pass"},{"key":"step2","score":56,"verdict":"Strong Pass"},{"key":"step4","score":20,"verdict":"Strong Pass"},{"key":"step5","score":11,"verdict":"Strong Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":42,"verdict":"Fail"}},
+  {"name":"parity 10","weights":{"overall":{"financials":24,"growth":7,"profitability":12,"debt":26}},"steps":[{"key":"step1","score":98,"verdict":"Strong Pass"},{"key":"step2","score":72,"verdict":"Strong Pass"},{"key":"step4","score":62,"verdict":"Strong Pass"},{"key":"step5","score":null,"verdict":"not_supported"}],"moat":{"moat":"no_moat","score":0.7},"expected":{"status":"complete","score":58,"verdict":"Fail"}},
+  {"name":"parity 11","weights":{"overall":{"financials":25,"growth":14,"profitability":10,"debt":20}},"steps":[{"key":"step1","score":41,"verdict":"Pass with caution"},{"key":"step2","score":64,"verdict":"Pass with caution"},{"key":"step4","score":12,"verdict":"Pass with caution"},{"key":"step5","score":51,"verdict":"Pass with caution"}],"moat":null,"expected":{"status":"complete","score":44,"verdict":"Fail"}},
+  {"name":"parity 12","weights":{"overall":{"financials":21,"growth":14,"profitability":23,"debt":11}},"steps":[{"key":"step1","score":78,"verdict":"Strong Pass"},{"key":"step2","score":21,"verdict":"Strong Pass"},{"key":"step4","score":8,"verdict":"Strong Pass"},{"key":"step5","score":64,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0.9},"expected":{"status":"complete","score":29,"verdict":"Fail"}},
+  {"name":"parity 13","weights":{"overall":{"financials":26,"growth":15,"profitability":14,"debt":14}},"steps":[{"key":"step1","score":38,"verdict":"Strong Pass"},{"key":"step2","score":92,"verdict":"Strong Pass"},{"key":"step4","score":42,"verdict":"Strong Pass"},{"key":"step5","score":77,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0.7},"expected":{"status":"complete","score":40,"verdict":"Fail"}},
+  {"name":"parity 14","weights":{"overall":{"financials":18,"growth":5,"profitability":25,"debt":21}},"steps":[{"key":"step1","score":27,"verdict":"Strong Pass"},{"key":"step2","score":46,"verdict":"Strong Pass"},{"key":"step4","score":74,"verdict":"Strong Pass"},{"key":"step5","score":83,"verdict":"Strong Pass"}],"moat":{"moat":"narrow_moat","score":65.8},"expected":{"status":"complete","score":63,"verdict":"Fail"}},
+  {"name":"parity 15","weights":{"overall":{"financials":28,"growth":7,"profitability":19,"debt":15}},"steps":[{"key":"step1","score":78,"verdict":"Strong Pass"},{"key":"step2","score":98,"verdict":"Strong Pass"},{"key":"step4","score":4,"verdict":"Strong Pass"},{"key":"step5","score":5,"verdict":"Strong Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":51,"verdict":"Fail"}},
+  {"name":"parity 16","weights":{"overall":{"financials":23,"growth":8,"profitability":24,"debt":14}},"steps":[{"key":"step1","score":56,"verdict":"Strong Pass"},{"key":"step2","score":29,"verdict":"Strong Pass"},{"key":"step4","score":39,"verdict":"Strong Pass"},{"key":"step5","score":30,"verdict":"Strong Pass"}],"moat":{"moat":"narrow_moat","score":28.1},"expected":{"status":"complete","score":38,"verdict":"Fail"}},
+  {"name":"parity 17","weights":{"overall":{"financials":20,"growth":10,"profitability":20,"debt":19}},"steps":[{"key":"step1","score":53,"verdict":"Fail"},{"key":"step2","score":99,"verdict":"Fail"},{"key":"step4","score":26,"verdict":"Fail"},{"key":"step5","score":88,"verdict":"Fail"}],"moat":{"moat":"narrow_moat","score":28.7},"expected":{"status":"complete","score":51,"verdict":"Fail"}},
+  {"name":"parity 18","weights":{"overall":{"financials":17,"growth":19,"profitability":15,"debt":18}},"steps":[{"key":"step1","score":35,"verdict":"Pass with caution"},{"key":"step2","score":36,"verdict":"Pass with caution"},{"key":"step4","score":24,"verdict":"Pass with caution"},{"key":"step5","score":24,"verdict":"Pass with caution"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":52,"verdict":"Fail"}},
+  {"name":"parity 19","weights":{"overall":{"financials":11,"growth":26,"profitability":10,"debt":22}},"steps":[{"key":"step1","score":23,"verdict":"Pass with caution"},{"key":"step2","score":59,"verdict":"Pass with caution"},{"key":"step4","score":57,"verdict":"Pass with caution"},{"key":"step5","score":50,"verdict":"Pass with caution"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":66,"verdict":"Fail"}},
+  {"name":"parity 20","weights":{"overall":{"financials":16,"growth":16,"profitability":8,"debt":29}},"steps":[{"key":"step1","score":37,"verdict":"Pass with caution"},{"key":"step2","score":67,"verdict":"Pass with caution"},{"key":"step4","score":57,"verdict":"Pass with caution"},{"key":"step5","score":11,"verdict":"Pass with caution"}],"moat":{"moat":"no_moat","score":0.5},"expected":{"status":"complete","score":24,"verdict":"Fail"}},
+  {"name":"parity 21","weights":{"overall":{"financials":14,"growth":12,"profitability":20,"debt":23}},"steps":[{"key":"step1","score":68,"verdict":"Pass with caution"},{"key":"step2","score":82,"verdict":"Pass with caution"},{"key":"step4","score":22,"verdict":"Pass with caution"},{"key":"step5","score":34,"verdict":"Pass with caution"}],"moat":null,"expected":{"status":"complete","score":46,"verdict":"Fail"}},
+  {"name":"parity 22","weights":{"overall":{"financials":13,"growth":21,"profitability":22,"debt":13}},"steps":[{"key":"step1","score":97,"verdict":"Pass"},{"key":"step2","score":25,"verdict":"Pass"},{"key":"step4","score":50,"verdict":"Pass"},{"key":"step5","score":2,"verdict":"Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":29,"verdict":"Fail"}},
+  {"name":"parity 23","weights":{"overall":{"financials":25,"growth":19,"profitability":5,"debt":20}},"steps":[{"key":"step1","score":49,"verdict":"Strong Pass"},{"key":"step2","score":18,"verdict":"Strong Pass"},{"key":"step4","score":97,"verdict":"Strong Pass"},{"key":"step5","score":7,"verdict":"Strong Pass"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":53,"verdict":"Fail"}},
+  {"name":"parity 24","weights":{"overall":{"financials":30,"growth":11,"profitability":17,"debt":11}},"steps":[{"key":"step1","score":50,"verdict":"Pass with caution"},{"key":"step2","score":15,"verdict":"Pass with caution"},{"key":"step4","score":34,"verdict":"Pass with caution"},{"key":"step5","score":100,"verdict":"Pass with caution"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":64,"verdict":"Fail"}},
+  {"name":"parity 25","weights":{"overall":{"financials":23,"growth":15,"profitability":7,"debt":24}},"steps":[{"key":"step1","score":30,"verdict":"Strong Pass"},{"key":"step2","score":76,"verdict":"Strong Pass"},{"key":"step4","score":45,"verdict":"Strong Pass"},{"key":"step5","score":50,"verdict":"Strong Pass"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":64,"verdict":"Fail"}},
+  {"name":"parity 26","weights":{"overall":{"financials":20,"growth":25,"profitability":10,"debt":14}},"steps":[{"key":"step1","score":42,"verdict":"Fail"},{"key":"step2","score":77,"verdict":"Fail"},{"key":"step4","score":65,"verdict":"Fail"},{"key":"step5","score":25,"verdict":"Fail"}],"moat":{"moat":"no_moat","score":0.2},"expected":{"status":"complete","score":38,"verdict":"Fail"}},
+  {"name":"parity 27","weights":{"overall":{"financials":13,"growth":10,"profitability":24,"debt":22}},"steps":[{"key":"step1","score":34,"verdict":"Pass with caution"},{"key":"step2","score":83,"verdict":"Pass with caution"},{"key":"step4","score":49,"verdict":"Pass with caution"},{"key":"step5","score":7,"verdict":"Pass with caution"}],"moat":{"moat":"no_moat","score":0.8},"expected":{"status":"complete","score":26,"verdict":"Fail"}},
+  {"name":"parity 28","weights":{"overall":{"financials":25,"growth":7,"profitability":23,"debt":14}},"steps":[{"key":"step1","score":33,"verdict":"Pass with caution"},{"key":"step2","score":84,"verdict":"Pass with caution"},{"key":"step4","score":78,"verdict":"Pass with caution"},{"key":"step5","score":88,"verdict":"Pass with caution"}],"moat":{"moat":"no_moat","score":0.8},"expected":{"status":"complete","score":44,"verdict":"Fail"}},
+  {"name":"parity 29","weights":{"overall":{"financials":22,"growth":13,"profitability":9,"debt":25}},"steps":[{"key":"step1","score":62,"verdict":"Fail"},{"key":"step2","score":2,"verdict":"Fail"},{"key":"step4","score":78,"verdict":"Fail"},{"key":"step5","score":43,"verdict":"Fail"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":32,"verdict":"Fail"}},
+  {"name":"parity 30","weights":{"overall":{"financials":17,"growth":8,"profitability":29,"debt":15}},"steps":[{"key":"step1","score":89,"verdict":"Strong Pass"},{"key":"step2","score":13,"verdict":"Strong Pass"},{"key":"step4","score":34,"verdict":"Strong Pass"},{"key":"step5","score":88,"verdict":"Strong Pass"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":70,"verdict":"Pass"}},
+  {"name":"parity 31","weights":{"overall":{"financials":19,"growth":14,"profitability":18,"debt":18}},"steps":[{"key":"step1","score":25,"verdict":"Pass"},{"key":"step2","score":22,"verdict":"Pass"},{"key":"step4","score":92,"verdict":"Pass"},{"key":"step5","score":3,"verdict":"Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":45,"verdict":"Fail"}},
+  {"name":"parity 32","weights":{"overall":{"financials":19,"growth":23,"profitability":8,"debt":19}},"steps":[{"key":"step1","score":47,"verdict":"Pass with caution"},{"key":"step2","score":64,"verdict":"Pass with caution"},{"key":"step4","score":32,"verdict":"Pass with caution"},{"key":"step5","score":55,"verdict":"Pass with caution"}],"moat":{"moat":"narrow_moat","score":77.8},"expected":{"status":"complete","score":61,"verdict":"Fail"}},
+  {"name":"parity 33","weights":{"overall":{"financials":14,"growth":14,"profitability":24,"debt":17}},"steps":[{"key":"step1","score":79,"verdict":"Fail"},{"key":"step2","score":3,"verdict":"Fail"},{"key":"step4","score":71,"verdict":"Fail"},{"key":"step5","score":95,"verdict":"Fail"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":45,"verdict":"Fail"}},
+  {"name":"parity 34","weights":{"overall":{"financials":19,"growth":25,"profitability":14,"debt":11}},"steps":[{"key":"step1","score":81,"verdict":"Pass"},{"key":"step2","score":12,"verdict":"Pass"},{"key":"step4","score":74,"verdict":"Pass"},{"key":"step5","score":8,"verdict":"Pass"}],"moat":null,"expected":{"status":"complete","score":43,"verdict":"Fail"}},
+  {"name":"parity 35","weights":{"overall":{"financials":23,"growth":15,"profitability":14,"debt":17}},"steps":[{"key":"step1","score":33,"verdict":"Pass with caution"},{"key":"step2","score":12,"verdict":"Pass with caution"},{"key":"step4","score":62,"verdict":"Pass with caution"},{"key":"step5","score":7,"verdict":"Pass with caution"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":19,"verdict":"Fail"}},
+  {"name":"parity 36","weights":{"overall":{"financials":21,"growth":12,"profitability":26,"debt":10}},"steps":[{"key":"step1","score":16,"verdict":"Strong Pass"},{"key":"step2","score":65,"verdict":"Strong Pass"},{"key":"step4","score":37,"verdict":"Strong Pass"},{"key":"step5","score":12,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":22,"verdict":"Fail"}},
+  {"name":"parity 37","weights":{"overall":{"financials":21,"growth":26,"profitability":8,"debt":14}},"steps":[{"key":"step1","score":48,"verdict":"Strong Pass"},{"key":"step2","score":92,"verdict":"Strong Pass"},{"key":"step4","score":52,"verdict":"Strong Pass"},{"key":"step5","score":29,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0.6},"expected":{"status":"complete","score":42,"verdict":"Fail"}},
+  {"name":"parity 38","weights":{"overall":{"financials":12,"growth":17,"profitability":13,"debt":27}},"steps":[{"key":"step1","score":84,"verdict":"Pass with caution"},{"key":"step2","score":16,"verdict":"Pass with caution"},{"key":"step4","score":60,"verdict":"Pass with caution"},{"key":"step5","score":6,"verdict":"Pass with caution"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":42,"verdict":"Fail"}},
+  {"name":"parity 39","weights":{"overall":{"financials":18,"growth":23,"profitability":8,"debt":20}},"steps":[{"key":"step1","score":50,"verdict":"Fail"},{"key":"step2","score":40,"verdict":"Fail"},{"key":"step4","score":79,"verdict":"Fail"},{"key":"step5","score":62,"verdict":"Fail"}],"moat":{"moat":"narrow_moat","score":55.1},"expected":{"status":"complete","score":54,"verdict":"Fail"}},
+  {"name":"parity 40","weights":{"overall":{"financials":14,"growth":14,"profitability":16,"debt":25}},"steps":[{"key":"step1","score":14,"verdict":"Pass with caution"},{"key":"step2","score":63,"verdict":"Pass with caution"},{"key":"step4","score":93,"verdict":"Pass with caution"},{"key":"step5","score":30,"verdict":"Pass with caution"}],"moat":{"moat":"narrow_moat","score":88.9},"expected":{"status":"complete","score":61,"verdict":"Fail"}},
+  {"name":"parity 41","weights":{"overall":{"financials":10,"growth":11,"profitability":30,"debt":18}},"steps":[{"key":"step1","score":93,"verdict":"Pass"},{"key":"step2","score":85,"verdict":"Pass"},{"key":"step4","score":null,"verdict":"not_supported"},{"key":"step5","score":47,"verdict":"Pass"}],"moat":null,"expected":{"status":"complete","score":70,"verdict":"moat_not_rated"}},
+  {"name":"parity 42","weights":{"overall":{"financials":18,"growth":11,"profitability":11,"debt":29}},"steps":[{"key":"step1","score":33,"verdict":"Fail"},{"key":"step2","score":23,"verdict":"Fail"},{"key":"step4","score":97,"verdict":"Fail"},{"key":"step5","score":38,"verdict":"Fail"}],"moat":null,"expected":{"status":"complete","score":44,"verdict":"Fail"}},
+  {"name":"parity 43","weights":{"overall":{"financials":12,"growth":13,"profitability":23,"debt":21}},"steps":[{"key":"step1","score":17,"verdict":"Pass with caution"},{"key":"step2","score":98,"verdict":"Pass with caution"},{"key":"step4","score":79,"verdict":"Pass with caution"},{"key":"step5","score":49,"verdict":"Pass with caution"}],"moat":{"moat":"no_moat","score":0.7},"expected":{"status":"complete","score":44,"verdict":"Fail"}},
+  {"name":"parity 44","weights":{"overall":{"financials":13,"growth":6,"profitability":28,"debt":22}},"steps":[{"key":"step1","score":69,"verdict":"Fail"},{"key":"step2","score":96,"verdict":"Fail"},{"key":"step4","score":94,"verdict":"Fail"},{"key":"step5","score":38,"verdict":"Fail"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":50,"verdict":"Fail"}},
+  {"name":"parity 45","weights":{"overall":{"financials":24,"growth":12,"profitability":5,"debt":28}},"steps":[{"key":"step1","score":73,"verdict":"Strong Pass"},{"key":"step2","score":61,"verdict":"Strong Pass"},{"key":"step4","score":37,"verdict":"Strong Pass"},{"key":"step5","score":4,"verdict":"Strong Pass"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":59,"verdict":"Fail"}},
+  {"name":"parity 46","weights":{"overall":{"financials":23,"growth":13,"profitability":23,"debt":10}},"steps":[{"key":"step1","score":6,"verdict":"Strong Pass"},{"key":"step2","score":53,"verdict":"Strong Pass"},{"key":"step4","score":76,"verdict":"Strong Pass"},{"key":"step5","score":96,"verdict":"Strong Pass"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":66,"verdict":"Fail"}},
+  {"name":"parity 47","weights":{"overall":{"financials":17,"growth":8,"profitability":16,"debt":28}},"steps":[{"key":"step1","score":22,"verdict":"Pass"},{"key":"step2","score":38,"verdict":"Pass"},{"key":"step4","score":24,"verdict":"Pass"},{"key":"step5","score":58,"verdict":"Pass"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":58,"verdict":"Fail"}},
+  {"name":"parity 48","weights":{"overall":{"financials":10,"growth":12,"profitability":29,"debt":18}},"steps":[{"key":"step1","score":12,"verdict":"Fail"},{"key":"step2","score":86,"verdict":"Fail"},{"key":"step4","score":63,"verdict":"Fail"},{"key":"step5","score":87,"verdict":"Fail"}],"moat":null,"expected":{"status":"complete","score":66,"verdict":"Fail"}},
+  {"name":"parity 49","weights":{"overall":{"financials":22,"growth":28,"profitability":9,"debt":10}},"steps":[{"key":"step1","score":89,"verdict":"Fail"},{"key":"step2","score":62,"verdict":"Fail"},{"key":"step4","score":40,"verdict":"Fail"},{"key":"step5","score":72,"verdict":"Fail"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":79,"verdict":"Pass"}},
+  {"name":"parity 50","weights":{"overall":{"financials":13,"growth":11,"profitability":16,"debt":29}},"steps":[{"key":"step1","score":95,"verdict":"Pass with caution"},{"key":"step2","score":7,"verdict":"Pass with caution"},{"key":"step4","score":null,"verdict":"not_supported"},{"key":"step5","score":22,"verdict":"Pass with caution"}],"moat":null,"expected":{"status":"complete","score":37,"verdict":"Fail"}},
+  {"name":"parity 51","weights":{"overall":{"financials":15,"growth":11,"profitability":29,"debt":14}},"steps":[{"key":"step1","score":75,"verdict":"Pass with caution"},{"key":"step2","score":64,"verdict":"Pass with caution"},{"key":"step4","score":61,"verdict":"Pass with caution"},{"key":"step5","score":49,"verdict":"Pass with caution"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":63,"verdict":"Fail"}},
+  {"name":"parity 52","weights":{"overall":{"financials":18,"growth":24,"profitability":15,"debt":12}},"steps":[{"key":"step1","score":44,"verdict":"Strong Pass"},{"key":"step2","score":95,"verdict":"Strong Pass"},{"key":"step4","score":81,"verdict":"Strong Pass"},{"key":"step5","score":37,"verdict":"Strong Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":68,"verdict":"Fail"}},
+  {"name":"parity 53","weights":{"overall":{"financials":13,"growth":26,"profitability":8,"debt":22}},"steps":[{"key":"step1","score":36,"verdict":"Fail"},{"key":"step2","score":56,"verdict":"Fail"},{"key":"step4","score":90,"verdict":"Fail"},{"key":"step5","score":3,"verdict":"Fail"}],"moat":null,"expected":{"status":"complete","score":39,"verdict":"Fail"}},
+  {"name":"parity 54","weights":{"overall":{"financials":22,"growth":14,"profitability":16,"debt":17}},"steps":[{"key":"step1","score":48,"verdict":"Pass with caution"},{"key":"step2","score":53,"verdict":"Pass with caution"},{"key":"step4","score":50,"verdict":"Pass with caution"},{"key":"step5","score":25,"verdict":"Pass with caution"}],"moat":null,"expected":{"status":"complete","score":44,"verdict":"Fail"}},
+  {"name":"parity 55","weights":{"overall":{"financials":12,"growth":21,"profitability":25,"debt":11}},"steps":[{"key":"step1","score":64,"verdict":"Fail"},{"key":"step2","score":100,"verdict":"Fail"},{"key":"step4","score":78,"verdict":"Fail"},{"key":"step5","score":84,"verdict":"Fail"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":57,"verdict":"Fail"}},
+  {"name":"parity 56","weights":{"overall":{"financials":18,"growth":5,"profitability":16,"debt":30}},"steps":[{"key":"step1","score":63,"verdict":"Strong Pass"},{"key":"step2","score":97,"verdict":"Strong Pass"},{"key":"step4","score":96,"verdict":"Strong Pass"},{"key":"step5","score":55,"verdict":"Strong Pass"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":79,"verdict":"Pass"}},
+  {"name":"parity 57","weights":{"overall":{"financials":17,"growth":16,"profitability":23,"debt":13}},"steps":[{"key":"step1","score":47,"verdict":"Strong Pass"},{"key":"step2","score":51,"verdict":"Strong Pass"},{"key":"step4","score":2,"verdict":"Strong Pass"},{"key":"step5","score":48,"verdict":"Strong Pass"}],"moat":null,"expected":{"status":"complete","score":33,"verdict":"Fail"}},
+  {"name":"parity 58","weights":{"overall":{"financials":26,"growth":19,"profitability":8,"debt":16}},"steps":[{"key":"step1","score":42,"verdict":"Pass"},{"key":"step2","score":0,"verdict":"Pass"},{"key":"step4","score":66,"verdict":"Pass"},{"key":"step5","score":70,"verdict":"Pass"}],"moat":{"moat":"no_moat","score":0.3},"expected":{"status":"complete","score":28,"verdict":"Fail"}},
+  {"name":"parity 59","weights":{"overall":{"financials":18,"growth":7,"profitability":15,"debt":29}},"steps":[{"key":"step1","score":71,"verdict":"Strong Pass"},{"key":"step2","score":19,"verdict":"Strong Pass"},{"key":"step4","score":48,"verdict":"Strong Pass"},{"key":"step5","score":8,"verdict":"Strong Pass"}],"moat":{"moat":"narrow_moat","score":82.7},"expected":{"status":"complete","score":49,"verdict":"Fail"}},
+  {"name":"parity 60","weights":{"overall":{"financials":22,"growth":14,"profitability":21,"debt":12}},"steps":[{"key":"step1","score":94,"verdict":"Fail"},{"key":"step2","score":13,"verdict":"Fail"},{"key":"step4","score":17,"verdict":"Fail"},{"key":"step5","score":11,"verdict":"Fail"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":48,"verdict":"Fail"}},
+  {"name":"parity 61","weights":{"overall":{"financials":20,"growth":6,"profitability":20,"debt":23}},"steps":[{"key":"step1","score":77,"verdict":"Strong Pass"},{"key":"step2","score":56,"verdict":"Strong Pass"},{"key":"step4","score":18,"verdict":"Strong Pass"},{"key":"step5","score":62,"verdict":"Strong Pass"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":68,"verdict":"Fail"}},
+  {"name":"parity 62","weights":{"overall":{"financials":19,"growth":17,"profitability":15,"debt":18}},"steps":[{"key":"step1","score":27,"verdict":"Fail"},{"key":"step2","score":6,"verdict":"Fail"},{"key":"step4","score":24,"verdict":"Fail"},{"key":"step5","score":35,"verdict":"Fail"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":36,"verdict":"Fail"}},
+  {"name":"parity 63","weights":{"overall":{"financials":22,"growth":7,"profitability":21,"debt":19}},"steps":[{"key":"step1","score":65,"verdict":"Fail"},{"key":"step2","score":44,"verdict":"Fail"},{"key":"step4","score":30,"verdict":"Fail"},{"key":"step5","score":9,"verdict":"Fail"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":26,"verdict":"Fail"}},
+  {"name":"parity 64","weights":{"overall":{"financials":14,"growth":18,"profitability":26,"debt":11}},"steps":[{"key":"step1","score":55,"verdict":"Strong Pass"},{"key":"step2","score":4,"verdict":"Strong Pass"},{"key":"step4","score":15,"verdict":"Strong Pass"},{"key":"step5","score":25,"verdict":"Strong Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":35,"verdict":"Fail"}},
+  {"name":"parity 65","weights":{"overall":{"financials":10,"growth":23,"profitability":11,"debt":25}},"steps":[{"key":"step1","score":54,"verdict":"Strong Pass"},{"key":"step2","score":74,"verdict":"Strong Pass"},{"key":"step4","score":45,"verdict":"Strong Pass"},{"key":"step5","score":10,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":30,"verdict":"Fail"}},
+  {"name":"parity 66","weights":{"overall":{"financials":26,"growth":17,"profitability":14,"debt":12}},"steps":[{"key":"step1","score":89,"verdict":"Pass with caution"},{"key":"step2","score":73,"verdict":"Pass with caution"},{"key":"step4","score":86,"verdict":"Pass with caution"},{"key":"step5","score":2,"verdict":"Pass with caution"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":79,"verdict":"Pass with caution"}},
+  {"name":"parity 67","weights":{"overall":{"financials":25,"growth":9,"profitability":21,"debt":14}},"steps":[{"key":"step1","score":38,"verdict":"Strong Pass"},{"key":"step2","score":17,"verdict":"Strong Pass"},{"key":"step4","score":33,"verdict":"Strong Pass"},{"key":"step5","score":22,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":1.0},"expected":{"status":"complete","score":21,"verdict":"Fail"}},
+  {"name":"parity 68","weights":{"overall":{"financials":20,"growth":23,"profitability":5,"debt":21}},"steps":[{"key":"step1","score":90,"verdict":"Pass"},{"key":"step2","score":49,"verdict":"Pass"},{"key":"step4","score":44,"verdict":"Pass"},{"key":"step5","score":9,"verdict":"Pass"}],"moat":{"moat":"no_moat","score":0.2},"expected":{"status":"complete","score":33,"verdict":"Fail"}},
+  {"name":"parity 69","weights":{"overall":{"financials":23,"growth":16,"profitability":20,"debt":10}},"steps":[{"key":"step1","score":61,"verdict":"Pass with caution"},{"key":"step2","score":88,"verdict":"Pass with caution"},{"key":"step4","score":77,"verdict":"Pass with caution"},{"key":"step5","score":48,"verdict":"Pass with caution"}],"moat":{"moat":"no_moat","score":0.2},"expected":{"status":"complete","score":48,"verdict":"Fail"}},
+  {"name":"parity 70","weights":{"overall":{"financials":14,"growth":18,"profitability":24,"debt":13}},"steps":[{"key":"step1","score":61,"verdict":"Strong Pass"},{"key":"step2","score":70,"verdict":"Strong Pass"},{"key":"step4","score":18,"verdict":"Strong Pass"},{"key":"step5","score":81,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":36,"verdict":"Fail"}},
+  {"name":"parity 71","weights":{"overall":{"financials":23,"growth":28,"profitability":5,"debt":13}},"steps":[{"key":"step1","score":31,"verdict":"Pass with caution"},{"key":"step2","score":64,"verdict":"Pass with caution"},{"key":"step4","score":79,"verdict":"Pass with caution"},{"key":"step5","score":13,"verdict":"Pass with caution"}],"moat":{"moat":"narrow_moat","score":66.1},"expected":{"status":"complete","score":51,"verdict":"Fail"}},
+  {"name":"parity 72","weights":{"overall":{"financials":18,"growth":8,"profitability":25,"debt":18}},"steps":[{"key":"step1","score":45,"verdict":"Strong Pass"},{"key":"step2","score":6,"verdict":"Strong Pass"},{"key":"step4","score":47,"verdict":"Strong Pass"},{"key":"step5","score":35,"verdict":"Strong Pass"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":58,"verdict":"Fail"}},
+  {"name":"parity 73","weights":{"overall":{"financials":13,"growth":17,"profitability":28,"debt":11}},"steps":[{"key":"step1","score":36,"verdict":"Strong Pass"},{"key":"step2","score":90,"verdict":"Strong Pass"},{"key":"step4","score":60,"verdict":"Strong Pass"},{"key":"step5","score":27,"verdict":"Strong Pass"}],"moat":{"moat":"narrow_moat","score":23.2},"expected":{"status":"complete","score":47,"verdict":"Fail"}},
+  {"name":"parity 74","weights":{"overall":{"financials":27,"growth":5,"profitability":23,"debt":14}},"steps":[{"key":"step1","score":28,"verdict":"Strong Pass"},{"key":"step2","score":74,"verdict":"Strong Pass"},{"key":"step4","score":24,"verdict":"Strong Pass"},{"key":"step5","score":29,"verdict":"Strong Pass"}],"moat":{"moat":"narrow_moat","score":20.0},"expected":{"status":"complete","score":27,"verdict":"Fail"}},
+  {"name":"parity 75","weights":{"overall":{"financials":26,"growth":15,"profitability":9,"debt":19}},"steps":[{"key":"step1","score":70,"verdict":"Pass"},{"key":"step2","score":56,"verdict":"Pass"},{"key":"step4","score":24,"verdict":"Pass"},{"key":"step5","score":39,"verdict":"Pass"}],"moat":{"moat":"no_moat","score":0.4},"expected":{"status":"complete","score":36,"verdict":"Fail"}},
+  {"name":"parity 76","weights":{"overall":{"financials":29,"growth":16,"profitability":11,"debt":13}},"steps":[{"key":"step1","score":77,"verdict":"Fail"},{"key":"step2","score":15,"verdict":"Fail"},{"key":"step4","score":38,"verdict":"Fail"},{"key":"step5","score":75,"verdict":"Fail"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":39,"verdict":"Fail"}},
+  {"name":"parity 77","weights":{"overall":{"financials":18,"growth":10,"profitability":27,"debt":14}},"steps":[{"key":"step1","score":44,"verdict":"Strong Pass"},{"key":"step2","score":27,"verdict":"Strong Pass"},{"key":"step4","score":8,"verdict":"Strong Pass"},{"key":"step5","score":49,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":19,"verdict":"Fail"}},
+  {"name":"parity 78","weights":{"overall":{"financials":17,"growth":15,"profitability":17,"debt":20}},"steps":[{"key":"step1","score":88,"verdict":"Pass with caution"},{"key":"step2","score":43,"verdict":"Pass with caution"},{"key":"step4","score":55,"verdict":"Pass with caution"},{"key":"step5","score":39,"verdict":"Pass with caution"}],"moat":{"moat":"narrow_moat","score":59.5},"expected":{"status":"complete","score":57,"verdict":"Fail"}},
+  {"name":"parity 79","weights":{"overall":{"financials":17,"growth":17,"profitability":9,"debt":26}},"steps":[{"key":"step1","score":86,"verdict":"Pass"},{"key":"step2","score":44,"verdict":"Pass"},{"key":"step4","score":19,"verdict":"Pass"},{"key":"step5","score":45,"verdict":"Pass"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":66,"verdict":"Fail"}},
+  {"name":"parity 80","weights":{"overall":{"financials":25,"growth":13,"profitability":8,"debt":23}},"steps":[{"key":"step1","score":88,"verdict":"Fail"},{"key":"step2","score":52,"verdict":"Fail"},{"key":"step4","score":26,"verdict":"Fail"},{"key":"step5","score":74,"verdict":"Fail"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":48,"verdict":"Fail"}},
+  {"name":"parity 81","weights":{"overall":{"financials":29,"growth":7,"profitability":17,"debt":16}},"steps":[{"key":"step1","score":83,"verdict":"Fail"},{"key":"step2","score":86,"verdict":"Fail"},{"key":"step4","score":38,"verdict":"Fail"},{"key":"step5","score":28,"verdict":"Fail"}],"moat":null,"expected":{"status":"complete","score":59,"verdict":"Fail"}},
+  {"name":"parity 82","weights":{"overall":{"financials":24,"growth":11,"profitability":13,"debt":21}},"steps":[{"key":"step1","score":97,"verdict":"Strong Pass"},{"key":"step2","score":74,"verdict":"Strong Pass"},{"key":"step4","score":1,"verdict":"Strong Pass"},{"key":"step5","score":82,"verdict":"Strong Pass"}],"moat":null,"expected":{"status":"complete","score":71,"verdict":"moat_not_rated"}},
+  {"name":"parity 83","weights":{"overall":{"financials":13,"growth":15,"profitability":23,"debt":18}},"steps":[{"key":"step1","score":99,"verdict":"Fail"},{"key":"step2","score":54,"verdict":"Fail"},{"key":"step4","score":6,"verdict":"Fail"},{"key":"step5","score":4,"verdict":"Fail"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":54,"verdict":"Fail"}},
+  {"name":"parity 84","weights":{"overall":{"financials":15,"growth":5,"profitability":24,"debt":25}},"steps":[{"key":"step1","score":99,"verdict":"Pass with caution"},{"key":"step2","score":80,"verdict":"Pass with caution"},{"key":"step4","score":89,"verdict":"Pass with caution"},{"key":"step5","score":82,"verdict":"Pass with caution"}],"moat":{"moat":"no_moat","score":0.5},"expected":{"status":"complete","score":61,"verdict":"Fail"}},
+  {"name":"parity 85","weights":{"overall":{"financials":19,"growth":30,"profitability":9,"debt":11}},"steps":[{"key":"step1","score":56,"verdict":"Pass"},{"key":"step2","score":85,"verdict":"Pass"},{"key":"step4","score":33,"verdict":"Pass"},{"key":"step5","score":41,"verdict":"Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":64,"verdict":"Fail"}},
+  {"name":"parity 86","weights":{"overall":{"financials":19,"growth":18,"profitability":6,"debt":26}},"steps":[{"key":"step1","score":87,"verdict":"Strong Pass"},{"key":"step2","score":29,"verdict":"Strong Pass"},{"key":"step4","score":24,"verdict":"Strong Pass"},{"key":"step5","score":80,"verdict":"Strong Pass"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":75,"verdict":"Pass"}},
+  {"name":"parity 87","weights":{"overall":{"financials":16,"growth":23,"profitability":7,"debt":23}},"steps":[{"key":"step1","score":52,"verdict":"Pass"},{"key":"step2","score":51,"verdict":"Pass"},{"key":"step4","score":91,"verdict":"Pass"},{"key":"step5","score":68,"verdict":"Pass"}],"moat":{"moat":"no_moat","score":0.6},"expected":{"status":"complete","score":42,"verdict":"Fail"}},
+  {"name":"parity 88","weights":{"overall":{"financials":25,"growth":6,"profitability":24,"debt":14}},"steps":[{"key":"step1","score":23,"verdict":"Pass with caution"},{"key":"step2","score":25,"verdict":"Pass with caution"},{"key":"step4","score":63,"verdict":"Pass with caution"},{"key":"step5","score":3,"verdict":"Pass with caution"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":54,"verdict":"Fail"}},
+  {"name":"parity 89","weights":{"overall":{"financials":15,"growth":29,"profitability":10,"debt":15}},"steps":[{"key":"step1","score":24,"verdict":"Strong Pass"},{"key":"step2","score":92,"verdict":"Strong Pass"},{"key":"step4","score":2,"verdict":"Strong Pass"},{"key":"step5","score":92,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0.7},"expected":{"status":"complete","score":44,"verdict":"Fail"}},
+  {"name":"parity 90","weights":{"overall":{"financials":13,"growth":17,"profitability":16,"debt":23}},"steps":[{"key":"step1","score":22,"verdict":"Pass with caution"},{"key":"step2","score":15,"verdict":"Pass with caution"},{"key":"step4","score":30,"verdict":"Pass with caution"},{"key":"step5","score":60,"verdict":"Pass with caution"}],"moat":null,"expected":{"status":"complete","score":35,"verdict":"Fail"}},
+  {"name":"parity 91","weights":{"overall":{"financials":30,"growth":16,"profitability":7,"debt":16}},"steps":[{"key":"step1","score":36,"verdict":"Pass"},{"key":"step2","score":50,"verdict":"Pass"},{"key":"step4","score":70,"verdict":"Pass"},{"key":"step5","score":5,"verdict":"Pass"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":56,"verdict":"Fail"}},
+  {"name":"parity 92","weights":{"overall":{"financials":12,"growth":19,"profitability":16,"debt":22}},"steps":[{"key":"step1","score":29,"verdict":"Pass with caution"},{"key":"step2","score":88,"verdict":"Pass with caution"},{"key":"step4","score":77,"verdict":"Pass with caution"},{"key":"step5","score":50,"verdict":"Pass with caution"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":74,"verdict":"Pass with caution"}},
+  {"name":"parity 93","weights":{"overall":{"financials":20,"growth":7,"profitability":24,"debt":18}},"steps":[{"key":"step1","score":64,"verdict":"Pass with caution"},{"key":"step2","score":54,"verdict":"Pass with caution"},{"key":"step4","score":20,"verdict":"Pass with caution"},{"key":"step5","score":17,"verdict":"Pass with caution"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":55,"verdict":"Fail"}},
+  {"name":"parity 94","weights":{"overall":{"financials":17,"growth":14,"profitability":27,"debt":11}},"steps":[{"key":"step1","score":30,"verdict":"Fail"},{"key":"step2","score":11,"verdict":"Fail"},{"key":"step4","score":44,"verdict":"Fail"},{"key":"step5","score":90,"verdict":"Fail"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":28,"verdict":"Fail"}},
+  {"name":"parity 95","weights":{"overall":{"financials":23,"growth":17,"profitability":19,"debt":10}},"steps":[{"key":"step1","score":36,"verdict":"Strong Pass"},{"key":"step2","score":61,"verdict":"Strong Pass"},{"key":"step4","score":48,"verdict":"Strong Pass"},{"key":"step5","score":68,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":34,"verdict":"Fail"}},
+  {"name":"parity 96","weights":{"overall":{"financials":26,"growth":24,"profitability":5,"debt":14}},"steps":[{"key":"step1","score":51,"verdict":"Strong Pass"},{"key":"step2","score":79,"verdict":"Strong Pass"},{"key":"step4","score":20,"verdict":"Strong Pass"},{"key":"step5","score":0,"verdict":"Strong Pass"}],"moat":null,"expected":{"status":"complete","score":48,"verdict":"Fail"}},
+  {"name":"parity 97","weights":{"overall":{"financials":20,"growth":12,"profitability":7,"debt":30}},"steps":[{"key":"step1","score":73,"verdict":"Pass with caution"},{"key":"step2","score":6,"verdict":"Pass with caution"},{"key":"step4","score":14,"verdict":"Pass with caution"},{"key":"step5","score":96,"verdict":"Pass with caution"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":65,"verdict":"Fail"}},
+  {"name":"parity 98","weights":{"overall":{"financials":11,"growth":19,"profitability":12,"debt":27}},"steps":[{"key":"step1","score":51,"verdict":"Pass with caution"},{"key":"step2","score":87,"verdict":"Pass with caution"},{"key":"step4","score":3,"verdict":"Pass with caution"},{"key":"step5","score":30,"verdict":"Pass with caution"}],"moat":{"moat":"narrow_moat","score":31.1},"expected":{"status":"complete","score":40,"verdict":"Fail"}},
+  {"name":"parity 99","weights":{"overall":{"financials":10,"growth":30,"profitability":9,"debt":20}},"steps":[{"key":"step1","score":40,"verdict":"Pass"},{"key":"step2","score":55,"verdict":"Pass"},{"key":"step4","score":87,"verdict":"Pass"},{"key":"step5","score":91,"verdict":"Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":46,"verdict":"Fail"}},
+  {"name":"parity 100","weights":{"overall":{"financials":17,"growth":10,"profitability":15,"debt":27}},"steps":[{"key":"step1","score":14,"verdict":"Strong Pass"},{"key":"step2","score":54,"verdict":"Strong Pass"},{"key":"step4","score":14,"verdict":"Strong Pass"},{"key":"step5","score":81,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0.7},"expected":{"status":"complete","score":32,"verdict":"Fail"}},
+  {"name":"parity 101","weights":{"overall":{"financials":13,"growth":26,"profitability":7,"debt":23}},"steps":[{"key":"step1","score":26,"verdict":"Pass"},{"key":"step2","score":66,"verdict":"Pass"},{"key":"step4","score":85,"verdict":"Pass"},{"key":"step5","score":36,"verdict":"Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":55,"verdict":"Fail"}},
+  {"name":"parity 102","weights":{"overall":{"financials":12,"growth":22,"profitability":5,"debt":30}},"steps":[{"key":"step1","score":31,"verdict":"Strong Pass"},{"key":"step2","score":8,"verdict":"Strong Pass"},{"key":"step4","score":61,"verdict":"Strong Pass"},{"key":"step5","score":9,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":11,"verdict":"Fail"}},
+  {"name":"parity 103","weights":{"overall":{"financials":18,"growth":11,"profitability":22,"debt":18}},"steps":[{"key":"step1","score":9,"verdict":"Fail"},{"key":"step2","score":37,"verdict":"Fail"},{"key":"step4","score":77,"verdict":"Fail"},{"key":"step5","score":42,"verdict":"Fail"}],"moat":{"moat":"no_moat","score":1.0},"expected":{"status":"complete","score":31,"verdict":"Fail"}},
+  {"name":"parity 104","weights":{"overall":{"financials":21,"growth":17,"profitability":18,"debt":13}},"steps":[{"key":"step1","score":86,"verdict":"Fail"},{"key":"step2","score":85,"verdict":"Fail"},{"key":"step4","score":28,"verdict":"Fail"},{"key":"step5","score":46,"verdict":"Fail"}],"moat":{"moat":"no_moat","score":0.9},"expected":{"status":"complete","score":44,"verdict":"Fail"}},
+  {"name":"parity 105","weights":{"overall":{"financials":26,"growth":22,"profitability":11,"debt":10}},"steps":[{"key":"step1","score":67,"verdict":"Fail"},{"key":"step2","score":43,"verdict":"Fail"},{"key":"step4","score":35,"verdict":"Fail"},{"key":"step5","score":37,"verdict":"Fail"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":34,"verdict":"Fail"}},
+  {"name":"parity 106","weights":{"overall":{"financials":22,"growth":5,"profitability":15,"debt":27}},"steps":[{"key":"step1","score":25,"verdict":"Pass with caution"},{"key":"step2","score":81,"verdict":"Pass with caution"},{"key":"step4","score":61,"verdict":"Pass with caution"},{"key":"step5","score":96,"verdict":"Pass with caution"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":45,"verdict":"Fail"}},
+  {"name":"parity 107","weights":{"overall":{"financials":16,"growth":7,"profitability":16,"debt":30}},"steps":[{"key":"step1","score":28,"verdict":"Pass"},{"key":"step2","score":69,"verdict":"Pass"},{"key":"step4","score":30,"verdict":"Pass"},{"key":"step5","score":43,"verdict":"Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":47,"verdict":"Fail"}},
+  {"name":"parity 108","weights":{"overall":{"financials":26,"growth":5,"profitability":18,"debt":20}},"steps":[{"key":"step1","score":10,"verdict":"Fail"},{"key":"step2","score":16,"verdict":"Fail"},{"key":"step4","score":79,"verdict":"Fail"},{"key":"step5","score":30,"verdict":"Fail"}],"moat":{"moat":"no_moat","score":0.2},"expected":{"status":"complete","score":24,"verdict":"Fail"}},
+  {"name":"parity 109","weights":{"overall":{"financials":10,"growth":26,"profitability":23,"debt":10}},"steps":[{"key":"step1","score":61,"verdict":"Pass with caution"},{"key":"step2","score":19,"verdict":"Pass with caution"},{"key":"step4","score":51,"verdict":"Pass with caution"},{"key":"step5","score":53,"verdict":"Pass with caution"}],"moat":null,"expected":{"status":"complete","score":41,"verdict":"Fail"}},
+  {"name":"parity 110","weights":{"overall":{"financials":27,"growth":14,"profitability":11,"debt":17}},"steps":[{"key":"step1","score":80,"verdict":"Fail"},{"key":"step2","score":59,"verdict":"Fail"},{"key":"step4","score":46,"verdict":"Fail"},{"key":"step5","score":69,"verdict":"Fail"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":47,"verdict":"Fail"}},
+  {"name":"parity 111","weights":{"overall":{"financials":13,"growth":10,"profitability":16,"debt":30}},"steps":[{"key":"step1","score":66,"verdict":"Strong Pass"},{"key":"step2","score":2,"verdict":"Strong Pass"},{"key":"step4","score":44,"verdict":"Strong Pass"},{"key":"step5","score":94,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":44,"verdict":"Fail"}},
+  {"name":"parity 112","weights":{"overall":{"financials":22,"growth":6,"profitability":16,"debt":25}},"steps":[{"key":"step1","score":51,"verdict":"Pass"},{"key":"step2","score":59,"verdict":"Pass"},{"key":"step4","score":90,"verdict":"Pass"},{"key":"step5","score":80,"verdict":"Pass"}],"moat":null,"expected":{"status":"complete","score":71,"verdict":"moat_not_rated"}},
+  {"name":"parity 113","weights":{"overall":{"financials":19,"growth":7,"profitability":30,"debt":13}},"steps":[{"key":"step1","score":4,"verdict":"Pass with caution"},{"key":"step2","score":41,"verdict":"Pass with caution"},{"key":"step4","score":74,"verdict":"Pass with caution"},{"key":"step5","score":83,"verdict":"Pass with caution"}],"moat":null,"expected":{"status":"complete","score":53,"verdict":"Fail"}},
+  {"name":"parity 114","weights":{"overall":{"financials":14,"growth":9,"profitability":30,"debt":16}},"steps":[{"key":"step1","score":23,"verdict":"Pass with caution"},{"key":"step2","score":32,"verdict":"Pass with caution"},{"key":"step4","score":88,"verdict":"Pass with caution"},{"key":"step5","score":53,"verdict":"Pass with caution"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":61,"verdict":"Fail"}},
+  {"name":"parity 115","weights":{"overall":{"financials":23,"growth":16,"profitability":18,"debt":12}},"steps":[{"key":"step1","score":27,"verdict":"Pass"},{"key":"step2","score":93,"verdict":"Pass"},{"key":"step4","score":51,"verdict":"Pass"},{"key":"step5","score":2,"verdict":"Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":51,"verdict":"Fail"}},
+  {"name":"parity 116","weights":{"overall":{"financials":18,"growth":11,"profitability":10,"debt":30}},"steps":[{"key":"step1","score":14,"verdict":"Pass"},{"key":"step2","score":26,"verdict":"Pass"},{"key":"step4","score":9,"verdict":"Pass"},{"key":"step5","score":38,"verdict":"Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":18,"verdict":"Fail"}},
+  {"name":"parity 117","weights":{"overall":{"financials":23,"growth":18,"profitability":13,"debt":15}},"steps":[{"key":"step1","score":21,"verdict":"Pass"},{"key":"step2","score":8,"verdict":"Pass"},{"key":"step4","score":60,"verdict":"Pass"},{"key":"step5","score":38,"verdict":"Pass"}],"moat":null,"expected":{"status":"complete","score":29,"verdict":"Fail"}},
+  {"name":"parity 118","weights":{"overall":{"financials":14,"growth":15,"profitability":30,"debt":10}},"steps":[{"key":"step1","score":26,"verdict":"Fail"},{"key":"step2","score":100,"verdict":"Fail"},{"key":"step4","score":28,"verdict":"Fail"},{"key":"step5","score":4,"verdict":"Fail"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":48,"verdict":"Fail"}},
+  {"name":"parity 119","weights":{"overall":{"financials":22,"growth":13,"profitability":19,"debt":15}},"steps":[{"key":"step1","score":95,"verdict":"Pass with caution"},{"key":"step2","score":25,"verdict":"Pass with caution"},{"key":"step4","score":19,"verdict":"Pass with caution"},{"key":"step5","score":36,"verdict":"Pass with caution"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":53,"verdict":"Fail"}},
+  {"name":"parity 120","weights":{"overall":{"financials":28,"growth":11,"profitability":16,"debt":14}},"steps":[{"key":"step1","score":46,"verdict":"Strong Pass"},{"key":"step2","score":2,"verdict":"Strong Pass"},{"key":"step4","score":7,"verdict":"Strong Pass"},{"key":"step5","score":10,"verdict":"Strong Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":36,"verdict":"Fail"}},
+  {"name":"parity 121","weights":{"overall":{"financials":29,"growth":8,"profitability":15,"debt":17}},"steps":[{"key":"step1","score":51,"verdict":"Fail"},{"key":"step2","score":19,"verdict":"Fail"},{"key":"step4","score":30,"verdict":"Fail"},{"key":"step5","score":77,"verdict":"Fail"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":54,"verdict":"Fail"}},
+  {"name":"parity 122","weights":{"overall":{"financials":27,"growth":16,"profitability":13,"debt":13}},"steps":[{"key":"step1","score":95,"verdict":"Strong Pass"},{"key":"step2","score":97,"verdict":"Strong Pass"},{"key":"step4","score":82,"verdict":"Strong Pass"},{"key":"step5","score":39,"verdict":"Strong Pass"}],"moat":{"moat":"narrow_moat","score":26.6},"expected":{"status":"complete","score":65,"verdict":"Fail"}},
+  {"name":"parity 123","weights":{"overall":{"financials":17,"growth":21,"profitability":13,"debt":18}},"steps":[{"key":"step1","score":55,"verdict":"Pass with caution"},{"key":"step2","score":87,"verdict":"Pass with caution"},{"key":"step4","score":36,"verdict":"Pass with caution"},{"key":"step5","score":7,"verdict":"Pass with caution"}],"moat":null,"expected":{"status":"complete","score":49,"verdict":"Fail"}},
+  {"name":"parity 124","weights":{"overall":{"financials":11,"growth":6,"profitability":30,"debt":22}},"steps":[{"key":"step1","score":95,"verdict":"Strong Pass"},{"key":"step2","score":38,"verdict":"Strong Pass"},{"key":"step4","score":55,"verdict":"Strong Pass"},{"key":"step5","score":26,"verdict":"Strong Pass"}],"moat":{"moat":"narrow_moat","score":24.3},"expected":{"status":"complete","score":43,"verdict":"Fail"}},
+  {"name":"parity 125","weights":{"overall":{"financials":14,"growth":19,"profitability":9,"debt":27}},"steps":[{"key":"step1","score":17,"verdict":"Pass with caution"},{"key":"step2","score":49,"verdict":"Pass with caution"},{"key":"step4","score":41,"verdict":"Pass with caution"},{"key":"step5","score":0,"verdict":"Pass with caution"}],"moat":{"moat":"narrow_moat","score":50.1},"expected":{"status":"complete","score":31,"verdict":"Fail"}},
+  {"name":"parity 126","weights":{"overall":{"financials":15,"growth":12,"profitability":27,"debt":15}},"steps":[{"key":"step1","score":45,"verdict":"Pass with caution"},{"key":"step2","score":31,"verdict":"Pass with caution"},{"key":"step4","score":77,"verdict":"Pass with caution"},{"key":"step5","score":45,"verdict":"Pass with caution"}],"moat":null,"expected":{"status":"complete","score":55,"verdict":"Fail"}},
+  {"name":"parity 127","weights":{"overall":{"financials":20,"growth":29,"profitability":7,"debt":13}},"steps":[{"key":"step1","score":55,"verdict":"Pass"},{"key":"step2","score":94,"verdict":"Pass"},{"key":"step4","score":91,"verdict":"Pass"},{"key":"step5","score":17,"verdict":"Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":47,"verdict":"Fail"}},
+  {"name":"parity 128","weights":{"overall":{"financials":18,"growth":9,"profitability":18,"debt":24}},"steps":[{"key":"step1","score":21,"verdict":"Pass"},{"key":"step2","score":40,"verdict":"Pass"},{"key":"step4","score":32,"verdict":"Pass"},{"key":"step5","score":28,"verdict":"Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":20,"verdict":"Fail"}},
+  {"name":"parity 129","weights":{"overall":{"financials":30,"growth":7,"profitability":11,"debt":21}},"steps":[{"key":"step1","score":100,"verdict":"Pass with caution"},{"key":"step2","score":81,"verdict":"Pass with caution"},{"key":"step4","score":31,"verdict":"Pass with caution"},{"key":"step5","score":35,"verdict":"Pass with caution"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":66,"verdict":"Fail"}},
+  {"name":"parity 130","weights":{"overall":{"financials":27,"growth":21,"profitability":5,"debt":16}},"steps":[{"key":"step1","score":18,"verdict":"Pass with caution"},{"key":"step2","score":56,"verdict":"Pass with caution"},{"key":"step4","score":88,"verdict":"Pass with caution"},{"key":"step5","score":95,"verdict":"Pass with caution"}],"moat":{"moat":"no_moat","score":0.0},"expected":{"status":"complete","score":36,"verdict":"Fail"}},
+  {"name":"parity 131","weights":{"overall":{"financials":24,"growth":7,"profitability":8,"debt":30}},"steps":[{"key":"step1","score":72,"verdict":"Pass with caution"},{"key":"step2","score":82,"verdict":"Pass with caution"},{"key":"step4","score":30,"verdict":"Pass with caution"},{"key":"step5","score":null,"verdict":"not_supported"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":45,"verdict":"Fail"}},
+  {"name":"parity 132","weights":{"overall":{"financials":15,"growth":12,"profitability":28,"debt":14}},"steps":[{"key":"step1","score":99,"verdict":"Pass"},{"key":"step2","score":57,"verdict":"Pass"},{"key":"step4","score":14,"verdict":"Pass"},{"key":"step5","score":46,"verdict":"Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":32,"verdict":"Fail"}},
+  {"name":"parity 133","weights":{"overall":{"financials":23,"growth":10,"profitability":8,"debt":28}},"steps":[{"key":"step1","score":98,"verdict":"Pass with caution"},{"key":"step2","score":53,"verdict":"Pass with caution"},{"key":"step4","score":2,"verdict":"Pass with caution"},{"key":"step5","score":83,"verdict":"Pass with caution"}],"moat":{"moat":"no_moat","score":0.9},"expected":{"status":"complete","score":51,"verdict":"Fail"}},
+  {"name":"parity 134","weights":{"overall":{"financials":11,"growth":9,"profitability":23,"debt":26}},"steps":[{"key":"step1","score":54,"verdict":"Pass"},{"key":"step2","score":20,"verdict":"Pass"},{"key":"step4","score":24,"verdict":"Pass"},{"key":"step5","score":44,"verdict":"Pass"}],"moat":{"moat":"narrow_moat","score":82.4},"expected":{"status":"complete","score":50,"verdict":"Fail"}},
+  {"name":"parity 135","weights":{"overall":{"financials":13,"growth":16,"profitability":27,"debt":13}},"steps":[{"key":"step1","score":10,"verdict":"Strong Pass"},{"key":"step2","score":85,"verdict":"Strong Pass"},{"key":"step4","score":28,"verdict":"Strong Pass"},{"key":"step5","score":31,"verdict":"Strong Pass"}],"moat":{"moat":"narrow_moat","score":14.5},"expected":{"status":"complete","score":31,"verdict":"Fail"}},
+  {"name":"parity 136","weights":{"overall":{"financials":19,"growth":20,"profitability":9,"debt":21}},"steps":[{"key":"step1","score":41,"verdict":"Fail"},{"key":"step2","score":47,"verdict":"Fail"},{"key":"step4","score":3,"verdict":"Fail"},{"key":"step5","score":78,"verdict":"Fail"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":54,"verdict":"Fail"}},
+  {"name":"parity 137","weights":{"overall":{"financials":18,"growth":6,"profitability":29,"debt":16}},"steps":[{"key":"step1","score":14,"verdict":"Strong Pass"},{"key":"step2","score":30,"verdict":"Strong Pass"},{"key":"step4","score":4,"verdict":"Strong Pass"},{"key":"step5","score":75,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":17,"verdict":"Fail"}},
+  {"name":"parity 138","weights":{"overall":{"financials":14,"growth":26,"profitability":14,"debt":15}},"steps":[{"key":"step1","score":33,"verdict":"Fail"},{"key":"step2","score":21,"verdict":"Fail"},{"key":"step4","score":77,"verdict":"Fail"},{"key":"step5","score":8,"verdict":"Fail"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":53,"verdict":"Fail"}},
+  {"name":"parity 139","weights":{"overall":{"financials":30,"growth":19,"profitability":10,"debt":10}},"steps":[{"key":"step1","score":35,"verdict":"Pass"},{"key":"step2","score":33,"verdict":"Pass"},{"key":"step4","score":81,"verdict":"Pass"},{"key":"step5","score":7,"verdict":"Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":46,"verdict":"Fail"}},
+  {"name":"parity 140","weights":{"overall":{"financials":25,"growth":19,"profitability":5,"debt":20}},"steps":[{"key":"step1","score":2,"verdict":"Strong Pass"},{"key":"step2","score":54,"verdict":"Strong Pass"},{"key":"step4","score":35,"verdict":"Strong Pass"},{"key":"step5","score":72,"verdict":"Strong Pass"}],"moat":null,"expected":{"status":"complete","score":39,"verdict":"Fail"}},
+  {"name":"parity 141","weights":{"overall":{"financials":11,"growth":27,"profitability":10,"debt":21}},"steps":[{"key":"step1","score":43,"verdict":"Fail"},{"key":"step2","score":12,"verdict":"Fail"},{"key":"step4","score":47,"verdict":"Fail"},{"key":"step5","score":23,"verdict":"Fail"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":37,"verdict":"Fail"}},
+  {"name":"parity 142","weights":{"overall":{"financials":29,"growth":24,"profitability":6,"debt":10}},"steps":[{"key":"step1","score":6,"verdict":"Fail"},{"key":"step2","score":71,"verdict":"Fail"},{"key":"step4","score":50,"verdict":"Fail"},{"key":"step5","score":28,"verdict":"Fail"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":56,"verdict":"Fail"}},
+  {"name":"parity 143","weights":{"overall":{"financials":10,"growth":18,"profitability":19,"debt":22}},"steps":[{"key":"step1","score":67,"verdict":"Strong Pass"},{"key":"step2","score":46,"verdict":"Strong Pass"},{"key":"step4","score":25,"verdict":"Strong Pass"},{"key":"step5","score":53,"verdict":"Strong Pass"}],"moat":null,"expected":{"status":"complete","score":45,"verdict":"Fail"}},
+  {"name":"parity 144","weights":{"overall":{"financials":15,"growth":12,"profitability":18,"debt":24}},"steps":[{"key":"step1","score":72,"verdict":"Strong Pass"},{"key":"step2","score":77,"verdict":"Strong Pass"},{"key":"step4","score":65,"verdict":"Strong Pass"},{"key":"step5","score":53,"verdict":"Strong Pass"}],"moat":{"moat":"narrow_moat","score":89.7},"expected":{"status":"complete","score":72,"verdict":"Pass"}},
+  {"name":"parity 145","weights":{"overall":{"financials":12,"growth":14,"profitability":18,"debt":25}},"steps":[{"key":"step1","score":89,"verdict":"Pass"},{"key":"step2","score":20,"verdict":"Pass"},{"key":"step4","score":82,"verdict":"Pass"},{"key":"step5","score":56,"verdict":"Pass"}],"moat":null,"expected":{"status":"complete","score":61,"verdict":"Fail"}},
+  {"name":"parity 146","weights":{"overall":{"financials":24,"growth":23,"profitability":10,"debt":12}},"steps":[{"key":"step1","score":83,"verdict":"Fail"},{"key":"step2","score":22,"verdict":"Fail"},{"key":"step4","score":13,"verdict":"Fail"},{"key":"step5","score":94,"verdict":"Fail"}],"moat":{"moat":"wide_moat","score":100},"expected":{"status":"complete","score":68,"verdict":"Fail"}},
+  {"name":"parity 147","weights":{"overall":{"financials":15,"growth":13,"profitability":14,"debt":27}},"steps":[{"key":"step1","score":42,"verdict":"Strong Pass"},{"key":"step2","score":39,"verdict":"Strong Pass"},{"key":"step4","score":34,"verdict":"Strong Pass"},{"key":"step5","score":48,"verdict":"Strong Pass"}],"moat":{"moat":"no_moat","score":0},"expected":{"status":"complete","score":29,"verdict":"Fail"}},
+  {"name":"parity 148","weights":{"overall":{"financials":18,"growth":12,"profitability":15,"debt":24}},"steps":[{"key":"step1","score":0,"verdict":"Strong Pass"},{"key":"step2","score":95,"verdict":"Strong Pass"},{"key":"step4","score":37,"verdict":"Strong Pass"},{"key":"step5","score":59,"verdict":"Strong Pass"}],"moat":{"moat":"narrow_moat","score":65},"expected":{"status":"complete","score":51,"verdict":"Fail"}},
+  {"name":"parity 149","weights":{"overall":{"financials":17,"growth":10,"profitability":28,"debt":14}},"steps":[{"key":"step1","score":30,"verdict":"Pass"},{"key":"step2","score":0,"verdict":"Pass"},{"key":"step4","score":15,"verdict":"Pass"},{"key":"step5","score":83,"verdict":"Pass"}],"moat":{"moat":"no_moat","score":0.7},"expected":{"status":"complete","score":21,"verdict":"Fail"}}
+]
 }

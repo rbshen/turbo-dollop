@@ -113,14 +113,45 @@ def test_rating_a_ticker_through_the_moat_endpoint_flips_its_stored_verdict(monk
 
 
 # The same cases frontend/lib/overallScore.test.ts runs through computeOverallAssessment: the two implementations
-# (scoring/overall.py and lib/overallScore.ts) must agree on every one.
-_SHARED_CASES = json.loads((Path(__file__).parent / "fixtures" / "overall_verdict_cases.json").read_text())["cases"]
+# (scoring/overall.py and lib/overallScore.ts) must agree on every one. A case's optional `weights.overall` is the saved weight set
+# it runs under (absent = the defaults); `rounding_cases` sit on an exact .5 (Python round is half-to-even); `parity_cases` are
+# generated random weight sets.
+_FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "overall_verdict_cases.json").read_text())
+_SHARED_CASES = _FIXTURE["cases"] + _FIXTURE["rounding_cases"] + _FIXTURE["parity_cases"]
+
+
+def test_the_fixtures_defaults_are_the_real_defaults():
+    # The TS tests take their default weights from the fixture; this is what ties them to scoring/weights.py.
+    from scoring.weights import DEFAULT_WEIGHTS, OVERALL_TOTAL, as_dict
+    from scoring.overall import MOAT_WEIGHT
+
+    assert _FIXTURE["defaults"] == {
+        "overall": as_dict(DEFAULT_WEIGHTS.overall),
+        "overall_total": OVERALL_TOTAL,
+        "moat_weight": round(MOAT_WEIGHT * 100),
+    }
 
 
 @pytest.mark.parametrize("case", _SHARED_CASES, ids=[c["name"] for c in _SHARED_CASES])
 def test_backend_matches_the_shared_overall_verdict_cases(case):
+    from scoring.weights import DEFAULT_WEIGHTS, OverallWeights
+
     steps = [StepSnapshot(s["key"], s["key"], False, s["score"], s["verdict"]) for s in case["steps"]]
     moat = MoatSnapshot(case["moat"]["moat"], case["moat"]["score"]) if case["moat"] else None
-    result = compute_overall_assessment(steps, moat=moat)
+    weights = OverallWeights(**case["weights"]["overall"]) if "weights" in case else DEFAULT_WEIGHTS.overall
+    result = compute_overall_assessment(steps, moat=moat, weights=weights)
     expected = case["expected"]
     assert (result.status, result.score, result.verdict) == (expected["status"], expected["score"], expected["verdict"])
+
+
+def test_the_rounding_cases_really_sit_on_an_exact_half():
+    # Half-to-even and half-up disagree on these: that is what they are in the fixture for.
+    from scoring.weights import DEFAULT_WEIGHTS, OverallWeights
+
+    for case in _FIXTURE["rounding_cases"]:
+        weights = OverallWeights(**case["weights"]["overall"])
+        steps = [StepSnapshot(s["key"], s["key"], False, s["score"], s["verdict"]) for s in case["steps"]]
+        moat = MoatSnapshot(case["moat"]["moat"], case["moat"]["score"])
+        stage_two = (1 - 0.31) * case["steps"][0]["score"] + 0.31 * moat.score
+        assert stage_two % 1 == 0.5, case["name"]
+        assert compute_overall_assessment(steps, moat=moat, weights=weights).score == round(stage_two)

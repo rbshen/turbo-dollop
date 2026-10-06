@@ -1,11 +1,18 @@
 import type { MoatScoreConfigOut } from "@/lib/api/types";
 import { useMoatConfig } from "@/lib/hooks/useMoatConfig";
+import { overallBlendWeights, useScoreWeights } from "@/lib/hooks/useScoreWeights";
 import { useStep1 } from "@/lib/hooks/useStep1";
 import { useStep2 } from "@/lib/hooks/useStep2";
 import { useStep4 } from "@/lib/hooks/useStep4";
 import { useStep5 } from "@/lib/hooks/useStep5";
 import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
-import { computeOverallAssessment, type MoatSnapshot, type OverallAssessment, type StepSnapshot } from "@/lib/overallScore";
+import {
+  computeOverallAssessment,
+  type MoatSnapshot,
+  type OverallAssessment,
+  type OverallBlendWeights,
+  type StepSnapshot,
+} from "@/lib/overallScore";
 
 const STEP_LABELS = {
   step1: "Financials",
@@ -13,6 +20,9 @@ const STEP_LABELS = {
   step4: "Profitability",
   step5: "Debt",
 } as const;
+
+// Never used to compute a score: computeOverallAssessment returns "loading" (no score) whenever its loading flag is set.
+const LOADING_WEIGHTS: OverallBlendWeights = { overall: { financials: 0, growth: 0, profitability: 0, debt: 0 }, overallTotal: 1, moatWeight: 0 };
 
 const MOAT_SCORE_FIELD: Record<"no_moat" | "narrow_moat" | "wide_moat", (config: MoatScoreConfigOut) => number> = {
   no_moat: (config) => config.no_moat_score,
@@ -32,6 +42,7 @@ export function useOverallAssessment(ticker: string): OverallAssessment {
   const step5 = useStep5(ticker);
   const tickerMoat = useTickerMoat(ticker);
   const moatConfig = useMoatConfig();
+  const scoreWeights = useScoreWeights();
 
   const snapshots: StepSnapshot[] = [
     { key: "step1", label: STEP_LABELS.step1, hasError: !!step1.error, data: step1.data ? { score: step1.data.score, verdict: step1.data.verdict } : undefined },
@@ -49,5 +60,7 @@ export function useOverallAssessment(ticker: string): OverallAssessment {
       ? { moat: tickerMoat.data.moat, score: MOAT_SCORE_FIELD[tickerMoat.data.moat](moatConfig.data) }
       : null;
 
-  return computeOverallAssessment(snapshots, moat, moatLoading);
+  // The saved weights are part of the blend: until they arrive the assessment is "loading" (never a score on stale defaults).
+  if (!scoreWeights.data) return computeOverallAssessment(snapshots, moat, true, LOADING_WEIGHTS);
+  return computeOverallAssessment(snapshots, moat, moatLoading, overallBlendWeights(scoreWeights.data));
 }

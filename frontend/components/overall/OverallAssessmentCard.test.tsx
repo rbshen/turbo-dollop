@@ -131,3 +131,12 @@ describe("OverallAssessmentView: the Review status block", () => {
     expect(screen.queryByTestId("review-status")).not.toBeInTheDocument();
   });
 });
+
+describe("OverallAssessmentView: the weighting note", () => {
+  it("says Moat is fixed, the four checks split the rest, and links to Settings > Score weighting", () => {
+    render(<OverallAssessmentView result={result({})} />);
+    const note = screen.getByTestId("weighting-note");
+    expect(note).toHaveTextContent("Economic Moat, once rated, is fixed at 31%; the four checks split the other 69% using your saved weights.");
+    expect(screen.getByRole("link", { name: "Adjust in Settings" })).toHaveAttribute("href", "/settings?section=score-weighting");
+  });
+});

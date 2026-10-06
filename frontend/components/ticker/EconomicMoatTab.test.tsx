@@ -40,6 +40,14 @@ describe("EconomicMoatTab: the headings", () => {
   });
 });
 
+describe("EconomicMoatTab: the weighting copy", () => {
+  it("says Moat is fixed at 31%, the four checks split the other 69% and are adjustable in Settings (with a link)", () => {
+    render(<EconomicMoatTab ticker="AAPL" />);
+    expect(document.body.textContent).toMatch(/Moat is fixed at 31% of Overall Assessment;\s+Financials \/ Growth Rate \/ Profitability \/ Debt split the remaining 69% and are adjustable in\s+Settings/);
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings?section=score-weighting");
+  });
+});
+
 describe("EconomicMoatTab: the rating switch", () => {
   it("is a named group of three sentence-case segments with a neutral selected state, not brand blue", () => {
     render(<EconomicMoatTab ticker="AAPL" />);

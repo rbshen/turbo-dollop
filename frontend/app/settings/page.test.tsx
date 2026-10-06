@@ -4,6 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import SettingsPage from "@/app/settings/page";
 
+const nav = vi.hoisted(() => ({ section: null as string | null }));
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(nav.section ? { section: nav.section } : {}) }));
+
 // The sections fetch their own data; this test is about the nav only.
 vi.mock("@/components/settings/StatusSection", () => ({ StatusSection: () => <p>scheduled jobs content</p> }));
 vi.mock("@/components/settings/FmpDataGroupsSection", () => ({ FmpDataGroupsSection: () => <p>fmp content</p> }));
@@ -13,7 +16,10 @@ vi.mock("@/components/settings/ReitDividendYieldSettingsForm", () => ({ ReitDivi
 vi.mock("@/components/settings/LiquidityZoneSettingsForm", () => ({ LiquidityZoneSettingsForm: () => <p>liquidity content</p> }));
 vi.mock("@/components/settings/WeinsteinSettingsForm", () => ({ WeinsteinSettingsForm: () => <p>weinstein content</p> }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  nav.section = null;
+});
 
 describe("Settings nav", () => {
   it("lists every section, in order, with sentence-case labels", () => {
@@ -38,5 +44,20 @@ describe("Settings nav", () => {
     expect(screen.queryByText("scheduled jobs content")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Discount rate by country" }));
     expect(screen.getByText("discount content")).toBeInTheDocument();
+  });
+});
+
+describe("Settings deep link", () => {
+  it("opens the section named by ?section=", () => {
+    nav.section = "economic-moat";
+    render(<SettingsPage />);
+    expect(screen.getByText("moat content")).toBeInTheDocument();
+    expect(screen.queryByText("scheduled jobs content")).toBeNull();
+  });
+
+  it("opens the first section for a missing or unknown value", () => {
+    nav.section = "nonsense";
+    render(<SettingsPage />);
+    expect(screen.getByText("scheduled jobs content")).toBeInTheDocument();
   });
 });

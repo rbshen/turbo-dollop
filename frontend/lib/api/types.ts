@@ -628,6 +628,52 @@ export interface MoatScoreConfigOut {
   updated_at: string;
 }
 
+// --- Score weights (GET/PUT /api/config/score-weights) ---------------------------------------------------------------------------
+
+export interface ScoreWeightGroups {
+  overall: { financials: number; growth: number; profitability: number; debt: number };
+  step1: { revenue: number; net_income: number; cfo: number; margins: number; fcf: number };
+  step2: { magnitude: number; agreement: number };
+  step4: { roe: number; roic: number; ar: number; ccc: number };
+  step5: { current_ratio: number; debt_to_ebitda: number; debt_servicing: number };
+}
+
+export type ScoreWeightGroupKey = keyof ScoreWeightGroups;
+
+export interface WeightBoundsOut {
+  min: number;
+  max: number;
+}
+
+export interface RecomputeRunOut {
+  id: number;
+  state: "running" | "done" | "failed";
+  trigger: string;
+  started_at: string;
+  finished_at: string | null;
+  processed: number;
+  skipped: number;
+  total: number;
+  failed: number;
+  weights_version: number | null;
+  error: string | null;
+}
+
+export interface ScoreWeightsOut {
+  weights: ScoreWeightGroups;
+  defaults: ScoreWeightGroups;
+  /** Economic Moat's locked share of Overall, in percent. Never part of `weights`. */
+  moat_weight: number;
+  /** What the four overall weights add up to. */
+  overall_total: number;
+  bounds: { [G in ScoreWeightGroupKey]: Record<keyof ScoreWeightGroups[G], WeightBoundsOut> };
+  /** What each group's weights must add up to. */
+  sums: Record<ScoreWeightGroupKey, number>;
+  weights_version: number;
+  updated_at: string;
+  recompute: RecomputeRunOut | null;
+}
+
 export interface ReitDividendYieldConfigOut {
   // Percent (e.g. 5.0 for 5%), matching dividend_yield_pct's own scale --
   // default 5.0 per valuation.md §3.3. Editable via /settings.
@@ -684,6 +730,8 @@ export interface TickerScoreOut {
   // Step 2 deviation note). null when Step 2 has no usable projection.
   growth_rate: number | null;
   computed_at: string;
+  // See backend models.py::TickerScore.weights_version: the saved-weights version this row was scored with (null for a row scored before weights were adjustable).
+  weights_version?: number | null;
   // See TickerSummaryOut.perf_5y_vs_spy_pct/_status above.
   perf_5y_vs_spy_pct: number | null;
   perf_5y_vs_spy_status: PerfVsSpyStatus | null;

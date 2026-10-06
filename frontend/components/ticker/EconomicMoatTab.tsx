@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { mutate } from "swr";
 
@@ -74,9 +75,12 @@ function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut })
       <div>
         <h2 className="font-heading text-sm font-semibold text-text-primary">Economic moat</h2>
         <p className="mt-1 text-sm text-text-secondary">
-          A manually-set classification, not computed from data. Once set, Financials / Growth Rate / Profitability /
-          Debt combined occupy 69% of Overall Assessment and Moat occupies the other 31% — see the Overall Assessment
-          card for how this ticker is currently blended.
+          A manually-set classification, not computed from data. Once set, Moat is fixed at 31% of Overall Assessment;
+          Financials / Growth Rate / Profitability / Debt split the remaining 69% and are adjustable in{" "}
+          <Link href="/settings?section=score-weighting" className="underline underline-offset-2 hover:text-text-primary">
+            Settings
+          </Link>{" "}
+          — see the Overall Assessment card for how this ticker is currently blended.
         </p>
       </div>
 

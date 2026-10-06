@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Warning } from "@phosphor-icons/react";
 
 import { CircularScoreBadge } from "@/components/overall/CircularScoreBadge";
@@ -127,6 +128,14 @@ export function OverallAssessmentView({
               </Status>
             ))}
           </div>
+
+          <p className="text-xs text-text-tertiary" data-testid="weighting-note">
+            Economic Moat, once rated, is fixed at 31%; the four checks split the other 69% using your saved weights.{" "}
+            <Link href="/settings?section=score-weighting" className="underline underline-offset-2 hover:text-text-secondary">
+              Adjust in Settings
+            </Link>
+            .
+          </p>
 
           {result.failingSteps.length > 0 && (
             <p className="text-sm text-warn">

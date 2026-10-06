@@ -1,27 +1,40 @@
-// Weights for the Overall Assessment card's weighted average across the 4
-// currently-implemented steps. These sum to 100% and intentionally have no
-// allocation for Step 3, which doesn't exist yet -- revisit once Step 3
-// ships (the whole set will need rebalancing, not just adding a slice).
-//
-// 2026-07-31 rebalance: mirrors backend/scoring/overall.py::STEP_WEIGHTS's
-// own comment exactly -- expressed as fractions of the 69% non-Moat
-// portion. What actually lands in a ticker's full Overall blend once
-// MOAT_WEIGHT's 31% is layered on top is Financials 24% (unchanged),
-// Growth Rate 10% (was 15%), Debt 15% (was 10%), Profitability 20% (was
-// 19% -- a rounding artifact of the old 0.28*0.69, not a real bug),
-// Moat 31% (unchanged) -- summing to exactly 100%. Growth Rate down /
-// Debt up specifically because Debt's previously-lowest weight was
-// letting genuine per-step Fails (e.g. FICO, MA) get fully absorbed by
-// strong scores elsewhere -- see the 2026-07-31 Overall-vs-per-step
-// contradiction investigation.
-export const STEP_WEIGHTS = {
-  step1: 24 / 69,
-  step2: 10 / 69,
-  step4: 20 / 69,
-  step5: 15 / 69,
-} as const;
+import { pySum, roundHalfEven } from "@/lib/pyNumeric";
 
-export type StepKey = keyof typeof STEP_WEIGHTS;
+// The Overall Assessment blend: a TypeScript mirror of backend/scoring/overall.py::compute_overall_assessment. The weights are NOT
+// constants here any more: they are the saved set (GET /api/config/score-weights, hook useScoreWeights), passed in by the caller,
+// so the backend's scoring/weights.py stays the one definition. The four step weights are whole numbers adding up to
+// `overallTotal` (69) and each step's share is its weight over that total; Economic Moat is the locked remainder
+// (`moatWeight`, 31 percent). Both implementations read the shared fixture backend/tests/fixtures/overall_verdict_cases.json.
+export interface OverallWeights {
+  financials: number;
+  growth: number;
+  profitability: number;
+  debt: number;
+}
+
+export interface OverallBlendWeights {
+  overall: OverallWeights;
+  /** What the four overall weights add up to (69). */
+  overallTotal: number;
+  /** Economic Moat's locked share of Overall, in percent (31). */
+  moatWeight: number;
+}
+
+const STEP_WEIGHT_FIELD = { step1: "financials", step2: "growth", step4: "profitability", step5: "debt" } as const;
+
+/** The canonical step order the backend always blends in. Floating-point addition is order-dependent, so the blend never follows
+ * the caller's array order. */
+const STEP_ORDER = ["step1", "step2", "step4", "step5"] as const;
+
+export type StepKey = (typeof STEP_ORDER)[number];
+
+function stepFraction(weights: OverallBlendWeights, key: StepKey): number {
+  return weights.overall[STEP_WEIGHT_FIELD[key]] / weights.overallTotal;
+}
+
+function inCanonicalOrder<T extends { key: StepKey }>(items: T[]): T[] {
+  return [...items].sort((a, b) => STEP_ORDER.indexOf(a.key) - STEP_ORDER.indexOf(b.key));
+}
 
 // Overall verdict for a ticker with NO Moat rating whose four automated steps would otherwise read Pass / Pass with
 // caution / Strong Pass: Moat is non-negotiable, so an unrated ticker cannot pass. A stable key (stored in
@@ -42,14 +55,6 @@ function verdictFor(score: number): "Strong Pass" | "Pass" | "Fail" {
   if (score >= PASS_THRESHOLD) return "Pass";
   return "Fail";
 }
-
-// Once a ticker has an Economic Moat set (any of the 3 real states -- "not
-// set" is unaffected and uses the pure Steps 1/2/4/5 blend above, untouched),
-// Steps 1+2+4+5 combined occupy 69% of Overall Assessment and Moat occupies
-// the other 31%. Mirrors backend/scoring/overall.py::MOAT_WEIGHT exactly --
-// see STEP_WEIGHTS's own comment above on why these two implementations must
-// never drift.
-export const MOAT_WEIGHT = 0.31;
 
 export type MoatValue = "no_moat" | "narrow_moat" | "wide_moat";
 
@@ -119,7 +124,10 @@ function statusFor(snapshot: StepSnapshot): StepStatus {
   return "ok";
 }
 
-/** Pure, framework-agnostic calculation so it's unit-testable without
+/** `weights` is the saved set (see OverallBlendWeights). The rounding and the summation order are the backend's exactly (pyNumeric.ts),
+ * including its half-to-even rounding of an exact .5, so the live Analysis tab and the stored Screener row agree to the point.
+ *
+ * Pure, framework-agnostic calculation so it's unit-testable without
  * mocking SWR/React -- the OverallAssessmentCard component is a thin wrapper
  * around this that supplies live hook data.
  *
@@ -139,9 +147,12 @@ function statusFor(snapshot: StepSnapshot): StepStatus {
  * formula once a step is also exempt/missing. */
 export function computeOverallAssessment(
   steps: StepSnapshot[],
-  moat?: MoatSnapshot | null,
-  moatLoading = false
+  moat: MoatSnapshot | null | undefined,
+  moatLoading: boolean,
+  weights: OverallBlendWeights
 ): OverallAssessment {
+  const moatShare = weights.moatWeight / 100;
+  // The breakdown keeps the caller's order (it is what the card lists); only the arithmetic below runs in canonical order.
   const withStatus = steps.map((s) => ({ ...s, status: statusFor(s) }));
 
   if (withStatus.some((s) => s.status === "loading") || moatLoading) {
@@ -152,7 +163,7 @@ export function computeOverallAssessment(
       breakdown: withStatus.map((s) => ({
         key: s.key,
         label: s.label,
-        baseWeight: STEP_WEIGHTS[s.key],
+        baseWeight: stepFraction(weights, s.key),
         effectiveWeight: null,
         score: null,
         verdict: null,
@@ -165,8 +176,8 @@ export function computeOverallAssessment(
   }
 
   const incomplete = withStatus.filter((s) => s.status === "error" || s.status === "incomplete");
-  const ok = withStatus.filter((s) => s.status === "ok");
-  const totalWeight = ok.reduce((sum, s) => sum + STEP_WEIGHTS[s.key], 0);
+  const ok = inCanonicalOrder(withStatus.filter((s) => s.status === "ok"));
+  const totalWeight = pySum(ok.map((s) => stepFraction(weights, s.key)));
 
   // A confident score requires every non-exempt step to have real data --
   // presenting a weighted average built on missing data would be
@@ -174,7 +185,7 @@ export function computeOverallAssessment(
   // rather than silently computing a partial number.
   const canCompute = incomplete.length === 0 && totalWeight > 0;
   const stepsScore = canCompute
-    ? Math.round(ok.reduce((sum, s) => sum + STEP_WEIGHTS[s.key] * (s.data!.score as number), 0) / totalWeight)
+    ? roundHalfEven(pySum(ok.map((s) => stepFraction(weights, s.key) * (s.data!.score as number))) / totalWeight)
     : null;
 
   const failingSteps = ok.filter((s) => s.data!.verdict === "Fail").map((s) => s.label);
@@ -187,17 +198,17 @@ export function computeOverallAssessment(
     displayScale = 1;
   } else if (stepsScore === null) {
     score = null;
-    displayScale = 1 - MOAT_WEIGHT;
+    displayScale = 1 - moatShare;
   } else {
-    score = Math.round((1 - MOAT_WEIGHT) * stepsScore + MOAT_WEIGHT * moat.score);
-    displayScale = 1 - MOAT_WEIGHT;
+    score = roundHalfEven((1 - moatShare) * stepsScore + moatShare * moat.score);
+    displayScale = 1 - moatShare;
   }
 
   const breakdown: StepBreakdownEntry[] = withStatus.map((s) => ({
     key: s.key,
     label: s.label,
-    baseWeight: STEP_WEIGHTS[s.key],
-    effectiveWeight: canCompute && s.status === "ok" ? (STEP_WEIGHTS[s.key] / totalWeight) * displayScale : null,
+    baseWeight: stepFraction(weights, s.key),
+    effectiveWeight: canCompute && s.status === "ok" ? (stepFraction(weights, s.key) / totalWeight) * displayScale : null,
     score: s.data?.score ?? null,
     verdict: s.data?.verdict ?? null,
     status: s.status,
@@ -206,8 +217,8 @@ export function computeOverallAssessment(
     breakdown.push({
       key: "moat",
       label: "Economic Moat",
-      baseWeight: MOAT_WEIGHT,
-      effectiveWeight: score !== null ? MOAT_WEIGHT : null,
+      baseWeight: moatShare,
+      effectiveWeight: score !== null ? moatShare : null,
       score: moat.score,
       // Deliberately not "Pass"/"Fail" text -- keeps Moat out of
       // failingSteps above, which filters on verdict === "Fail".

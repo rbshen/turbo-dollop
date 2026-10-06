@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Pagination } from "@/components/screener/Pagination";
 import { RecomputeButton } from "@/components/screener/RecomputeButton";
+import { StaleWeightsNote } from "@/components/screener/StaleWeightsNote";
 import { SavedFiltersBar } from "@/components/screener/SavedFiltersBar";
 import { ScreenerCard } from "@/components/screener/ScreenerCard";
 import { SortControls } from "@/components/screener/SortControls";
@@ -206,6 +207,8 @@ export default function ScreenerPage() {
           </>
         }
       />
+
+      <StaleWeightsNote rows={data} />
 
       <SortControls sortField={sortField} sortDirection={sortDirection} onChange={handleSortChange} />
 

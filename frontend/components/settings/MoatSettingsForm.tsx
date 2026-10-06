@@ -87,7 +87,7 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
   return (
     <SettingsSection
       title="Economic moat point values"
-      intro="Sets the points each moat rating counts for in a ticker's Overall Assessment. Once you have set a moat for a ticker, it makes up 31% of that ticker's overall score and the four automated checks make up the other 69%. A ticker with no moat set is scored on the four checks alone."
+      intro="Sets the points each moat rating counts for in a ticker's Overall Assessment. Once you have set a moat for a ticker, it makes up 31% of that ticker's overall score (a fixed share) and the four automated checks split the other 69%; how they split it is set under Score weighting. A ticker with no moat set is scored on the four checks alone. Saving recomputes all scores."
     >
       <SettingsGroup>
         <SettingsRow

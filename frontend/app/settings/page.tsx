@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 
 import { PageContainer } from "@/components/layout/PageContainer";
 import { DiscountRateSettingsForm } from "@/components/settings/DiscountRateSettingsForm";
@@ -30,7 +31,20 @@ const SECTIONS = [
 type SectionKey = (typeof SECTIONS)[number]["key"];
 
 export default function SettingsPage() {
-  const [active, setActive] = useState<SectionKey>(SECTIONS[0].key);
+  // useSearchParams (for a link such as /settings?section=score-weighting) needs a Suspense boundary on a prerendered page.
+  return (
+    <Suspense fallback={null}>
+      <SettingsContent />
+    </Suspense>
+  );
+}
+
+function SettingsContent() {
+  // A link such as /settings?section=score-weighting opens that section; anything else opens the first.
+  const requested = useSearchParams()?.get("section");
+  const [active, setActive] = useState<SectionKey>(
+    () => SECTIONS.find((section) => section.key === requested)?.key ?? SECTIONS[0].key,
+  );
 
   // Only the active section is mounted -- each form fetches its own config via
   // SWR on mount, so rendering all 7 at once (the old vertical-stack layout)
