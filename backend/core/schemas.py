@@ -46,6 +46,21 @@ class BalanceSheetFallback(BaseModel):
     detail: str | None = None
 
 
+class DataQualityFlag(BaseModel):
+    """One structured finding from helpers/statement_view.py::data_quality_flags -- a read-time data-quality rule that
+    currently trips on a ticker's cached statements (docs/specs/statement-data-quality.md). Facts only, no UI wording;
+    nothing is persisted. `period_end` is the flagged row's period-end date (not_landed: the newest income period).
+    `detail` carries rule-specific facts plus `in_ttm_window` (the flagged row is one of the four quarters the raw TTM
+    column sums, or, for the balance sheet, the row the TTM column reads)."""
+
+    rule: Literal["placeholder_cf", "scale_break", "partial_balance_sheet", "not_landed"]
+    statement: Literal["income", "balance_sheet", "cash_flow"]
+    period: Literal["annual", "quarterly"]
+    period_end: str | None = None
+    evidence: str
+    detail: dict = {}
+
+
 class RefreshResult(BaseModel):
     ticker: str
     cleared_entries: int

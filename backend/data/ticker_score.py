@@ -57,7 +57,9 @@ def _snapshot(key: str, result, has_error: bool) -> StepSnapshot:
 # TickerScore columns written by other jobs, never overwritten by a score upsert.
 PRESERVED_ON_UPSERT = ("delisted_at",)
 
-async def compute_ticker_score(ticker: str, cache_only: bool = False, persist_etf: bool = True) -> TickerScore | None:
+async def compute_ticker_score(
+    ticker: str, cache_only: bool = False, persist_etf: bool = True, persist: bool = True
+) -> TickerScore | None:
     """Builds and upserts one ticker's TickerScore row for the Screener page
     -- the same 5 functions Step 1/2/4/5 and the ticker header already call,
     passed through `cache_only` (see cache.get_or_fetch), plus the ported
@@ -68,7 +70,10 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False, persist_et
     `persist_etf=False` computes and returns the row exactly the same but does not write it when the ticker is an ETF/fund
     (the app's one rule, summary.is_etf); a stock is upserted as always. GET /score passes it: an ETF's score row is
     frozen since the 2026-10-03 cutover (the ETF job's EtfScreenerRow is the ETF read model), so its page load must not
-    rewrite one. The default keeps every other caller unchanged."""
+    rewrite one. The default keeps every other caller unchanged.
+
+    `persist=False` computes and returns the row but writes nothing at all (the read-only dry run that diffs new scoring
+    code against the stored rows before a recompute)."""
     ticker = normalize_ticker(ticker)
 
     step1, step1_error = await _safe_step(ticker, "step1", get_step1_data(ticker, cache_only=cache_only))
@@ -174,7 +179,7 @@ async def compute_ticker_score(ticker: str, cache_only: bool = False, persist_et
         warren_last_buy_fired_at=warren_last_buy_fired_at,
     )
 
-    if summary.is_etf and not persist_etf:
+    if not persist or (summary.is_etf and not persist_etf):
         return row
 
     # Inside the ticker-page Refresh (core/cache.py::track_fetch_failures): a live fetch that failed with nothing cached

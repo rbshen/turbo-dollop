@@ -1,6 +1,7 @@
 from helpers.ttm import (
     clean_cash_flow_statements,
     is_scale_broken_row,
+    scale_break_evidence,
     drop_placeholder_cash_flow_rows,
     is_placeholder_cash_flow_row,
     FlaggedQuarter,
@@ -725,3 +726,14 @@ def test_clean_cash_flow_statements_still_applies_the_placeholder_rule():
     _, clean_quarterly = clean_cash_flow_statements([], quarterly, [], income)
 
     assert [q["date"] for q in clean_quarterly] == dates[1:]
+
+
+def test_scale_break_evidence_agrees_with_the_boolean_and_reports_lines_and_magnitude():
+    broken = _series(0, _row(scale=1e-6, growth=1.6))
+    clean = _series(0, _row(growth=1.6))
+
+    lines, log_ratio = scale_break_evidence(broken, 0)
+
+    assert lines == 12 and -6.5 < log_ratio < -5.5  # unscaled millions: about a million times too small
+    assert scale_break_evidence(clean, 0) is None
+    assert all((scale_break_evidence(broken, i) is not None) == is_scale_broken_row(broken, i) for i in range(len(broken)))

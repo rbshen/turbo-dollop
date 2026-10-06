@@ -185,6 +185,17 @@ def test_computes_and_upserts_a_full_row(monkeypatch):
     assert row.speculative_growth_qualifies is True
 
 
+def test_persist_false_computes_the_row_but_writes_nothing(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch)
+
+    result = asyncio.run(compute_ticker_score("aapl", cache_only=True, persist=False))
+
+    assert result is not None and result.step1_score == 90
+    with Session(engine) as session:
+        assert session.exec(select(TickerScore)).all() == []
+
+
 def test_quote_currency_is_copied_from_summary_for_a_non_usd_ticker(monkeypatch):
     # 0700.HK-shaped: quote_currency flows straight through from
     # get_summary()'s own resolved value (see ticker_summary.py) -- no

@@ -31,7 +31,9 @@ backend/     FastAPI app, organized into packages by role:
                shared_bars_cache.py (the SharedBarsCache get-or-fetch),
                long_history_bars.py, technical_sources.py.
   helpers/     Shared calculation helpers consumed by data/: ttm.py,
-               shares.py, debt_metrics.py, npl.py, bank_capital_metrics.py,
+               statement_view.py (the cleaned-statement loader, docs/specs/
+               statement-data-quality.md), shares.py, debt_metrics.py, npl.py,
+               bank_capital_metrics.py,
                discount_rate_config.py, first.py.
   data/        Per-tab data orchestration (the get_stepN_data pattern):
                step1_data.py .. step5_data.py, ticker_summary.py,

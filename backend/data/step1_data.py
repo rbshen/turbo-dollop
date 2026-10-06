@@ -1,6 +1,6 @@
 from sqlmodel import Session
 
-from core.cache import get_or_fetch, get_or_fetch_earnings_aware, safe_fetch
+from core.cache import get_or_fetch, safe_fetch
 from core.config import settings
 from core.db import engine
 from helpers.earnings import resolve_most_recent_earnings_date
@@ -10,7 +10,8 @@ from core.schemas import OutlierWarning, Step1Out
 from core.tickers import normalize_ticker
 from scoring.classification import classify_company_type
 from scoring.step1 import MARGINS_SEVERITY_CARVEOUT_TYPES, score_step1
-from helpers.ttm import TOTAL_QUARTERS_NEEDED, clean_cash_flow_statements, sum_last_four_quarters
+from helpers.statement_view import load_statement_view
+from helpers.ttm import sum_last_four_quarters
 
 
 # Banks (2026-09-10): Margins is excluded from scoring entirely, on top of
@@ -98,70 +99,25 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
                 ),
             )
         )
-        income_annual = await safe_fetch(
-            "income_statement_annual",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "income_statement",
-                "annual",
-                lambda: fmp_client.get_income_statement(ticker, "annual", 10),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        income_quarterly = await safe_fetch(
-            "income_statement_quarterly",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "income_statement",
-                "quarterly",
-                lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        cash_flow_annual = await safe_fetch(
-            "cash_flow_statement_annual",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "cash_flow_statement",
-                "annual",
-                lambda: fmp_client.get_cash_flow_statement(ticker, "annual", 10),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        cash_flow_quarterly = await safe_fetch(
-            "cash_flow_statement_quarterly",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "cash_flow_statement",
-                "quarterly",
-                lambda: fmp_client.get_cash_flow_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
+        # Placeholder cash-flow rows and mis-scaled rows are treated as missing
+        # -- see helpers/statement_view.py (via ttm.py::clean_cash_flow_statements:
+        # quarterly, the newest run is dropped so TTM covers the last four valid
+        # quarters; annual, blanked in place). Step 1 reads no balance sheet, so
+        # no gate or alignment applies.
+        view = await load_statement_view(
+            session,
+            ticker,
+            None,
+            most_recent_earnings_date=most_recent_earnings_date,
+            staleness_days=staleness_days,
+            cache_only=cache_only,
+            balance_sheet=False,
         )
 
-    income_annual = income_annual if isinstance(income_annual, list) else []
-    income_quarterly = income_quarterly if isinstance(income_quarterly, list) else []
-    cash_flow_annual = cash_flow_annual if isinstance(cash_flow_annual, list) else []
-    cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
-    # Placeholder cash-flow rows and mis-scaled rows are treated as missing --
-    # see ttm.py::clean_cash_flow_statements (quarterly: the newest run is
-    # dropped so TTM covers the last four valid quarters; annual: blanked in
-    # place).
-    cash_flow_annual, cash_flow_quarterly = clean_cash_flow_statements(
-        cash_flow_annual, cash_flow_quarterly, income_annual, income_quarterly
-    )
+    income_annual = view.income_annual
+    income_quarterly = view.income_quarterly
+    cash_flow_annual = view.cash_flow_annual
+    cash_flow_quarterly = view.cash_flow_quarterly
 
     years, revenue = _annual_series(income_annual, "revenue")
     _, net_interest_income = _annual_series(income_annual, "netInterestIncome")

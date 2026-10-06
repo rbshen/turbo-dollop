@@ -253,12 +253,9 @@ def _monetary_lines(row: dict) -> dict[str, float]:
     }
 
 
-def is_scale_broken_row(rows: list[dict], index: int) -> bool:
-    """True when rows[index] looks like a whole-row unit/scale break against
-    its nearest SCALE_BREAK_NEIGHBOURS other rows in the same list (see
-    SCALE_BREAK_MIN_RATIO and friends). `rows` is the ticker's own series of
-    one statement and period; a list too short to supply two non-zero
-    neighbours for a line contributes nothing for that line."""
+def _scale_break_log_ratios(rows: list[dict], index: int) -> list[float]:
+    """log10(|line| / median of the nearest SCALE_BREAK_NEIGHBOURS rows' same line) for every comparable monetary line
+    of rows[index] (a line needs two non-zero neighbours)."""
     nearest = sorted((j for j in range(len(rows)) if j != index), key=lambda j: abs(j - index))
     neighbours = [_monetary_lines(rows[j]) for j in nearest[:SCALE_BREAK_NEIGHBOURS]]
     log_ratios: list[float] = []
@@ -269,6 +266,10 @@ def is_scale_broken_row(rows: list[dict], index: int) -> bool:
         if len(magnitudes) < 2:
             continue
         log_ratios.append(math.log10(abs(value) / statistics.median(magnitudes)))
+    return log_ratios
+
+
+def _is_scale_break(log_ratios: list[float]) -> bool:
     if len(log_ratios) < SCALE_BREAK_MIN_LINES:
         return False
     direction = 1 if statistics.median(log_ratios) > 0 else -1
@@ -279,6 +280,24 @@ def is_scale_broken_row(rows: list[dict], index: int) -> bool:
     ordered = sorted(log_ratios)
     q1, q3 = ordered[len(ordered) // 4], ordered[(3 * len(ordered)) // 4]
     return q3 - q1 <= SCALE_BREAK_MAX_LOG_IQR
+
+
+def is_scale_broken_row(rows: list[dict], index: int) -> bool:
+    """True when rows[index] looks like a whole-row unit/scale break against
+    its nearest SCALE_BREAK_NEIGHBOURS other rows in the same list (see
+    SCALE_BREAK_MIN_RATIO and friends). `rows` is the ticker's own series of
+    one statement and period; a list too short to supply two non-zero
+    neighbours for a line contributes nothing for that line."""
+    return _is_scale_break(_scale_break_log_ratios(rows, index))
+
+
+def scale_break_evidence(rows: list[dict], index: int) -> tuple[int, float] | None:
+    """None unless is_scale_broken_row(rows, index); else (number of comparable lines, median log10 ratio of those
+    lines to the neighbouring rows) -- 3.0 means the row is about 1,000 times off. Same decision as the bool."""
+    log_ratios = _scale_break_log_ratios(rows, index)
+    if not _is_scale_break(log_ratios):
+        return None
+    return len(log_ratios), statistics.median(log_ratios)
 
 
 def _blank(row: dict) -> dict:

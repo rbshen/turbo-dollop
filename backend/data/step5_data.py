@@ -7,21 +7,16 @@ from helpers.bank_capital_metrics import get_ticker_bank_capital_metrics
 from core.cache import get_or_fetch, get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
 from core.db import engine
-from helpers.balance_sheet_gate import (
-    DEBT_BASIS_SHORT_PLUS_LONG,
-    DEBT_BASIS_TOTAL_DEBT,
-    align_quarters_to_balance_sheet,
-    select_complete_balance_sheet,
-)
-from helpers.debt_metrics import MetricOutlierFlags, compute_debt_metrics
+from helpers.debt_metrics import MetricOutlierFlags
 from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from helpers.npl import compute_npl_ratio
-from core.schemas import BalanceSheetFallback, BreachContextSignal, OutlierWarning, SecCrossCheck, Step5Out, Step5RatioResult
+from core.schemas import BreachContextSignal, OutlierWarning, SecCrossCheck, Step5Out, Step5RatioResult
 from core.tickers import normalize_ticker
 from scoring.step5 import classify_company_type, score_npl, score_step5_bank, score_step5_reit, score_step5_standard
-from helpers.ttm import TOTAL_QUARTERS_NEEDED, clean_cash_flow_statements, sum_last_four_quarters
+from helpers.statement_view import load_statement_view
+from helpers.ttm import TOTAL_QUARTERS_NEEDED
 
 # Same 10yr fetch window/cache key Step 4 already populates
 # ("balance_sheet_statement"/"annual", "income_statement"/"annual") -- for
@@ -380,116 +375,45 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
         # over a period), not snapshots -- a single quarter's figure would
         # understate them ~4x relative to the debt figures they're compared
         # against, so these are summed trailing-twelve-months instead, same
-        # convention and cache key + limit Step 1 already populates
-        # ("income_statement"/"quarterly" and "cash_flow_statement"/
-        # "quarterly", both limit TOTAL_QUARTERS_NEEDED -- the extra
+        # convention and cache keys Step 1 already populates (the extra
         # quarters beyond the 4 being summed feed the outlier-detection
-        # baseline in ttm.py::sum_last_four_quarters).
-        income_quarterly = await safe_fetch(
-            "income_statement_quarterly",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "income_statement",
-                "quarterly",
-                lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        cash_flow_quarterly = await safe_fetch(
-            "cash_flow_statement_quarterly",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "cash_flow_statement",
-                "quarterly",
-                lambda: fmp_client.get_cash_flow_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        # Fetched here (rather than only later, alongside the breach-context
-        # trend series' own income_annual/balance_sheet_annual fetch below)
-        # so debt_metrics/cfo_result can pass it into sum_last_four_quarters
-        # for TEAM Defect B's duplicate-annual-quarter correction (see
-        # ttm.py). Same cache key as that later fetch -- a harmless cache
-        # hit there, not a second FMP call.
-        income_annual_for_ttm = await safe_fetch(
-            "income_statement_annual",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "income_statement",
-                "annual",
-                lambda: fmp_client.get_income_statement(ticker, "annual", ANNUAL_WINDOW),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        cash_flow_annual = await safe_fetch(
-            "cash_flow_statement_annual",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "cash_flow_statement",
-                "annual",
-                lambda: fmp_client.get_cash_flow_statement(ticker, "annual", ANNUAL_WINDOW),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
+        # baseline in ttm.py::sum_last_four_quarters). The annual rows feed
+        # TEAM Defect B's duplicate-annual-quarter correction (see ttm.py).
+        #
+        # helpers/statement_view.py is the one place that applies the read-time
+        # data-quality rules: placeholder / scale-break cash-flow rows are
+        # treated as missing, and when FMP served the newest balance sheet
+        # partly filled in (debt or current assets remapped into another line)
+        # the PRIOR quarter's balance sheet is used, with the income and
+        # cash-flow quarters cut off at that same period end so the TTM windows
+        # stay aligned with it. A read-time decision only -- the cached rows
+        # are untouched. Step 5's scoring rules are unchanged; the debt basis
+        # watched is the one the path being scored actually reads (REIT
+        # gearing: totalDebt; Standard: short + long term debt), and current
+        # assets only matter on Standard.
+        view = await load_statement_view(
+            session,
+            ticker,
+            company_type,
+            most_recent_earnings_date=most_recent_earnings_date,
+            staleness_days=staleness_days,
+            cache_only=cache_only,
+            balance_sheet_quarterly_rows=balance_sheet if isinstance(balance_sheet, list) else [balance_sheet_row],
         )
 
-    income_quarterly = income_quarterly if isinstance(income_quarterly, list) else []
-    cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
-    income_annual_for_ttm = income_annual_for_ttm if isinstance(income_annual_for_ttm, list) else []
-    cash_flow_annual = cash_flow_annual if isinstance(cash_flow_annual, list) else []
-    # Placeholder cash-flow rows and mis-scaled rows are treated as missing --
-    # see ttm.py::clean_cash_flow_statements (quarterly: the newest run is
-    # dropped so TTM covers the last four valid quarters; annual: blanked in
-    # place).
-    cash_flow_annual, cash_flow_quarterly = clean_cash_flow_statements(
-        cash_flow_annual, cash_flow_quarterly, income_annual_for_ttm, income_quarterly
-    )
-
-    # Newest-quarter completeness gate (helpers/balance_sheet_gate.py): when
-    # FMP served the newest balance sheet partly filled in (debt or current
-    # assets remapped into another line), use the prior quarter's balance
-    # sheet. The income and cash-flow quarters are cut off at that same
-    # period end so the TTM windows stay aligned with the balance sheet. A
-    # read-time decision only -- the cached rows are untouched. Step 5's
-    # scoring rules are unchanged; the debt basis watched is the one the path
-    # being scored actually reads (REIT gearing: totalDebt; Standard:
-    # short + long term debt), and current assets only matter on Standard.
     is_reit = company_type == "REIT/Property Developer"
-    selection = select_complete_balance_sheet(
-        balance_sheet if isinstance(balance_sheet, list) else [balance_sheet_row],
-        DEBT_BASIS_TOTAL_DEBT if is_reit else DEBT_BASIS_SHORT_PLUS_LONG,
-        check_current_assets=not is_reit,
-    )
-    balance_sheet_fallback = None
-    if selection.fallback_used:
-        balance_sheet_row = selection.row
-        income_quarterly = align_quarters_to_balance_sheet(income_quarterly, selection.used_date)
-        cash_flow_quarterly = align_quarters_to_balance_sheet(cash_flow_quarterly, selection.used_date)
-        balance_sheet_fallback = BalanceSheetFallback(
-            reason=selection.reason,
-            incomplete_quarter_date=selection.incomplete_date,
-            used_quarter_date=selection.used_date,
-            detail=selection.detail,
-        )
+    income_quarterly = view.income_quarterly
+    cash_flow_quarterly = view.cash_flow_quarterly
+    cash_flow_annual = view.cash_flow_annual
+    income_annual_for_ttm = view.income_annual
+    balance_sheet_row = view.balance_sheet_row
+    balance_sheet_fallback = view.balance_sheet_fallback
 
     # Shared with the ticker header's raw metric tiles -- single source of
     # truth so the two views can never diverge for the same ticker.
-    debt_metrics = compute_debt_metrics(balance_sheet_row, income_quarterly, income_annual_for_ttm)
+    debt_metrics = view.debt_metrics
     ebitda_ttm = debt_metrics.ebitda_ttm
-    cfo_result = sum_last_four_quarters(
-        cash_flow_quarterly, "netCashProvidedByOperatingActivities", cash_flow_annual
-    )
+    cfo_result = view.ttm("cash_flow", "netCashProvidedByOperatingActivities")
     cfo_ttm = cfo_result.total
 
     outlier_warnings = _outlier_warnings(
@@ -648,7 +572,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
     debt_to_ebitda_oldest, debt_to_ebitda_oldest_year = _oldest_in_trend_window(debt_to_ebitda_series, years)
     current_ratio_oldest, current_ratio_oldest_year = _oldest_in_trend_window(current_ratio_series, years)
 
-    fcf_ttm = sum_last_four_quarters(cash_flow_quarterly, "freeCashFlow", cash_flow_annual).total
+    fcf_ttm = view.ttm("cash_flow", "freeCashFlow").total
     cash_and_equivalents = balance_sheet_row.get("cashAndCashEquivalents")
     net_debt = balance_sheet_row.get("netDebt")
     receivables = balance_sheet_row.get("netReceivables")

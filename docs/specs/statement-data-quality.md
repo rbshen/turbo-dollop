@@ -19,6 +19,40 @@ periods) and the guard then simply stops firing. **Section 5** adds a bounded, t
 quarterly statements for flagged tickers; it does not change the staleness rule and does not shorten the window
 for any other ticker.
 
+## The shared loader (`helpers/statement_view.py`)
+
+One module turns cached statements into what the scored path reads, so no consumer re-implements the rules. Two layers:
+`build_statement_view(raw, company_type, use_balance_sheet=True)` is pure (testable with synthetic rows),
+`load_statement_view(session, ticker, company_type, ...)` is the cache read (the same `get_or_fetch_earnings_aware` keys and
+limits every step already uses: annual 10, quarterly `TOTAL_QUARTERS_NEEDED`; no new cache key, no extra FMP call on a warm
+cache). Order, unchanged from what `get_step5_data` always did: clean the cash-flow rows (sections 3-4) -> gate the balance
+sheet (section 1) -> on fallback cut the income **and** cash-flow quarters off at the balance sheet that is used. The helpers
+are reused as they are; the loader only composes them.
+
+`StatementView` carries: `income_annual`, `income_quarterly` (aligned), `cash_flow_annual` / `cash_flow_quarterly` (cleaned,
+aligned), `balance_sheet_annual` / `balance_sheet_quarterly` (raw), `balance_sheet_row` (the gated row), `selection`,
+`balance_sheet_fallback` (the same `BalanceSheetFallback` facts `Step5Out` carries), `used` (period ends of the balance
+sheet and of the income and cash-flow TTM windows), `debt_metrics` (`compute_debt_metrics` on the gated row and aligned
+income) and `ttm(statement, line)` (Defect-B-aware `sum_last_four_quarters` over the cleaned quarters).
+
+**Definitions.** The debt basis the gate watches follows the company type (REIT/Property Developer: FMP's `totalDebt`, no
+current-assets check; everything else: short + long term debt); what a consumer *shows* as debt stays its own definition.
+Alignment only happens when the gate falls back, one step back, with the 10-day tolerance (section 1). A statement a consumer
+does not need can be left out (Step 1 reads no balance sheet: no gate, no alignment).
+
+**Consumers.** Step 1 (cash flow only), Step 5. The ticker header, Step 3 Valuation inputs, Step 4 balance-sheet inputs and
+Speculative Growth join in the following commits (see "Other readers" in section 1 for what each still read raw until then).
+
+**The data-quality function.** `data_quality_flags(raw, earnings, company_type, today)` returns the rules that currently trip
+as structured `DataQualityFlag`s (`core/schemas.py`): `rule` (`placeholder_cf`, `scale_break`, `partial_balance_sheet`,
+`not_landed`), `statement`, `period` (annual / quarterly), `period_end`, a short factual `evidence` string and a `detail` dict
+(placeholder: `net_income`; scale break: `lines`, `log10_ratio`, `derived_q4`; partial balance sheet: the gate `reason` and the
+incomplete / used quarter dates; not landed: `reported_on`; every row flag: `in_ttm_window`, true when the row is one of the
+four newest raw quarters the Financials TTM column sums, or, for the balance sheet, the row its TTM column reads). It reuses
+`is_placeholder_cash_flow_row`, `ttm.scale_break_evidence` (the same decision as `is_scale_broken_row`, plus the line count and
+magnitude), `select_complete_balance_sheet` and the recheck's `not_landed_flag`. It is pure: nothing is persisted, there is no UI
+wording, and a healed row simply stops producing its flag. Watch and a stored per-ticker flag can reuse it as it is.
+
 ## 1. Newest-quarter completeness gate (Step 5 only)
 
 `helpers/balance_sheet_gate.py::select_complete_balance_sheet`, wired in `get_step5_data`.
