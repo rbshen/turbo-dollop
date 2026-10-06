@@ -78,7 +78,7 @@ function base(): Omit<ChartOut, "range" | "timeframe" | "bars"> {
     entry_signal_markers: [], entry_signal_available: true, weinstein_ma: [], weinstein_ma_label: null, weinstein_stages: [],
     warren_signal_markers: [], warren_signal_available: true, zones: [], zones_available: true,
     earnings_markers: [], dividend_markers: [], events_source: null,
-    warren_rsi: [], warren_adx: [], warren_plus_di: [], warren_minus_di: [], warren_wvf: [], warren_levels: null,
+    warren_rsi: [], warren_adx: [], warren_plus_di: [], warren_minus_di: [], warren_wvf: [], warren_levels: null, warren_instruction: null,
     source: "fmp", chart_available: true,
   } as unknown as Omit<ChartOut, "range" | "timeframe" | "bars">;
 }
@@ -349,4 +349,47 @@ it("signal arrows carry no text, on 2H·90D and on the daily ranges (BB+RSI and 
   render(<TickerChart data={daily} {...props} />);
   expect(markerSets.flat()).toHaveLength(2);
   expect(markerSets.flat().every((m) => !("text" in m))).toBe(true);
+});
+
+// --- Warren action text (2H·90D legend second line) ---
+
+const instruction = (over: Partial<NonNullable<ChartOut["warren_instruction"]>> = {}): ChartOut["warren_instruction"] => ({
+  type: 2, kind: "blue_up", text: "BLUE UP = ENTRY, NO STOP", tone: "blue", time: "2026-08-10T09:30:00", bars_since: 3, bars_left: 27, ...over,
+});
+
+it("2H·90D legend: the Warren action text is a second line, prefixed and coloured by tone, wrapped not truncated", () => {
+  const tones = { red: "text-chart-down", gray: "text-chart-warren-gray", yellow: "text-chart-warren-yellow", blue: "text-chart-ema21" } as const;
+  for (const [tone, cls] of Object.entries(tones)) {
+    const { getByTestId } = render(
+      <TickerChart data={{ ...twoHData(), warren_instruction: instruction({ tone: tone as "red", text: `TEXT ${tone}` }) }} {...props} />
+    );
+    const line = getByTestId("warren-instruction");
+    expect(line.textContent).toBe(`Warren: TEXT ${tone}`);
+    expect(line.className).toContain(cls);
+    expect(line.className).not.toMatch(/truncate|whitespace-nowrap|overflow-hidden/);
+    // inside the pointer-events-none legend block, under the OHLC row
+    expect(line.parentElement!.className).toContain("pointer-events-none");
+    expect(line.previousElementSibling!.textContent).toMatch(/O .*H .*L .*C /);
+    cleanup();
+  }
+});
+
+it("2H·90D legend: no instruction renders nothing", () => {
+  const { queryByTestId, container } = render(<TickerChart data={twoHData()} {...props} />);
+  expect(queryByTestId("warren-instruction")).toBeNull();
+  expect(container.textContent).not.toContain("Warren:");
+});
+
+it("2H·90D legend: the Warren toggle off hides the text, and on shows it again", () => {
+  const data = { ...twoHData(), warren_instruction: instruction() };
+  const { queryByTestId, rerender } = render(<TickerChart data={data} {...props} showWarren={false} />);
+  expect(queryByTestId("warren-instruction")).toBeNull();
+  rerender(<TickerChart data={data} {...props} showWarren />);
+  expect(queryByTestId("warren-instruction")).not.toBeNull();
+});
+
+it("a daily range never shows the text, even if a response carried one", () => {
+  const data = { ...dailyData(), warren_instruction: instruction() } as ChartOut;
+  const { queryByTestId } = render(<TickerChart data={data} {...props} />);
+  expect(queryByTestId("warren-instruction")).toBeNull();
 });

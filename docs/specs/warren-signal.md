@@ -151,6 +151,31 @@ output is byte-identical to before (pinned in `test_state_machine.py`; also chec
   `tests/test_warren_signal_data.py` (profile selection, nightly routing and guard), `tests/test_chart_2h.py` (chart-vs-nightly
   consistency with and without a flagged day, fail-closed cases, displayed candles unchanged).
 
+## Action text (Chart tab, 2H·90D, 2026-10-06)
+
+The chart's legend shows the action for the latest signal (`analysis/warren_signal/instructions.py`, pure; `ChartOut.warren_instruction`; layout in `docs/specs/chart-tab.md`). Ported from the ToS `instructionType` chain (`~/warren-thinkscripts/`, "INSTRUCTION EVENT TRACKER").
+
+- **Types and tones** (ToS numbering and colours): 100 stop hit (red); 30 gray down, 1 gray up (gray); 20 yellow down, 4 first yellow up after blue, 3 yellow up (yellow); 10 blue down, 2 blue up (blue).
+- **Same-bar priority** (ToS order): 100, yellow-down 20, blue-down 10, gray-down 30, then yellow-up 3 (4 on a first-yellow-after-blue arrow bar), blue-up 2, gray-up 1.
+- **Signals and expiry.** A signal is any of the six arrows, a stop hit, or type 4 (the arrow bar). Each replaces the current text and restarts the countdown. The signal bar has age 0; age counts positions in the completed 2h candle series (as ToS `BarNumber`); the text shows while age <= 30 and is gone from age 31 (`INSTRUCTION_MAX_AGE_BARS`).
+- **Engine inputs** (additive on `WarrenReplayResult`, defaults empty, never read by the nightly job): `stop_hit_at` (every ToS `stopEvent` bar, the debounced one-shot breach) and `first_yellow_after_blue_at` (Yellow Up arrow bars with `yellowCountSinceBlue == 1`, `entryIsGray` false and `barsSinceBlueUp <= 20`). The arrow events are byte-identical to before (pinned in `tests/test_chart_2h.py`, hashes recorded from the pre-change engine).
+- **Two text sets**, chosen by `profile.name`: the shortened **profiled** set for SPY/QQQ/TQQQ/TECL, and the **generic** set (the Any-Ticker ToS strings verbatim, except type 4) for every other ticker; type 100 is the same in both. Both entry branches stay in the string (no entry-type state exists).
+
+| Type | Profiled (SPY/QQQ/TQQQ/TECL) | Generic (any other ticker) |
+| --- | --- | --- |
+| 100 | STOP HIT = EXIT OR RESET | STOP HIT = EXIT OR RESET |
+| 30 | GRAY DOWN: yellow entry = stop to entry; blue entry = no action | GRAY DOWN - Adjust stop accordingly. |
+| 20 | YELLOW DOWN: yellow entry = stop to 2nd LP; blue entry = no action | YELLOW DOWN - Adjust stop accordingly. |
+| 10 | BLUE DOWN = stop to 2nd LP | BLUE DOWN - Adjust stop accordingly. |
+| 4 | FIRST YELLOW UP AFTER BLUE = NO ACTION | FIRST YELLOW UP ARROW AFTER BLUE ENTRY - NO ACTION |
+| 3 | YELLOW UP: new entry = 10% stop; already in trade = stop to 2nd LP or 10% below candle low, whichever is lower | YELLOW UP INITIAL ENTRY - Use appropriate stop. |
+| 2 | BLUE UP = ENTRY, NO STOP | BLUE UP - Use appropriate stop. |
+| 1 | GRAY UP = NO ACTION (stopped out twice); stay out until BLUE UP | GRAY UP - NO ACTION. Stopped out twice. |
+
+- **Deliberate deviations from ToS** (docs/decisions.md 2026-10-06): (1) **type 4 is shown on the first-yellow arrow bar itself**, replacing type 3 there; ToS shows it one bar late and re-asserts it over later down-arrow text. (2) **A stop hit restarts the countdown** (ToS's `instructionBar` ignores stop hits); it gets no chart marker. Also: expiry is 30 candles (ToS 10), and the generic type-4 text reads "NO ACTION" (the profiled meaning is authoritative; ToS Any-Ticker says "Adjust stop accordingly").
+- **Ported, not changed:** the type chain's order, numbering and colours, and ToS's "a down arrow beats an up arrow on the same bar".
+- Tests: `analysis/warren_signal/test_instructions.py`, `test_state_machine.py` (stop-hit and type-4 inputs), `tests/test_chart_2h.py` ("Warren action text" section, including the signal-before-window and engine-identity pins).
+
 ## Storage
 
 - **Latest-state row: a shared table.** `TechnicalEntrySignal` (BB+RSI's own table) has 3 nullable columns,

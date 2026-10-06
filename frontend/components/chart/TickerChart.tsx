@@ -89,6 +89,14 @@ function warrenMarkerStyle(
   };
 }
 
+// The Warren action text's colour per tone (ToS: red stop hit, gray, yellow, blue). Literal class names so Tailwind sees them.
+const WARREN_INSTRUCTION_TONE_CLASS: Record<"red" | "gray" | "yellow" | "blue", string> = {
+  red: "text-chart-down",
+  gray: "text-chart-warren-gray",
+  yellow: "text-chart-warren-yellow",
+  blue: "text-chart-ema21",
+};
+
 const RSI_OVERBOUGHT = 70;
 const RSI_OVERSOLD = 30;
 const STOCH_OVERBOUGHT = 80;
@@ -1260,7 +1268,7 @@ export function TickerChart({
   return (
     <div className="rounded-lg border border-border-card">
       <div className="relative bg-page">
-        <div className="absolute top-2 left-3 z-10 select-none pointer-events-none">
+        <div className="absolute top-2 left-3 right-3 z-10 select-none pointer-events-none">
           {ohlc && (
             <div className="flex items-center gap-2.5 text-xs font-mono">
               {legendTime && <span className="text-text-secondary">{formatCandleLegendTime(legendTime)}</span>}
@@ -1276,6 +1284,16 @@ export function TickerChart({
               <span className="text-text-tertiary">
                 C <span className="text-text-primary">{fmtMoney(ohlc.c, quoteCurrency)}</span>
               </span>
+            </div>
+          )}
+          {/* The latest Warren action text (never the hovered candle's): 2H·90D only, with the Warren toggle on. Wraps on
+              narrow widths, kept clear of the price axis. */}
+          {intraday && showWarren && data.warren_instruction && (
+            <div
+              data-testid="warren-instruction"
+              className={`mt-1 max-w-[calc(100%-5rem)] text-left text-xs font-mono ${WARREN_INSTRUCTION_TONE_CLASS[data.warren_instruction.tone]}`}
+            >
+              Warren: {data.warren_instruction.text}
             </div>
           )}
         </div>

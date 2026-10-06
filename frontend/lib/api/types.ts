@@ -1669,6 +1669,16 @@ export interface ChartWarrenLevelsOut {
   wvf: number[];
 }
 
+export interface ChartWarrenInstructionOut {
+  type: number; // ToS instruction type: 100 stop hit, 30/20/10 gray/yellow/blue down, 4 first yellow up after blue, 3/2/1 yellow/blue/gray up
+  kind: string;
+  text: string;
+  tone: "red" | "gray" | "yellow" | "blue";
+  time: string; // the signal candle's naive-ET start stamp
+  bars_since: number; // age in completed candles (0 = the latest)
+  bars_left: number; // candles it stays visible for after this one (0 on its last visible candle)
+}
+
 export interface ChartOut {
   range: ChartRange;
   // On "2h" (the 2H_90D range) every time -- bars, markers, zone formed_at, Warren series -- is a naive-ET
@@ -1722,6 +1732,10 @@ export interface ChartOut {
   warren_minus_di: ChartLinePointOut[];
   warren_wvf: ChartLinePointOut[];
   warren_levels: ChartWarrenLevelsOut | null;
+  // 2H_90D only (null elsewhere, when there is no signal, and once the latest one is older than 30 completed
+  // candles): the current Warren action text. Computed from the full replay, so it can come from a signal
+  // that fired before the visible window start.
+  warren_instruction: ChartWarrenInstructionOut | null;
   source: "fmp";
   chart_available: boolean; // false only for a genuinely bad/delisted ticker with no bars at all
 }
