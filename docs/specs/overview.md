@@ -21,6 +21,9 @@ Assessment**:
 
 Each of the four automated cards produces its own score (0–100) and verdict (Fail / Pass /
 Strong Pass, or occasionally "Pass with caution" — see the [Glossary](glossary.md)). The
+Overall verdict adds one more value, "Moat not rated" (below). A separate **Review status**
+(below) can sit beside a Pass-family Overall verdict, but it is never a verdict: it does not
+change the number or the verdict. The
 Overall Assessment combines them into one number using these weights:
 
 | Component | Weight |
@@ -53,8 +56,10 @@ Growth Rate, Profitability, Debt), and `MOAT_WEIGHT = 0.31`. Multiplying the ste
 Financials/Growth/Debt/Profitability blend is a plain weighted average with **no hard-fail
 override among the four automated steps** (Moat is the one deliberate exception, since it is
 user-asserted rather than computed; a No Moat score of 0 can cap Overall below 70 regardless of
-the steps). The Overall verdict bands are the shared ones used app-wide: Fail below 70, Pass 70-90,
-Strong Pass above 90.
+the steps). The **Review status** (below) is not an override: it flags a badly failing Financials or
+Debt step on a ticker that still passes, and leaves the score and the verdict as computed. The
+Overall verdict bands are the shared ones used app-wide: Fail below 70, Pass 70-90, Strong Pass
+above 90.
 
 The 2026-07-31 rebalance moved the weights from Financials 24% (unchanged), Growth Rate 15%,
 Debt 10%, Profitability ~19%, Moat 31% (unchanged) to today's Growth Rate 10%, Debt 15%,
@@ -109,7 +114,50 @@ and `frontend/lib/overallScore.ts::computeOverallAssessment`. Both are tested ag
 file, `backend/tests/fixtures/overall_verdict_cases.json`. Display: `lib/tierColor.ts::verdictLabel`
 ("Moat not rated", neutral tone) in the ticker header chip, the Analysis card (reason line), the Screener
 card and the Watchlist Analysis pill (reason as its tooltip). Filters, sorts and the Momentum badge read
-`overall_score` only and never see the verdict.
+`overall_score` only and never see the verdict (or the Review status). The Screener card and the Watchlist
+pill draw `overall_verdict`; neither shows the Review status.
+
+## Review status (phase 1)
+
+A second, **demote-only** read stored beside the Overall verdict (`TickerScore.review_status`,
+`review_reasons`, `conviction`, `data_quality_flags`; `backend/scoring/review.py`). It never changes
+`overall_score` or `overall_verdict`, so Screener sorting, filters and saved views are unaffected. It applies
+only when the stored verdict is Pass, Pass with caution or Strong Pass; a Fail, an incomplete row, a
+"Moat not rated" row and an ETF always have a null status.
+
+**Gate.** Step 1 (Financials) or Step 5 (Debt) has verdict Fail **and** a score below
+`REVIEW_GATE_SCORE = 50`. A step that is not supported, exempt, insufficient data or errored never gates;
+Steps 2 and 4 never gate.
+
+**Statuses.** `review_structural` "Review (structural)" (informational, not a Fail); `data_uncertain` "Data
+uncertain"; `review_unclear` "Review (unclear)"; `review_by_design` "Review (by design)". The label is
+"Review" because "Watch" collides with the Watchlist and "Reject" with Fail.
+
+**Step 5 hint** (Step 1 gets none: a gated Step 1 reads unclear, with an evidence string). *Structural:* debt
+servicing ratio at or above 60%. *By design:* every failing ratio is covered: a failing Current Ratio is
+covered if below 1.0 in at least 4 of the last 5 fiscal years or at least 6 of the last 8 cleaned quarters; a
+failing Debt/EBITDA is covered if the last 5 fiscal years plus TTM stay within +/-20% of their median, interest
+coverage is at least 5 and debt servicing is below 30%; a failing debt servicing ratio, REIT gearing and the
+Bank path are never covered. *Otherwise unclear.* There is no "temporary" hint in phase 1 (it produced false
+positives such as HCA, CSX and DIS).
+
+**Data-quality guard.** A gated step is guarded by `placeholder_cf` or `scale_break` (Step 1),
+`partial_balance_sheet`, `scale_break` or a balance-sheet fallback (Step 5), or `not_landed` (either). An
+annual flag always counts; a quarterly one only if it is in the TTM window or the newest row; `not_landed`
+always counts. A guarded step reads `data_uncertain` and records the hint it would have had (`raw_hint`), so a
+guard never hides a structural reading.
+
+**Two gated steps.** Any unguarded structural gives `review_structural`; else any guarded step gives
+`data_uncertain`; else any unclear gives `review_unclear`; else all by design gives `review_by_design`.
+
+**Conviction** (Pass-family rows, never changes the status): high if Steps 2 and 4 are both Pass or better;
+low if both fail; otherwise medium.
+
+**Display.** The ticker header chip shows the status label (the verdict word is replaced; the tooltip carries
+the Overall score, the gated step, the evidence and the conviction) and the Analysis card lists each reason.
+The Screener, Watchlist, Momentum and ETF tables still show the verdict only. Deferred: a Screener status
+filter, any Watchlist/Screener display, a temporary hint, and a Step 1 structural hint. Decision record:
+docs/decisions.md, 2026-10-06.
 
 ## What happens if a check can't be completed
 

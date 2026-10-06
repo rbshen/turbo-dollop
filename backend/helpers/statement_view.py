@@ -12,7 +12,7 @@ and the Defect-B-aware `ttm.sum_last_four_quarters`. The order is the one `get_s
 Two layers, so the rules are testable without I/O: `build_statement_view` is pure, `load_statement_view` is the cache read
 (the same `get_or_fetch_earnings_aware` keys and limits every step already uses, so it adds no cache key and, on a warm
 cache, no FMP call). `data_quality_flags` is a second pure function over the same rows: it lists the rules that currently
-trip, structurally, for the display markers (and later Watch); it persists nothing and carries no UI wording.
+trip, structurally, for the display markers and the Review status guard; it persists nothing and carries no UI wording.
 
 The raw cached rows are never modified: a bad row stays cached as FMP served it; this decides what to *use*."""
 

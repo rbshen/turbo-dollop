@@ -91,7 +91,8 @@ is used: every leading quarter ending more than 10 days after it is dropped, so 
 (EBITDA, EBIT, interest, CFO, FCF) cover the four quarters ending on the same date as the balance
 sheet. One step back only; the prior quarter is not itself re-checked. The fact is recorded on
 `Step5Out.balance_sheet_fallback` (`reason`, `incomplete_quarter_date`, `used_quarter_date`,
-`detail`) for a later Watch state; there is no UI for it yet.
+`detail`) for the Review status (docs/specs/overview.md, "Review status"), which reads it through the stored
+`TickerScore.review_reasons`; the header chip and the Analysis card draw it.
 
 **Other readers of the same rows.** Every consumer that does arithmetic on the balance sheet reads it through the shared
 loader (see "The shared loader"), so the gate applies to the ticker header's debt tiles, Speculative Growth's cash, Valuation and Step 4's

@@ -40,7 +40,7 @@ class BalanceSheetFallback(BaseModel):
     debt or current-assets line remapped into another -- see
     helpers/balance_sheet_gate.py), so the prior quarter's balance sheet, and
     income/cash-flow TTM windows aligned to it, were used instead. Records the
-    fact for a later Watch state; the scoring rules are unchanged."""
+    fact for the Review status (scoring/review.py); the scoring rules are unchanged."""
 
     reason: str  # "debt_remap" | "current_assets_remap"
     incomplete_quarter_date: str | None = None

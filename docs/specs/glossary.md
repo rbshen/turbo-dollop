@@ -72,6 +72,21 @@ Overall Assessment uses these same labels, with two additions worth knowing:
 
 See [Overview](overview.md) for how Overall Assessment is built.
 
+## Review status
+
+Not a verdict. A flag stored beside a Pass, Pass with caution or Strong Pass Overall verdict when Financials or
+Debt failed with a score below 50; the Overall number and verdict stay as computed.
+
+- **Review (structural)** — the debt servicing ratio is at or above 60%. Informational, not a Fail.
+- **Review (by design)** — every failing Debt ratio is a long-standing feature of the business (a Current
+  Ratio below 1.0 for years, or a Debt/EBITDA that has stayed in a narrow band with strong interest coverage).
+- **Review (unclear)** — a gated step the rules cannot explain (every gated Financials step reads this way).
+- **Data uncertain** — a data-quality problem on the statements (a placeholder or scale-broken cash flow, a
+  partial balance sheet, or a quarter that has not landed) touches the gated step, so its reading is not
+  trusted yet; the tooltip says what it would read if the data is confirmed.
+- **Conviction** — high, medium or low, from Growth Rate and Profitability: high when both are Pass or better,
+  low when both fail, otherwise medium.
+
 # Glossary: P/E
 
 ## P/E (trailing)

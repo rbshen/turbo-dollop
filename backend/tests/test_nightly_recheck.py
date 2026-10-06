@@ -651,10 +651,20 @@ def test_chronic_rows_are_rechecked_once_a_year_at_most(engine, monkeypatch):
 def test_a_recheck_stamp_does_not_make_a_row_look_fresh_across_a_later_earnings_cutoff(engine, monkeypatch):
     seed(engine, "ZTS", healthy(balance_quarterly=BAD_BALANCE, earnings=earnings("2026-10-04")))
     FakeFMP(monkeypatch, balance_rows=BAD_BALANCE)
+
+    class FrozenNow(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW
+
+    # The stamp is written by core.cache.force_fetch with datetime.now(), not with the `now` the job is given: freeze that
+    # clock, or on any real day on or after the 2026-10-06 cutoff below the stamp itself lands past the cutoff and the row
+    # reads fresh (this test then failed on arbitrary days).
+    monkeypatch.setattr(cache_module, "datetime", FrozenNow)
     run(engine, ["ZTS"])  # stamps the three quarterly rows with NOW (2026-10-05)
     with Session(engine) as session:
         row = session.exec(select(FundamentalsCache).where(FundamentalsCache.statement_type == "balance_sheet_statement")).one()
-    assert row.fetched_at > CACHED_AT
+    assert row.fetched_at == NOW
 
     class LaterDate(date):
         @classmethod
