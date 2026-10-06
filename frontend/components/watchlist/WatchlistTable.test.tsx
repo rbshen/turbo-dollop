@@ -318,3 +318,28 @@ describe("WatchlistTable: ETF rows", () => {
     expect(analysisCell("QQQ")).toHaveTextContent("—");
   });
 });
+
+describe("WatchlistTable width", () => {
+  const renderTable = () =>
+    render(
+      <WatchlistTable watchlist={WATCHLIST} rows={ROWS} sortRules={DEFAULT_SORT_RULES} onSortRulesChange={() => {}} />,
+    );
+
+  it("narrows Ticker and Sector and carries no min-width that forces a horizontal scroll", () => {
+    const { container } = renderTable();
+    expect(container.querySelector("table")?.className).not.toMatch(/min-w-/);
+    const ticker = screen.getByRole("button", { name: "Ticker" }).closest("th");
+    const sector = screen.getByRole("button", { name: "Sector" }).closest("th");
+    expect(ticker?.className).toContain("w-[150px]");
+    expect(sector?.className).toContain("w-[140px]");
+    expect(container.innerHTML).not.toContain("250px");
+  });
+
+  it("truncates the sector with its full name in the tooltip, and never wraps the monospace ticker", () => {
+    renderTable();
+    const sector = screen.getByText("Technology");
+    expect(sector.className).toContain("truncate");
+    expect(sector).toHaveAttribute("title", "Technology");
+    expect(screen.getByText("AAPL").className).toMatch(/font-mono.*whitespace-nowrap/);
+  });
+});

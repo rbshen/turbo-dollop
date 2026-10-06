@@ -172,11 +172,9 @@ function SortableHead({
 // redesign). The Trend/A-D-Div/SMA technical-indicators cluster (from the
 // since-removed trend-structure feature) was removed from this table on
 // 2026-09-06 and the feature itself later deleted outright. REV/NI/CFO headers stay at their
-// narrowed width (w-14) from that build, unchanged. Ticker/Sector widened
-// the same day (w-32->w-[250px], w-24->w-[250px], an explicit equal-width
-// pick rather than a proportional split of the freed space) to use the
-// horizontal space that cluster's removal freed up; every other column
-// (Moat/Value/Analysis/Rating/Mkt Cap/Beta/P/E) is unchanged.
+// narrowed width (w-14) from that build, unchanged. Ticker/Sector were widened
+// the same day (w-32->w-[250px], w-24->w-[250px]) to use the space that cluster's removal freed up, then narrowed
+// to 150px / 140px on 2026-10-06 (see TICKER_COL below) because that pair made the table wider than the page.
 // idle -> confirming (click −) -> removing (click check) -> idle (mutate()
 // flips the row out of `rows` entirely) or error (auto-reverts after 4s).
 // Same inline-confirm idiom as AddToWatchlistButton's remove flow and
@@ -188,6 +186,13 @@ function SortableHead({
 // Beta, P/E, remove -- matches the header row below; used only to span the
 // loading skeleton's rows across every column.
 const COLUMN_COUNT = 14;
+
+// Ticker / Sector widths (th and td). Narrowed from 250px each on 2026-10-06 so the table fits PageContainer's 1216px
+// content width (max-w-7xl minus px-8) with no horizontal scroll: fixed and auto columns now sum to about 1,120px.
+// Sector truncates with its full name in the cell's title; the company name under the ticker truncates the same way.
+// The max-w on each td is the same number (an auto-layout table only honours truncate with a max-width).
+const TICKER_COL = "w-[150px]";
+const SECTOR_COL = "w-[140px]";
 
 export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesChange }: Props) {
   const sorted = useMemo(() => (rows ? sortWatchlistRows(rows, sortRules) : []), [rows, sortRules]);
@@ -203,7 +208,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
 
   if (!rows) {
     return (
-      <Table className="min-w-[1000px]">
+      <Table>
         <TableBody>
           <SkeletonRows columns={COLUMN_COUNT} />
         </TableBody>
@@ -212,13 +217,13 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
   }
 
   return (
-    <Table containerClassName="max-h-[70vh] overflow-auto" className="min-w-[1000px]">
+    <Table containerClassName="max-h-[70vh] overflow-auto">
       <TableHeader>
         <TableRow className="h-9">
-          <SortableHead field="ticker" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-[250px]`}>
+          <SortableHead field="ticker" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} ${TICKER_COL}`}>
             Ticker
           </SortableHead>
-          <SortableHead field="sector" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} w-[250px]`}>
+          <SortableHead field="sector" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} ${SECTOR_COL}`}>
             Sector
           </SortableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>Last</TableHead>
@@ -269,10 +274,10 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
       <TableBody>
         {sorted.map((row) => (
           <TableRow key={row.ticker} interactive onClick={() => openTickerPage(row.ticker)}>
-            <TableCell className="w-[250px] max-w-[250px] overflow-hidden">
+            <TableCell className={`${TICKER_COL} max-w-[150px] overflow-hidden`}>
                 <p
                   className={cn(
-                    "font-mono text-sm font-bold",
+                    "font-mono text-sm font-bold whitespace-nowrap",
                     row.speculative_growth_qualifies === true ? SPECULATIVE_GROWTH_TEXT_CLASS : "text-text-primary"
                   )}
                 >
@@ -288,7 +293,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
                   {row.company_name}
                 </p>
               </TableCell>
-              <TableCell className="w-[250px] max-w-[250px] truncate text-text-secondary" title={row.sector ?? undefined}>
+              <TableCell className={`${SECTOR_COL} max-w-[140px] truncate text-text-secondary`} title={row.sector ?? undefined}>
                 {row.sector}
               </TableCell>
               <TableCell className="text-right font-mono text-text-secondary">
