@@ -38,6 +38,10 @@ export function MoatSettingsForm() {
 // the API is unchanged, so this is a FORM-LEVEL check only: a value outside
 // 0-100 shows an inline error and blocks Save; it is never clamped or corrected.
 const MOAT_SCORE_RULES = { min: 0, max: 100 };
+// No moat is capped at 1 point (the server enforces it too): with Moat fixed at 31%, that keeps a No moat rating from ever lifting
+// the Overall score to 70, whatever the four checks score. It must also stay below the other two ratings.
+const NO_MOAT_RULES = { min: 0, max: 1 };
+const NO_MOAT_ORDER_ERROR = "Must be lower than the Narrow moat and Wide moat points.";
 
 // A single config object, three fields.
 function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: SettingsSaver }) {
@@ -47,8 +51,14 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
 
   const wide = checkNumber(wideText, MOAT_SCORE_RULES);
   const narrow = checkNumber(narrowText, MOAT_SCORE_RULES);
-  const noMoat = checkNumber(noMoatText, MOAT_SCORE_RULES);
-  const invalid = wide.error !== null || narrow.error !== null || noMoat.error !== null;
+  const noMoat = checkNumber(noMoatText, NO_MOAT_RULES);
+  const noMoatOutOfOrder =
+    noMoat.error === null &&
+    noMoat.value !== null &&
+    ((narrow.error === null && narrow.value !== null && noMoat.value >= narrow.value) ||
+      (wide.error === null && wide.value !== null && noMoat.value >= wide.value));
+  const noMoatError = noMoat.error ?? (noMoatOutOfOrder ? NO_MOAT_ORDER_ERROR : null);
+  const invalid = wide.error !== null || narrow.error !== null || noMoatError !== null;
   const unchanged =
     wide.value === data.wide_moat_score &&
     narrow.value === data.narrow_moat_score &&
@@ -98,11 +108,11 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
         </SettingsRow>
         <SettingsRow
           label="No moat"
-          hint="The points, out of 100, that a No moat rating counts for in the Overall Assessment. At the default of 0 it can hold the overall score below 70 whatever the four checks say."
+          hint="The points, out of 100, that a No moat rating counts for in the Overall Assessment. Capped at 1: Moat is fixed at 31%, so the four checks can add at most 69, and a No moat rating of 1 point or less can then never lift the overall score to 70, whatever the four checks say. Above about 1.6 points it could. The default is 0."
           htmlFor="no-moat-score"
-          error={noMoat.error}
+          error={noMoatError}
         >
-          <NumberField value={noMoatText} onChange={setNoMoatText} size="short" step={0.1} {...MOAT_SCORE_RULES} />
+          <NumberField value={noMoatText} onChange={setNoMoatText} size="short" step={0.1} {...NO_MOAT_RULES} />
         </SettingsRow>
       </SettingsGroup>
 

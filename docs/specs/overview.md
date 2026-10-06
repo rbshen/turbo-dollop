@@ -48,6 +48,25 @@ The default weights are defined once, in `backend/scoring/weights.py::DEFAULT_WE
 parameter and defaults to it; `overall.py::STEP_WEIGHTS` is just the Overall defaults as fractions of 69). The frontend mirror
 `frontend/lib/overallScore.ts::STEP_WEIGHTS` must not drift from them.
 
+## Adjustable weights: storage, bounds and API (2026-10-06)
+
+The weights are one global set saved in the database (`ScoreWeightSettings`, a lazily seeded singleton; `weights_version` goes up by
+one on every save or reset, and `TickerScore.weights_version` records the version a row was scored with). Definitions, defaults,
+bounds and the pure derivations are in `backend/scoring/weights.py`; loading, the 5-second in-process cache and saving are in
+`backend/data/score_weights.py`. A read never writes (an unseeded database serves the defaults at version 1). Economic Moat's 31%
+is a constant (`overall.py::MOAT_WEIGHT`), never a column and never accepted as input.
+
+Whole numbers only. The four Overall weights add up to 69 and each step's own set to 100. Bounds, inclusive: Overall Financials
+10-30, Growth 5-30, Profitability 5-30, Debt 10-30; Step 1 Revenue 20-50, Net Income 10-40, CFO 10-40, Margins 0-25, FCF 0-15; Step 2
+Magnitude 50-100, Agreement 0-50; Step 4 ROE 15-60, ROIC 15-60, AR 0-30, CCC 0-30; Step 5 each 15-60 (default 33/33/34). The four
+Overall steps are capped at 30 so Moat (31) stays the single largest weight.
+
+`GET /api/config/score-weights` returns the weights, the defaults, the locked Moat weight, the bounds and sums, and `weights_version`;
+`PUT` saves a full set (422 with a plain-English reason naming the set and the rule); `POST /api/config/score-weights/reset`
+restores the defaults. A weight of 0 removes a component from the blend only: a missing input can still make the step insufficient,
+and a hard fail still reads Fail. Saving does not rescore anything by itself; the stored rows stay on the older version until a full
+recompute (`compute_ticker_score`) re-scores them, and a ticker-header read of a row on an older version re-scores it (cache only).
+
 ## Overall weighting: how the weights are stored, and the 2026-07-31 rebalance
 
 In code the four automated steps are stored as fractions of the 69% non-Moat portion:

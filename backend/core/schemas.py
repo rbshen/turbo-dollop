@@ -3,7 +3,7 @@ from typing import Annotated, Literal
 
 import json
 
-from pydantic import BaseModel, Field, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StringConstraints, field_validator, model_validator
 
 
 class SecCrossCheck(BaseModel):
@@ -1066,10 +1066,123 @@ class MoatScoreConfigOut(BaseModel):
     updated_at: datetime
 
 
+# A No Moat rating can never lift Overall to 70 when its points stay at or below this (with Moat fixed at 31%, the four
+# checks add at most 69: 0.69 * 100 + 0.31 * 1 = 69.31, which rounds to 69). The guarantee ends near 1.6 points; the cap is 1.
+NO_MOAT_SCORE_CAP = 1.0
+
+
 class MoatScoreConfigIn(BaseModel):
     wide_moat_score: float
     narrow_moat_score: float
     no_moat_score: float
+
+    @model_validator(mode="after")
+    def _no_moat_stays_below_the_cap_and_the_other_ratings(self):
+        if self.no_moat_score < 0 or self.no_moat_score > NO_MOAT_SCORE_CAP:
+            raise ValueError(
+                f"No moat points must be between 0 and {NO_MOAT_SCORE_CAP:g}: with Moat fixed at 31%, that is what keeps a "
+                "No moat rating from ever lifting the Overall score to 70."
+            )
+        if self.no_moat_score >= self.narrow_moat_score or self.no_moat_score >= self.wide_moat_score:
+            raise ValueError("No moat points must be lower than both the Narrow moat and the Wide moat points.")
+        return self
+
+
+# --- Score weights (scoring/weights.py, data/score_weights.py) ----------------------------------------------------------------
+
+
+class _StrictWeights(BaseModel):
+    """Whole numbers only (33.0 and "33" are rejected) and no extra field: a `moat` key is a 422, Moat's weight is not an input."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class OverallWeightsIn(_StrictWeights):
+    financials: StrictInt
+    growth: StrictInt
+    profitability: StrictInt
+    debt: StrictInt
+
+
+class Step1WeightsIn(_StrictWeights):
+    revenue: StrictInt
+    net_income: StrictInt
+    cfo: StrictInt
+    margins: StrictInt
+    fcf: StrictInt
+
+
+class Step2WeightsIn(_StrictWeights):
+    magnitude: StrictInt
+    agreement: StrictInt
+
+
+class Step4WeightsIn(_StrictWeights):
+    roe: StrictInt
+    roic: StrictInt
+    ar: StrictInt
+    ccc: StrictInt
+
+
+class Step5WeightsIn(_StrictWeights):
+    current_ratio: StrictInt
+    debt_to_ebitda: StrictInt
+    debt_servicing: StrictInt
+
+
+class WeightsIn(_StrictWeights):
+    """A full weight set. Bounds and sums come from scoring/weights.py (BOUNDS, SUMS), the same source the Settings page reads."""
+
+    overall: OverallWeightsIn
+    step1: Step1WeightsIn
+    step2: Step2WeightsIn
+    step4: Step4WeightsIn
+    step5: Step5WeightsIn
+
+    @model_validator(mode="after")
+    def _within_bounds_and_sums(self):
+        from scoring.weights import validate_weights, weights_from_dict
+
+        messages = validate_weights(weights_from_dict(self.model_dump()))
+        if messages:
+            raise ValueError(" ".join(messages))
+        return self
+
+
+class WeightBoundsOut(BaseModel):
+    min: int
+    max: int
+
+
+class RecomputeRunOut(BaseModel):
+    """The latest score recompute run (data/score_recompute.py); None until one has happened."""
+
+    id: int
+    state: Literal["running", "done", "failed"]
+    trigger: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    processed: int
+    skipped: int = 0
+    total: int
+    failed: int
+    weights_version: int | None = None
+    error: str | None = None
+
+
+class ScoreWeightsOut(BaseModel):
+    weights: dict[str, dict[str, int]]
+    defaults: dict[str, dict[str, int]]
+    # Economic Moat's share of Overall, in percent: a constant, never part of `weights`. The four overall weights add up to
+    # `overall_total`.
+    moat_weight: int
+    overall_total: int
+    # Per group, per component, inclusive. The sets add up to `sums`.
+    bounds: dict[str, dict[str, WeightBoundsOut]]
+    sums: dict[str, int]
+    weights_version: int
+    updated_at: datetime
+    recompute: RecomputeRunOut | None = None
 
 
 class ReitDividendYieldConfigOut(BaseModel):
@@ -1130,6 +1243,8 @@ class TickerScoreOut(BaseModel):
     # Step 2's analyst-estimate CAGR % (see models.py::TickerScore).
     growth_rate: float | None = None
     computed_at: datetime
+    # See models.py::TickerScore.weights_version.
+    weights_version: int | None = None
     # See models.py::TickerScore.perf_5y_vs_spy_pct/_status.
     perf_5y_vs_spy_pct: float | None = None
     perf_5y_vs_spy_status: str | None = None

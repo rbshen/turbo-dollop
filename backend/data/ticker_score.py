@@ -21,7 +21,8 @@ from data.step5_data import get_step5_data
 from data.ticker_summary import get_summary
 from helpers.statement_view import build_statement_view, data_quality_flags, read_cached_inputs
 from scoring.review import REVIEW_GATE_SCORE, compute_review, quarters_from
-from scoring.weights import DEFAULT_WEIGHTS
+from scoring.weights import ScoreWeights
+from data.score_weights import load_score_weights
 from data.warren_signal_data import (
     DEFAULT_SIGNAL_TYPE as WARREN_SIGNAL_TYPE,
     DEFAULT_TIMEFRAME as WARREN_TIMEFRAME,
@@ -108,7 +109,7 @@ def stored_review_fields(row: TickerScore | None) -> dict:
 PRESERVED_ON_UPSERT = ("delisted_at",)
 
 async def compute_ticker_score(
-    ticker: str, cache_only: bool = False, persist_etf: bool = True, persist: bool = True, weights=None
+    ticker: str, cache_only: bool = False, persist_etf: bool = True, persist: bool = True, weights: ScoreWeights | None = None
 ) -> TickerScore | None:
     """Builds and upserts one ticker's TickerScore row for the Screener page
     -- the same 5 functions Step 1/2/4/5 and the ticker header already call,
@@ -126,7 +127,12 @@ async def compute_ticker_score(
     code against the stored rows before a recompute)."""
     ticker = normalize_ticker(ticker)
     # One weight set for the whole compute: the four steps and the Overall blend must agree on it.
-    weights = weights if weights is not None else DEFAULT_WEIGHTS
+    # `weights` (an explicit set) is for dry runs and experiments; a real compute reads the saved set and stamps its version.
+    if weights is None:
+        snapshot = load_score_weights(engine)
+        weights, weights_version = snapshot.weights, snapshot.version
+    else:
+        weights_version = None
 
     step1, step1_error = await _safe_step(ticker, "step1", get_step1_data(ticker, cache_only=cache_only, weights=weights))
     step2, step2_error = await _safe_step(ticker, "step2", get_step2_data(ticker, cache_only=cache_only, weights=weights))
@@ -225,6 +231,7 @@ async def compute_ticker_score(
         valuation_source=summary.valuation_source,
         growth_rate=step2.growth_rate if step2 else None,
         computed_at=datetime.now(),
+        weights_version=weights_version,
         perf_5y_vs_spy_pct=summary.perf_5y_vs_spy_pct,
         perf_5y_vs_spy_status=summary.perf_5y_vs_spy_status,
         speculative_growth_qualifies=speculative_growth.qualifies if speculative_growth else None,

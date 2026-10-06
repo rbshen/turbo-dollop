@@ -34,6 +34,13 @@ from core.logging_config import apply_redaction_filters
 from data.etf_data import get_etf_overview, is_known_etf
 from data.etf_screener_data import etf_screener_meta, list_etf_screener_rows
 from data.liquidity_zone_data import get_liquidity_zone_data
+from data.score_weights import (
+    build_out as score_weights_out,
+    get_score_weights_row,
+    load_score_weights,
+    reset_score_weights,
+    save_score_weights,
+)
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
 from data.market_breadth_data import get_market_breadth
 from data.momentum_data import get_etf_momentum_snapshot, get_momentum_snapshot
@@ -87,6 +94,7 @@ from core.schemas import (
     InstitutionalOwnershipOut,
     LiquidityZoneConfigIn,
     WeinsteinConfigIn,
+    WeightsIn,
     WeinsteinConfigOut,
     LiquidityZoneConfigOut,
     LiquidityZonesOut,
@@ -102,6 +110,7 @@ from core.schemas import (
     RefreshResult,
     ReitDividendYieldConfigIn,
     ReitDividendYieldConfigOut,
+    ScoreWeightsOut,
     SavedFilterKind,
     SavedScreenerFilterIn,
     SavedScreenerFilterOut,
@@ -334,6 +343,31 @@ def update_moat_score(body: MoatScoreConfigIn) -> MoatScoreConfigOut:
     with Session(engine) as session:
         row = update_moat_score_config(session, body.wide_moat_score, body.narrow_moat_score, body.no_moat_score)
     return MoatScoreConfigOut(**row.model_dump())
+
+
+@app.get("/api/config/score-weights", response_model=ScoreWeightsOut)
+def score_weights_config() -> ScoreWeightsOut:
+    with Session(engine) as session:
+        row = get_score_weights_row(session)
+    return score_weights_out(row)
+
+
+@app.put("/api/config/score-weights", response_model=ScoreWeightsOut)
+def update_score_weights(body: WeightsIn) -> ScoreWeightsOut:
+    # Already validated (bounds, sums, whole numbers, no Moat field) by WeightsIn. Saving bumps weights_version; the stored
+    # TickerScore rows stay on the old version until a recompute re-scores them.
+    from scoring.weights import weights_from_dict
+
+    with Session(engine) as session:
+        row = save_score_weights(session, weights_from_dict(body.model_dump()))
+    return score_weights_out(row)
+
+
+@app.post("/api/config/score-weights/reset", response_model=ScoreWeightsOut)
+def reset_score_weights_config() -> ScoreWeightsOut:
+    with Session(engine) as session:
+        row = reset_score_weights(session)
+    return score_weights_out(row)
 
 
 @app.get("/api/config/reit-dividend-yield", response_model=ReitDividendYieldConfigOut)
@@ -871,7 +905,16 @@ async def ticker_score_out(ticker: str) -> TickerScoreOut | None:
         and row.delisted_at is None
         and row.computed_at < datetime.now() - SCORE_STALE_AFTER
     )
-    if row is None or row.overall_score is None or frozen:
+    # A row scored with older weights than the saved ones is stale too (weights were changed since): re-score it, cache only
+    # (no FMP call). An unversioned row (computed before weights were adjustable) was scored with the defaults: not stale.
+    reweighted = (
+        row is not None
+        and not row.is_etf
+        and row.delisted_at is None
+        and row.weights_version is not None
+        and row.weights_version < load_score_weights(engine).version
+    )
+    if row is None or row.overall_score is None or frozen or reweighted:
         # persist_etf=False: an ETF's TickerScore row is frozen since the 2026-10-03 cutover (the header shows no chip for
         # it), so its page load computes the same response but writes nothing; a stock is upserted exactly as before.
         row = await compute_ticker_score(ticker, cache_only=not frozen, persist_etf=False)

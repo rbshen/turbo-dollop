@@ -64,6 +64,12 @@ once the config row exists, it (not these numbers) is the source of truth. There
 rubric or checklist behind the rating itself — the user picks one of the three states directly,
 and the app assigns it whatever point value the current config row holds for that state.
 
+**No Moat points are capped at 1 (2026-10-06).** `PUT /api/config/moat` rejects a No Moat value above 1 (or below 0) and one that
+is not lower than both the Narrow and the Wide value. Reason: with Moat fixed at 31%, the four checks add at most 69 (a convex
+blend of scores of at most 100), so `round(0.69 x 100 + 0.31 x No Moat points)` stays at 69, a Fail, for any No Moat value up to
+about 1.6; 31% is the smallest whole-number Moat weight for which that holds. Above about 1.6 points a perfect steps score could
+reach 70, so the cap is 1.
+
 ### Weight in Overall Assessment
 
 Once a ticker has any of the three real Moat states set, Moat occupies **31%** of the Overall

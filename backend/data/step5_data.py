@@ -14,7 +14,8 @@ from clients.fmp_client import fmp_client
 from helpers.npl import compute_npl_ratio
 from core.schemas import BreachContextSignal, OutlierWarning, SecCrossCheck, Step5Out, Step5RatioResult
 from core.tickers import normalize_ticker
-from scoring.weights import DEFAULT_WEIGHTS, ScoreWeights
+from data.score_weights import load_score_weights
+from scoring.weights import ScoreWeights
 from scoring.step5 import classify_company_type, score_npl, score_step5_bank, score_step5_reit, score_step5_standard
 from helpers.statement_view import cached_data_quality, load_statement_view
 from helpers.ttm import TOTAL_QUARTERS_NEEDED
@@ -175,7 +176,7 @@ async def get_step5_data(
     callers (core/main.py's Step 5 endpoint) don't pass this, so they keep
     the default True and are unaffected."""
     ticker = normalize_ticker(ticker)
-    weights = weights if weights is not None else DEFAULT_WEIGHTS
+    weights = weights if weights is not None else load_score_weights(engine).weights
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:

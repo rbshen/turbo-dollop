@@ -120,11 +120,11 @@ describe("MoatSettingsForm: validation", () => {
     type(wide(), "90");
     type(noMoat(), "x");
     expect(save()).toBeDisabled();
-    type(noMoat(), "5");
+    type(noMoat(), "0.5");
     expect(save()).toBeEnabled();
   });
 
-  it.each(["0", "100", "65", "0.5", "99.99"])("accepts %j (0 to 100, inclusive)", (text) => {
+  it.each(["2", "100", "65", "1.5", "99.99"])("accepts %j (0 to 100, inclusive, above No moat)", (text) => {
     render(<MoatSettingsForm />);
     type(narrow(), text);
     expect(screen.queryByRole("alert")).toBeNull();
@@ -144,14 +144,11 @@ describe("MoatSettingsForm: validation", () => {
     expect(mockedPut).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ["wide", wide],
-    ["no moat", noMoat],
-  ])("checks the %s field the same way", (_name, pick) => {
+  it("checks the wide field the same way", () => {
     render(<MoatSettingsForm />);
-    type(pick(), "101");
+    type(wide(), "101");
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a value between 0 and 100.");
-    type(pick(), "50");
+    type(wide(), "50");
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -172,17 +169,53 @@ describe("MoatSettingsForm: validation", () => {
   });
 });
 
+describe("MoatSettingsForm: the No moat cap", () => {
+  it.each(["1.1", "1.7", "5", "100"])("rejects %j (above 1) with the range message and blocks Save", (text) => {
+    render(<MoatSettingsForm />);
+    type(noMoat(), text);
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a value between 0 and 1.");
+    expect(noMoat()).toHaveAttribute("aria-invalid", "true");
+    expect(save()).toBeDisabled();
+  });
+
+  it.each(["0", "0.5", "1"])("accepts %j", (text) => {
+    render(<MoatSettingsForm />);
+    type(noMoat(), text);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("requires No moat to stay below the Narrow and Wide moat points", () => {
+    render(<MoatSettingsForm />);
+    type(narrow(), "1");
+    type(noMoat(), "1");
+    expect(screen.getByRole("alert")).toHaveTextContent("Must be lower than the Narrow moat and Wide moat points.");
+    expect(save()).toBeDisabled();
+    type(narrow(), "65");
+    expect(screen.queryByRole("alert")).toBeNull();
+    type(narrow(), "0"); // Narrow at 0 is not above No moat's 0 either
+    expect(screen.getByRole("alert")).toHaveTextContent("Must be lower than the Narrow moat and Wide moat points.");
+  });
+
+  it("states exactly what the cap guarantees, and why", () => {
+    render(<MoatSettingsForm />);
+    const hint = document.getElementById("no-moat-score-hint")?.textContent ?? "";
+    expect(hint).toContain("Capped at 1");
+    expect(hint).toContain("fixed at 31%");
+    expect(hint).toContain("never lift the overall score to 70");
+  });
+});
+
 describe("MoatSettingsForm: saving", () => {
-  it("sends the boundary values 0 and 100 unchanged", async () => {
+  it("sends the boundary values (No moat at its cap of 1) unchanged", async () => {
     render(<MoatSettingsForm />);
     type(wide(), "100");
-    type(narrow(), "0");
-    type(noMoat(), "100");
+    type(narrow(), "2");
+    type(noMoat(), "1");
     await act(async () => fireEvent.click(save()));
     expect(mockedPut).toHaveBeenCalledWith("/config/moat", {
       wide_moat_score: 100,
-      narrow_moat_score: 0,
-      no_moat_score: 100,
+      narrow_moat_score: 2,
+      no_moat_score: 1,
     });
   });
 

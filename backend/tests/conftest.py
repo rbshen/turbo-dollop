@@ -138,6 +138,17 @@ def _isolate_data_groups_engine(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_score_weights_cache():
+    """data.score_weights keeps a 5 s snapshot keyed on id(engine); a test's engine can reuse a freed engine's id, so every
+    test starts and ends with it dropped (an unseeded database serves the defaults)."""
+    import data.score_weights as score_weights
+
+    score_weights.invalidate_cache()
+    yield
+    score_weights.invalidate_cache()
+
+
+@pytest.fixture(autouse=True)
 def _block_live_fmp_daily_bars(monkeypatch):
     """The shared-bars-cache daily path now tries FMP first (FMPDailySource ->
     fmp_client.get_historical_price_eod). No test may reach the real network

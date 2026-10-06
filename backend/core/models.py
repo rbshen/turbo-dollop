@@ -570,6 +570,36 @@ class WeinsteinSettings(SQLModel, table=True):
     updated_at: datetime
 
 
+class ScoreWeightSettings(SQLModel, table=True):
+    """The adjustable score weights (scoring/weights.py) -- ONE global singleton row, lazy-seeded from DEFAULT_WEIGHTS, edited
+    via /settings > Score weighting (data/score_weights.py). Same shape as MoatScoreConfig/WeinsteinSettings: typed whole-number
+    columns, one per component. Economic Moat's weight is NOT stored: it is the constant scoring/overall.py::MOAT_WEIGHT.
+    `weights_version` starts at 1 and goes up by one on every save (and reset); TickerScore.weights_version records which
+    version a row was scored with, so a row older than this one is known to be stale."""
+
+    key: str = Field(primary_key=True, default="default")
+    weights_version: int = 1
+    updated_at: datetime
+    overall_financials: int
+    overall_growth: int
+    overall_profitability: int
+    overall_debt: int
+    step1_revenue: int
+    step1_net_income: int
+    step1_cfo: int
+    step1_margins: int
+    step1_fcf: int
+    step2_magnitude: int
+    step2_agreement: int
+    step4_roe: int
+    step4_roic: int
+    step4_ar: int
+    step4_ccc: int
+    step5_current_ratio: int
+    step5_debt_to_ebitda: int
+    step5_debt_servicing: int
+
+
 class TickerBankCapitalMetrics(SQLModel, table=True):
     """Manually-entered CET1 (Common Equity Tier 1) ratio, plus an optional
     manual override for the NPL (non-performing loan) ratio Step 5 already
@@ -755,6 +785,9 @@ class TickerScore(SQLModel, table=True):
     # from Step2Out.growth_rate. None when Step 2 has no usable projection.
     growth_rate: float | None = None
     computed_at: datetime
+    # ScoreWeightSettings.weights_version the step scores and the Overall blend were computed with. None for a row computed
+    # before the weights were adjustable (not treated as stale: it was computed with the defaults).
+    weights_version: int | None = None
     # Ticker's own 5yr price return minus SPY's -- lifted straight from the
     # same get_summary() call market_cap/pe_ratio/beta above already come
     # from (see ticker_summary.py::_resolve_perf_vs_spy). status is

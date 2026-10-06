@@ -140,3 +140,85 @@ def step1_tables(
         "fcf": 0.0,
     }
     return standard, cfo_exempt, bank
+
+
+# --- bounds and sums (the one source the API validates with and the Settings page reads) -----------------------------------
+
+# Whole numbers, inclusive. Why each floor/cap: docs/specs/overview.md ("Adjustable score weights"). The four Overall steps are
+# capped at 30 so Economic Moat (31) stays the single largest weight; Debt and Financials keep a floor of 10 so the bankruptcy
+# filter and the foundation are never diluted away; Revenue (the foundation), ROE and ROIC (they carry the Step 4 hard fail) and
+# every Step 5 ratio (each is a hard limit) can never reach 0.
+BOUNDS: dict[str, dict[str, tuple[int, int]]] = {
+    "overall": {"financials": (10, 30), "growth": (5, 30), "profitability": (5, 30), "debt": (10, 30)},
+    "step1": {"revenue": (20, 50), "net_income": (10, 40), "cfo": (10, 40), "margins": (0, 25), "fcf": (0, 15)},
+    "step2": {"magnitude": (50, 100), "agreement": (0, 50)},
+    "step4": {"roe": (15, 60), "roic": (15, 60), "ar": (0, 30), "ccc": (0, 30)},
+    "step5": {"current_ratio": (15, 60), "debt_to_ebitda": (15, 60), "debt_servicing": (15, 60)},
+}
+
+# What each set must add up to.
+SUMS: dict[str, int] = {"overall": OVERALL_TOTAL, "step1": STEP_TOTAL, "step2": STEP_TOTAL, "step4": STEP_TOTAL, "step5": STEP_TOTAL}
+
+GROUP_LABELS = {
+    "overall": "Overall",
+    "step1": "Financials",
+    "step2": "Growth Rate",
+    "step4": "Profitability",
+    "step5": "Debt",
+}
+
+COMPONENT_LABELS: dict[str, dict[str, str]] = {
+    "overall": {"financials": "Financials", "growth": "Growth Rate", "profitability": "Profitability", "debt": "Debt"},
+    "step1": {
+        "revenue": "Revenue",
+        "net_income": "Net Income",
+        "cfo": "Cash Flow from Operations",
+        "margins": "Margins",
+        "fcf": "Free Cash Flow",
+    },
+    "step2": {"magnitude": "Growth Magnitude", "agreement": "Estimate Agreement"},
+    "step4": {
+        "roe": "Return on Equity",
+        "roic": "Return on Invested Capital",
+        "ar": "Revenue vs Accounts Receivable",
+        "ccc": "Cash Conversion Cycle",
+    },
+    "step5": {"current_ratio": "Current Ratio", "debt_to_ebitda": "Debt/EBITDA", "debt_servicing": "Debt Servicing Ratio"},
+}
+
+GROUPS = ("overall", "step1", "step2", "step4", "step5")
+
+
+def weights_to_dict(weights: ScoreWeights) -> dict[str, dict[str, int]]:
+    """A weight set as plain nested dicts, one per group, in declaration order (the API's JSON shape)."""
+    return {group: as_dict(getattr(weights, group)) for group in GROUPS}
+
+
+def weights_from_dict(values: Mapping[str, Mapping[str, int]]) -> ScoreWeights:
+    return ScoreWeights(
+        overall=OverallWeights(**values["overall"]),
+        step1=Step1Weights(**values["step1"]),
+        step2=Step2Weights(**values["step2"]),
+        step4=Step4Weights(**values["step4"]),
+        step5=Step5Weights(**values["step5"]),
+    )
+
+
+def validate_weights(weights: ScoreWeights) -> list[str]:
+    """Every rule a saved weight set must satisfy, as plain-English messages naming the set and the rule (empty = valid):
+    each weight a whole number inside its bounds, each set adding up to its total."""
+    messages: list[str] = []
+    for group, fields in weights_to_dict(weights).items():
+        for field, value in fields.items():
+            label = COMPONENT_LABELS[group][field]
+            where = f"{GROUP_LABELS[group]}: {label}" if group != "overall" else f"Overall: {label}"
+            if isinstance(value, bool) or not isinstance(value, int):
+                messages.append(f"{where} must be a whole number.")
+                continue
+            low, high = BOUNDS[group][field]
+            if not low <= value <= high:
+                messages.append(f"{where} must be between {low} and {high}.")
+        values = list(fields.values())
+        if all(isinstance(v, int) and not isinstance(v, bool) for v in values) and sum(values) != SUMS[group]:
+            messages.append(f"{GROUP_LABELS[group]} weights must add up to {SUMS[group]} (they add up to {sum(values)}).")
+    return messages

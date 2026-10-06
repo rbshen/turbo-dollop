@@ -9,8 +9,9 @@ from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.schemas import OutlierWarning, Step4Out
 from core.tickers import normalize_ticker
+from data.score_weights import load_score_weights
 from scoring.classification import classify_company_type
-from scoring.weights import DEFAULT_WEIGHTS, ScoreWeights
+from scoring.weights import ScoreWeights
 from scoring.series_trend import robust_late_direction
 from scoring.step4 import (
     AR_DSO_TREND_MATERIALITY_DAYS,
@@ -543,7 +544,7 @@ async def get_step4_data(ticker: str, cache_only: bool = False, weights: ScoreWe
     only whatever's already cached and never calls FMP -- see
     cache.get_or_fetch's own cache_only branch."""
     ticker = normalize_ticker(ticker)
-    weights = weights if weights is not None else DEFAULT_WEIGHTS
+    weights = weights if weights is not None else load_score_weights(engine).weights
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:
