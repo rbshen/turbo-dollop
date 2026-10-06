@@ -9,6 +9,7 @@ import { FmpDataGroupsSection } from "@/components/settings/FmpDataGroupsSection
 import { LiquidityZoneSettingsForm } from "@/components/settings/LiquidityZoneSettingsForm";
 import { MoatSettingsForm } from "@/components/settings/MoatSettingsForm";
 import { ReitDividendYieldSettingsForm } from "@/components/settings/ReitDividendYieldSettingsForm";
+import { ScoreWeightingForm } from "@/components/settings/ScoreWeightingForm";
 import { StatusSection } from "@/components/settings/StatusSection";
 import { WeinsteinSettingsForm } from "@/components/settings/WeinsteinSettingsForm";
 import { PageHeader } from "@/components/ui/page-header";
@@ -22,6 +23,7 @@ const SECTIONS = [
   { key: "scheduled-jobs", label: "Scheduled jobs", Component: StatusSection },
   { key: "fmp-data-groups", label: "FMP data groups", Component: FmpDataGroupsSection },
   { key: "discount-rate", label: "Discount rate by country", Component: DiscountRateSettingsForm },
+  { key: "score-weighting", label: "Score weighting", Component: ScoreWeightingForm },
   { key: "economic-moat", label: "Economic moat", Component: MoatSettingsForm },
   { key: "reit", label: "REIT", Component: ReitDividendYieldSettingsForm },
   { key: "liquidity", label: "Liquidity", Component: LiquidityZoneSettingsForm },
@@ -47,7 +49,7 @@ function SettingsContent() {
   );
 
   // Only the active section is mounted -- each form fetches its own config via
-  // SWR on mount, so rendering all 7 at once (the old vertical-stack layout)
+  // SWR on mount, so rendering all 8 at once (the old vertical-stack layout)
   // fired concurrent requests every page load for sections the user isn't
   // even looking at yet.
   const ActiveSection = SECTIONS.find((section) => section.key === active) ?? SECTIONS[0];

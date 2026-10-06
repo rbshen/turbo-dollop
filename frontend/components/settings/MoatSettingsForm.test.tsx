@@ -14,6 +14,17 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
   apiPut: vi.fn(),
 }));
 vi.mock("@/lib/hooks/useMoatConfig", () => ({ useMoatConfig: vi.fn() }));
+// The recompute status the save starts (see ScoreWeightingForm): mocked so this file stays about the form.
+const recompute = vi.hoisted(() => ({
+  status: { run: null, running: false } as { run: unknown; running: boolean },
+  refresh: vi.fn().mockResolvedValue(undefined),
+  revalidate: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("@/lib/hooks/useScoreWeights", () => ({
+  useRecomputeStatus: () => recompute.status,
+  refreshScoreWeights: recompute.refresh,
+  revalidateScores: recompute.revalidate,
+}));
 
 const mockedPut = vi.mocked(apiPut);
 const mockedMutate = vi.mocked(mutate);
@@ -43,6 +54,7 @@ beforeEach(() => {
   mockedMutate.mockResolvedValue(undefined);
 });
 afterEach(() => {
+  recompute.status = { run: null, running: false };
   cleanup();
   vi.clearAllMocks();
   vi.useRealTimers();
@@ -278,5 +290,38 @@ describe("MoatSettingsForm: saving", () => {
     expect(save()).toBeDisabled();
     act(() => { vi.advanceTimersByTime(3000); });
     expect(screen.queryByText("Saved ✓")).toBeNull();
+  });
+});
+
+describe("MoatSettingsForm: saving recomputes all scores", () => {
+  it("reads the recompute status and refreshes the scores right after a save, so the busy state starts at once", async () => {
+    render(<MoatSettingsForm />);
+    type(narrow(), "70");
+    await act(async () => fireEvent.click(save()));
+    expect(mockedPut).toHaveBeenCalledTimes(1);
+    expect(recompute.refresh).toHaveBeenCalledTimes(1);
+    expect(recompute.revalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it("says so in the intro", () => {
+    render(<MoatSettingsForm />);
+    expect(document.body.textContent).toContain("Saving recomputes all scores.");
+    expect(document.body.textContent).toContain("how they split it is set under Score weighting");
+  });
+
+  it("cannot be saved while a recompute is running, and shows its progress", () => {
+    recompute.status = { run: { state: "running", processed: 120, total: 582, failed: 0 }, running: true };
+    render(<MoatSettingsForm />);
+    type(narrow(), "70");
+    expect(save()).toBeDisabled();
+    expect(screen.getByTestId("recompute-status")).toHaveTextContent("Recomputing scores, 120 of 582");
+  });
+
+  it("shows a server 409 as the save's failure reason", async () => {
+    mockedPut.mockRejectedValueOnce(Object.assign(new Error("409"), { detail: "A score recompute is already running (5 of 582); try again when it finishes." }));
+    render(<MoatSettingsForm />);
+    type(narrow(), "70");
+    await act(async () => fireEvent.click(save()));
+    expect(screen.getByText(/Save failed/)).toBeInTheDocument();
   });
 });

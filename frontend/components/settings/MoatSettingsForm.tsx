@@ -6,6 +6,8 @@ import { mutate } from "swr";
 import { apiPut } from "@/lib/api/client";
 import type { MoatScoreConfigOut } from "@/lib/api/types";
 import { useMoatConfig } from "@/lib/hooks/useMoatConfig";
+import { refreshScoreWeights, revalidateScores, useRecomputeStatus } from "@/lib/hooks/useScoreWeights";
+import { RecomputeStatusLine } from "@/components/settings/RecomputeStatusLine";
 import { NumberField } from "@/components/ui/number-field";
 import {
   SettingsFooter,
@@ -67,6 +69,7 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
   // Identifies the field values, so a failed save's message stays until they change.
   const signature = JSON.stringify([wideText, narrowText, noMoatText]);
   const shown = saver.view(signature);
+  const { running } = useRecomputeStatus();
 
   function handleSave() {
     if (invalid || wide.value === null || narrow.value === null || noMoat.value === null) return;
@@ -81,6 +84,9 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
       // -- one revalidation reflows every open ticker's blended score
       // without a manual page reload.
       await mutate("/config/moat");
+      // Saving the points starts a full score recompute: read its status now so the polling begins, and refresh the scores shown.
+      await refreshScoreWeights();
+      await revalidateScores();
     }, signature);
   }
 
@@ -89,6 +95,7 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
       title="Economic moat point values"
       intro="Sets the points each moat rating counts for in a ticker's Overall Assessment. Once you have set a moat for a ticker, it makes up 31% of that ticker's overall score (a fixed share) and the four automated checks split the other 69%; how they split it is set under Score weighting. A ticker with no moat set is scored on the four checks alone. Saving recomputes all scores."
     >
+      <RecomputeStatusLine />
       <SettingsGroup>
         <SettingsRow
           label="Wide moat"
@@ -120,7 +127,7 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
         onSave={handleSave}
         status={shown.status}
         invalid={invalid}
-        unchanged={unchanged}
+        unchanged={unchanged || running}
         message={shown.detail}
         updatedAt={data.updated_at}
       />

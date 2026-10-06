@@ -148,6 +148,7 @@ export function SettingsFooter({
   invalid = false,
   unchanged = false,
   message: errorMessage,
+  secondary,
   className,
 }: {
   onSave: () => void;
@@ -160,6 +161,8 @@ export function SettingsFooter({
   unchanged?: boolean;
   /** The server's reason for a failed save, shown after "Save failed". */
   message?: string;
+  /** A second action beside Save (an outline button such as "Reset to defaults"). Rendered right after Save. */
+  secondary?: ReactNode;
   className?: string;
 }) {
   const message = invalid
@@ -172,6 +175,7 @@ export function SettingsFooter({
       <Button variant="primary" onClick={onSave} disabled={status === "saving" || invalid || unchanged}>
         Save
       </Button>
+      {secondary}
       <span
         aria-live="polite"
         className={cn("text-xs", status === "error" && !invalid ? "text-negative" : "text-text-secondary")}
