@@ -268,3 +268,19 @@ def test_an_old_tickerview_table_gains_the_added_columns_and_keeps_its_rows(monk
         rows = conn.execute(text("SELECT ticker, last_viewed_at, added_at, added_source FROM tickerview ORDER BY ticker")).all()
     assert columns == {"ticker": "VARCHAR", "last_viewed_at": "DATETIME", "added_at": "DATETIME", "added_source": "VARCHAR"}
     assert rows == [("AAPL", "2026-10-02 07:00:52.930737", None, None), ("QQQ", "2026-10-03 02:16:16.264082", None, None)]
+
+
+def test_an_old_tickerscore_table_gains_the_four_review_columns_and_keeps_its_rows(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE tickerscore (ticker VARCHAR NOT NULL, overall_score INTEGER, overall_verdict VARCHAR, computed_at DATETIME NOT NULL, PRIMARY KEY (ticker))"))
+        conn.execute(text("INSERT INTO tickerscore VALUES ('AAPL', 76, 'Pass', '2026-10-05 02:00:00')"))
+
+    _add_missing_columns()
+    _add_missing_columns()  # idempotent
+
+    with engine.connect() as conn:
+        columns = {row[1]: row[2] for row in conn.execute(text("PRAGMA table_info(tickerscore)"))}
+        row = conn.execute(text("SELECT ticker, overall_verdict, review_status, review_reasons, conviction, data_quality_flags FROM tickerscore")).one()
+    assert {"review_status", "review_reasons", "conviction", "data_quality_flags"} <= set(columns)
+    assert tuple(row) == ("AAPL", "Pass", None, None, None, None)

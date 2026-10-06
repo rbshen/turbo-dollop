@@ -833,6 +833,16 @@ class TickerScore(SQLModel, table=True):
     # every ticker outside the monitored watchlists, same as warren_active_signal_kind
     # above).
     warren_last_buy_fired_at: datetime | None = None
+    # Review status (scoring/review.py, docs/specs/overview.md "Review"): a separate, demote-only read beside
+    # overall_verdict, which it never changes. None unless the stored overall_verdict is Pass-family and Step 1 or Step 5
+    # is a Fail below REVIEW_GATE_SCORE. "review_structural" | "data_uncertain" | "review_unclear" | "review_by_design".
+    review_status: str | None = None
+    # JSON text: the list of {step, score, verdict, hint, raw_hint, guarded, rule, evidence}; None with no status.
+    review_reasons: str | None = None
+    # "high" | "medium" | "low"; stored for Pass-family rows only.
+    conviction: str | None = None
+    # JSON text: helpers/statement_view.py::data_quality_flags at compute time; None when no rule trips (and for ETFs).
+    data_quality_flags: str | None = None
     # Set when pipeline/stale_data_health_check.py::sync_delisted_flags finds
     # this ticker in FMP's /delisted-companies list (Phase 6a; it replaced the
     # old dual-provider stale-bar heuristic). Never cleared automatically --

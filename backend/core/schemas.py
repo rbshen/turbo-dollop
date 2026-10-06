@@ -1,7 +1,9 @@
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, StringConstraints
+import json
+
+from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 
 class SecCrossCheck(BaseModel):
@@ -61,6 +63,21 @@ class DataQualityFlag(BaseModel):
     column: str | None = None
     evidence: str
     detail: dict = {}
+
+
+class ReviewReason(BaseModel):
+    """One gated step's contribution to the Review status (scoring/review.py). Facts only, no UI wording. `hint` is the
+    reading after the data-quality guard ("data_uncertain" when guarded), `raw_hint` the one it would have had
+    ("structural" | "by_design" | "unclear"); `rule` names the rule behind `raw_hint`."""
+
+    step: Literal["step1", "step5"]
+    score: int
+    verdict: str
+    hint: str
+    raw_hint: str
+    guarded: bool
+    rule: str
+    evidence: str
 
 
 class RefreshResult(BaseModel):
@@ -1134,6 +1151,16 @@ class TickerScoreOut(BaseModel):
     # Same monitored-watchlist-only scoping as bb_rsi_entry_signal.
     warren_active_signal_kind: str | None = None
     warren_last_buy_fired_at: datetime | None = None
+    # See models.py::TickerScore.review_status. The stored JSON text is parsed on the way out.
+    review_status: str | None = None
+    review_reasons: list[ReviewReason] | None = None
+    conviction: str | None = None
+    data_quality_flags: list[DataQualityFlag] | None = None
+
+    @field_validator("review_reasons", "data_quality_flags", mode="before")
+    @classmethod
+    def _parse_stored_json(cls, value):
+        return json.loads(value) if isinstance(value, str) else value
 
 
 class RecomputeSummary(BaseModel):
