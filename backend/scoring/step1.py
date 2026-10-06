@@ -526,6 +526,13 @@ def _operating_income_backup_allowed(
     return sum(1 for v in recent if v > 0) >= NET_INCOME_BACKUP_MIN_POSITIVE_PERIODS
 
 
+def operating_health_gate_passes(
+    operating_income: list[float], ttm_operating_income: float | None, ttm_revenue: float | None
+) -> bool:
+    """Public name for the K2 operating-health gate (scoring/review.py reads it for the Step 1 evidence string)."""
+    return _operating_income_backup_allowed(operating_income, ttm_operating_income, ttm_revenue)
+
+
 def score_step1(
     revenue: list[float],
     net_income: list[float],
