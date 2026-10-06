@@ -1091,3 +1091,71 @@ def test_thin_history_points_uses_net_income_length_on_the_negative_equity_path(
     equity = [-5.0] + [1.0] * 8
     assert thin_history_points(roe, equity, [5.0] * 9, None) == 9
     assert thin_history_points(roe, equity, [5.0] * 4, None) == 4
+
+
+# --- Negative latest ROE / ROIC caps that metric at 40 (I1) --------------------
+
+STRONG_YEARS = [20.0, 22.0, 21.0, 23.0, 20.0, 22.0]
+
+
+def test_negative_latest_roic_with_strong_earlier_years_is_capped_at_40():
+    assert score_roic(STRONG_YEARS + [0.01]).points == 60  # same series, latest barely positive: untouched
+    capped = score_roic(STRONG_YEARS + [-0.01])
+    assert capped.points == 40
+    assert capped.hard_fail is False  # a cap, not a hard fail; the label is unchanged
+
+
+def test_negative_latest_roe_is_capped_at_40_too():
+    assert score_roe(STRONG_YEARS + [-0.01], POSITIVE_EQUITY + [100.0], [10.0] * 7).points == 40
+
+
+def test_latest_exactly_0_0_is_a_missing_point_not_a_negative_one():
+    # A1: 0.0 is dropped, so the latest real point is the 22.0 before it: positive, no cap, scored on 6 points.
+    result = score_roic(STRONG_YEARS + [0.0])
+    assert result.points == score_roic(STRONG_YEARS).points == 100
+
+
+def test_latest_is_the_last_real_point_when_a_trailing_placeholder_follows_a_negative():
+    # [..., -1.0, 0.0]: the 0.0 is dropped, -1.0 is the latest real point and is negative.
+    assert score_roic(STRONG_YEARS + [-1.0, 0.0]).points == 40
+
+
+def test_negative_latest_caps_a_weak_but_positive_score_above_40_too():
+    uncapped = score_roe([8.0, 9.0, 7.0, 8.0, 6.0, 1.0], POSITIVE_EQUITY, [10.0] * 6)
+    capped = score_roe([8.0, 9.0, 7.0, 8.0, 6.0, -1.0], POSITIVE_EQUITY, [10.0] * 6)
+    assert uncapped.points == 48
+    assert capped.points == 40 and capped.label == "weak_but_positive"
+
+
+def test_negative_latest_leaves_a_score_already_at_or_below_40_and_a_hard_fail_alone():
+    assert score_roic([-5.0, -6.0, -4.0, -8.0, -3.0, -2.0]) == RatioResult("fail", 0, True)
+    # Below the cap already: the negative latest reading changes only the average (27 vs 28), never raises it to 40.
+    assert score_roe([2.0, 3.0, 2.0, 1.0, 2.0, -0.5], POSITIVE_EQUITY, [10.0] * 6).points == 27
+
+
+def test_latest_is_judged_before_the_recovery_exclusion_and_the_spike_filter():
+    # A resolved dip early in the series is excluded from the average, and the series maximum may be dropped as a
+    # spike; the negative TTM reading still counts, because it is read from the series before either runs.
+    series = [30.0, 25.0, -10.0, 25.0, 28.0, 30.0, 26.0, -3.0]
+    assert score_roic(series).points == 40
+
+
+def test_both_roe_and_roic_negative_each_capped_and_the_blend_uses_both():
+    roe = score_roe(STRONG_YEARS + [-2.0], POSITIVE_EQUITY + [100.0], [10.0] * 7)
+    roic = score_roic(STRONG_YEARS + [-2.0])
+    assert (roe.points, roic.points) == (40, 40)
+    blended = score_step4(roe, ARResult("healthy", 100, False, None, None, 0, 1), roic, TrendResult("declining_or_stable", 100))
+    assert blended["score"] == round(40 * 0.25 + 100 * 0.20 + 40 * 0.35 + 100 * 0.20)  # 64
+    assert blended["verdict"] == "Fail"
+
+
+def test_negative_equity_substitute_path_is_unaffected_by_a_negative_latest_roe():
+    equity = [-10.0] + [5.0] * 5
+    result = score_roe(STRONG_YEARS[:5] + [-5.0], equity, [5.0, 6.0, 7.0, 8.0, 9.0, 10.0])
+    assert result == RatioResult("positive_despite_negative_equity", 100, False)
+
+
+def test_exempt_roic_is_not_scored_so_nothing_is_capped():
+    # An exempt company type passes roic=None: only ROE's own cap can apply, and ROIC contributes no points.
+    result = score_step4(RatioResult("excellent", 100, False), None, None, None)
+    assert result["score"] == 100 and result["components"]["roic"] is None

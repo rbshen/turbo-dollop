@@ -75,6 +75,9 @@ DIP_RECOVERY_RECENCY_YEARS = 3
 # risk profile as one that has, even though both average below 8%.
 WEAK_FLOOR_SCORE = 20
 WEAK_CEILING_SCORE = 55
+# Negative-latest cap ("I1"): a latest real ROE or ROIC reading below 0 caps that metric's points at this value,
+# whatever the multi-year average says (INTC: a strong history, a loss-making latest year). Normal ROE/ROIC path only.
+NEGATIVE_LATEST_SCORE_CAP = 40
 
 # --- Revenue vs Accounts Receivable ------------------------------------------
 # A YoY gap (AR growth % minus revenue growth %) smaller than this is noise,
@@ -372,6 +375,15 @@ def real_ratio_points(values: list[float | None]) -> list[float]:
     return [v for v in values if v is not None and v != 0.0]
 
 
+def _cap_for_negative_latest(valid: list[float], points: int) -> int:
+    """I1. "Latest" is the last real point of the series (`valid`, i.e. real_ratio_points: the TTM slot for every
+    series but one ROE series), judged on the series BEFORE the recovery-aware exclusion and the spike filter: the
+    exclusion only drops a prefix and the spike filter only the series maximum, so neither can hide the last point,
+    but the rule reads it from `valid` rather than from what survived them. An exact 0.0 is a missing point (A1), so
+    it is neither negative nor "latest": the latest real point is the one before it."""
+    return min(points, NEGATIVE_LATEST_SCORE_CAP) if valid[-1] < 0 else points
+
+
 def score_roe(roe: list[float], equity: list[float | None], net_income: list[float]) -> RatioResult:
     """ROE tiering with the negative-equity exception: if shareholders'
     equity is negative in any period, raw ROE is unreliable/sign-flipped for
@@ -392,7 +404,7 @@ def score_roe(roe: list[float], equity: list[float | None], net_income: list[flo
     min_year = min(scoring_values)
     label, points, hard_fail = _score_avg_min_tier(scoring_values, avg, min_year)
     label, points = _demote_for_unrecovered_decline(scoring_values, label, points)
-    return RatioResult(label, points, hard_fail)
+    return RatioResult(label, _cap_for_negative_latest(valid, points), hard_fail)
 
 
 def score_roic(roic: list[float]) -> RatioResult:
@@ -404,7 +416,7 @@ def score_roic(roic: list[float]) -> RatioResult:
     min_year = min(scoring_values)
     label, points, hard_fail = _score_avg_min_tier(scoring_values, avg, min_year)
     label, points = _demote_for_unrecovered_decline(scoring_values, label, points)
-    return RatioResult(label, points, hard_fail)
+    return RatioResult(label, _cap_for_negative_latest(valid, points), hard_fail)
 
 
 def thin_history_points(
