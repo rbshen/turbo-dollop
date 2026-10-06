@@ -1,5 +1,6 @@
 import type { MouseEvent } from "react";
 
+import { ReviewMarker } from "@/components/shared/ReviewMarkers";
 import { MOAT_LABEL_SHORT, MOAT_TONE } from "@/components/ticker/MoatPill";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -9,7 +10,13 @@ import { fmtMoney, fmtPct, pnlClass } from "@/lib/format";
 const HEAD_CLASS = "text-xs font-medium text-text-tertiary";
 
 // A stock row, or an ETF row (which has no moat, overall score or currency).
-export type MomentumTableRow = EtfMomentumRowOut & Partial<Pick<MomentumSnapshotRowOut, "moat" | "overall_score" | "quote_currency">>;
+export type MomentumTableRow = EtfMomentumRowOut &
+  Partial<
+    Pick<
+      MomentumSnapshotRowOut,
+      "moat" | "overall_score" | "quote_currency" | "overall_verdict" | "review_status" | "review_reasons" | "conviction"
+    >
+  >;
 
 interface Props {
   rows: MomentumTableRow[];
@@ -106,6 +113,9 @@ export function MomentumTable({ rows, showMoatAndScore = true }: Props) {
                 5a report. */}
             {showMoatAndScore && (
               <TableCell className="text-right">
+                {/* The stored Review status, joined from the same TickerScore row as the score (display only: the rank
+                    above never reads it). Icon-only, left of the score; nothing renders without a status. */}
+                <ReviewMarker review={row} overallScore={row.overall_score} className="mr-1 align-middle" />
                 {row.overall_score != null ? (
                   <Badge size="compact" tone="neutral">
                     {row.overall_score}
