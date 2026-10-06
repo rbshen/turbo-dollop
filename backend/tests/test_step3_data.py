@@ -1468,3 +1468,80 @@ def test_get_active_valuation_falls_back_to_auto_on_corrupt_saved_json(monkeypat
     assert result.valuation_source == "auto"
     assert result.selected_method == "PASS"
     assert result.dpu_growth_note is None
+
+
+# ---- cleaned statements: the newest-quarter balance-sheet gate and alignment (helpers/statement_view.py) ----------
+
+
+def _gated_balance_row(date, long_term_debt, cash):
+    return {
+        "date": date,
+        "cashAndCashEquivalents": cash,
+        "cashAndShortTermInvestments": cash,
+        "shortTermDebt": 0,
+        "longTermDebt": long_term_debt,
+        "totalDebt": long_term_debt,
+        "totalLiabilities": 10_000,
+        "totalAssets": 20_000,
+        "goodwillAndIntangibleAssets": 1_000,
+        "totalCurrentAssets": 5_000,
+        "totalCurrentLiabilities": 2_000,
+    }
+
+
+def _patch_gated_data(monkeypatch):
+    """A ZTS-shaped partial newest quarter: debt 1,000 -> 100 with total liabilities flat, plus a newest income and
+    cash-flow quarter (2026-06-30) that the gated balance sheet (2026-03-31) must cut off."""
+    ends = ["2026-06-30", "2026-03-31", "2025-12-31", "2025-09-30", "2025-06-30"]
+    income = [{"date": d, "revenue": 1_000 if i == 0 else 100, "netIncome": 500 if i == 0 else 10} for i, d in enumerate(ends)]
+    cash_flow = [
+        {"date": d, "netCashProvidedByOperatingActivities": 900 if i == 0 else 50, "capitalExpenditure": -10}
+        for i, d in enumerate(ends)
+    ]
+    balance_sheet = [_gated_balance_row("2026-06-30", 100, 5), _gated_balance_row("2026-03-31", 1_000, 800)]
+    _patch_real_data(monkeypatch)
+
+    async def fake_income_statement(ticker, period, limit):
+        return INCOME_ANNUAL if period == "annual" else income
+
+    async def fake_cash_flow_statement(ticker, period, limit):
+        return CASH_FLOW_ANNUAL if period == "annual" else cash_flow
+
+    async def fake_balance_sheet_statement(ticker, period, limit):
+        return balance_sheet if period == "quarter" else []
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_income_statement", fake_income_statement)
+    monkeypatch.setattr(step3_data.fmp_client, "get_cash_flow_statement", fake_cash_flow_statement)
+    monkeypatch.setattr(step3_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet_statement)
+
+
+def test_valuation_reads_debt_cash_book_value_and_ttm_from_the_gated_balance_sheet(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_gated_data(monkeypatch)
+
+    result = asyncio.run(get_step3_data("TEST"))
+
+    inputs = result.inputs
+    assert inputs.total_debt == 1_000  # the prior quarter's debt, not the partly filled newest row's 100
+    assert inputs.cash_and_st_investments == 800
+    # standard book value = totalAssets - totalLiabilities of the gated row (10,000) over the quote's 100M shares
+    assert inputs.book_value_per_share_standard == pytest.approx(10_000 / inputs.shares_outstanding)
+    # income and cash-flow quarters end at the gated 2026-03-31: CFO TTM = 4 x 50, not 900 + 3 x 50
+    assert inputs.current_value_candidates.cfo_ttm == 200
+    assert inputs.current_value_candidates.net_income_ttm == 40
+
+
+def test_valuation_with_a_complete_newest_quarter_keeps_it_and_its_ttm(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_gated_data(monkeypatch)
+
+    async def complete_balance_sheet(ticker, period, limit):
+        return [_gated_balance_row("2026-06-30", 950, 800), _gated_balance_row("2026-03-31", 1_000, 700)] if period == "quarter" else []
+
+    monkeypatch.setattr(step3_data.fmp_client, "get_balance_sheet_statement", complete_balance_sheet)
+
+    result = asyncio.run(get_step3_data("TEST"))
+
+    assert result.inputs.total_debt == 950
+    assert result.inputs.cash_and_st_investments == 800
+    assert result.inputs.current_value_candidates.cfo_ttm == 900 + 3 * 50

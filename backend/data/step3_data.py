@@ -7,7 +7,6 @@ from core.cache import get_or_fetch, get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
 from core.db import engine
 from core.models import FundamentalsCache
-from helpers.debt_metrics import compute_debt_metrics
 from helpers.discount_rate_config import US_REGION, get_discount_rate_config
 from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config
@@ -47,12 +46,8 @@ from data.custom_valuation_data import (
     run_manual_calculation_from_params,
 )
 from data.step2_data import get_step2_data
-from helpers.ttm import (
-    TOTAL_QUARTERS_NEEDED,
-    clean_cash_flow_statements,
-    is_ttm_period_duplicate_of_last_fy,
-    sum_last_four_quarters,
-)
+from helpers.statement_view import load_statement_view
+from helpers.ttm import is_ttm_period_duplicate_of_last_fy
 
 # Workbook default (valuation.md §4.1) -- never automated, matches the
 # source spreadsheet's own fallback.
@@ -235,94 +230,29 @@ async def get_step3_data(
                 ),
             )
         )
-        # Same cache key + limit Step 1/Step 4 already populate
-        # ("income_statement"/"annual", limit 10).
-        income_annual = await safe_fetch(
-            "income_statement_annual",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "income_statement",
-                "annual",
-                lambda: fmp_client.get_income_statement(ticker, "annual", 10),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
+        # Classified here (it only needs the profile) because the statement view below gates the balance sheet on
+        # the debt basis the company type implies (REIT/Property Developer: totalDebt; otherwise short + long term).
+        company_type = classify_company_type(
+            profile.get("sector"),
+            profile.get("industry"),
+            ticker,
+            is_fund=bool(profile.get("isEtf") or profile.get("isFund")),
         )
-        income_quarterly = await safe_fetch(
-            "income_statement_quarterly",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "income_statement",
-                "quarterly",
-                lambda: fmp_client.get_income_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        cash_flow_annual = await safe_fetch(
-            "cash_flow_statement_annual",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "cash_flow_statement",
-                "annual",
-                lambda: fmp_client.get_cash_flow_statement(ticker, "annual", 10),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        cash_flow_quarterly = await safe_fetch(
-            "cash_flow_statement_quarterly",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "cash_flow_statement",
-                "quarterly",
-                lambda: fmp_client.get_cash_flow_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        # Same cache key Step 4/Step 5 already populate
-        # ("balance_sheet_statement"/"quarterly", limit TOTAL_QUARTERS_NEEDED)
-        # -- this call site only reads row 0 (latest quarter), per spec
-        # gotcha #2 (latest instant, not FY-end).
-        balance_sheet_quarterly = await safe_fetch(
-            "balance_sheet_statement_quarterly",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "balance_sheet_statement",
-                "quarterly",
-                lambda: fmp_client.get_balance_sheet_statement(ticker, "quarter", TOTAL_QUARTERS_NEEDED),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
-        # Same cache key Step 4/Step 5 already populate
-        # ("balance_sheet_statement"/"annual", limit 10) -- a cache hit with
-        # zero new FMP calls for any ticker Step 4/Step 5 has already
-        # scored. Feeds the historical P/B series's tangible-book-value
-        # recomputation below (2026-08-15) -- see pb_history's own comment.
-        balance_sheet_annual = await safe_fetch(
-            "balance_sheet_statement_annual",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "balance_sheet_statement",
-                "annual",
-                lambda: fmp_client.get_balance_sheet_statement(ticker, "annual", 10),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
+        # The statements Valuation reads, through the shared loader (helpers/statement_view.py): same cache keys and
+        # limits Steps 1/4/5 populate (income and cash flow annual 10 / quarterly TOTAL_QUARTERS_NEEDED, balance sheet
+        # quarterly + annual 10 -- a cache hit with zero new FMP calls for any ticker already scored). Placeholder /
+        # scale-break cash-flow rows are treated as missing, and when the newest quarterly balance sheet is partly
+        # filled in the PRIOR quarter's is used (its debt, cash and book value feed the DCF/DDM equity bridge and the
+        # P/B method) with the income and cash-flow quarters aligned to it, as the Analysis tab does. Only the
+        # quarterly balance sheet is gated: the annual one (the P/B history below) and the 10-year ratios stay raw.
+        view = await load_statement_view(
+            session,
+            ticker,
+            company_type,
+            most_recent_earnings_date=most_recent_earnings_date,
+            staleness_days=staleness_days,
+            cache_only=cache_only,
+            annual_balance_sheet=True,
         )
         # New cache key: 10yr annual ratios history (P/B bands + latest
         # book/sales-per-share) -- distinct from ticker_summary.py's
@@ -341,17 +271,14 @@ async def get_step3_data(
                 cache_only,
             ),
         )
-        # income_annual is still its raw safe_fetch result here (list, {},
-        # or a genuinely malformed payload) -- _first handles all three the
-        # same way _annual_series/etc. below do, so reading reportedCurrency
-        # ahead of the list-coercion line below is safe. Resolved inside
+        # reportedCurrency off the income statement, resolved inside
         # this session block since _resolve_fx_rate needs it (get_or_fetch's
         # own cache read/write) -- and deliberately BEFORE the two
         # get-or-create config reads below: get_or_fetch's own write path
         # can commit() this session (a live forex fetch caching its
         # result), which -- with SQLAlchemy's default expire_on_commit=True
         # -- expires every ORM object already read from this session.
-        reported_currency = _first(income_annual).get("reportedCurrency")
+        reported_currency = _first(view.income_annual).get("reportedCurrency")
         fx_rate, fx_rate_as_of = await _resolve_fx_rate(
             session, reported_currency, quote_currency, staleness_days, cache_only
         )
@@ -377,25 +304,13 @@ async def get_step3_data(
         market_risk_premium = discount_rate_config.market_risk_premium
         reit_dividend_yield_threshold_pct = get_reit_dividend_yield_config(session).threshold_pct
 
-    income_annual = income_annual if isinstance(income_annual, list) else []
-    income_quarterly = income_quarterly if isinstance(income_quarterly, list) else []
-    cash_flow_annual = cash_flow_annual if isinstance(cash_flow_annual, list) else []
-    cash_flow_quarterly = cash_flow_quarterly if isinstance(cash_flow_quarterly, list) else []
-    # Placeholder cash-flow rows and mis-scaled rows are treated as missing --
-    # see ttm.py::clean_cash_flow_statements (quarterly: the newest run is
-    # dropped so TTM covers the last four valid quarters; annual: blanked in
-    # place).
-    cash_flow_annual, cash_flow_quarterly = clean_cash_flow_statements(
-        cash_flow_annual, cash_flow_quarterly, income_annual, income_quarterly
-    )
-    balance_sheet_quarterly = balance_sheet_quarterly if isinstance(balance_sheet_quarterly, list) else []
-    balance_sheet_annual = balance_sheet_annual if isinstance(balance_sheet_annual, list) else []
+    income_annual = view.income_annual
+    income_quarterly = view.income_quarterly  # aligned to the balance sheet used
+    cash_flow_annual = view.cash_flow_annual
+    cash_flow_quarterly = view.cash_flow_quarterly
+    balance_sheet_annual = view.balance_sheet_annual
     ratios_annual = ratios_annual if isinstance(ratios_annual, list) else []
-    balance_sheet_latest = _first(balance_sheet_quarterly)
-
-    company_type = classify_company_type(
-        profile.get("sector"), profile.get("industry"), ticker, is_fund=bool(profile.get("isEtf") or profile.get("isFund"))
-    )
+    balance_sheet_latest = view.balance_sheet_row  # the gated row
 
     if reported_currency and reported_currency != quote_currency and fx_rate is None:
         # A genuine reported_currency != quote_currency ticker whose FX rate
@@ -435,12 +350,10 @@ async def get_step3_data(
     capex_annual = [cash_flow_by_year.get(year, {}).get("capitalExpenditure") for year in years]
     fcf_annual = [c + x if c is not None and x is not None else None for c, x in zip(cfo_annual, capex_annual)]
 
-    revenue_ttm_result = sum_last_four_quarters(income_quarterly, "revenue", income_annual)
-    net_income_ttm_result = sum_last_four_quarters(income_quarterly, "netIncome", income_annual)
-    cfo_ttm_result = sum_last_four_quarters(
-        cash_flow_quarterly, "netCashProvidedByOperatingActivities", cash_flow_annual
-    )
-    capex_ttm_result = sum_last_four_quarters(cash_flow_quarterly, "capitalExpenditure", cash_flow_annual)
+    revenue_ttm_result = view.ttm("income", "revenue")
+    net_income_ttm_result = view.ttm("income", "netIncome")
+    cfo_ttm_result = view.ttm("cash_flow", "netCashProvidedByOperatingActivities")
+    capex_ttm_result = view.ttm("cash_flow", "capitalExpenditure")
 
     revenue_ttm = revenue_ttm_result.total
     net_income_ttm = net_income_ttm_result.total
@@ -533,7 +446,7 @@ async def get_step3_data(
     # Zero/near-zero debt should read as 0, never a fabricated/missing value
     # (spec gotcha #6) -- compute_debt_metrics already implements exactly
     # this rule, shared with Step 5 and the ticker header.
-    debt_metrics = compute_debt_metrics(balance_sheet_latest, income_quarterly)
+    debt_metrics = view.debt_metrics
     total_debt = debt_metrics.total_debt * fx_rate if debt_metrics.total_debt is not None else None
 
     cash_only = balance_sheet_latest.get("cashAndCashEquivalents")
@@ -550,7 +463,9 @@ async def get_step3_data(
     cash_and_st_investments = cash_incl_st_investments if cash_incl_st_investments is not None else cash_only
     cash_and_st_investments = cash_and_st_investments * fx_rate if cash_and_st_investments is not None else None
 
-    shares_outstanding, shares_source = compute_shares_outstanding(quote, income_quarterly)
+    # Shares stay on the raw newest income quarter (a share count is a point-in-time figure: the quote's
+    # market cap / price is preferred, the newest reported weighted count is the fallback), not the aligned list.
+    shares_outstanding, shares_source = compute_shares_outstanding(quote, view.raw.income_quarterly)
 
     beta = profile.get("beta")
     capm = None

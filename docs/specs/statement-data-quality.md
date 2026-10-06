@@ -43,7 +43,9 @@ does not need can be left out (Step 1 reads no balance sheet: no gate, no alignm
 **Consumers.** Step 1 (cash flow only), Step 5, the **ticker header's** debt and EBITDA tiles (with the annual income rows,
 so the Defect-B correction applies there too; shares still come from the quote) and **Speculative Growth's** cash and
 last-two-quarters CFO direction (its qualification gate reads only Step 1, Step 2 and Moat and is unchanged). Step 3
-Valuation inputs and Step 4 balance-sheet inputs join in the following commits.
+Step 3 Valuation's debt, cash, net debt, tangible and standard book value and its TTM income and cash-flow figures (the annual
+balance sheet behind the historical P/B series and `ratios_annual_10y` stay raw). Step 4's balance-sheet inputs join in the
+following commit.
 
 **The data-quality function.** `data_quality_flags(raw, earnings, company_type, today)` returns the rules that currently trip
 as structured `DataQualityFlag`s (`core/schemas.py`): `rule` (`placeholder_cf`, `scale_break`, `partial_balance_sheet`,
@@ -91,8 +93,8 @@ sheet. One step back only; the prior quarter is not itself re-checked. The fact 
 `detail`) for a later Watch state; there is no UI for it yet.
 
 **Other readers of the same rows.** Every consumer that does arithmetic on the balance sheet reads it through the shared
-loader (see "The shared loader"), so the gate applies to the ticker header's debt tiles, Speculative Growth's cash and (as the
-following commits land) Valuation and Step 4's balance-sheet series. Not routed, by design: the Financials and Ratios tabs keep
+loader (see "The shared loader"), so the gate applies to the ticker header's debt tiles, Speculative Growth's cash, Valuation and (as the
+following commit lands) Step 4's balance-sheet series. Not routed, by design: the Financials and Ratios tabs keep
 showing the raw rows, and FMP's own derived rows (key-metrics, ratios, enterprise values, which carry ROIC/ROE, P/B, EV) cannot
 be cleaned here.
 

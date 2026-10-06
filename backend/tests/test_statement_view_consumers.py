@@ -170,3 +170,22 @@ def test_speculative_growth_cash_and_cfo_direction_read_the_cleaned_rows(monkeyp
     assert result.cfo_recent_direction == cfo_recent_direction(15.0, -30.0) == "turning_positive"
     assert cfo_recent_direction(0.0, 15.0) == "mixed"  # what the raw rows read
     assert any(v.balance_sheet_fallback for v, _ in views)
+
+
+# ---- Step 3 Valuation (data/step3_data.py) -------------------------------------------------------------------
+
+
+def test_step3_reads_its_statements_through_the_loader_with_the_annual_balance_sheet(monkeypatch, views):
+    import test_step3_data as t3
+    from data.step3_data import get_step3_data
+
+    t3._fresh_engine(monkeypatch)
+    t3._patch_gated_data(monkeypatch)
+
+    result = asyncio.run(get_step3_data("TEST"))
+
+    assert len(views) == 1
+    view, _ = views[0]
+    assert view.balance_sheet_fallback is not None and view.balance_sheet_fallback.reason == "debt_remap"
+    assert result.inputs.total_debt == view.debt_metrics.total_debt == 1_000
+    assert result.inputs.cash_and_st_investments == view.balance_sheet_row["cashAndShortTermInvestments"]

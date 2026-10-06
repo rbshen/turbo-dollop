@@ -177,8 +177,8 @@ One calculation engine drives all six cash-flow/income-based methods. Only the m
 | Field | Description | How it's actually sourced |
 |---|---|---|
 | `current_value` | Operating CF, Net Income, or FCF, TTM (or smoothed) | per the method table above |
-| `total_debt` | Short-term + long-term debt, latest balance sheet | |
-| `cash_and_st_investments` | Cash & equivalents + short-term investments, latest balance sheet | falls back to cash-only if unavailable |
+| `total_debt` | Short-term + long-term debt, latest balance sheet | the **gated** quarterly balance sheet (below) |
+| `cash_and_st_investments` | Cash & equivalents + short-term investments, latest balance sheet | falls back to cash-only if unavailable; the **gated** quarterly balance sheet (below) |
 | `growth_yr_1_5` | Annual growth rate, years 1–5 | the Growth Rate check's own projected growth CAGR, reused directly |
 | `growth_yr_6_10` | Annual growth rate, years 6–10 | defaults to `growth_yr_1_5`, capped at **15%** |
 | `growth_yr_11_20` | Annual growth rate, years 11–20 | fixed terminal default of **4%** |
@@ -186,6 +186,16 @@ One calculation engine drives all six cash-flow/income-based methods. Only the m
 | `discount_rate` | see §5 (CAPM) | |
 | `fx_rate` | statement (`reportedCurrency`) → quote-currency (`/profile` `currency`) spot rate | **1.0 whenever reported currency = quote currency** (every USD reporter); resolved per-ticker for a US-listed ADR that reports in a non-USD currency, see §2.1b |
 | `last_close` | current market price | |
+
+**Cleaned statements (2026-10-06).** Every statement figure above is read through the shared loader
+([Statement data quality](statement-data-quality.md), "The shared loader"), so Valuation sees the same rows as the Analysis
+tab. Placeholder and scale-broken cash-flow rows are treated as missing. When FMP served the newest quarterly balance sheet
+partly filled in (debt or current assets remapped into another line), the **prior quarter's balance sheet** supplies
+`total_debt`, `cash_and_st_investments` and the latest-quarter tangible and standard book value, and the income and cash-flow
+quarters are **aligned** to that balance sheet's period end, so the TTM figures (revenue, net income, CFO, capex, hence
+`current_value`) cover the four quarters ending on it. The annual balance sheet behind the historical P/B series and the
+10-year `ratios` rows (`ratios_annual_10y`) are not gated. Shares stay on the quote / newest income quarter. A
+current-value decision can change when the window shifts back one quarter (it did for TWLO: DCF to DFCF).
 
 All of `growth_yr_1_5`, `growth_yr_6_10`, `growth_yr_11_20`, and `discount_rate` are pre-filled
 and then freely user-editable in Manual Calculation.
