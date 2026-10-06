@@ -1704,6 +1704,13 @@ class MomentumSnapshotRowOut(BaseModel):
     # ticker the nightly last-close job has not written yet. `quote_currency` joined live from TickerScore.
     last_price: float | None = None
     quote_currency: str | None = None
+    # The stored Review status, joined live from the same TickerScore row as `overall_score` (display only; the ranking
+    # never reads them). `overall_verdict` is carried only for the marker's tooltip ("Overall N would read V"). None for
+    # no status or no score row.
+    overall_verdict: str | None = None
+    review_status: str | None = None
+    review_reasons: list[ReviewReason] | None = None
+    conviction: str | None = None
 
 
 class MomentumOut(BaseModel):
@@ -1906,6 +1913,12 @@ class WatchlistRowOut(BaseModel):
     # TickerScore.is_etf of the cache-only score row; the table shows an "ETF" marker in place of
     # the (always blank) score cells. False for a never-viewed ticker with no score row.
     is_etf: bool = False
+    # The stored Review status beside overall_verdict (models.py::TickerScore.review_status, docs/specs/overview.md
+    # "Review status"): read from the same score row as overall_verdict, so the two cannot disagree. None for no
+    # status, a fund, or a ticker with no score row.
+    review_status: str | None = None
+    review_reasons: list[ReviewReason] | None = None
+    conviction: str | None = None
 
 
 class EtfWatchlistRowOut(BaseModel):

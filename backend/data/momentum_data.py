@@ -35,6 +35,7 @@ from core.schemas import (
     MomentumSnapshotRowOut,
 )
 from data.last_close_data import get_cached_last_closes
+from data.ticker_score import stored_review_fields
 from data.tracked_universe import load_etf_universe, load_tracked_universe
 from scoring.momentum import compute_momentum_ranking
 
@@ -214,6 +215,8 @@ def get_momentum_snapshot(period: MomentumPeriod = "current") -> MomentumOut:
                 return_1mo=row.return_1mo,
                 last_price=last_closes.get(row.ticker),
                 quote_currency=context.quote_currency if context else None,
+                overall_verdict=context.overall_verdict if context else None,
+                **stored_review_fields(context),
             )
         )
 

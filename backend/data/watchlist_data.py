@@ -13,7 +13,7 @@ from core.tickers import normalize_ticker
 from data.etf_screener_data import _row_out as etf_screener_row_out
 from data.last_close_data import get_cached_last_closes
 from data.step1_data import get_step1_data
-from data.ticker_score import compute_ticker_score
+from data.ticker_score import compute_ticker_score, stored_review_fields
 
 # LATEST_YEARS_SHOWN of Step 1's Revenue/Net Income/CFO series back each
 # row's mini trend bar chart -- Step1Out's own `years` is 10yr+TTM, more
@@ -156,6 +156,7 @@ async def _compose_row(watchlist_ticker: WatchlistTicker, last_close: float | No
         consensus_rating=rating,
         added_at=watchlist_ticker.added_at,
         is_etf=is_etf,
+        **stored_review_fields(score),
     )
 
 

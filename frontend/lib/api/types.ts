@@ -1408,6 +1408,11 @@ export interface WatchlistRowOut {
   // The ticker is an ETF/fund: the table shows an "ETF" marker in place of the blank score cells.
   // Optional only so existing fixtures keep compiling; the API always sends it.
   is_etf?: boolean;
+  // The stored Review status beside overall_verdict, read from the same score row (see TickerScoreOut.review_status).
+  // Optional (absent on a fixture that predates it) and read as null; null for a fund or a ticker with no status.
+  review_status?: ReviewStatus | null;
+  review_reasons?: ReviewReason[] | null;
+  conviction?: ConvictionLevel | null;
 }
 
 // Latest Weinstein Stage Analysis for one ticker -- see backend/core/schemas.py::
@@ -1765,6 +1770,13 @@ export interface MomentumSnapshotRowOut {
   // Fathom's Overall Assessment score, for context only -- never used in
   // this ranking. Joined live from TickerScore, same as company_name.
   overall_score: number | null;
+  // Joined from the same TickerScore row as overall_score (display only, never part of the ranking): the stored Review
+  // status, its reasons and conviction, and the stored verdict the marker's tooltip quotes. Optional (absent on a fixture
+  // that predates it) and read as null.
+  overall_verdict?: string | null;
+  review_status?: ReviewStatus | null;
+  review_reasons?: ReviewReason[] | null;
+  conviction?: ConvictionLevel | null;
 }
 
 export interface MomentumOut {

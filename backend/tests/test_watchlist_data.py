@@ -6,6 +6,7 @@ compute_ticker_score's TickerScore row into WatchlistRowOut, mirroring the
 existing moat/perf_5y_vs_spy_status passthrough it sits next to."""
 
 import asyncio
+import json
 from datetime import datetime
 
 import data.watchlist_data as watchlist_data
@@ -164,3 +165,64 @@ def test_an_etf_rows_price_is_the_cached_last_close_the_etf_job_writes(monkeypat
     rows = asyncio.run(get_watchlist_rows([WatchlistTicker(watchlist_id=1, ticker="QQQ", added_at=datetime(2026, 1, 1))]))
 
     assert rows[0].last_price == 749.58
+
+
+# --- Review status passthrough (docs/specs/overview.md, "Review status") ---------------------------------------------
+
+_REASON = {
+    "step": "step5",
+    "score": 43,
+    "verdict": "Fail",
+    "hint": "unclear",
+    "raw_hint": "unclear",
+    "guarded": False,
+    "rule": "not_covered",
+    "evidence": "Current Ratio 0.78 (borderline_fail)",
+}
+
+
+def _reviewed_score(**overrides):
+    score = _score()
+    score.overall_score = 71
+    score.overall_verdict = "Pass"
+    score.review_status = "review_unclear"
+    score.review_reasons = json.dumps([_REASON])
+    score.conviction = "high"
+    for key, value in overrides.items():
+        setattr(score, key, value)
+    return score
+
+
+def _row_for(monkeypatch, score):
+    _patch(monkeypatch, score)
+    ticker = WatchlistTicker(watchlist_id=1, ticker="AAPL", added_at=datetime(2026, 1, 1))
+    return asyncio.run(get_watchlist_rows([ticker]))[0]
+
+
+def test_review_status_reasons_and_conviction_flow_into_the_row_beside_the_verdict(monkeypatch):
+    row = _row_for(monkeypatch, _reviewed_score())
+
+    assert row.review_status == "review_unclear"
+    assert [r.model_dump() for r in row.review_reasons] == [_REASON]
+    assert row.conviction == "high"
+    # The verdict and score are exactly what the same score row says; a status never changes them.
+    assert (row.overall_score, row.overall_verdict) == (71, "Pass")
+
+
+def test_review_fields_are_none_for_a_row_without_a_status(monkeypatch):
+    row = _row_for(monkeypatch, _reviewed_score(review_status=None, review_reasons=None, conviction="high"))
+
+    assert (row.review_status, row.review_reasons, row.conviction) == (None, None, None)
+
+
+def test_review_fields_are_none_when_there_is_no_score_row(monkeypatch):
+    row = _row_for(monkeypatch, None)
+
+    assert (row.review_status, row.review_reasons, row.conviction) == (None, None, None)
+
+
+def test_review_fields_are_none_for_an_etf_row(monkeypatch):
+    row = _row_for(monkeypatch, _reviewed_score(is_etf=True))
+
+    assert row.is_etf is True
+    assert (row.review_status, row.review_reasons, row.conviction) == (None, None, None)

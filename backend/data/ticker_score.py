@@ -90,6 +90,19 @@ def _review_columns(ticker: str, company_type: str | None, overall_verdict: str 
     }
 
 
+def stored_review_fields(row: TickerScore | None) -> dict:
+    """The Review status fields of one TickerScore row for a payload that shows them beside that same row's verdict (the
+    Watchlist and Momentum rows): status, parsed reasons and conviction, all None for no row or an ETF/fund (it never
+    carries a status). The JSON text is parsed here once; `data_quality_flags` is not part of any row payload."""
+    if row is None or row.is_etf or not row.review_status:
+        return {"review_status": None, "review_reasons": None, "conviction": None}
+    return {
+        "review_status": row.review_status,
+        "review_reasons": json.loads(row.review_reasons) if row.review_reasons else None,
+        "conviction": row.conviction,
+    }
+
+
 # TickerScore columns written by other jobs, never overwritten by a score upsert.
 PRESERVED_ON_UPSERT = ("delisted_at",)
 
