@@ -229,6 +229,32 @@ def _backup_case(oi, revenue=_REV, net_income=_WEAK_NI, **ttm):
     return result["components"]["net_income"]
 
 
+def test_backup_used_reports_the_pre_lift_score_and_the_measured_gates():
+    ni = _backup_case([200, 220, 240, 260, 280])
+    assert ni["score_before_backup"] == 65
+    assert ni["score"] == 80
+    # TTM OI 280 / TTM revenue 1000
+    assert ni["backup_gates"] == {
+        "ttm_oi_margin_pct": 28.0,
+        "min_ttm_oi_margin_pct": 5.0,
+        "positive_periods": 5,
+        "min_positive_periods": 4,
+        "window": 5,
+    }
+    assert _backup_case([-20, 220, 240, 260, 280])["backup_gates"]["positive_periods"] == 4
+
+
+def test_backup_fields_are_absent_when_the_backup_did_not_change_the_score():
+    blocked = _backup_case([30, 35, 40, 45, 49.99])  # eligible, but the margin gate blocks the lift
+    assert blocked["used_operating_income_backup"] is False
+    assert set(blocked) == {"score", "pattern", "used_operating_income_backup"}
+    clean = score_step1(
+        revenue=GROWING, net_income=GROWING, operating_income=GROWING, cfo=GROWING,
+        gross_margin=STABLE_MARGINS, net_margin=NET_MARGINS_STABLE, cfo_exempt=False,
+    )
+    assert set(clean["components"]["net_income"]) == {"score", "pattern", "used_operating_income_backup"}
+
+
 def test_backup_lifts_when_every_gate_passes():
     ni = _backup_case([200, 220, 240, 260, 280])
     assert ni["score"] == 80

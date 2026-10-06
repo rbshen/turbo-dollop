@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { exemptionNote } from "@/components/step1/Step1Card";
+import { backupNote, exemptionNote, TIER_LABELS } from "@/components/step1/Step1Card";
 import type { Step1Out } from "@/lib/api/types";
 
 const TREND = { score: 75, pattern: "multiple_dips_resolved" };
@@ -81,5 +81,75 @@ describe("exemptionNote", () => {
       components: { revenue: TREND, net_income: NI, cfo: TREND, margins: TREND, fcf: TREND },
     });
     expect(exemptionNote(data)).toBeNull();
+  });
+});
+
+// Every pattern scoring/step1.py can emit: classify_trend (+ not_yet_positive), _classify_margins, _classify_fcf.
+const BACKEND_PATTERNS = [
+  "insufficient_data",
+  "not_yet_positive",
+  "declining",
+  "grows_every_year",
+  "multiple_dips",
+  "small_dip_recovers",
+  "significant_dip_recovers",
+  "flat_then_spike",
+  "multiple_dips_resolved",
+  "dip_durably_resolved",
+  "sharply_declining",
+  "gradually_compressing",
+  "stable_or_expanding",
+  "wildly_inconsistent",
+  "consistently_positive",
+  "sustained_cash_burn",
+  "cash_burn_recovered",
+  "capex_driven_negative_fcf",
+  "isolated_dip",
+  "scattered_negative_years",
+];
+
+describe("TIER_LABELS", () => {
+  it("has a readable label for every pattern the backend can emit", () => {
+    for (const pattern of BACKEND_PATTERNS) {
+      expect(TIER_LABELS[pattern], pattern).toBeTruthy();
+      expect(TIER_LABELS[pattern], pattern).not.toBe(pattern);
+    }
+  });
+
+  it("labels not_yet_positive", () => {
+    expect(TIER_LABELS.not_yet_positive).toBe("Not yet positive");
+  });
+});
+
+const LIFTED_NI = {
+  score: 80,
+  pattern: "multiple_dips",
+  used_operating_income_backup: true,
+  score_before_backup: 65,
+  backup_gates: { ttm_oi_margin_pct: 7.3, min_ttm_oi_margin_pct: 5, positive_periods: 4, min_positive_periods: 4, window: 5 },
+};
+
+describe("backupNote", () => {
+  it("is null when the backup did not change the score", () => {
+    expect(backupNote(makeStep1Out({}))).toBeNull();
+  });
+
+  it("is shown with the tooltip's before/after score and both gate values when the flag is true", () => {
+    const note = backupNote(
+      makeStep1Out({ components: { revenue: TREND, net_income: LIFTED_NI, cfo: null, margins: null, fcf: null } }),
+    );
+    expect(note?.text).toBe("Score lifted using Operating Income (backup)");
+    expect(note?.tooltip).toBe(
+      "Net Income was inconsistent, which can be distorted by one-offs, so the score uses Operating Income, which strips them out. " +
+        "Net Income score 65 lifted to 80. Backup gates: TTM Operating Income margin 7.3% (needs at least 5%), " +
+        "positive in 4 of the last 5 periods (needs at least 4).",
+    );
+  });
+
+  it("reads only the Net Income component: another component's fields never trigger it", () => {
+    const data = makeStep1Out({
+      components: { revenue: { ...TREND, used_operating_income_backup: true } as typeof TREND, net_income: NI, cfo: TREND, margins: TREND, fcf: TREND },
+    });
+    expect(backupNote(data)).toBeNull();
   });
 });

@@ -269,8 +269,20 @@ export interface Step1TrendComponent {
   pattern: string;
 }
 
+// Measured values of the Operating Income backup's two quality gates, with the bars they must clear.
+export interface Step1BackupGates {
+  ttm_oi_margin_pct: number | null;
+  min_ttm_oi_margin_pct: number;
+  positive_periods: number;
+  min_positive_periods: number;
+  window: number;
+}
+
 export interface Step1NetIncomeComponent extends Step1TrendComponent {
   used_operating_income_backup: boolean;
+  // Present only when the backup actually lifted the score (used_operating_income_backup true).
+  score_before_backup?: number;
+  backup_gates?: Step1BackupGates;
 }
 
 export interface Step1Components {

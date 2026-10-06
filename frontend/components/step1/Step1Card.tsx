@@ -36,9 +36,10 @@ const EXEMPTION_NOTE_METRIC_LABELS: Record<string, string> = {
   margins: "Margins",
 };
 
-const TIER_LABELS: Record<string, string> = {
+export const TIER_LABELS: Record<string, string> = {
   insufficient_data: "Insufficient data",
   // classify_trend (revenue / net income / CFO)
+  not_yet_positive: "Not yet positive",
   declining: "Declining (TTM down)",
   grows_every_year: "Grows every year",
   multiple_dips: "Dip(s), not yet recovered",
@@ -114,6 +115,26 @@ export function exemptionNote(data: Step1Out): string | null {
   return `${joinWithAnd(excluded)} ${verb} scored for this company — classified as a ${data.cfo_exempt_reason}.`;
 }
 
+// The Net Income card note, shown only when the Operating Income backup actually changed the score
+// (scoring/step1.py sets used_operating_income_backup and the two extra fields in that case alone).
+export function backupNote(data: Step1Out): { text: string; tooltip: string } | null {
+  const ni = data.components.net_income;
+  if (!ni.used_operating_income_backup) return null;
+  const gates = ni.backup_gates;
+  const gateText = gates
+    ? ` Backup gates: TTM Operating Income margin ${gates.ttm_oi_margin_pct == null ? "n/a" : `${gates.ttm_oi_margin_pct}%`} ` +
+      `(needs at least ${gates.min_ttm_oi_margin_pct}%), positive in ${gates.positive_periods} of the last ${gates.window} periods ` +
+      `(needs at least ${gates.min_positive_periods}).`
+    : "";
+  const liftText = ni.score_before_backup == null ? "" : ` Net Income score ${ni.score_before_backup} lifted to ${ni.score}.`;
+  return {
+    text: "Score lifted using Operating Income (backup)",
+    tooltip:
+      "Net Income was inconsistent, which can be distorted by one-offs, so the score uses Operating Income, " +
+      `which strips them out.${liftText}${gateText}`,
+  };
+}
+
 export function Step1Card({ ticker }: Props) {
   const { data, error } = useStep1(ticker);
 
@@ -159,11 +180,16 @@ export function Step1Card({ ticker }: Props) {
   // above) -- stays correct for the CFO/FCF-exempt redistribution case too
   // (Bank/Insurance/Property Developer/Commodity tickers), since weight
   // reads straight from data.weights rather than a static percentage.
-  const bullets: ReasoningBullet[] = componentRows.map((row) => ({
-    key: row.key,
-    text: `${row.label}${weightScoreSuffix(data.weights[row.key], row.score)}: ${row.tierLabel}`,
-    tierClassName: tierClass(row.score),
-  }));
+  const note = backupNote(data);
+  const bullets: ReasoningBullet[] = componentRows.flatMap((row) => {
+    const bullet: ReasoningBullet = {
+      key: row.key,
+      text: `${row.label}${weightScoreSuffix(data.weights[row.key], row.score)}: ${row.tierLabel}`,
+      tierClassName: tierClass(row.score),
+    };
+    if (row.key !== "net_income" || !note) return [bullet];
+    return [bullet, { key: "net_income-backup-note", text: `↳ ${note.text}`, tierClassName: "text-text-tertiary", tooltip: note.tooltip }];
+  });
 
   const exemptionNoteText = exemptionNote(data);
   const notes = exemptionNoteText ? <p className="text-xs text-text-tertiary">{exemptionNoteText}</p> : null;

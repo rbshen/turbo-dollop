@@ -3,6 +3,7 @@
 import { CaretDown, CaretUp } from "@phosphor-icons/react";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Verdict } from "@/components/ui/status";
 import { toneFor, pillLabel } from "@/lib/tierColor";
 
@@ -14,6 +15,8 @@ export interface ReasoningBullet {
    * columns. */
   text: string;
   tierClassName: string;
+  /** Optional hover/focus explanation for this bullet's text. */
+  tooltip?: string;
 }
 
 /** Formats the "(<weight%>, <score>/100)" suffix every Analysis-tab card's
@@ -109,7 +112,7 @@ export function AnalysisSectionCard({ title, score, verdict, blurb, methodology,
                 <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm">
                   {bullets.map((b) => (
                     <li key={b.key} className={b.tierClassName}>
-                      {b.text}
+                      {b.tooltip ? <Tooltip content={b.tooltip} className="text-left">{b.text}</Tooltip> : b.text}
                     </li>
                   ))}
                 </ul>

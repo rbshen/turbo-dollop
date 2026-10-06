@@ -526,6 +526,26 @@ def _operating_income_backup_allowed(
     return sum(1 for v in recent if v > 0) >= NET_INCOME_BACKUP_MIN_POSITIVE_PERIODS
 
 
+def _operating_income_backup_gates(
+    operating_income: list[float], ttm_operating_income: float | None, ttm_revenue: float | None
+) -> dict:
+    """The two measured K2 gate values the Step 1 card quotes when the backup lifted Net Income (display only; the
+    pass/fail decision is _operating_income_backup_allowed's)."""
+    recent = operating_income[-NET_INCOME_BACKUP_OI_WINDOW:]
+    margin = (
+        round(ttm_operating_income / ttm_revenue * 100, 1)
+        if ttm_operating_income is not None and ttm_revenue
+        else None
+    )
+    return {
+        "ttm_oi_margin_pct": margin,
+        "min_ttm_oi_margin_pct": NET_INCOME_BACKUP_MIN_OI_MARGIN * 100,
+        "positive_periods": sum(1 for v in recent if v > 0),
+        "min_positive_periods": NET_INCOME_BACKUP_MIN_POSITIVE_PERIODS,
+        "window": len(recent),
+    }
+
+
 def operating_health_gate_passes(
     operating_income: list[float], ttm_operating_income: float | None, ttm_revenue: float | None
 ) -> bool:
@@ -599,6 +619,7 @@ def score_step1(
 
     net_income_result = net_income_pos_result
     net_income_backup_used = False
+    net_income_backup_gates = None
     oi_pos_result = None
     ni_is_insufficient = net_income_pos_result.pattern == "insufficient_data"
     # The OI fallback is recency-gated -- it exists for a genuine one-off
@@ -625,6 +646,8 @@ def score_step1(
         else:
             backup_score = net_income_pos_result.score
         net_income_backup_used = backup_score != net_income_pos_result.score
+        if net_income_backup_used:
+            net_income_backup_gates = _operating_income_backup_gates(operating_income, ttm_operating_income, ttm_revenue)
         net_income_result = TrendResult(net_income_pos_result.pattern, backup_score)
 
     # Net Income only reads as a genuine data gap if BOTH it and its own
@@ -696,16 +719,22 @@ def score_step1(
     )
     score = max(0, min(100, round(weighted_sum)))
 
+    net_income_component = {
+        "score": net_income_result.score,
+        "pattern": net_income_result.pattern,
+        "used_operating_income_backup": net_income_backup_used,
+    }
+    if net_income_backup_used:
+        # Additive display fields, present only when the backup actually lifted the score (the Net Income card's note).
+        net_income_component["score_before_backup"] = net_income_pos_result.score
+        net_income_component["backup_gates"] = net_income_backup_gates
+
     return {
         "score": score,
         "verdict": _verdict_for(score),
         "components": {
             "revenue": {"score": revenue_result.score, "pattern": revenue_result.pattern},
-            "net_income": {
-                "score": net_income_result.score,
-                "pattern": net_income_result.pattern,
-                "used_operating_income_backup": net_income_backup_used,
-            },
+            "net_income": net_income_component,
             "cfo": {"score": cfo_result.score, "pattern": cfo_result.pattern} if cfo_result else None,
             "margins": {"score": margin_result.score, "pattern": margin_result.pattern} if margin_result else None,
             "fcf": {"score": fcf_result.score, "pattern": fcf_result.pattern} if fcf_result else None,

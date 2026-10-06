@@ -2,11 +2,11 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { AnalysisSectionCard } from "@/components/shared/AnalysisSectionCard";
+import { AnalysisSectionCard, type ReasoningBullet } from "@/components/shared/AnalysisSectionCard";
 
 afterEach(cleanup);
 
-function card(bullets = [{ key: "b1", text: "Revenue (35%, 88/100): Grows every year", tierClassName: "text-positive" }]) {
+function card(bullets: ReasoningBullet[] = [{ key: "b1", text: "Revenue (35%, 88/100): Grows every year", tierClassName: "text-positive" }]) {
   return render(
     <AnalysisSectionCard
       title="Financials"
@@ -123,5 +123,17 @@ describe("AnalysisSectionCard: the expanded list lines up with the paragraph", (
     render(<AnalysisSectionCard title="Financials" score={null} verdict="" blurb="Blurb" methodology="Method" bullets={[{ key: "b", text: "A bullet", tierClassName: "" }]} />);
     fireEvent.click(screen.getByRole("button"));
     expect(column()).toContainElement(screen.getByRole("list"));
+  });
+});
+
+describe("AnalysisSectionCard: bullet tooltips", () => {
+  it("wraps only a bullet that has a tooltip in a focusable trigger", () => {
+    card([
+      { key: "a", text: "Plain bullet", tierClassName: "text-text-primary" },
+      { key: "b", text: "Noted bullet", tierClassName: "text-text-tertiary", tooltip: "Why" },
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: /Show reasoning/ }));
+    expect(screen.getByText("Plain bullet").closest("button")).toBeNull();
+    expect(screen.getByRole("button", { name: "Noted bullet" })).toBeInTheDocument();
   });
 });
