@@ -1,11 +1,13 @@
 from typing import NamedTuple
 
-# Mirrors frontend/lib/overallScore.ts::STEP_WEIGHTS exactly -- these two
-# implementations must never drift, since the live ticker page (frontend,
-# computed client-side) and the Screener's pre-computed TickerScore row
-# (backend, this module) both need to produce the same Overall Assessment
-# for the same ticker. Sum to 100%, no allocation for Step 3 (not yet
-# implemented) -- revisit both together once Step 3 ships.
+from scoring.weights import DEFAULT_WEIGHTS, OverallWeights, overall_fractions
+
+# The DEFAULT step weights (scoring/weights.py::DEFAULT_WEIGHTS is the single
+# source; a saved weight set is passed to compute_overall_assessment as a
+# parameter). Mirrored by frontend/lib/overallScore.ts, which must produce the
+# same Overall Assessment for the same ticker as this module -- both read the
+# shared fixture backend/tests/fixtures/overall_verdict_cases.json. No
+# allocation for Step 3 (Valuation is not part of Overall).
 #
 # 2026-07-31 rebalance: expressed here as fractions of the 69% non-Moat
 # portion (this dict's own 4 values always sum to 1.0, renormalized further
@@ -20,7 +22,7 @@ from typing import NamedTuple
 # because Debt's previously-lowest weight was letting genuine per-step
 # Fails (e.g. FICO, MA) get fully absorbed by strong scores elsewhere --
 # see the 2026-07-31 Overall-vs-per-step contradiction investigation.
-STEP_WEIGHTS = {"step1": 24 / 69, "step2": 10 / 69, "step4": 20 / 69, "step5": 15 / 69}
+STEP_WEIGHTS = overall_fractions(DEFAULT_WEIGHTS.overall)
 
 IMPLEMENTED_STEPS = len(STEP_WEIGHTS)
 TOTAL_METHODOLOGY_STEPS = 5
@@ -113,7 +115,9 @@ def _verdict_for(score: int) -> str:
     return "Fail"
 
 
-def compute_overall_assessment(steps: list[StepSnapshot], moat: MoatSnapshot | None = None) -> OverallAssessment:
+def compute_overall_assessment(
+    steps: list[StepSnapshot], moat: MoatSnapshot | None = None, weights: OverallWeights = DEFAULT_WEIGHTS.overall
+) -> OverallAssessment:
     """Pure port of frontend/lib/overallScore.ts::computeOverallAssessment,
     minus the "loading" status -- there's no async/loading concept here,
     since the backend calls each step's data function synchronously and
@@ -127,22 +131,23 @@ def compute_overall_assessment(steps: list[StepSnapshot], moat: MoatSnapshot | N
     "moat_not_rated", see MOAT_NOT_RATED_VERDICT). When set, Moat
     is applied as a SECOND stage on top of the Steps 1/2/4/5 blend
     (`0.69 * steps_score + 0.31 * moat.score`), not folded into a single
-    flat weight table alongside STEP_WEIGHTS -- a flat renormalization does
+    flat weight table alongside the step weights -- a flat renormalization does
     not reduce to that formula once a step is also exempt/missing (traced
     through the arithmetic; see CLAUDE.md's Economic Moat deviation note).
     A missing/incomplete steps blend is never rescued by a present moat --
     Moat is not a substitute for missing step data."""
+    step_weights = overall_fractions(weights)
     with_status = [(s, _status_for(s)) for s in steps]
 
     incomplete = [(s, st) for s, st in with_status if st in ("error", "incomplete")]
     ok = [(s, st) for s, st in with_status if st == "ok"]
-    total_weight = sum(STEP_WEIGHTS[s.key] for s, _ in ok)
+    total_weight = sum(step_weights[s.key] for s, _ in ok)
 
     # A confident score requires every non-exempt step to have real data --
     # a weighted average built on missing data would be misleading, so this
     # short-circuits to an explicit incomplete state instead.
     can_compute = len(incomplete) == 0 and total_weight > 0
-    steps_score = round(sum(STEP_WEIGHTS[s.key] * s.score for s, _ in ok) / total_weight) if can_compute else None
+    steps_score = round(sum(step_weights[s.key] * s.score for s, _ in ok) / total_weight) if can_compute else None
 
     failing_steps = [s.label for s, _ in ok if s.verdict == "Fail"]
     caution_steps = [s.label for s, _ in ok if s.verdict == "Pass with caution"]
@@ -161,8 +166,8 @@ def compute_overall_assessment(steps: list[StepSnapshot], moat: MoatSnapshot | N
         StepBreakdownEntry(
             key=s.key,
             label=s.label,
-            base_weight=STEP_WEIGHTS[s.key],
-            effective_weight=(STEP_WEIGHTS[s.key] / total_weight * display_scale) if can_compute and st == "ok" else None,
+            base_weight=step_weights[s.key],
+            effective_weight=(step_weights[s.key] / total_weight * display_scale) if can_compute and st == "ok" else None,
             score=s.score,
             verdict=s.verdict,
             status=st,

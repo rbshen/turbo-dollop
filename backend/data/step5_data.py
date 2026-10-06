@@ -14,6 +14,7 @@ from clients.fmp_client import fmp_client
 from helpers.npl import compute_npl_ratio
 from core.schemas import BreachContextSignal, OutlierWarning, SecCrossCheck, Step5Out, Step5RatioResult
 from core.tickers import normalize_ticker
+from scoring.weights import DEFAULT_WEIGHTS, ScoreWeights
 from scoring.step5 import classify_company_type, score_npl, score_step5_bank, score_step5_reit, score_step5_standard
 from helpers.statement_view import cached_data_quality, load_statement_view
 from helpers.ttm import TOTAL_QUARTERS_NEEDED
@@ -146,7 +147,12 @@ async def _attach_sec_cross_checks(
     return result
 
 
-async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_check: bool = True) -> Step5Out:
+async def get_step5_data(
+    ticker: str,
+    cache_only: bool = False,
+    allow_sec_cross_check: bool = True,
+    weights: ScoreWeights | None = None,
+) -> Step5Out:
     """`cache_only=True` (used by ticker_score.py's recompute path) reads
     only whatever's already cached and never calls FMP -- see
     cache.get_or_fetch's own cache_only branch. It also skips the SEC EDGAR
@@ -169,6 +175,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
     callers (core/main.py's Step 5 endpoint) don't pass this, so they keep
     the default True and are unaffected."""
     ticker = normalize_ticker(ticker)
+    weights = weights if weights is not None else DEFAULT_WEIGHTS
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:
@@ -607,6 +614,7 @@ async def get_step5_data(ticker: str, cache_only: bool = False, allow_sec_cross_
         cash_and_equivalents=cash_and_equivalents,
         current_assets=current_assets,
         liquid_current_assets=liquid_current_assets,
+        weights=weights.step5,
     )
     return Step5Out(
         ticker=ticker,

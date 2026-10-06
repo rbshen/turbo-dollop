@@ -10,6 +10,7 @@ from clients.fmp_client import fmp_client
 from core.schemas import OutlierWarning, Step4Out
 from core.tickers import normalize_ticker
 from scoring.classification import classify_company_type
+from scoring.weights import DEFAULT_WEIGHTS, ScoreWeights
 from scoring.series_trend import robust_late_direction
 from scoring.step4 import (
     AR_DSO_TREND_MATERIALITY_DAYS,
@@ -537,11 +538,12 @@ def _build_roic_note(roic_result: RatioResult, roic_clean: list[float], years_fo
     return _recovery_exclusion_sentence(years_real[:excluded])
 
 
-async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
+async def get_step4_data(ticker: str, cache_only: bool = False, weights: ScoreWeights | None = None) -> Step4Out:
     """`cache_only=True` (used by ticker_score.py's recompute path) reads
     only whatever's already cached and never calls FMP -- see
     cache.get_or_fetch's own cache_only branch."""
     ticker = normalize_ticker(ticker)
+    weights = weights if weights is not None else DEFAULT_WEIGHTS
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:
@@ -793,6 +795,7 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
         history_points=thin_history_points(
             roe_clean, equity_clean, net_income_clean, roic_clean if roic_result is not None else None
         ),
+        weights=weights.step4,
     )
     if result["components"]["revenue_vs_ar"] is not None:
         result["components"]["revenue_vs_ar"]["note"] = _build_ar_note(ar_result, net_income, ocf)
@@ -820,9 +823,9 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
     # here so Step4Out's weights/components dicts share one consistent key
     # set for callers (the Analysis tab reads both by the same key per
     # component).
-    weights = dict(result["weights"])
-    if "ar" in weights:
-        weights["revenue_vs_ar"] = weights.pop("ar")
+    result_weights = dict(result["weights"])
+    if "ar" in result_weights:
+        result_weights["revenue_vs_ar"] = result_weights.pop("ar")
 
     return Step4Out(
         ticker=ticker,
@@ -842,7 +845,7 @@ async def get_step4_data(ticker: str, cache_only: bool = False) -> Step4Out:
         verdict=result["verdict"],
         hard_fail=result["hard_fail"],
         components=result["components"],
-        weights=weights,
+        weights=result_weights,
         roe_roic_divergence_note=result["roe_roic_divergence_note"],
         outlier_warnings=outlier_warnings,
         data_quality=data_quality,

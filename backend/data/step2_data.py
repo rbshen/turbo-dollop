@@ -12,10 +12,17 @@ from core.tickers import normalize_ticker
 from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.first import _first
 from scoring.classification import classify_company_type
-from scoring.step2 import AGREEMENT_WEIGHT, MAGNITUDE_WEIGHT, score_step2
+from scoring.step2 import score_step2
+from scoring.weights import DEFAULT_WEIGHTS, ScoreWeights, as_dict, normalize
 from scoring.step3 import dpu_growth_note
 
-WEIGHTS = {"magnitude": MAGNITUDE_WEIGHT, "agreement": AGREEMENT_WEIGHT}
+def _display_weights(weights: ScoreWeights) -> dict[str, float]:
+    """The shares Step2Out.weights reports (empty when both weights are 0, nothing is blended)."""
+    return normalize(as_dict(weights.step2), ("magnitude", "agreement")) or {}
+
+
+# The DEFAULT split, kept as a name for readers; the live value comes from the weight set passed to get_step2_data.
+WEIGHTS = _display_weights(DEFAULT_WEIGHTS)
 
 # REITs are routed straight to Revenue (rental income) growth, never EPS --
 # FMP has no forward-looking DPU/dividend estimate field at all (checked:
@@ -112,11 +119,13 @@ def _get_growth_catalysts(session: Session, ticker: str) -> str | None:
     return row.notes if row else None
 
 
-async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
+async def get_step2_data(ticker: str, cache_only: bool = False, weights: ScoreWeights | None = None) -> Step2Out:
     """`cache_only=True` (used by ticker_score.py's recompute path) reads
     only whatever's already cached and never calls FMP -- see
     cache.get_or_fetch's own cache_only branch."""
     ticker = normalize_ticker(ticker)
+    weights = weights if weights is not None else DEFAULT_WEIGHTS
+    display_weights = _display_weights(weights)
     staleness_days = settings.cache_staleness_days
     today = date.today()
 
@@ -242,12 +251,26 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
             growth_catalysts=growth_catalysts,
             score=None,
             verdict="insufficient_data",
-            weights=WEIGHTS,
+            weights=display_weights,
         )
 
     growth_basis_note = REIT_GROWTH_BASIS_NOTE if is_reit else None
 
-    result = score_step2(growth_rate_pct=projection["growth_rate"], spread_pct=projection["spread"] or 100.0)
+    result = score_step2(
+        growth_rate_pct=projection["growth_rate"], spread_pct=projection["spread"] or 100.0, weights=weights.step2
+    )
+    if result is None:
+        # Both weights are 0: nothing to blend, the same "cannot be scored" outcome as a data gap (unreachable under the
+        # saved-weight bounds).
+        return Step2Out(
+            ticker=ticker,
+            basis=None,
+            estimates=[],
+            growth_catalysts=growth_catalysts,
+            score=None,
+            verdict="insufficient_data",
+            weights=display_weights,
+        )
 
     return Step2Out(
         ticker=ticker,
@@ -275,5 +298,5 @@ async def get_step2_data(ticker: str, cache_only: bool = False) -> Step2Out:
                 "spread": projection["spread"],
             },
         },
-        weights=WEIGHTS,
+        weights=display_weights,
     )

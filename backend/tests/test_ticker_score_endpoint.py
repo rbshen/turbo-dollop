@@ -66,7 +66,7 @@ def _patch_score_steps(monkeypatch, calls=None, company_name="Apple Inc."):
     calls = calls if calls is not None else []
 
     def make(name, value):
-        async def fn(ticker, cache_only=False):
+        async def fn(ticker, cache_only=False, weights=None):
             calls.append((name, cache_only))
             return value
 

@@ -44,8 +44,9 @@ elsewhere — see [Debt](debt.md), and docs/archive/claude-md-history-scoring.md
 investigation behind that rebalance. Its known, deliberate limits are described under "Overall
 weighting rebalance" below.
 
-The weight table lives in two places that must never drift apart:
-`backend/scoring/overall.py::STEP_WEIGHTS` and `frontend/lib/overallScore.ts::STEP_WEIGHTS`.
+The default weights are defined once, in `backend/scoring/weights.py::DEFAULT_WEIGHTS` (every scorer takes a weight set as a
+parameter and defaults to it; `overall.py::STEP_WEIGHTS` is just the Overall defaults as fractions of 69). The frontend mirror
+`frontend/lib/overallScore.ts::STEP_WEIGHTS` must not drift from them.
 
 ## Overall weighting: how the weights are stored, and the 2026-07-31 rebalance
 

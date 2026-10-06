@@ -1,6 +1,7 @@
 from typing import NamedTuple, Sequence
 
 from scoring.classification import classify_company_type
+from scoring.weights import DEFAULT_WEIGHTS, Step5Weights, normalize
 
 # Score threshold for "Strong Pass" -- same convention as Step 1/Step 2's
 # shared badge tiers (>90 Strong Pass, else Pass when not a hard fail).
@@ -327,7 +328,22 @@ def evaluate_current_ratio_breach_context(
 # are always flat splits, surfaced explicitly for the Reasoning breakdown UI
 # the same way Step 1/Step 2 do (WEIGHTS_STANDARD, MAGNITUDE_WEIGHT/
 # AGREEMENT_WEIGHT), rather than left implicit in the `/ 3` below.
-WEIGHTS_STANDARD = {"current_ratio": 1 / 3, "debt_to_ebitda": 1 / 3, "debt_servicing_ratio": 1 / 3}
+# The Standard-company split is a parameter now (scoring/weights.py::DEFAULT_WEIGHTS.step5 is the single source;
+# score_step5_standard takes a Step5Weights). REIT gearing and the Bank CET1/NPL split are fixed.
+STANDARD_WEIGHT_KEYS = {
+    "current_ratio": "current_ratio",
+    "debt_to_ebitda": "debt_to_ebitda",
+    "debt_servicing_ratio": "debt_servicing",
+}
+
+
+def _standard_weights(weights: Step5Weights) -> dict[str, int]:
+    """The weight set keyed by the ratio names this module and Step5Out use."""
+    return {ratio: getattr(weights, field) for ratio, field in STANDARD_WEIGHT_KEYS.items()}
+
+
+# The DEFAULT split as shares, kept as a name for readers and tests.
+WEIGHTS_STANDARD = normalize(_standard_weights(DEFAULT_WEIGHTS.step5), STANDARD_WEIGHT_KEYS)
 WEIGHTS_REIT = {"gearing_ratio": 1.0}
 WEIGHTS_BANK = {"cet1_ratio": 0.5, "npl_ratio": 0.5}
 
@@ -569,6 +585,7 @@ def score_step5_standard(
     cash_and_equivalents: float | None = None,
     current_assets: float | None = None,
     liquid_current_assets: float | None = None,
+    weights: Step5Weights = DEFAULT_WEIGHTS.step5,
 ) -> dict:
     """Pure scoring function for Step 5's Standard-company path. No I/O, no
     FMP/DB dependency -- mirrors score_step1/score_step2's shape.
@@ -673,15 +690,19 @@ def score_step5_standard(
     # weight(s), mirroring Profitability's own equal-weight redistribution
     # for its exempt metrics (scoring/step4.py::score_step4).
     applicable = [(key, result) for key, result in (("current_ratio", cr), ("debt_to_ebitda", de), ("debt_servicing_ratio", ds)) if not result.excluded]
-    base_total = sum(WEIGHTS_STANDARD[key] for key, _ in applicable)
-    weights = {key: WEIGHTS_STANDARD[key] / base_total for key, _ in applicable}
-    score = round(sum(result.points * weights[key] for key, result in applicable))
-    # See PASS_WITH_CAUTION_SCORE_CAP's comment -- a hard fail already
-    # forces "Fail" regardless of score, so this only ever lowers a
-    # genuine Pass-with-caution number, never a Fail's.
-    if not hard_fail and saved_by_tiebreaker:
-        score = min(score, PASS_WITH_CAUTION_SCORE_CAP)
-    verdict = _verdict_for(score, hard_fail, saved_by_tiebreaker)
+    shares = normalize(_standard_weights(weights), [key for key, _ in applicable])
+    if shares is None:
+        # Every ratio that applies is weighted 0: nothing to blend, the same "cannot be scored" outcome as a data gap,
+        # never a division by zero. Unreachable under the saved-weight bounds.
+        score, verdict, shares = None, "insufficient_data", {}
+    else:
+        score = round(sum(result.points * shares[key] for key, result in applicable))
+        # See PASS_WITH_CAUTION_SCORE_CAP's comment -- a hard fail already
+        # forces "Fail" regardless of score, so this only ever lowers a
+        # genuine Pass-with-caution number, never a Fail's.
+        if not hard_fail and saved_by_tiebreaker:
+            score = min(score, PASS_WITH_CAUTION_SCORE_CAP)
+        verdict = _verdict_for(score, hard_fail, saved_by_tiebreaker)
     return {
         "score": score,
         "verdict": verdict,
@@ -690,7 +711,7 @@ def score_step5_standard(
         # saved_by_tiebreaker alone would say True even for the sub-70
         # fall-through-to-Fail case above (see _verdict_for).
         "pass_with_caution": verdict == "Pass with caution",
-        "weights": weights,
+        "weights": shares,
         "ratios": {
             "current_ratio": {
                 "value": current_ratio,

@@ -222,7 +222,7 @@ def _patch_score_steps(monkeypatch, raise_in=None):
     not compute_ticker_score's internal blending (already covered there)."""
 
     def make(name, value):
-        async def fn(ticker, cache_only=False):
+        async def fn(ticker, cache_only=False, weights=None):
             if name == raise_in:
                 raise RuntimeError(f"simulated failure in {name}")
             return value

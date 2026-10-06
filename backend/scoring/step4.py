@@ -3,6 +3,7 @@ from typing import NamedTuple
 import numpy as np
 
 from scoring.series_trend import analyze_series_direction, robust_late_direction
+from scoring.weights import DEFAULT_WEIGHTS, Step4Weights, as_dict, normalize
 from scoring.trend import (
     RECOVERY_PATTERNS,
     THIN_HISTORY_MIN_POINTS,
@@ -207,7 +208,8 @@ PASS_SCORE_THRESHOLD = 70
 # applicable ones), preserving their relative ratio rather than falling back
 # to an equal split -- e.g. ROIC+CCC exempt (Bank/Insurance/Utility) leaves
 # ROE at 25/45=55.6% and AR at 20/45=44.4%, not 50/50.
-BASE_WEIGHTS = {"roe": 0.25, "roic": 0.35, "ar": 0.20, "ccc": 0.20}
+# The DEFAULT base weights (scoring/weights.py::DEFAULT_WEIGHTS.step4 is the single source; score_step4 takes a Step4Weights).
+BASE_WEIGHTS = {key: value / 100 for key, value in as_dict(DEFAULT_WEIGHTS.step4).items()}
 
 
 class RatioResult(NamedTuple):
@@ -788,6 +790,7 @@ def score_step4(
     roic: RatioResult | None,
     ccc: TrendResult | None,
     history_points: int | None = None,
+    weights: Step4Weights = DEFAULT_WEIGHTS.step4,
 ) -> dict:
     """Pure scoring function: weighted blend (see BASE_WEIGHTS -- ROIC 35% /
     ROE 25% / AR 20% / CCC 20% when all 4 apply) among whatever metrics are
@@ -799,7 +802,10 @@ def score_step4(
     mirrors the roic/ccc optional-exemption pattern -- Revenue-vs-Accounts-
     Receivable isn't part of the REIT framework (a rental-income business
     model has no comparable receivables-outpacing-revenue concept), so it's
-    excluded the same way CCC already is for REITs."""
+    excluded the same way CCC already is for REITs.
+
+    `weights` is the Step 4 base set (default DEFAULT_WEIGHTS.step4); a metric weighted 0 is not counted in the blend (its
+    own hard fail, ROE/ROIC below 0, still reads Fail: hard fails read no weights)."""
     applicable: list[tuple[str, int]] = [("roe", roe.points)]
     if ar is not None:
         applicable.append(("ar", ar.points))
@@ -808,27 +814,38 @@ def score_step4(
     if ccc is not None:
         applicable.append(("ccc", ccc.score))
 
-    base_total = sum(BASE_WEIGHTS[key] for key, _ in applicable)
-    weights = {key: BASE_WEIGHTS[key] / base_total for key, _ in applicable}
-    weighted_sum = sum(points * weights[key] for key, points in applicable)
+    shares = normalize(as_dict(weights), [key for key, _ in applicable])
+    hard_fail = roe.hard_fail or (roic.hard_fail if roic is not None else False)
+    components = {
+        "roe": {"label": roe.label, "points": roe.points},
+        "roic": {"label": roic.label, "points": roic.points} if roic is not None else None,
+        "revenue_vs_ar": {"label": ar.label, "points": ar.points} if ar is not None else None,
+        "ccc": {"pattern": ccc.pattern, "points": ccc.score} if ccc is not None else None,
+    }
+    if shares is None:
+        # Every applicable metric is weighted 0 (e.g. ROE alone for a Bank/Insurance/Utility/REIT with ROE at 0): nothing to
+        # blend, the same "cannot be scored" outcome as a data gap, never a division by zero. Unreachable under the
+        # saved-weight bounds.
+        return {
+            "score": None,
+            "verdict": "insufficient_data",
+            "hard_fail": hard_fail,
+            "weights": {},
+            "roe_roic_divergence_note": check_roe_roic_divergence(roe, roic),
+            "components": components,
+        }
+    weighted_sum = sum(points * shares[key] for key, points in applicable)
     score = max(0, min(100, round(weighted_sum)))
     # Thin-history cap (thin_history_points computes the count; None = not supplied, never capped, which is what
     # direct scoring-function callers get). See THIN_HISTORY_MIN_POINTS in scoring/trend.py.
     if history_points is not None and history_points < THIN_HISTORY_MIN_POINTS:
         score = min(score, THIN_HISTORY_SCORE_CAP)
 
-    hard_fail = roe.hard_fail or (roic.hard_fail if roic is not None else False)
-
     return {
         "score": score,
         "verdict": _verdict_for(score, hard_fail),
         "hard_fail": hard_fail,
-        "weights": weights,
+        "weights": shares,
         "roe_roic_divergence_note": check_roe_roic_divergence(roe, roic),
-        "components": {
-            "roe": {"label": roe.label, "points": roe.points},
-            "roic": {"label": roic.label, "points": roic.points} if roic is not None else None,
-            "revenue_vs_ar": {"label": ar.label, "points": ar.points} if ar is not None else None,
-            "ccc": {"pattern": ccc.pattern, "points": ccc.score} if ccc is not None else None,
-        },
+        "components": components,
     }

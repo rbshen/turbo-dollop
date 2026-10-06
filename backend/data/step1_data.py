@@ -9,6 +9,7 @@ from clients.fmp_client import fmp_client
 from core.schemas import OutlierWarning, Step1Out
 from core.tickers import normalize_ticker
 from scoring.classification import classify_company_type
+from scoring.weights import DEFAULT_WEIGHTS, ScoreWeights
 from scoring.step1 import MARGINS_SEVERITY_CARVEOUT_TYPES, score_step1
 from helpers.statement_view import load_statement_view
 from helpers.ttm import sum_last_four_quarters
@@ -76,11 +77,12 @@ def _annual_series(annual_rows: list[dict], field: str) -> tuple[list[str], list
     return years, values
 
 
-async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
+async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWeights | None = None) -> Step1Out:
     """`cache_only=True` (used by ticker_score.py's recompute path) reads
     only whatever's already cached and never calls FMP -- see
     cache.get_or_fetch's own cache_only branch."""
     ticker = normalize_ticker(ticker)
+    weights = weights if weights is not None else DEFAULT_WEIGHTS
     staleness_days = settings.cache_staleness_days
 
     with Session(engine) as session:
@@ -241,6 +243,7 @@ async def get_step1_data(ticker: str, cache_only: bool = False) -> Step1Out:
         # tell a missing TTM from a present one.
         ttm_revenue=revenue[-1],
         ttm_operating_income=operating_income[-1],
+        weights=weights.step1,
     )
 
     return Step1Out(

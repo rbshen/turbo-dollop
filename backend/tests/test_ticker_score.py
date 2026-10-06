@@ -92,7 +92,7 @@ def _speculative_growth(qualifies=True, company_type="Standard"):
 
 
 def _make_step(name, value, calls, raise_error=False):
-    async def fn(ticker, cache_only=False):
+    async def fn(ticker, cache_only=False, weights=None):
         calls.append((name, ticker, cache_only))
         if raise_error:
             raise RuntimeError(f"simulated failure in {name}")

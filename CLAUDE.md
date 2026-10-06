@@ -48,7 +48,8 @@ backend/     FastAPI app, organized into packages by role:
                "trend" names are historical -- Weinstein only; see
                docs/specs/weinstein-stage.md).
   scoring/     Pure scoring functions (classification.py, trend.py,
-               series_trend.py, step1.py..step5.py, overall.py).
+               series_trend.py, step1.py..step5.py, overall.py, weights.py: the one definition of every
+               score weight and its defaults, `DEFAULT_WEIGHTS`).
   analysis/    Standalone quantitative research modules, each its own
                subpackage: ma_magnet/ (unwired research script, not part
                of the production app -- see its own run.py docstring) and

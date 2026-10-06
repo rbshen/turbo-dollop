@@ -1,6 +1,7 @@
 import numpy as np
 
 from scoring.series_trend import analyze_series_direction, robust_early_direction, robust_late_direction
+from scoring.weights import DEFAULT_WEIGHTS, Step1Weights, step1_tables
 from scoring.trend import (
     RECOVERY_PATTERNS,
     THIN_HISTORY_MIN_POINTS,
@@ -25,52 +26,14 @@ from scoring.trend import (
 # e.g. AMGN: Net Income 75 via Operating-Income backup vs CFO 40
 # unresolved -- shifting weight toward the harder-to-distort CFO figure is
 # the hierarchy working as intended there, not collateral damage).
-WEIGHTS_STANDARD = {"revenue": 0.35, "net_income": 0.20, "cfo": 0.30, "margins": 0.10, "fcf": 0.05}
-# FCF is derived from CFO, so wherever CFO is exempt (Bank / Property
-# Developer / Commodity Company), FCF is exempt for the same underlying
-# reason -- their combined 25%+15% redistributes evenly across the 3
-# remaining applicable metrics (Revenue, Net Income, Margins), same
-# equal-redistribution convention used everywhere else in this app.
-_CFO_FCF_EXEMPT_WEIGHT = WEIGHTS_STANDARD["cfo"] + WEIGHTS_STANDARD["fcf"]
-_REDISTRIBUTE_TARGETS = ("revenue", "net_income", "margins")
-_PER_TARGET_BONUS = _CFO_FCF_EXEMPT_WEIGHT / len(_REDISTRIBUTE_TARGETS)
-WEIGHTS_CFO_EXEMPT = {
-    "revenue": WEIGHTS_STANDARD["revenue"] + _PER_TARGET_BONUS,
-    "net_income": WEIGHTS_STANDARD["net_income"] + _PER_TARGET_BONUS,
-    "cfo": 0.0,
-    "margins": WEIGHTS_STANDARD["margins"] + _PER_TARGET_BONUS,
-    "fcf": 0.0,
-}
-# Banks (2026-09-10): Margins is ALSO excluded, on top of CFO/FCF -- see
-# CLAUDE.md's Step 1 deviations. `grossProfit`/`revenue` isn't a coherent
-# concept for a lending institution any more than OCF is; confirmed via a
-# full-universe scan that all 28 Bank-classified tickers with margin data
-# show the identical artifact (grossProfit/revenue at or above 100% around
-# FY2021, then a permanent drop to a 42-77% plateau from FY2022 on -- an
-# FMP data-methodology break specific to financial-services reporting, not
-# a real margin trend). Insurance/Property Developer/Commodity Company stay
-# on WEIGHTS_CFO_EXEMPT unchanged -- the same investigation found their
-# margins are mostly a working signal (Insurance, Commodity Company) or a
-# real-but-differently-shaped, separately-scoped data issue (REIT's
-# terminal-period collapse) that doesn't share Banks' universal root cause.
-#
-# Margins' weight (13/60, i.e. WEIGHTS_CFO_EXEMPT["margins"]) is
-# redistributed PROPORTIONALLY across Revenue and Net Income -- dividing by
-# the sum of their own WEIGHTS_CFO_EXEMPT-stage weights, the same "divide
-# by sum of applicable weights" convention Step 4's BASE_WEIGHTS
-# renormalization already uses -- not a flat 50/50 split and not a
-# redistribution back to WEIGHTS_STANDARD's original 35:20 ratio (which
-# would ignore that CFO/FCF's weight is already baked into the CFO-exempt
-# revenue/net_income figures this is built from). Works out to Revenue
-# 28/47 (~59.57%) / Net Income 19/47 (~40.43%).
-_CFO_MARGINS_EXEMPT_BASE = WEIGHTS_CFO_EXEMPT["revenue"] + WEIGHTS_CFO_EXEMPT["net_income"]
-WEIGHTS_CFO_MARGINS_EXEMPT = {
-    "revenue": WEIGHTS_CFO_EXEMPT["revenue"] / _CFO_MARGINS_EXEMPT_BASE,
-    "net_income": WEIGHTS_CFO_EXEMPT["net_income"] / _CFO_MARGINS_EXEMPT_BASE,
-    "cfo": 0.0,
-    "margins": 0.0,
-    "fcf": 0.0,
-}
+# The weight tables are no longer constants: score_step1 takes a Step1Weights (scoring/weights.py, default DEFAULT_WEIGHTS) and
+# derives the three tables below from it with scoring/weights.py::step1_tables -- the same procedures as before (CFO-exempt:
+# CFO+FCF split equally over Revenue/Net Income/Margins; Bank: Margins also dropped and its weight spread proportionally over
+# Revenue/Net Income, 28/47 and 19/47 at the defaults). The three names below are the DEFAULT tables, kept for readers and tests.
+# Banks (2026-09-10): Margins is excluded on top of CFO/FCF -- `grossProfit`/`revenue` isn't a coherent concept for a lending
+# institution (an FMP data-methodology break confirmed across all 28 Bank tickers with margin data); Insurance/Property
+# Developer/Commodity Company stay on the CFO-exempt table. See docs/specs/financials.md.
+WEIGHTS_STANDARD, WEIGHTS_CFO_EXEMPT, WEIGHTS_CFO_MARGINS_EXEMPT = step1_tables(DEFAULT_WEIGHTS.step1)
 
 # --- Free Cash Flow tiers -----------------------------------------------
 # FCF is "consistently positive," not a growth trend -- what matters per the
@@ -575,6 +538,7 @@ def score_step1(
     margins_severity_carveout: bool = False,
     ttm_revenue: float | None | object = _TTM_FROM_SERIES,
     ttm_operating_income: float | None | object = _TTM_FROM_SERIES,
+    weights: Step1Weights = DEFAULT_WEIGHTS.step1,
 ) -> dict:
     """Pure scoring function per CLAUDE.md's Step 1 spec: takes parsed metric
     series (chronological, oldest fiscal year -> TTM) and returns
@@ -608,6 +572,9 @@ def score_step1(
     score for these three types, unrelated to (and never simultaneously
     `True` with) `margins_exempt` above, which skips the classifier
     entirely rather than carving out one of its patterns.
+
+    `weights` is the Step 1 weight set (default DEFAULT_WEIGHTS.step1); a component weighted 0 is not counted in the blend, but
+    its data-gap check above still runs (a missing input can still null the step).
 
     `ttm_revenue` / `ttm_operating_income` feed the Operating-Income backup's
     quality gates (_operating_income_backup_allowed). Real revenue even for
@@ -679,12 +646,13 @@ def score_step1(
         cfo_result = _classify_positive_trend(cfo, growth_reference)
         fcf_result = _classify_fcf(fcf, fcf_cfo) if fcf is not None else None
 
+    standard_table, cfo_exempt_table, bank_table = step1_tables(weights)
     if margins_exempt:
-        weights = WEIGHTS_CFO_MARGINS_EXEMPT
+        table = bank_table
     elif cfo_exempt or cfo is None:
-        weights = WEIGHTS_CFO_EXEMPT
+        table = cfo_exempt_table
     else:
-        weights = WEIGHTS_STANDARD
+        table = standard_table
 
     # A fetch failure (cache.py::safe_fetch swallows httpx.HTTPError to {})
     # and a genuinely too-thin real response both collapse to the same
@@ -715,14 +683,19 @@ def score_step1(
         or cfo_insufficient
         or fcf_insufficient
     ):
-        return {"score": None, "verdict": "insufficient_data", "components": {}, "weights": weights}
+        return {"score": None, "verdict": "insufficient_data", "components": {}, "weights": table or {}}
+
+    # No table means every weight that applies to this company type is 0: nothing to blend, the same "cannot be scored"
+    # outcome as a data gap (never a division by zero). Unreachable under the saved-weight bounds.
+    if table is None:
+        return {"score": None, "verdict": "insufficient_data", "components": {}, "weights": {}}
 
     weighted_sum = (
-        revenue_result.score * weights["revenue"]
-        + net_income_result.score * weights["net_income"]
-        + (cfo_result.score if cfo_result else 0) * weights["cfo"]
-        + (margin_result.score if margin_result else 0) * weights["margins"]
-        + (fcf_result.score if fcf_result else 0) * weights["fcf"]
+        revenue_result.score * table["revenue"]
+        + net_income_result.score * table["net_income"]
+        + (cfo_result.score if cfo_result else 0) * table["cfo"]
+        + (margin_result.score if margin_result else 0) * table["margins"]
+        + (fcf_result.score if fcf_result else 0) * table["fcf"]
     )
     score = max(0, min(100, round(weighted_sum)))
     if len(revenue) < THIN_HISTORY_MIN_POINTS:
@@ -748,5 +721,5 @@ def score_step1(
             "margins": {"score": margin_result.score, "pattern": margin_result.pattern} if margin_result else None,
             "fcf": {"score": fcf_result.score, "pattern": fcf_result.pattern} if fcf_result else None,
         },
-        "weights": weights,
+        "weights": table,
     }

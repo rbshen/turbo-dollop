@@ -1,5 +1,7 @@
 from typing import NamedTuple
 
+from scoring.weights import DEFAULT_WEIGHTS, Step2Weights, as_dict, normalize
+
 # Magnitude thresholds: average projected growth rate, in percent.
 MAGNITUDE_HIGH = 15.0
 MAGNITUDE_SOLID = 10.0
@@ -49,8 +51,10 @@ NEGATIVE_MAGNITUDE_CEILING = 35
 AGREEMENT_TIGHT = 10.0
 AGREEMENT_MODERATE = 20.0
 
-MAGNITUDE_WEIGHT = 0.70
-AGREEMENT_WEIGHT = 0.30
+# The DEFAULT split (scoring/weights.py::DEFAULT_WEIGHTS.step2 is the single source); score_step2 takes a Step2Weights.
+_DEFAULT_SHARES = normalize(as_dict(DEFAULT_WEIGHTS.step2), ("magnitude", "agreement"))
+MAGNITUDE_WEIGHT = _DEFAULT_SHARES["magnitude"]
+AGREEMENT_WEIGHT = _DEFAULT_SHARES["agreement"]
 
 # Score threshold for "Strong Pass" among Pass verdicts (see _verdict_for).
 STRONG_PASS_SCORE = 90
@@ -122,14 +126,21 @@ def _verdict_for(score: int, growth_rate_pct: float) -> str:
     return "Pass"
 
 
-def score_step2(growth_rate_pct: float, spread_pct: float) -> ScoreResult:
+def score_step2(
+    growth_rate_pct: float, spread_pct: float, weights: Step2Weights = DEFAULT_WEIGHTS.step2
+) -> ScoreResult | None:
     """Pure scoring function for Step 2 (Positive Growth Rate). Takes the
     already-computed projected growth rate and estimate-range spread (both
     percentages) and returns the weighted score. No I/O, no FMP/DB
-    dependency -- mirrors score_step1's shape."""
+    dependency -- mirrors score_step1's shape. `weights` is the magnitude/agreement split (default 70/30); None comes back
+    only when both weights are 0 (nothing to blend), which the caller reads as insufficient data. The Fail gate (negative
+    growth) and the 70 floor read no weights."""
+    shares = normalize(as_dict(weights), ("magnitude", "agreement"))
+    if shares is None:
+        return None
     magnitude_score, magnitude_tier = _score_magnitude(growth_rate_pct)
     agreement_score, agreement_tier = _score_agreement(spread_pct)
-    weighted_sum = magnitude_score * MAGNITUDE_WEIGHT + agreement_score * AGREEMENT_WEIGHT
+    weighted_sum = magnitude_score * shares["magnitude"] + agreement_score * shares["agreement"]
     score = max(0, min(100, round(weighted_sum)))
     # Floors the BLENDED score, not magnitude_score itself (which stays the
     # raw tier value the UI's own magnitude/agreement breakdown shows) --

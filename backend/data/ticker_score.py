@@ -21,6 +21,7 @@ from data.step5_data import get_step5_data
 from data.ticker_summary import get_summary
 from helpers.statement_view import build_statement_view, data_quality_flags, read_cached_inputs
 from scoring.review import REVIEW_GATE_SCORE, compute_review, quarters_from
+from scoring.weights import DEFAULT_WEIGHTS
 from data.warren_signal_data import (
     DEFAULT_SIGNAL_TYPE as WARREN_SIGNAL_TYPE,
     DEFAULT_TIMEFRAME as WARREN_TIMEFRAME,
@@ -107,7 +108,7 @@ def stored_review_fields(row: TickerScore | None) -> dict:
 PRESERVED_ON_UPSERT = ("delisted_at",)
 
 async def compute_ticker_score(
-    ticker: str, cache_only: bool = False, persist_etf: bool = True, persist: bool = True
+    ticker: str, cache_only: bool = False, persist_etf: bool = True, persist: bool = True, weights=None
 ) -> TickerScore | None:
     """Builds and upserts one ticker's TickerScore row for the Screener page
     -- the same 5 functions Step 1/2/4/5 and the ticker header already call,
@@ -124,11 +125,13 @@ async def compute_ticker_score(
     `persist=False` computes and returns the row but writes nothing at all (the read-only dry run that diffs new scoring
     code against the stored rows before a recompute)."""
     ticker = normalize_ticker(ticker)
+    # One weight set for the whole compute: the four steps and the Overall blend must agree on it.
+    weights = weights if weights is not None else DEFAULT_WEIGHTS
 
-    step1, step1_error = await _safe_step(ticker, "step1", get_step1_data(ticker, cache_only=cache_only))
-    step2, step2_error = await _safe_step(ticker, "step2", get_step2_data(ticker, cache_only=cache_only))
-    step4, step4_error = await _safe_step(ticker, "step4", get_step4_data(ticker, cache_only=cache_only))
-    step5, step5_error = await _safe_step(ticker, "step5", get_step5_data(ticker, cache_only=cache_only))
+    step1, step1_error = await _safe_step(ticker, "step1", get_step1_data(ticker, cache_only=cache_only, weights=weights))
+    step2, step2_error = await _safe_step(ticker, "step2", get_step2_data(ticker, cache_only=cache_only, weights=weights))
+    step4, step4_error = await _safe_step(ticker, "step4", get_step4_data(ticker, cache_only=cache_only, weights=weights))
+    step5, step5_error = await _safe_step(ticker, "step5", get_step5_data(ticker, cache_only=cache_only, weights=weights))
     summary, summary_error = await _safe_step(ticker, "summary", get_summary(ticker, cache_only=cache_only))
     # New, independent, read-only classification -- never feeds
     # compute_overall_assessment below (only STEP_LABELS-style steps do), so
@@ -169,6 +172,7 @@ async def compute_ticker_score(
             _snapshot("step5", step5, step5_error),
         ],
         moat=moat_snapshot,
+        weights=weights.overall,
     )
 
     # Demote-only status beside the verdict, never feeding it (an ETF/fund has none: the 5-step framework is not applied).
