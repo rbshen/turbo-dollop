@@ -72,3 +72,62 @@ describe("OverallAssessmentView: Moat not rated", () => {
     expect(screen.queryByText(/rate the moat/)).not.toBeInTheDocument();
   });
 });
+
+
+describe("OverallAssessmentView: the Review status block", () => {
+  const STORED = {
+    overall_verdict: "Pass",
+    review_status: "review_unclear",
+    review_reasons: [
+      {
+        step: "step5",
+        score: 43,
+        verdict: "Fail",
+        hint: "unclear",
+        raw_hint: "unclear",
+        guarded: false,
+        rule: "not_covered",
+        evidence: "Debt/EBITDA 3.59x (borderline_fail): outside +/-20%",
+      },
+    ],
+    conviction: "high",
+  } as unknown as Parameters<typeof OverallAssessmentView>[0]["stored"];
+
+  it("lists the status, the conviction and each reason with its evidence", () => {
+    render(<OverallAssessmentView result={result({})} stored={STORED} />);
+    const block = screen.getByTestId("review-status");
+    expect(block).toHaveTextContent("Review (unclear)");
+    expect(block).toHaveTextContent("Conviction: high");
+    expect(block).toHaveTextContent("Debt scored 43 (Fail): Debt/EBITDA 3.59x (borderline_fail): outside +/-20%");
+    expect(block).toHaveClass("text-warn");
+  });
+
+  it("uses the deeper caution tone for a structural reading and the guarded sentence for a guarded one", () => {
+    const guarded = {
+      ...STORED!,
+      review_status: "data_uncertain",
+      review_reasons: [{ ...STORED!.review_reasons![0], hint: "data_uncertain", raw_hint: "structural", guarded: true }],
+    } as unknown as Parameters<typeof OverallAssessmentView>[0]["stored"];
+    render(<OverallAssessmentView result={result({})} stored={guarded} />);
+    expect(screen.getByTestId("review-status")).toHaveTextContent("If the data is confirmed this would read Review (structural).");
+    cleanup();
+    const structural = { ...STORED!, review_status: "review_structural" } as unknown as Parameters<typeof OverallAssessmentView>[0]["stored"];
+    render(<OverallAssessmentView result={result({})} stored={structural} />);
+    expect(screen.getByTestId("review-status")).toHaveClass("text-caution");
+  });
+
+  it("shows nothing when the stored verdict is not the one the card computes live", () => {
+    render(<OverallAssessmentView result={result({ verdict: "Fail", score: 60 })} stored={STORED} />);
+    expect(screen.queryByTestId("review-status")).not.toBeInTheDocument();
+  });
+
+  it("renders nothing for a null status, a missing row or an incomplete assessment", () => {
+    const none = { ...STORED!, review_status: null, review_reasons: null } as unknown as Parameters<typeof OverallAssessmentView>[0]["stored"];
+    const { rerender } = render(<OverallAssessmentView result={result({})} stored={none} />);
+    expect(screen.queryByTestId("review-status")).not.toBeInTheDocument();
+    rerender(<OverallAssessmentView result={result({})} stored={null} />);
+    expect(screen.queryByTestId("review-status")).not.toBeInTheDocument();
+    rerender(<OverallAssessmentView result={result({ status: "incomplete", score: null, verdict: null, incompleteSteps: ["Debt"] })} stored={STORED} />);
+    expect(screen.queryByTestId("review-status")).not.toBeInTheDocument();
+  });
+});

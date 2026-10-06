@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { TickerHeaderView } from "@/components/ticker/TickerHeader";
+import { AssessmentChipView, TickerHeaderView } from "@/components/ticker/TickerHeader";
 import type { SpeculativeGrowthOut } from "@/lib/api/types";
 
 afterEach(cleanup);
@@ -61,5 +61,58 @@ describe("TickerHeaderView: the Speculative growth tooltips", () => {
     expect(wrapper).toHaveClass("static", "md:relative");
     const row = wrapper.parentElement!.parentElement!;
     expect(row).toHaveClass("relative", "flex-wrap");
+  });
+});
+
+describe("AssessmentChipView: the Review status", () => {
+  const ROW = {
+    overall_score: 78,
+    overall_verdict: "Pass",
+    computed_at: "2026-10-06T03:38:00",
+    review_status: "review_unclear",
+    review_reasons: [
+      { step: "step5", score: 43, verdict: "Fail", hint: "unclear", raw_hint: "unclear", guarded: false, rule: "not_covered", evidence: "Debt/EBITDA 3.59x outside the band" },
+    ],
+    conviction: "medium",
+  } as unknown as NonNullable<Parameters<typeof AssessmentChipView>[0]["data"]>;
+
+  it("replaces the verdict word with the status label, in a caution-family tone, with the reasons as its tooltip", () => {
+    render(<AssessmentChipView data={ROW} />);
+    const chip = screen.getByText("Review (unclear)");
+    expect(chip).toHaveClass("text-warn");
+    expect(chip).not.toHaveClass("text-negative");
+    expect(chip).toHaveAttribute(
+      "title",
+      expect.stringContaining("Overall 78 would read Pass. Debt scored 43 (Fail). Debt/EBITDA 3.59x outside the band. Conviction: medium."),
+    );
+    expect(screen.queryByText("Pass")).not.toBeInTheDocument();
+  });
+
+  it("uses the stronger caution tone for a structural reading", () => {
+    render(<AssessmentChipView data={{ ...ROW, review_status: "review_structural" } as typeof ROW} />);
+    expect(screen.getByText("Review (structural)")).toHaveClass("text-caution");
+  });
+
+  it("adds the confirmed-data sentence for Data uncertain", () => {
+    const data = {
+      ...ROW,
+      review_status: "data_uncertain",
+      review_reasons: [{ ...ROW!.review_reasons![0], hint: "data_uncertain", raw_hint: "structural", guarded: true }],
+    } as typeof ROW;
+    render(<AssessmentChipView data={data} />);
+    expect(screen.getByText("Data uncertain")).toHaveAttribute("title", expect.stringContaining("If the data is confirmed this would read Review (structural)."));
+  });
+
+  it("keeps the plain verdict pill when there is no status", () => {
+    render(<AssessmentChipView data={{ ...ROW, review_status: null, review_reasons: null } as typeof ROW} />);
+    expect(screen.getByText("Pass")).toBeInTheDocument();
+    expect(screen.queryByText(/Review/)).not.toBeInTheDocument();
+  });
+
+  it("renders nothing without a computed score, and keeps the Moat-not-rated pill", () => {
+    const { container, rerender } = render(<AssessmentChipView data={{ ...ROW, overall_score: null } as typeof ROW} />);
+    expect(container).toBeEmptyDOMElement();
+    rerender(<AssessmentChipView data={{ ...ROW, overall_verdict: "moat_not_rated", review_status: null, review_reasons: null } as typeof ROW} />);
+    expect(screen.getByText("Moat not rated")).toBeInTheDocument();
   });
 });

@@ -19,10 +19,11 @@ import { useTickerScore } from "@/lib/hooks/useTickerScore";
 import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
 import { fmtMoney } from "@/lib/format";
 import { MOAT_NOT_RATED_REASON, MOAT_NOT_RATED_VERDICT } from "@/lib/overallScore";
+import { displayedReview, REVIEW_STATUS_LABEL, REVIEW_STATUS_TONE, reviewTooltip } from "@/lib/reviewStatus";
 import { toneForNullable, verdictLabel } from "@/lib/tierColor";
 import type { ReactNode } from "react";
 import type { MoatValue } from "@/lib/overallScore";
-import type { SpeculativeGrowthOut, TickerSummaryOut, TrendAnalysisOut } from "@/lib/api/types";
+import type { SpeculativeGrowthOut, TickerScoreOut, TickerSummaryOut, TrendAnalysisOut } from "@/lib/api/types";
 
 // Reads the precomputed TickerScore row (same source as Screener/Watchlist)
 // instead of useOverallAssessment's live /step1,2,4,5 fetch + client-side
@@ -33,9 +34,26 @@ import type { SpeculativeGrowthOut, TickerSummaryOut, TrendAnalysisOut } from "@
 // "nothing to show yet" case as the loading state below.
 function AssessmentChip({ symbol }: { symbol: string }) {
   const { data } = useTickerScore(symbol);
+  return <AssessmentChipView data={data} />;
+}
+
+// A Review status (stored beside the verdict, which stays Pass-family) replaces the verdict word; the tooltip carries the
+// Overall score, the gated step(s), the evidence and the conviction. The chip never shows a number of its own.
+export function AssessmentChipView({ data }: { data: TickerScoreOut | null | undefined }) {
   if (!data || data.overall_score == null || data.overall_verdict == null) return null;
 
   const asOf = `As of ${new Date(data.computed_at).toLocaleString()}`;
+  const review = displayedReview(data);
+  if (review) {
+    return (
+      <Status
+        tone={REVIEW_STATUS_TONE[review.status]}
+        title={`${reviewTooltip(data.overall_score, data.overall_verdict, review.reasons, review.conviction)} ${asOf}`}
+      >
+        {REVIEW_STATUS_LABEL[review.status]}
+      </Status>
+    );
+  }
   const title = data.overall_verdict === MOAT_NOT_RATED_VERDICT ? `${MOAT_NOT_RATED_REASON}. ${asOf}` : asOf;
 
   return (

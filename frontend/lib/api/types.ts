@@ -146,6 +146,24 @@ export interface DataQualityFlag {
   detail: Record<string, unknown>;
 }
 
+// Review status (backend scoring/review.py): a separate, demote-only read stored beside overall_verdict, which it never
+// changes. Wording and tones are lib/reviewStatus.ts's; the backend sends keys and facts only.
+export type ReviewStatus = "review_structural" | "data_uncertain" | "review_unclear" | "review_by_design";
+export type ReviewHint = "structural" | "by_design" | "unclear";
+export type ConvictionLevel = "high" | "medium" | "low";
+
+export interface ReviewReason {
+  step: "step1" | "step5";
+  score: number;
+  verdict: string;
+  // The reading after the data-quality guard ("data_uncertain" when guarded); raw_hint is the one it would have had.
+  hint: ReviewHint | "data_uncertain";
+  raw_hint: ReviewHint;
+  guarded: boolean;
+  rule: string;
+  evidence: string;
+}
+
 export type PerfVsSpyStatus = "outperform" | "underperform" | "match" | "no_data";
 
 export interface TickerSummaryOut {
@@ -682,6 +700,12 @@ export interface TickerScoreOut {
   warren_active_signal_kind: "blue_up" | "yellow_up" | "gray_up" | null;
   // See TickerScore.warren_last_buy_fired_at.
   warren_last_buy_fired_at: string | null;
+  // See TickerScore.review_status: null unless the stored overall_verdict is Pass-family and Step 1 or Step 5 failed
+  // below the gate. Optional (absent on a payload or fixture that predates it) and read as null.
+  review_status?: ReviewStatus | null;
+  review_reasons?: ReviewReason[] | null;
+  conviction?: ConvictionLevel | null;
+  data_quality_flags?: DataQualityFlag[] | null;
 }
 
 export type ScreenerUniverse = "sp500" | "dow" | "nasdaq" | "all";

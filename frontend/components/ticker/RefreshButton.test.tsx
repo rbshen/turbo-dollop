@@ -56,6 +56,7 @@ describe("RefreshButton", () => {
     expect(screen.getByRole("button", { name: /^Refreshed/ })).toBeEnabled();
     const matcher = mutate.mock.calls[0][0] as (key: unknown) => boolean;
     expect(matcher("/tickers/AAPL/summary")).toBe(true);
+    expect(matcher("/tickers/AAPL/score")).toBe(true); // the stored row the Review status is read from
     expect(matcher("/tickers/MSFT/summary")).toBe(false);
     expect(matcher(["/tickers/AAPL"])).toBe(false);
     act(() => {
