@@ -113,15 +113,17 @@ The rule lives in two places that must agree: `backend/scoring/overall.py::compu
 and `frontend/lib/overallScore.ts::computeOverallAssessment`. Both are tested against one shared case
 file, `backend/tests/fixtures/overall_verdict_cases.json`. Display: `lib/tierColor.ts::verdictLabel`
 ("Moat not rated", neutral tone) in the ticker header chip, the Analysis card (reason line), the Screener
-card and the Watchlist Analysis pill (reason as its tooltip). Filters, sorts and the Momentum badge read
-`overall_score` only and never see the verdict (or the Review status). The Screener card and the Watchlist
-pill draw `overall_verdict`; neither shows the Review status.
+card and the Watchlist Analysis pill (reason as its tooltip). Sorts, the range filters and the Momentum
+badge read `overall_score` only and never see the verdict. The one filter that reads the Review status is the
+Screener's Review status multi-select (below); the Screener card and the Watchlist pill still draw
+`overall_verdict`, with the Review status shown beside it (below).
 
-## Review status (phase 1)
+## Review status (phases 1 and 2)
 
 A second, **demote-only** read stored beside the Overall verdict (`TickerScore.review_status`,
 `review_reasons`, `conviction`, `data_quality_flags`; `backend/scoring/review.py`). It never changes
-`overall_score` or `overall_verdict`, so Screener sorting, filters and saved views are unaffected. It applies
+`overall_score` or `overall_verdict`, so Screener sorting and saved views are unaffected (the one filter that
+reads it is the Review status filter, see Display). It applies
 only when the stored verdict is Pass, Pass with caution or Strong Pass; a Fail, an incomplete row, a
 "Moat not rated" row and an ETF always have a null status.
 
@@ -155,9 +157,24 @@ low if both fail; otherwise medium.
 
 **Display.** The ticker header chip shows the status label (the verdict word is replaced; the tooltip carries
 the Overall score, the gated step, the evidence and the conviction) and the Analysis card lists each reason.
-The Screener, Watchlist, Momentum and ETF tables still show the verdict only. Deferred: a Screener status
-filter, any Watchlist/Screener display, a temporary hint, and a Step 1 structural hint. Decision record:
-docs/decisions.md, 2026-10-06.
+Phase 2 (2026-10-06) adds, always beside the unchanged score and verdict and only for a row whose stored
+`review_status` is non-null, all through the one set of helpers in `frontend/lib/reviewStatus.ts`:
+
+- **Screener card:** a compact status pill under the score and verdict badge; the same tooltip.
+- **Screener filter:** a "Review status" multi-select in the Fundamental section (after Valuation) with the four
+  statuses, OR semantics, empty = no filtering, state key `reviewStatuses`. Rows with no status never match once
+  it is active. Sorting is still `overall_score` only; a saved view that predates the key loads with it empty.
+- **Watchlist (stock lists):** an icon-only flag marker after the score pill in the Analysis column; the same
+  tooltip; sort stays on `overall_score`. The ETF table and ETF rows never show it.
+- **Momentum (stocks):** the same icon marker left of the neutral score badge; the status is joined from the same
+  `TickerScore` row as `overall_score` and never touches the ranking.
+
+Where each surface gets its status: the Screener returns the stored row (`TickerScoreOut`); the Watchlist reads
+it from the same live `compute_ticker_score` result as its verdict; Momentum joins it from the same stored row as
+`overall_score`. Verdict and status are therefore always from one computation and cannot disagree. The Analysis
+card, which computes its verdict live, still shows nothing when the stored verdict differs (phase 1). Deferred: a
+temporary hint, a Step 1 structural hint, sorting by status, and the ETF surfaces. Decision record:
+docs/decisions.md, 2026-10-06 (phases 1 and 2).
 
 ## What happens if a check can't be completed
 

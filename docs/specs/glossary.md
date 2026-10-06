@@ -87,6 +87,10 @@ Debt failed with a score below 50; the Overall number and verdict stay as comput
 - **Conviction** — high, medium or low, from Growth Rate and Profitability: high when both are Pass or better,
   low when both fail, otherwise medium.
 
+Where it shows: the ticker header chip and Analysis card, a pill on the Screener card (and a "Review status"
+filter in the Fundamental sidebar), and an icon marker in the Watchlist Analysis column and the Momentum Score
+cell. The tooltip carries the reason in every place. See [Overview](overview.md), "Review status".
+
 # Glossary: P/E
 
 ## P/E (trailing)
