@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 import core.main as main
@@ -21,8 +20,10 @@ from scoring.weights import DEFAULT_WEIGHTS, weights_to_dict
 
 
 @pytest.fixture
-def engine(monkeypatch):
-    eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+def engine(monkeypatch, tmp_path):
+    # A file database with a real pool: the tests below use threads (concurrent claims, a worker body beside a request), and one
+    # shared in-memory connection (StaticPool) is not safe to use from two threads at once.
+    eng = create_engine(f"sqlite:///{tmp_path / 'recompute.db'}", connect_args={"check_same_thread": False, "timeout": 15})
     SQLModel.metadata.create_all(eng)
     for module in (main, sr, job, ticker_score):
         monkeypatch.setattr(module, "engine", eng)

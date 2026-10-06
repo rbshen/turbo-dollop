@@ -19,6 +19,15 @@ def _fresh_engine(monkeypatch):
     return engine
 
 
+def _file_engine(monkeypatch, tmp_path):
+    """Like _fresh_engine, but a file database with a real pool, for the tests that run a worker on another thread beside the
+    request (one shared in-memory connection is not safe to use from two threads at once)."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'screener.db'}", connect_args={"check_same_thread": False, "timeout": 15})
+    SQLModel.metadata.create_all(engine)
+    monkeypatch.setattr(main, "engine", engine)
+    return engine
+
+
 def _mark_viewed(engine):
     """Marks every scored ticker added (and viewed): the way a ticker is in the Screener's `all` universe since the
     opt-in flip (a bare view only makes it browsed)."""
@@ -153,8 +162,8 @@ def _run_worker_in_a_thread(monkeypatch, engine, compute, tickers):
     monkeypatch.setattr(score_recompute, "launcher", launch)
 
 
-def test_screener_recompute_runs_the_background_job_and_returns_its_summary(monkeypatch):
-    engine = _fresh_engine(monkeypatch)
+def test_screener_recompute_runs_the_background_job_and_returns_its_summary(monkeypatch, tmp_path):
+    engine = _file_engine(monkeypatch, tmp_path)
 
     async def compute(ticker, cache_only=False, **kwargs):
         assert cache_only is True  # never a live FMP fetch
@@ -175,8 +184,8 @@ def test_screener_recompute_runs_the_background_job_and_returns_its_summary(monk
     assert set(body) == {"processed", "failed", "duration_seconds", "failures"}
 
 
-def test_screener_recompute_is_a_409_while_another_run_is_in_progress(monkeypatch, recompute_launches):
-    _fresh_engine(monkeypatch)
+def test_screener_recompute_is_a_409_while_another_run_is_in_progress(monkeypatch, recompute_launches, tmp_path):
+    _file_engine(monkeypatch, tmp_path)
     import data.score_recompute as score_recompute
 
     score_recompute.claim_run("weights", main.engine)  # a run is in progress (its worker never reports back here)
@@ -297,14 +306,14 @@ def test_screener_meta_is_zero_when_no_constituents_stored(monkeypatch):
     assert response.json() == {"universe": "sp500", "total_constituents": 0}
 
 
-def test_screener_recompute_never_runs_scoring_in_the_request(monkeypatch, recompute_launches):
+def test_screener_recompute_never_runs_scoring_in_the_request(monkeypatch, recompute_launches, tmp_path):
     """Regression guard for the old freeze: the request only claims the run and starts the worker; no step or score function
     runs in the API process (the old endpoint ran ~40 s of scoring inline on the event loop)."""
     import asyncio
 
     import data.score_recompute as score_recompute
 
-    _fresh_engine(monkeypatch)
+    _file_engine(monkeypatch, tmp_path)
 
     def fail_if_called(*args, **kwargs):
         raise AssertionError("scoring must not run inside the request")
