@@ -701,6 +701,9 @@ re-scores every ticker through `compute_ticker_score` at the saved weights and s
   them (each score row is one atomic upsert, so none is ever half written). Retry with Screener > "Recompute all scores", or
   `uv run python -m pipeline.recompute_ticker_scores` (the old script, unchanged, still runs inline and cache-only).
 - **Stuck `running` row you want gone now:** `UPDATE scorerecomputerun SET state='failed', error='manual', finished_at=datetime('now') WHERE state='running';`
+- **The weights themselves** live in table `scoreweightsettings` (one row, key `default`, `weights_version`). Never edit it by hand in normal use
+  (Settings > Score weighting validates it). To go back to the defaults with the API down: delete the row (the next read serves the
+  defaults at version 1 and the next save re-seeds it), then run `uv run python -m pipeline.recompute_ticker_scores`.
 - **Not a cron job:** the nightly `nightly_score_recompute` (3:25) is separate and not coordinated with it; it also writes the current
   `weights_version`, so a weights change made while it runs only leaves the rows it had already passed on the older version until the
   next run.

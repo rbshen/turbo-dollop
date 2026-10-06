@@ -48,6 +48,12 @@ and only adds warning markers, see the same document's "Display markers".)
 
 ## Weights
 
+These are the **defaults**. The five base weights are adjustable (Settings > Score weighting; Revenue 20-50, Net Income 10-40, CFO 10-40,
+Margins 0-25, FCF 0-15, adding up to 100) and the CFO-exempt and Bank tables below are always derived from whatever base is saved, by the
+same two rules (CFO's and FCF's weight split equally over Revenue, Net Income and Margins, a component weighted 0 getting no share; for
+Banks, Margins' weight spread proportionally over Revenue and Net Income). A weight of 0 leaves a component out of the blend only: its
+data-gap check (a missing series still makes the step insufficient data) is unchanged.
+
 | Metric | Standard weight | CFO-exempt weight |
 |---|---|---|
 | Revenue | 35% | 46.67% |

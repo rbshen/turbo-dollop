@@ -153,8 +153,10 @@ mechanism into a false Pass.
 | 10% – 20% | moderate | 60 |
 | > 20% | wide | 20 |
 
-**Blend**: `score = round(magnitude_points × 0.70 + agreement_points × 0.30)`, clamped to
-[0, 100].
+**Blend**: `score = round(magnitude_points × w_m + agreement_points × w_a)`, clamped to
+[0, 100], where the weights default to **70 / 30** and are adjustable (Settings > Score weighting; Magnitude 50-100, Agreement 0-50,
+adding up to 100). A weight of 0 leaves that component out of the blend only: the Fail gate (negative growth) and the 70 floor below read
+no weights.
 
 **Score floor** (`PASS_SCORE_FLOOR`): whenever `growth_rate_pct ≥ 0`, the blended score is floored
 at **70** if it would otherwise land lower. This raises only the displayed score for an

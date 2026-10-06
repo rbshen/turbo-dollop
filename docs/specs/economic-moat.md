@@ -74,7 +74,10 @@ reach 70, so the cap is 1.
 
 Once a ticker has any of the three real Moat states set, Moat occupies **31%** of the Overall
 Assessment, with the four automated checks (Financials, Growth Rate, Profitability, Debt)
-combined occupying the remaining **69%**.
+combined occupying the remaining **69%**. The 31% is a fixed constant (`MOAT_WEIGHT`), never editable and never stored with the
+adjustable weights; how the 69% is split between the four checks is set in Settings > Score weighting (defaults 24/10/20/15), and
+because each of the four is capped at 30, Moat always stays the single largest weight. Saving the Moat points (like saving the weights)
+recomputes every stored score as a background job.
 
 ```
 score = round(0.69 × steps_score + 0.31 × moat_points)

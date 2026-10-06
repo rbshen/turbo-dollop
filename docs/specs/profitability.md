@@ -126,7 +126,10 @@ the business), CCC is skipped regardless of sector/industry.
 
 ### Blend weights
 
-`BASE_WEIGHTS = {"roe": 0.25, "roic": 0.35, "ar": 0.20, "ccc": 0.20}` in `scoring/step4.py`:
+The defaults are ROE 25 / ROIC 35 / AR 20 / CCC 20 (`scoring/weights.py::DEFAULT_WEIGHTS.step4`, adjustable in Settings > Score weighting:
+ROE 15-60, ROIC 15-60, AR 0-30, CCC 0-30, adding up to 100; ROE and ROIC can never reach 0 because they carry the hard fail, and ROE is the
+only metric for Bank, Insurance, Utility and REIT). A weight of 0 leaves a metric out of the blend only; a failing ROE or ROIC still
+forces a Fail (hard fails read no weights).
 
 | Metric | Base weight (all 4 applicable) |
 |---|---|

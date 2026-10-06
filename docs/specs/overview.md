@@ -24,17 +24,18 @@ Strong Pass, or occasionally "Pass with caution" — see the [Glossary](glossary
 Overall verdict adds one more value, "Moat not rated" (below). A separate **Review status**
 (below) can sit beside a Pass-family Overall verdict, but it is never a verdict: it does not
 change the number or the verdict. The
-Overall Assessment combines them into one number using these weights:
+Overall Assessment combines them into one number. These are the **default** weights; the four automated ones
+are adjustable in Settings > Score weighting (see "Adjustable weights" below), Economic Moat is fixed:
 
-| Component | Weight |
+| Component | Default weight |
 |---|---|
 | Financials | 24% |
 | Growth Rate | 10% |
 | Profitability | 20% |
 | Debt | 15% |
-| Economic Moat | 31% |
+| Economic Moat | 31% (fixed) |
 
-These weights reflect a deliberate design choice: Economic Moat — a qualitative read on
+The defaults reflect a deliberate design choice: Economic Moat — a qualitative read on
 whether a company has a durable competitive advantage — carries the single largest weight, on
 the view that a strong moat matters at least as much as any one quarter-to-quarter financial
 metric. Among the four automated checks, Financials carries the most weight since it's the
@@ -43,6 +44,15 @@ most foundational read on the business, while Debt was deliberately weighted abo
 elsewhere — see [Debt](debt.md), and docs/archive/claude-md-history-scoring.md for the
 investigation behind that rebalance. Its known, deliberate limits are described under "Overall
 weighting rebalance" below.
+
+**Moat stays the single largest weight** because the four adjustable weights are capped at 30 each (and the four always add up to
+exactly 69). **No Moat always fails**, whatever the split of the four, as long as the No Moat points stay at or below 1: the steps blend
+is a weighted average of scores of at most 100, so `round(0.69 x steps + 0.31 x points)` is at most 69 (31% is the smallest whole-number
+Moat weight for which that holds; the guarantee would end at about 1.6 points, which is why that setting is capped at 1). That
+guarantee is about the verdict only through the score; the "Moat not rated" rule is separate and reads the verdict.
+
+**Saved Screener views and the weights.** A saved view stores filters (including Overall score ranges) and a sort, never results. Changing
+the weights re-scores every ticker, so the same saved view then selects different tickers; nothing in the view itself changes.
 
 The default weights are defined once, in `backend/scoring/weights.py::DEFAULT_WEIGHTS` (every scorer takes a weight set as a
 parameter and defaults to it; `overall.py::STEP_WEIGHTS` is just the Overall defaults as fractions of 69). The frontend mirror
@@ -58,7 +68,7 @@ The blend also runs in the fixed step order Financials, Growth, Profitability, D
 
 ## Adjustable weights: storage, bounds and API (2026-10-06)
 
-The weights are one global set saved in the database (`ScoreWeightSettings`, a lazily seeded singleton; `weights_version` goes up by
+The weights are one global set (no accounts, no per-user weights) saved in the database (`ScoreWeightSettings`, a lazily seeded singleton; `weights_version` goes up by
 one on every save or reset, and `TickerScore.weights_version` records the version a row was scored with). Definitions, defaults,
 bounds and the pure derivations are in `backend/scoring/weights.py`; loading, the 5-second in-process cache and saving are in
 `backend/data/score_weights.py`. A read never writes (an unseeded database serves the defaults at version 1). Economic Moat's 31%

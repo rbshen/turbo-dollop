@@ -55,7 +55,8 @@ figure that might show up on the next data refresh.
 
 ## Overall Assessment's own rules
 
-Overall Assessment uses these same labels, with two additions worth knowing:
+Overall Assessment uses these same labels, with two additions worth knowing (the weights each check carries are adjustable:
+see [Overview](overview.md), "Adjustable weights"; a hard fail still reads Fail whatever the weights):
 
 - If any of the four automated checks comes back **insufficient data** (or hits an internal
   error), Overall Assessment doesn't attempt a partial average — the whole Overall Assessment is
