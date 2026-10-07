@@ -190,8 +190,8 @@ def test_step1_zero_weight_does_not_change_data_gap_gating():
     thin_fcf = [50]
     assert _step1(fcf=thin_fcf)["verdict"] == "insufficient_data"
     assert _step1(Step1Weights(41, 24, 35, 0, 0), fcf=thin_fcf)["verdict"] == "insufficient_data"
-    # Margins likewise (a single gross-margin point).
-    assert _step1(Step1Weights(41, 24, 35, 0, 0), gross_margin=[40])["verdict"] == "insufficient_data"
+    # Margins likewise: net and operating margin both missing (a single net-margin point, no operating margin series).
+    assert _step1(Step1Weights(41, 24, 35, 0, 0), net_margin=[40])["verdict"] == "insufficient_data"
 
 
 def test_step1_with_nothing_to_blend_is_insufficient_not_a_crash():

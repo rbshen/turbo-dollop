@@ -1,7 +1,12 @@
+"""Step 1 wrappers around the neutral engine (scoring/step1.py): the blend and weight tables, the CFO/FCF and Margins exemptions, the
+positivity gate, the Net Income Operating Income backup (completed fiscal years only), the Margins combination min(G, max(N, O)) and
+its carve-out, the thin-history cap. The engine itself is pinned in test_step1_engine.py."""
+
+import inspect
+
 import pytest
 
 import scoring.step1 as step1_module
-
 from scoring.step1 import (
     NET_INCOME_BACKUP_CAP,
     NET_INCOME_BACKUP_THRESHOLD,
@@ -10,1065 +15,415 @@ from scoring.step1 import (
     _classify_positive_trend,
     score_step1,
 )
-from scoring.trend import MULTIPLE_DIPS_CEILING
+from scoring.step1_engine import assess_series
+from scoring.trend import TrendResult
 
-GROWING = [100, 110, 121, 133, 146]
-# 8 points: the shortest Revenue series the thin-history cap (H1) lets reach Strong Pass. The tests that assert a 100
-# Strong Pass pass it as `revenue` so they keep pinning what they were written for (weights, exemptions).
-LONG_GROWING = [100, 110, 121, 133, 146, 161, 177, 195]
-DECLINING = [146, 133, 121, 110, 100]
-STABLE_MARGINS = [40, 41, 40, 42, 43]
-NET_MARGINS_STABLE = [20, 20.5, 20, 21, 21.5]
-FCF_ALL_POSITIVE = [50, 60, 55, 70, 65, 80]
-
-# SYM's real cached Net Income / Operating Income / CFO (millions,
-# FY2019-FY2025 + TTM) -- the case that motivated the positivity gate.
-# Net Income has never been positive; Operating Income hasn't either
-# (confirming the OI fallback correctly does NOT rescue it); CFO's TTM
-# value is genuinely positive despite a volatile history.
-SYM_NET_INCOME = [-104.361, -109.521, -122.314, -78.997, -23.866, -13.490, -16.937, -4.965]
-SYM_OPERATING_INCOME = [-105.793, -110.377, -122.381, -140.375, -223.230, -116.725, -92.133, -20.144]
-SYM_CFO = [17.185, -124.307, 109.567, -148.247, 230.794, -58.077, 866.939, 845.218]
+N = 10
+GROWING = [100 * 1.08**t for t in range(N)]  # uptrend 100
+SHORT_GROWING = GROWING[:5]
+DECLINING = [100 * 0.88**t for t in range(N)]  # decline 35
+UP_MARGIN = [20 + 1.2 * t for t in range(N)]  # uptrend 100
+FLAT_MARGIN = [20.0] * N  # flat 88
+FALLING_MARGIN = [40 - 3.0 * t for t in range(N)]  # decline 30, ends positive
+FLAT_SCORE = 88
+FCF_UP = [50 * 1.08**t for t in range(N)]
 
 
-def test_strong_pass_all_growing():
-    result = score_step1(
-        revenue=LONG_GROWING,
+def strong(**overrides):
+    args = dict(
+        revenue=GROWING,
         net_income=GROWING,
         operating_income=GROWING,
         cfo=GROWING,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
+        gross_margin=UP_MARGIN,
+        operating_margin=UP_MARGIN,
+        net_margin=UP_MARGIN,
         cfo_exempt=False,
-        fcf=FCF_ALL_POSITIVE,
+        fcf=GROWING,
     )
-    assert result["score"] == 100
-    assert result["verdict"] == "Strong Pass"
-    assert result["components"]["cfo"]["score"] == 100
-    assert result["components"]["fcf"]["score"] == 100
+    args.update(overrides)
+    return score_step1(**args)
+
+
+def ratio_score(values):
+    return assess_series(values, "ratio").score
+
+
+# --- the blend, weights and exemptions ----------------------------------------------------------------------------------------------
+
+
+def test_strong_pass_all_growing():
+    result = strong()
+    assert (result["score"], result["verdict"]) == (100, "Strong Pass")
+    assert result["components"]["cfo"] == {"score": 100, "pattern": "uptrend"}
+    assert result["components"]["fcf"] == {"score": 100, "pattern": "uptrend"}
     assert result["weights"] == {"revenue": 0.35, "net_income": 0.20, "cfo": 0.30, "margins": 0.10, "fcf": 0.05}
 
 
 def test_fail_all_declining():
-    # DECLINING's final transition (-9.1%) sits inside the graduated TTM
-    # band (NOISE_FLOOR < decline < SEVERE_TTM_DECLINE), so it's no longer
-    # an unconditional 0 -- it flows through as an ordinary (merged,
-    # 4-transition) dip event that's too recent (age=0) to durably resolve,
-    # landing on "multiple_dips"/40 instead. Still a clear Fail overall --
-    # the graduated band softens an isolated mild wobble, not a company
-    # that's genuinely declined every single year across its whole window.
-    result = score_step1(
-        revenue=DECLINING,
-        net_income=DECLINING,
-        operating_income=DECLINING,
-        cfo=DECLINING,
-        gross_margin=list(reversed(STABLE_MARGINS)),
-        net_margin=list(reversed(NET_MARGINS_STABLE)),
-        cfo_exempt=False,
+    result = strong(
+        revenue=DECLINING, net_income=DECLINING, operating_income=DECLINING, cfo=DECLINING, fcf=DECLINING,
+        gross_margin=FALLING_MARGIN, operating_margin=FALLING_MARGIN, net_margin=FALLING_MARGIN,
     )
-    assert result["score"] < 50
-    assert result["verdict"] == "Fail"
-    assert result["components"]["revenue"] == {"score": 40, "pattern": "multiple_dips"}
-    assert result["components"]["cfo"] == {"score": 40, "pattern": "multiple_dips"}
+    assert result["verdict"] == "Fail" and result["score"] < 50
+    assert result["components"]["revenue"] == {"score": 35, "pattern": "decline"}
+    assert result["components"]["cfo"] == {"score": 35, "pattern": "decline"}
+    assert result["components"]["margins"]["pattern"] == "decline" and result["components"]["margins"]["score"] == 30
 
 
 def test_cfo_exemption_redistributes_weights():
-    result = score_step1(
-        revenue=LONG_GROWING,
-        net_income=GROWING,
-        operating_income=GROWING,
-        cfo=None,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
-        cfo_exempt=True,
-    )
-    # CFO's 30% + FCF's 5% (35% combined) redistribute evenly across the 3
-    # remaining applicable metrics: 0.35 + 0.35/3, 0.20 + 0.35/3, 0.10 + 0.35/3.
-    assert result["weights"]["cfo"] == 0.0
-    assert result["weights"]["fcf"] == 0.0
+    result = strong(cfo=None, cfo_exempt=True, fcf=None)
+    # CFO's 30% + FCF's 5% redistribute evenly across the 3 remaining metrics.
+    assert result["weights"]["cfo"] == 0.0 and result["weights"]["fcf"] == 0.0
     assert result["weights"]["revenue"] == pytest.approx(0.466667, abs=1e-5)
     assert result["weights"]["net_income"] == pytest.approx(0.316667, abs=1e-5)
     assert result["weights"]["margins"] == pytest.approx(0.216667, abs=1e-5)
-    assert result["components"]["cfo"] is None
-    assert result["components"]["fcf"] is None
+    assert result["components"]["cfo"] is None and result["components"]["fcf"] is None
     assert result["score"] == 100
 
 
 def test_margins_exemption_redistributes_weights_proportionally_for_banks():
-    # Banks (2026-09-10): Margins joins CFO/FCF as excluded. Its
-    # WEIGHTS_CFO_EXEMPT-stage weight (13/60, ~21.67%) redistributes
-    # PROPORTIONALLY across Revenue/Net Income -- not a flat 50/50 split --
-    # preserving their existing WEIGHTS_CFO_EXEMPT ratio (28:19). Works out
-    # to Revenue 28/47 (~59.57%), Net Income 19/47 (~40.43%).
-    result = score_step1(
-        revenue=LONG_GROWING,
-        net_income=GROWING,
-        operating_income=GROWING,
-        cfo=None,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
-        cfo_exempt=True,
-        margins_exempt=True,
-    )
-    assert result["weights"]["cfo"] == 0.0
-    assert result["weights"]["fcf"] == 0.0
+    result = strong(cfo=None, cfo_exempt=True, fcf=None, margins_exempt=True)
     assert result["weights"]["margins"] == 0.0
     assert result["weights"]["revenue"] == pytest.approx(28 / 47, abs=1e-5)
     assert result["weights"]["net_income"] == pytest.approx(19 / 47, abs=1e-5)
-    assert result["components"]["cfo"] is None
-    assert result["components"]["fcf"] is None
     assert result["components"]["margins"] is None
     assert result["score"] == 100
 
 
 def test_margins_exemption_ignores_margin_data_entirely():
-    # Mirrors test_fcf_exemption_mirrors_cfo_exemption_ignores_fcf_data_entirely
-    # below -- even a genuinely bad margin series must have zero influence
-    # once margins_exempt, confirming _classify_margins is never even
-    # called (not just that its result is discarded).
-    sharply_declining_margins = [80, 60, 40, 20, 5]
-    result = score_step1(
-        revenue=LONG_GROWING,
-        net_income=GROWING,
-        operating_income=GROWING,
-        cfo=None,
-        gross_margin=sharply_declining_margins,
-        net_margin=sharply_declining_margins,
-        cfo_exempt=True,
-        margins_exempt=True,
-    )
-    assert result["components"]["margins"] is None
-    assert result["score"] == 100
+    bad = [80, 60, 40, 20, 5, -5]
+    exempt = strong(cfo=None, cfo_exempt=True, fcf=None, margins_exempt=True, gross_margin=bad, operating_margin=bad, net_margin=bad)
+    assert exempt["score"] == 100 and exempt["components"]["margins"] is None
+    # an exempt Bank with no margin data at all is not a data gap
+    assert strong(cfo=None, cfo_exempt=True, fcf=None, margins_exempt=True, gross_margin=[], operating_margin=[], net_margin=[])["score"] == 100
 
 
 def test_non_bank_cfo_exempt_types_keep_margins_scored():
-    # Insurance / Property Developer / Commodity Company are CFO-exempt but
-    # NOT in MARGINS_EXEMPT_TYPES -- margins_exempt defaults to False, so
-    # they stay on WEIGHTS_CFO_EXEMPT (margins scored normally), unaffected
-    # by the Bank-only margins exemption above.
-    result = score_step1(
-        revenue=GROWING,
-        net_income=GROWING,
-        operating_income=GROWING,
-        cfo=None,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
-        cfo_exempt=True,
-    )
-    assert result["components"]["margins"] is not None
-    assert result["components"]["margins"]["score"] == 100
+    result = strong(cfo=None, cfo_exempt=True, fcf=None, gross_margin=FALLING_MARGIN, operating_margin=FALLING_MARGIN, net_margin=FALLING_MARGIN)
+    assert result["components"]["margins"] is not None and result["components"]["margins"]["score"] == 30
     assert result["weights"]["margins"] == pytest.approx(0.216667, abs=1e-5)
 
 
 def test_fcf_exemption_mirrors_cfo_exemption_ignores_fcf_data_entirely():
-    # Even genuinely bad FCF data must have zero influence once CFO (and
-    # therefore FCF) is exempt -- confirms the exemption branch ignores the
-    # `fcf` argument entirely rather than only skipping it "usually".
-    fcf_sustained_burn = [-10, -20, -30, -15, -25, -5]
-    result = score_step1(
-        revenue=LONG_GROWING,
-        net_income=GROWING,
-        operating_income=GROWING,
-        cfo=None,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
-        cfo_exempt=True,
-        fcf=fcf_sustained_burn,
-    )
-    assert result["components"]["fcf"] is None
-    assert result["weights"]["fcf"] == 0.0
-    assert result["score"] == 100
+    with_junk = strong(cfo=None, cfo_exempt=True, fcf=[-5, -9])
+    assert with_junk["components"]["fcf"] is None and with_junk["score"] == 100
 
 
-def test_net_income_backup_rule_uses_operating_income():
-    # Net income is badly inconsistent (raw multiple_dips score 65, still
-    # <= NET_INCOME_BACKUP_THRESHOLD's 79) but operating income is clean.
-    weak_net_income = [100, 60, 90, 55, 95]
-    result = score_step1(
-        revenue=GROWING,
-        net_income=weak_net_income,
-        operating_income=GROWING,
-        cfo=GROWING,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
-        cfo_exempt=False,
-    )
-    assert result["components"]["net_income"]["used_operating_income_backup"] is True
-    # min(80, max(weak_ni_score, 100)) == 80
-    assert result["components"]["net_income"]["score"] == 80
+def test_score_clamped_to_valid_range_and_rounded_once():
+    result = strong()
+    assert 0 <= result["score"] <= 100
+    assert isinstance(result["score"], int)
 
 
-def test_net_income_backup_not_used_when_score_above_threshold():
-    result = score_step1(
-        revenue=GROWING,
-        net_income=GROWING,
-        operating_income=GROWING,
-        cfo=GROWING,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
-        cfo_exempt=False,
-    )
-    assert result["components"]["net_income"]["used_operating_income_backup"] is False
+def test_the_scorer_has_no_ttm_parameter():
+    assert not [name for name in inspect.signature(score_step1).parameters if "ttm" in name]
 
 
-# --- Operating Income backup quality gates (K2, 2026-10-05) -----------------
-
-# Net income with a recent dip -> raw multiple_dips 65, backup-eligible.
-_WEAK_NI = [100, 60, 90, 55, 95]
-_REV = [600, 700, 800, 900, 1000]
+# --- positivity gate (Revenue, Net Income, CFO; not FCF) ---------------------------------------------------------------------------------
 
 
-def _backup_case(oi, revenue=_REV, net_income=_WEAK_NI, **ttm):
+def test_positive_trend_gate_growing_series_unaffected():
+    assert _classify_positive_trend(GROWING) == ("uptrend", 100)
+
+
+def test_the_latest_completed_year_at_or_below_zero_is_not_yet_positive_whatever_the_shape():
+    pattern, score = _classify_positive_trend([10, 20, 30, 40, 50, 60, 70, 80, 90, -5])
+    assert (pattern, score) == ("not_yet_positive", 0)  # no revenue scale: a flat 0
+    assert _classify_positive_trend([10, 20, 30, -1, 40, 50, 60, 70, 80, 90]).pattern == "uptrend_dips"  # an earlier negative is a dip
+
+
+def test_net_income_never_profitable_stays_not_yet_positive_even_while_recovering():
+    sym = [-104.361, -109.521, -122.314, -78.997, -23.866, -13.490, -16.937, -4.965]
+    revenue = [500.0, 520.0, 540.0, 560.0, 580.0, 600.0, 620.0, 640.0]
+    result = _classify_positive_trend(sym, revenue)
+    assert result.pattern == "not_yet_positive" and 0 < result.score <= 15
+
+
+def test_not_yet_positive_graduated_scale_boundaries():
+    scale = [100] * N
+    values = [10] * (N - 1)
+    assert _classify_positive_trend(values + [-0.1], scale).score == 15  # one dollar from breakeven
+    assert _classify_positive_trend(values + [-10.0], scale).score == 8  # halfway to -20%
+    assert _classify_positive_trend(values + [-20.0], scale) == ("not_yet_positive", 0)
+    assert _classify_positive_trend(values + [-50.0], scale) == ("not_yet_positive", 0)
+    assert _classify_positive_trend(values + [-5.0], [100] * (N - 1) + [0]) == ("not_yet_positive", 0)  # no usable scale
+
+
+def test_free_cash_flow_is_not_positivity_gated_a_negative_value_is_just_a_dip():
+    fcf = [50, 55, 60, 65, 70, 75, 80, 85, 90, -10]
+    result = _classify_fcf(fcf)
+    assert result.pattern != "not_yet_positive"
+    assert result == assess_series(fcf, "dollar")
+    assert _classify_positive_trend(fcf).pattern == "not_yet_positive"  # CFO, for contrast, is gated
+
+
+def test_an_insufficient_data_series_is_a_gap_not_a_scored_zero():
+    assert strong(fcf=[50])["verdict"] == "insufficient_data"
+    assert strong(cfo=[50])["verdict"] == "insufficient_data"
+    assert strong(revenue=[100])["verdict"] == "insufficient_data"
+
+
+# --- Net Income Operating Income backup (completed fiscal years) --------------------------------------------------------------------------
+
+WEAK_NI = [100, 140, 120, 150, 130, 170, 190, 150, 210, 185]  # a recent real dip (age 0); engine score 69 (<= 79)
+REVENUE = [600, 650, 700, 750, 800, 850, 900, 950, 1000, 1050]
+CLEAN_OI = [200 + 20.0 * t for t in range(N)]
+
+
+def backup_case(oi=None, revenue=REVENUE, net_income=WEAK_NI, **latest):
     result = score_step1(
         revenue=revenue,
         net_income=net_income,
-        operating_income=oi,
+        operating_income=CLEAN_OI if oi is None else oi,
         cfo=GROWING,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
+        gross_margin=UP_MARGIN,
+        operating_margin=UP_MARGIN,
+        net_margin=UP_MARGIN,
         cfo_exempt=False,
-        **ttm,
+        fcf=GROWING,
+        **latest,
     )
     return result["components"]["net_income"]
 
 
-def test_backup_used_reports_the_pre_lift_score_and_the_measured_gates():
-    ni = _backup_case([200, 220, 240, 260, 280])
-    assert ni["score_before_backup"] == 65
-    assert ni["score"] == 80
-    # TTM OI 280 / TTM revenue 1000
+def test_the_backup_lifts_to_the_cap_when_every_gate_passes_and_reports_the_measured_gates():
+    ni = backup_case()
+    assert ni["used_operating_income_backup"] is True
+    assert (ni["score_before_backup"], ni["score"]) == (assess_series(WEAK_NI, "dollar").score, NET_INCOME_BACKUP_CAP)
+    # latest fiscal year OI 380 on latest fiscal year revenue 1050
     assert ni["backup_gates"] == {
-        "ttm_oi_margin_pct": 28.0,
-        "min_ttm_oi_margin_pct": 5.0,
+        "oi_margin_pct": 36.2,
+        "min_oi_margin_pct": 5.0,
         "positive_periods": 5,
         "min_positive_periods": 4,
         "window": 5,
     }
-    assert _backup_case([-20, 220, 240, 260, 280])["backup_gates"]["positive_periods"] == 4
 
 
-def test_backup_fields_are_absent_when_the_backup_did_not_change_the_score():
-    blocked = _backup_case([30, 35, 40, 45, 49.99])  # eligible, but the margin gate blocks the lift
+def test_the_backup_is_not_used_when_the_net_income_score_is_above_the_threshold():
+    assert strong()["components"]["net_income"]["used_operating_income_backup"] is False
+    assert set(strong()["components"]["net_income"]) == {"score", "pattern", "used_operating_income_backup"}
+
+
+def test_backup_margin_gate_exactly_5_percent_passes_and_just_below_blocks():
+    assert backup_case(latest_revenue=1000, latest_operating_income=50)["used_operating_income_backup"] is True
+    blocked = backup_case(latest_revenue=1000, latest_operating_income=49.99)
     assert blocked["used_operating_income_backup"] is False
-    assert set(blocked) == {"score", "pattern", "used_operating_income_backup"}
-    clean = score_step1(
-        revenue=GROWING, net_income=GROWING, operating_income=GROWING, cfo=GROWING,
-        gross_margin=STABLE_MARGINS, net_margin=NET_MARGINS_STABLE, cfo_exempt=False,
-    )
-    assert set(clean["components"]["net_income"]) == {"score", "pattern", "used_operating_income_backup"}
+    assert set(blocked) == {"score", "pattern", "used_operating_income_backup"}  # the display fields are absent when nothing was lifted
 
 
-def test_backup_lifts_when_every_gate_passes():
-    ni = _backup_case([200, 220, 240, 260, 280])
-    assert ni["score"] == 80
-    assert ni["used_operating_income_backup"] is True
+def test_backup_blocked_when_the_latest_operating_income_is_not_positive():
+    oi = CLEAN_OI[:-1] + [-5.0]
+    assert backup_case(oi)["used_operating_income_backup"] is False
 
 
-def test_backup_margin_gate_exactly_5_percent_passes():
-    # TTM OI 50 / TTM revenue 1000 = exactly 5%.
-    ni = _backup_case([30, 35, 40, 45, 50])
-    assert ni["used_operating_income_backup"] is True
-    assert ni["score"] == 80
+def test_backup_positive_year_gate_4_of_5_passes_3_of_5_fails_and_only_the_last_5_count():
+    base = [200, 220, 240, 260, 280]
+    four = [-1.0] + base[1:]
+    assert backup_case([100.0] * 5 + four)["used_operating_income_backup"] is True
+    assert backup_case([100.0] * 5 + four)["backup_gates"]["positive_periods"] == 4
+    three = [-1.0, -2.0] + base[2:]
+    assert backup_case([100.0] * 5 + three)["used_operating_income_backup"] is False
+    # an old loss outside the last 5 years is not looked at
+    assert backup_case([-50.0] * 5 + base)["used_operating_income_backup"] is True
 
 
-def test_backup_margin_gate_just_below_5_percent_blocks_the_lift():
-    ni = _backup_case([30, 35, 40, 45, 49.99])
+def test_backup_missing_latest_revenue_or_operating_income_fails_the_gate():
+    assert backup_case(latest_revenue=None, latest_operating_income=380)["used_operating_income_backup"] is False
+    assert backup_case(latest_revenue=1050, latest_operating_income=None)["used_operating_income_backup"] is False
+    assert backup_case(latest_revenue=1050, latest_operating_income=380)["used_operating_income_backup"] is True
+
+
+def test_backup_explicit_latest_values_override_the_series_tail():
+    assert backup_case(latest_revenue=10000, latest_operating_income=380)["used_operating_income_backup"] is False  # 3.8%
+
+
+def test_backup_flag_is_true_only_when_the_score_actually_changed():
+    # OI is no better than Net Income: eligible and gated through, but nothing to lift.
+    ni = backup_case(oi=WEAK_NI)
     assert ni["used_operating_income_backup"] is False
-    assert ni["score"] == 65  # Net Income's own multiple_dips score, unchanged
-
-
-def test_backup_blocked_when_ttm_operating_income_is_not_positive():
-    # 4 of 5 periods positive and the margin test is moot: TTM OI itself <= 0.
-    assert _backup_case([200, 220, 240, 260, 0])["used_operating_income_backup"] is False
-    assert _backup_case([200, 220, 240, 260, -5])["used_operating_income_backup"] is False
-
-
-def test_backup_positive_period_gate_4_of_5_passes_3_of_5_fails():
-    four_of_five = [-20, 220, 240, 260, 280]
-    three_of_five = [-20, -10, 240, 260, 280]
-    assert _backup_case(four_of_five)["used_operating_income_backup"] is True
-    blocked = _backup_case(three_of_five)
-    assert blocked["used_operating_income_backup"] is False
-    assert blocked["score"] == 65
-
-
-def test_backup_positive_period_gate_only_looks_at_the_last_5_periods():
-    # 6 periods, 4 of the last 5 positive, an old negative outside the window.
-    ni = _backup_case([-50, 200, 220, 240, 260, 280], revenue=[500] + _REV, net_income=[90] + _WEAK_NI)
-    assert ni["used_operating_income_backup"] is True
-    # ...but 3 of the last 5 positive fails even with 4 positives overall.
-    ni = _backup_case([200, -50, -20, 240, 260, 280], revenue=[500] + _REV, net_income=[90] + _WEAK_NI)
-    assert ni["used_operating_income_backup"] is False
-
-
-def test_backup_missing_ttm_revenue_or_operating_income_fails_the_gate():
-    oi = [200, 220, 240, 260, 280]
-    assert _backup_case(oi, ttm_revenue=None, ttm_operating_income=280)["used_operating_income_backup"] is False
-    assert _backup_case(oi, ttm_revenue=1000, ttm_operating_income=None)["used_operating_income_backup"] is False
-    assert _backup_case(oi, ttm_revenue=1000, ttm_operating_income=280)["used_operating_income_backup"] is True
-
-
-def test_backup_explicit_ttm_values_override_the_series_tail():
-    oi = [200, 220, 240, 260, 280]
-    # TTM revenue 10000 makes the 280 OI a 2.8% margin even though the
-    # (cleaned) revenue series ends at 1000.
-    assert _backup_case(oi, ttm_revenue=10000, ttm_operating_income=280)["used_operating_income_backup"] is False
-
-
-def test_backup_flag_semantics_unchanged_true_only_when_the_score_actually_changed():
-    near_ceiling_ni = [100, 100, 80, 100, 99]  # raw ~69, lifted to 80 when allowed
-    allowed = _backup_case([200, 220, 240, 260, 280], net_income=near_ceiling_ni)
-    assert allowed["score"] == 80 and allowed["used_operating_income_backup"] is True
-    blocked = _backup_case([30, 35, 40, 45, 49.99], net_income=near_ceiling_ni)
-    assert blocked["score"] < 80 and blocked["used_operating_income_backup"] is False
 
 
 def test_backup_blocked_still_lets_insufficient_net_income_count_as_scored_when_oi_has_data():
-    # NI has a single point (insufficient_data); OI is real but fails the
-    # positive-period gate (only 3 points, so 3 < 4). The step is still
-    # scored (the data-gap rule is unchanged) with Net Income at its own 0.
     result = score_step1(
-        revenue=[800, 900, 1000],
-        net_income=[50],
-        operating_income=[200, 220, 240],
-        cfo=[300, 320, 340],
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
-        cfo_exempt=False,
+        revenue=GROWING, net_income=[10.0], operating_income=CLEAN_OI, cfo=GROWING, gross_margin=UP_MARGIN,
+        operating_margin=UP_MARGIN, net_margin=UP_MARGIN, cfo_exempt=False, fcf=GROWING, latest_revenue=1000, latest_operating_income=10,
     )
-    assert result["score"] is not None
-    assert result["components"]["net_income"]["score"] == 0
-    assert result["components"]["net_income"]["used_operating_income_backup"] is False
+    assert result["verdict"] != "insufficient_data"
+    assert result["components"]["net_income"]["pattern"] == "insufficient_data"
 
 
-# --- Positivity gate (Revenue / Net Income / CFO) --------------------------
-
-
-def test_positive_trend_gate_growing_series_unaffected():
-    pattern, score = _classify_positive_trend(GROWING)
-    assert pattern == "grows_every_year"
-    assert score == 100
-
-
-def test_net_income_never_profitable_stays_not_yet_positive_even_with_relative_recovery():
-    # SYM's real shape: Net Income has been negative every single period
-    # (-104.4M FY19 -> -4.97M TTM) yet classify_trend alone reads this as
-    # multiple_dips_resolved (a strong, near-ceiling score) since each
-    # "dip" is a relative worsening that later reverses -- never checking
-    # whether the value itself is positive. Operating Income is also still
-    # negative at TTM, so the
-    # one-off/recency-gated OI fallback correctly does NOT rescue this --
-    # this is a genuinely unprofitable company, not a one-off charge.
-    # Score is graduated as of 2026-08-13 (12, not a flat 0) -- TTM Net
-    # Income (-4.965) is a small loss relative to GROWING's TTM revenue
-    # (146), landing within the graduated zone -- but the pattern staying
-    # "not_yet_positive" (not a positive-trend pattern) is the part that
-    # actually matters here: SYM is still genuinely unprofitable, just
-    # closer to breakeven than a deep structural loss would be.
+def test_net_income_insufficient_and_operating_income_insufficient_is_a_data_gap():
     result = score_step1(
-        revenue=GROWING,
-        net_income=SYM_NET_INCOME,
-        operating_income=SYM_OPERATING_INCOME,
-        cfo=SYM_CFO,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
-        cfo_exempt=False,
-        fcf=FCF_ALL_POSITIVE,
+        revenue=GROWING, net_income=[10.0], operating_income=[5.0], cfo=GROWING, gross_margin=UP_MARGIN,
+        operating_margin=UP_MARGIN, net_margin=UP_MARGIN, cfo_exempt=False, fcf=GROWING,
     )
-    assert result["components"]["net_income"]["score"] == 12
-    assert result["components"]["net_income"]["pattern"] == "not_yet_positive"
-    assert result["components"]["net_income"]["used_operating_income_backup"] is False
+    assert result["verdict"] == "insufficient_data"
 
 
-def test_cfo_positive_ttm_keeps_existing_dip_tolerance_unchanged():
-    # SYM's real CFO shape: 3 full sign-flips (17M -> -124M -> 110M -> -148M
-    # -> 231M -> -58M) before finally settling positive the last 2 periods
-    # (867M, 845M TTM). The confirmed rule only gates the CURRENT value's
-    # sign -- it deliberately does not tighten classify_trend's own
-    # dip-tolerance/recovery math -- so this stays multiple_dips_resolved
-    # (score graduated as of 2026-09-10, no longer a flat 75 -- see
-    # RESOLVED_CEILING's own comment in scoring/trend.py).
-    # Documents this is intended behavior, not a regression.
-    pattern, score = _classify_positive_trend(SYM_CFO)
-    assert pattern == "multiple_dips_resolved"
-    assert score == 73
-
-
-def test_net_income_oi_fallback_triggers_for_recent_one_off_dip():
-    # TTM itself drops sharply (a plausibly one-off charge landing in the
-    # latest reported period, age 0) while Operating Income stays clean --
-    # the recency gate is deliberately inclusive of age 0 (see
-    # NET_INCOME_BACKUP_RECENCY_YEARS's comment), so this qualifies.
-    recent_dip_net_income = [50, 60, 70, 80, 30]
-    result = score_step1(
-        revenue=GROWING,
-        net_income=recent_dip_net_income,
-        operating_income=GROWING,
-        cfo=GROWING,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
-        cfo_exempt=False,
-    )
-    assert result["components"]["net_income"]["used_operating_income_backup"] is True
-    assert result["components"]["net_income"]["score"] == 80
-
-
-def test_net_income_backup_threshold_covers_multiple_dips_ceiling():
-    # Mandatory companion fix (2026-09-10): the backup gate is `score <=
-    # NET_INCOME_BACKUP_THRESHOLD`, an exact comparison against
-    # classify_trend's output, and classify_trend's graduated "multiple_dips"
-    # score can go as high as MULTIPLE_DIPS_CEILING. A threshold BELOW that
-    # ceiling silently stops considering the OI backup for near-recovered
-    # dips (37 tickers regressed in simulation at the old flat 40). It was
-    # equal to the ceiling (70) until K4 (2026-10-05) raised it to 79 =
-    # CAP - 1, so the invariant is now ">=", not "==".
-    assert NET_INCOME_BACKUP_THRESHOLD >= MULTIPLE_DIPS_CEILING
-    assert NET_INCOME_BACKUP_THRESHOLD == NET_INCOME_BACKUP_CAP - 1 == 79
-
-
-def _backup_with_forced_ni_score(monkeypatch, ni_score):
-    """Run score_step1 with Net Income's own trend score forced to `ni_score`
-    (the backup trigger is an exact score comparison, and natural series
-    don't land on every integer), Operating Income clean and passing every
-    K2 gate. Returns (net_income component)."""
+def _with_forced_ni_score(monkeypatch, ni_score):
     real = step1_module._classify_positive_trend
-    ni_series = [50, 60, 70, 80, 30]  # recent dip (age 0): passes the recency gate
+    calls = {"n": 0}
 
-    def fake(series, revenue_for_scale=None):
-        if list(series) == ni_series:
-            return step1_module.TrendResult("forced", ni_score)
-        return real(series, revenue_for_scale)
+    def fake(values, revenue_for_scale=None):
+        calls["n"] += 1
+        return TrendResult("flat_dips", ni_score) if calls["n"] == 2 else real(values, revenue_for_scale)  # the second call is Net Income
 
     monkeypatch.setattr(step1_module, "_classify_positive_trend", fake)
     return score_step1(
-        revenue=GROWING,
-        net_income=ni_series,
-        operating_income=GROWING,
-        cfo=GROWING,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
-        cfo_exempt=False,
+        revenue=GROWING, net_income=WEAK_NI, operating_income=CLEAN_OI, cfo=GROWING, gross_margin=UP_MARGIN,
+        operating_margin=UP_MARGIN, net_margin=UP_MARGIN, cfo_exempt=False, fcf=GROWING,
     )["components"]["net_income"]
 
 
 def test_backup_trigger_boundary_79_is_lifted_80_is_not_considered(monkeypatch):
-    lifted = _backup_with_forced_ni_score(monkeypatch, 79)
-    assert lifted["score"] == 80 and lifted["used_operating_income_backup"] is True
-    untouched = _backup_with_forced_ni_score(monkeypatch, 80)
-    assert untouched["score"] == 80 and untouched["used_operating_income_backup"] is False
+    assert NET_INCOME_BACKUP_THRESHOLD == NET_INCOME_BACKUP_CAP - 1
+    assert _with_forced_ni_score(monkeypatch, 79)["used_operating_income_backup"] is True
+    monkeypatch.undo()
+    assert _with_forced_ni_score(monkeypatch, 80)["used_operating_income_backup"] is False
 
 
-def test_backup_trigger_boundary_old_70_71_cliff_is_gone(monkeypatch):
-    assert _backup_with_forced_ni_score(monkeypatch, 70)["score"] == 80
-    assert _backup_with_forced_ni_score(monkeypatch, 71)["score"] == 80  # was unlifted at 71 before K4
+def test_backup_needs_a_recent_dip_unless_net_income_is_insufficient():
+    # a chronic decline with the dip 5+ years back and nothing since: the old recency helper sees no recent dip, so no rescue
+    old_dip = [100, 60, 90, 100, 110, 120, 130, 140, 150, 160]
+    ni = backup_case(net_income=old_dip)
+    assert ni["used_operating_income_backup"] is False
 
 
-def test_backup_range_71_to_79_naturally_reached_by_a_resolved_series():
-    # SYM's CFO shape scores 73 (multiple_dips_resolved) -- inside the newly
-    # eligible range. Used here as a Net Income series with a recent (age 2)
-    # sign-flip; a clean, healthy Operating Income lifts it to the 80 cap.
-    assert _classify_positive_trend(SYM_CFO).score == 73
-    ni = _backup_case(
-        [200, 220, 240, 260, 280, 300, 320, 340],
-        revenue=[600, 650, 700, 800, 850, 900, 950, 1000],
-        net_income=SYM_CFO,
-    )
-    assert ni["score"] == 80 and ni["used_operating_income_backup"] is True
+# --- Margins: min(G, max(N, O)) -----------------------------------------------------------------------------------------------------
+
+N_BAD = [5, -3, 4, -2, 3, -4, 2, -3, 2, -1, 1]  # a margin that falls through zero in most years and ends at 1
+ONE_NEGATIVE_YEAR = [20, 20, 20, -5, 20, 20, 20, 20, 20, 20, 20]
 
 
-def test_backup_range_71_to_79_still_obeys_the_k2_gates(monkeypatch):
-    # Same newly-eligible score, but TTM OI margin just under 5% -> no lift.
+def margins(g, o, n, carveout=False):
+    return _classify_margins(g, o, n, carveout)
+
+
+def test_margins_is_the_lower_of_gross_and_the_better_of_net_and_operating():
+    for g, o, n in [
+        (FLAT_MARGIN, UP_MARGIN, N_BAD),
+        (FLAT_MARGIN, FALLING_MARGIN, UP_MARGIN),
+        (UP_MARGIN, FLAT_MARGIN, ONE_NEGATIVE_YEAR),
+        (FALLING_MARGIN, UP_MARGIN, UP_MARGIN),
+        (UP_MARGIN, N_BAD, N_BAD),
+    ]:
+        gs, os_, ns = ratio_score(g), ratio_score(o), ratio_score(n)
+        result, _ = margins(g, o, n)
+        assert result.score == min(gs, max(ns, os_)), (gs, os_, ns)
+
+
+def test_a_weak_gross_margin_binds_even_when_net_and_operating_are_healthy():
+    result, detail = margins(FALLING_MARGIN, UP_MARGIN, UP_MARGIN)
+    assert (result.score, result.pattern, detail["binding"]) == (30, "decline", "gross")
+
+
+def test_operating_margin_stands_in_for_a_bad_net_margin_when_gross_is_healthy():
+    result, detail = margins(FLAT_MARGIN, FLAT_MARGIN, N_BAD)
+    assert result.score == FLAT_SCORE
+    assert detail["inputs"]["net"]["score"] < FLAT_SCORE
+    assert detail["binding"] == "gross"  # G 88 <= max(N, O) 88
+
+
+def test_both_net_and_operating_bad_leaves_margins_low_whatever_gross_says():
+    result, detail = margins(UP_MARGIN, N_BAD, N_BAD)
+    assert result.score == ratio_score(N_BAD) < 50
+    assert detail["binding"] in ("net", "operating")
+
+
+def test_a_missing_input_drops_out():
+    g, o, n = FLAT_MARGIN, UP_MARGIN, N_BAD
+    gs, os_, ns = ratio_score(g), ratio_score(o), ratio_score(n)
+    assert margins([], o, n)[0].score == max(os_, ns)  # no gross margin: max(N, O)
+    assert margins([20.0], o, n)[0].score == max(os_, ns)  # one point is missing too
+    assert margins(g, [], n)[0].score == min(gs, ns)  # no operating margin: min(G, N)
+    assert margins(g, o, [])[0].score == min(gs, os_)  # no net margin: min(G, O)
+
+
+def test_net_and_operating_both_missing_makes_margins_insufficient_whatever_gross_says():
+    result, detail = margins(UP_MARGIN, [], [])
+    assert result.pattern == "insufficient_data"
+    assert "gross" in detail["inputs"]
+    scored = strong(gross_margin=UP_MARGIN, operating_margin=[], net_margin=[])
+    assert scored["verdict"] == "insufficient_data" and scored["score"] is None
+
+
+def test_no_operating_margin_argument_is_a_missing_input_not_an_error():
     result = score_step1(
-        revenue=[600, 650, 700, 800, 850, 900, 950, 1000],
-        net_income=SYM_CFO,
-        operating_income=[30, 35, 40, 42, 44, 46, 48, 49.99],
-        cfo=GROWING,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
-        cfo_exempt=False,
-    )["components"]["net_income"]
-    assert result["score"] == 73 and result["used_operating_income_backup"] is False
-
-
-def test_net_income_oi_fallback_still_considered_for_a_near_ceiling_graduated_score():
-    # A near-fully-recovered dip (baseline=100, TTM=99, ~1% shortfall)
-    # grades close to MULTIPLE_DIPS_CEILING (69, not the old flat 40) --
-    # confirms the backup mechanism still kicks in and can lift even an
-    # already-mild graduated score further, rather than the raised
-    # threshold accidentally excluding near-ceiling cases from ever being
-    # considered for the OI rescue.
-    near_ceiling_net_income = [100, 100, 80, 100, 99]
-    result = score_step1(
-        revenue=GROWING,
-        net_income=near_ceiling_net_income,
-        operating_income=GROWING,
-        cfo=GROWING,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
-        cfo_exempt=False,
+        revenue=GROWING, net_income=GROWING, operating_income=GROWING, cfo=GROWING, gross_margin=UP_MARGIN, net_margin=UP_MARGIN,
+        cfo_exempt=False, fcf=GROWING,
     )
-    assert result["components"]["net_income"]["used_operating_income_backup"] is True
-    assert result["components"]["net_income"]["score"] == 80  # min(80, max(69, 100))
+    assert result["components"]["margins"]["score"] == 100
+    assert set(result["components"]["margins"]["inputs"]) == {"gross", "net"}
 
 
-def test_net_income_oi_fallback_does_not_trigger_when_classify_trend_already_resolves_it():
-    # The one real dip happened 6 periods before TTM with 6 clean growth
-    # years since -- classify_trend's own age/recovery-run-aware resolution
-    # (see trend.py::_dip_durably_resolved) now recognizes this as durably
-    # resolved on its own merits. Its graduated severity score (66, as of
-    # 2026-09-10 -- baseline=100 vs TTM=70 is a 30% depth relative to
-    # current scale) is BELOW NET_INCOME_BACKUP_THRESHOLD (79, 70 when this was written), so the
-    # OI fallback IS score-eligible here -- but it still doesn't trigger,
-    # because the dip's age (6 periods) is well outside
-    # NET_INCOME_BACKUP_RECENCY_YEARS (2). The recency gate, not the score
-    # threshold, is what's actually keeping this test's premise true now
-    # (before this fix, the flat 75 kept it out of score-eligibility
-    # entirely; the underlying "why" changed, the outcome didn't). See
-    # test_net_income_oi_fallback_does_not_trigger_for_a_still_unresolved_old_dip
-    # below for the still-unresolved (not durably-resolved) variant of this
-    # same recency-gate scenario.
-    old_dip_net_income = [100, 40, 45, 50, 55, 60, 65, 70]
-    result = score_step1(
-        revenue=GROWING,
-        net_income=old_dip_net_income,
-        operating_income=GROWING,
-        cfo=GROWING,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
-        cfo_exempt=False,
+def test_the_positivity_ceiling_reaches_margins_a_loss_making_net_and_operating_cannot_lift_it():
+    losing = [10, 8, 6, 4, 2, 0, -2, -4, -6, -8]
+    result, _ = margins(UP_MARGIN, losing, losing)
+    assert result.score <= 16  # ceiling at a latest -8 is 8, and the engine alone gives less than 40
+
+
+def test_the_margins_component_exposes_its_inputs_and_the_deciding_one():
+    component = strong(gross_margin=FALLING_MARGIN)["components"]["margins"]
+    assert component["binding"] == "gross"
+    assert component["inputs"]["gross"] == {"score": 30, "pattern": "decline"}
+    assert set(component["inputs"]) == {"gross", "operating", "net"}
+
+
+# --- carve-out (Insurance / REIT-Property-Developer / Utility) ---------------------------------------------------------------------------
+
+
+def test_the_carveout_lifts_a_declining_margin_series_to_60_and_leaves_everything_else_alone():
+    assert margins(FALLING_MARGIN, FALLING_MARGIN, FALLING_MARGIN)[0].score == 30
+    with_carveout, _ = margins(FALLING_MARGIN, FALLING_MARGIN, FALLING_MARGIN, carveout=True)
+    assert (with_carveout.score, with_carveout.pattern) == (60, "decline")
+    # a healthy or flat series is never touched, and a score already above 60 is not lowered
+    assert margins(FLAT_MARGIN, FLAT_MARGIN, FLAT_MARGIN, carveout=True)[0].score == FLAT_SCORE
+    assert margins(UP_MARGIN, UP_MARGIN, UP_MARGIN, carveout=True)[0].score == 100
+
+
+def test_the_carveout_is_per_series_before_the_combination():
+    # G declines (lifted to 60), N and O flat 88: Margins = min(60, 88) = 60, not 30
+    result, _ = margins(FALLING_MARGIN, FLAT_MARGIN, FLAT_MARGIN, carveout=True)
+    assert result.score == 60
+
+
+def test_the_carveout_acts_after_the_ceiling_and_can_lift_a_loss_making_decline_to_60():
+    losing = [10, 8, 6, 4, 2, 0, -2, -4, -6, -8]
+    assert margins(losing, losing, losing)[0].score < 20
+    assert margins(losing, losing, losing, carveout=True)[0].score == 60  # known and accepted: wrappers are unchanged
+
+
+def test_carveout_wires_through_score_step1():
+    plain = strong(gross_margin=FALLING_MARGIN, operating_margin=FALLING_MARGIN, net_margin=FALLING_MARGIN)
+    carved = strong(
+        gross_margin=FALLING_MARGIN, operating_margin=FALLING_MARGIN, net_margin=FALLING_MARGIN, margins_severity_carveout=True
     )
-    assert result["components"]["net_income"] == {
-        "score": 66,
-        "pattern": "dip_durably_resolved",
-        "used_operating_income_backup": False,
-    }
+    assert plain["components"]["margins"]["score"] == 30 and carved["components"]["margins"]["score"] == 60
+    assert carved["score"] > plain["score"]
 
 
-def test_net_income_oi_fallback_does_not_trigger_for_a_still_unresolved_old_dip():
-    # A single real dip whose most recent (only) transition is 3 periods
-    # before TTM -- outside the OI fallback's own "1 or 2 years in the
-    # past" recency window (NET_INCOME_BACKUP_RECENCY_YEARS=2), AND outside
-    # the new durable-resolution path's own age floor (DIP_RESOLUTION_MIN_AGE
-    # =4) too. baseline=120 vs TTM=90 is a 25% shortfall, graduated to 45
-    # (not the old flat 40) -- but the point of this test is that the OI
-    # fallback's own RECENCY gate, not the score itself, is what keeps this
-    # unrescued: 45 is still comfortably <= NET_INCOME_BACKUP_THRESHOLD
-    # (79), so the backup would be attempted on score alone, but
-    # ni_recent_enough is False, so it never actually applies.
-    # Confirms the OI fallback's recency gate still holds for a genuinely
-    # bad, not-yet-old-enough-to-excuse score -- not just for cases the new
-    # resolution path has since rescued to a good score on its own.
-    old_unresolved_net_income = [100, 110, 120, 60, 70, 80, 90]
-    result = score_step1(
-        revenue=GROWING,
-        net_income=old_unresolved_net_income,
-        operating_income=GROWING,
-        cfo=GROWING,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
-        cfo_exempt=False,
-    )
-    assert result["components"]["net_income"] == {
-        "score": 45,
-        "pattern": "multiple_dips",
-        "used_operating_income_backup": False,
-    }
-    assert result["components"]["net_income"]["score"] == 45
-
-
-def test_revenue_positive_gate_is_no_op_when_ttm_recovers():
-    dip_then_recovers = [10, 20, -5, 30, 40]
-    pattern, score = _classify_positive_trend(dip_then_recovers)
-    assert pattern == "significant_dip_recovers"
-    assert score == 85
-
-
-def test_revenue_positive_gate_applies_when_ttm_still_negative():
-    still_negative_ttm = [10, 20, -5]
-    pattern, score = _classify_positive_trend(still_negative_ttm)
-    assert pattern == "not_yet_positive"
-    assert score == 0
-
-
-def test_not_yet_positive_falls_back_to_flat_zero_without_a_revenue_scale():
-    # No revenue_for_scale passed (the default) -- nothing to normalize
-    # against, so this stays the original flat 0. Confirms the graduated
-    # scale is opt-in via the new parameter, not a behavior change for any
-    # existing caller that doesn't pass revenue.
-    pattern, score = _classify_positive_trend([10, 20, -5])
-    assert pattern == "not_yet_positive"
-    assert score == 0
-
-
-def test_not_yet_positive_graduated_scale_mild_loss_near_breakeven():
-    # ZETA's real shape: TTM Net Income margin of -0.1% (essentially
-    # breakeven) -- must read close to the graduated ceiling (15), not the
-    # old flat 0.
-    pattern, score = _classify_positive_trend([10, 20, -0.1], revenue_for_scale=[500, 600, 700])
-    assert pattern == "not_yet_positive"
-    assert score == 15  # margin = -0.1/700*100 = -0.014%, effectively at the ceiling
-
-
-def test_not_yet_positive_graduated_scale_boundaries():
-    # 2026-08-13 fix. At exactly NOT_YET_POSITIVE_FLOOR_MARGIN (-20%
-    # margin): floor of the graduated range, 0 points -- same as before
-    # the fix. A margin milder than that (here -10%, halfway to 0) lands
-    # mid-range.
-    at_floor = _classify_positive_trend([10, 20, -20.0], revenue_for_scale=[100, 100, 100])
-    assert at_floor.pattern == "not_yet_positive"
-    assert at_floor.score == 0
-
-    halfway = _classify_positive_trend([10, 20, -10.0], revenue_for_scale=[100, 100, 100])
-    assert halfway.pattern == "not_yet_positive"
-    assert halfway.score == 8  # round(15 * (10/20))
-
-    beyond_floor = _classify_positive_trend([10, 20, -50.0], revenue_for_scale=[100, 100, 100])  # MRNA-shaped
-    assert beyond_floor.pattern == "not_yet_positive"
-    assert beyond_floor.score == 0
-
-
-def test_not_yet_positive_zero_or_missing_revenue_scale_falls_back_to_flat_zero():
-    # A zero or missing revenue figure can't be divided into -- falls back
-    # to the flat 0 rather than raising or fabricating a margin.
-    result = _classify_positive_trend([10, 20, -5.0], revenue_for_scale=[100, 100, 0])
-    assert result.pattern == "not_yet_positive"
-    assert result.score == 0
-
-
-def test_margins_single_big_dip_with_full_recovery_reads_as_stable():
-    # One synchronized shock-and-recovery year (e.g. NVDA's FY2023) shouldn't
-    # override an otherwise expanding trend just because it produces a high
-    # stdev -- this is the exact case the old volatility check misclassified.
-    gross = [55, 58, 60, 62, 50, 65, 68, 70, 72]
-    net = [20, 22, 24, 26, 15, 28, 30, 32, 34]
-    pattern, score = _classify_margins(gross, net, revenue_growing=True)
-    assert pattern == "stable_or_expanding"
-    assert score == 100
-
-
-def test_margins_sustained_decline_not_forgiven_by_partial_rebound():
-    # A genuine 3-year decline (60 -> 58 -> 50 -> 42) followed by only a
-    # partial rebound (-> 49, still well below the pre-decline 60) must not
-    # read as "stable_or_expanding" -- the decline hasn't actually been
-    # reversed, regardless of what the early-vs-late average nets to.
-    gross = [60, 58, 50, 42, 45, 46, 47, 48, 49]
-    net = [25, 24, 20, 15, 17, 18, 18, 19, 19]
-    pattern, score = _classify_margins(gross, net, revenue_growing=True)
-    assert pattern == "gradually_compressing"
-    # Score graduated (2026-09-10, no carveout for this synthetic non-
-    # exempt fixture) by how far past MARGIN_STABLE_TOLERANCE the worse of
-    # gross/net direction sits -- no longer a flat 60.
-    assert score == 51
-
-
-def test_margins_sustained_decline_forgiven_once_durably_reversed():
-    # Same shape as the case above, but the late rebound (-> 80) fully
-    # reverses AND exceeds the pre-decline peak (60) -- confirmed via real
-    # tickers (CRM, TJX, PG, STE, MSCI, ADBE, VRSN) that this must NOT stay
-    # permanently capped just because a multi-year decline occurred
-    # somewhere in a 10yr+TTM window (see CLAUDE.md's Step 1 deviations).
-    gross = [60, 58, 50, 42, 55, 70, 75, 78, 80]
-    net = [25, 24, 20, 15, 22, 30, 33, 35, 37]
-    pattern, score = _classify_margins(gross, net, revenue_growing=True)
-    assert pattern == "stable_or_expanding"
-    assert score == 100
-
-
-def test_margins_positive_average_direction_alone_is_not_enough_to_forgive():
-    # Boundary case distinguishing this fix from a plain direction-sign
-    # gate: the early-vs-late WINDOW AVERAGE direction is exactly flat
-    # (0.0, passing the stable tolerance), but the single most recent
-    # (TTM-equivalent) value is still well below the early-window average
-    # -- i.e. the series is declining again at the tail end. Must stay
-    # capped: a positive multi-year average alone doesn't mean "recovered".
-    gross = [70, 70, 70, 40, 30, 20, 90, 70, 50]
-    net = [25, 25, 25, 15, 12, 9, 32, 25, 18]
-    pattern, score = _classify_margins(gross, net, revenue_growing=True)
-    assert pattern == "gradually_compressing"
-    # Still exactly the ceiling (2026-09-10 graduation) -- worst_direction
-    # here clears MARGIN_STABLE_TOLERANCE, landing at MARGINS_CEILING (60)
-    # coincidentally, not via a carveout (none passed/needed here).
-    assert score == 60
-
-
-def test_margins_late_window_spike_does_not_forgive_an_otherwise_flat_series():
-    # Mirrors LYV's real shape: gross margin flat at ~30% for the entire
-    # history, then a single anomalous TTM-equivalent spike to 45. Net
-    # margin is genuinely flat throughout (never triggers anything). The
-    # raw direction reads positive purely because of that one late-window
-    # outlier -- removing it (the same de-spike test used to find this
-    # class of bug) flips direction negative, so this must NOT read as
-    # "stable_or_expanding" just because of one anomalous point.
-    gross = [30, 30, 30, 30, 30, 30, 30, 26, 45]
-    net = [10, 10, 10, 10, 10, 10, 10, 10, 10]
-    pattern, score = _classify_margins(gross, net, revenue_growing=True)
-    assert pattern == "gradually_compressing"
-    # Still exactly the ceiling (2026-09-10 graduation) -- net's flat
-    # direction (0.0) alone clears MARGIN_STABLE_TOLERANCE, landing at
-    # MARGINS_CEILING (60) coincidentally, not via a carveout.
-    assert score == 60
-
-
-def test_margins_sharp_decline_not_excused_by_unrelated_gross_recovery():
-    # Regression guard: net margin is currently sharply declining (below
-    # MARGIN_SHARP_DECLINE) while gross margin -- which independently
-    # triggered sustained_decline and has since durably recovered -- must
-    # not let the recovery gate excuse net's ongoing sharp decline. The
-    # sharp-decline check must always run first, regardless of reversal
-    # status on the OTHER series (mirrors a real case found in APD).
-    gross = [30, 29, 30, 26, 22, 30, 32, 33, 32]  # dips then recovers past its own early average
-    net = [20, 19, 18, 10, 5, 3, 2, 1, -3]  # currently in a sharp, unresolved decline
-    pattern, score = _classify_margins(gross, net, revenue_growing=True)
-    assert pattern == "sharply_declining"
-    assert score == 20
-
-
-def test_margins_wildly_inconsistent_requires_real_oscillation_not_just_variance():
-    # Repeated large swings in both directions netting no overall progress
-    # -- genuine directionless chaos, not a single clean event.
-    gross = [50, 70, 30, 70, 30, 70, 50]
-    net = [20, 28, 12, 28, 12, 28, 20]
-    pattern, score = _classify_margins(gross, net, revenue_growing=True)
-    assert pattern == "wildly_inconsistent"
-    assert score == 0
-
-
-def test_margins_one_choppy_series_no_longer_vetoes_an_unambiguously_improving_other():
-    # GOOGL's real gross/net margin history: gross bounces around with 2+
-    # real dips netting flat (chaotic on its own), but net margin nearly
-    # doubles over the same window -- a clearly, unambiguously improving
-    # business. Requiring BOTH series to be chaotic (not either alone)
-    # means this no longer reads as the worst possible tier.
-    gross = [61.1, 58.9, 56.5, 55.6, 53.6, 56.9, 55.4, 56.6, 58.2, 59.7, 60.4]
-    net = [21.6, 11.4, 22.5, 21.2, 22.1, 29.5, 21.2, 24.0, 28.6, 32.8, 37.9]
-    pattern, score = _classify_margins(gross, net, revenue_growing=True)
-    assert pattern != "wildly_inconsistent"
-
-
-def test_margins_chaotic_net_alone_no_longer_vetoes_a_steadily_rising_gross():
-    # PAYX's real gross/net margin history: net margin wobbles in a narrow
-    # band (2+ real dips, near-flat direction), but gross margin rises
-    # steadily and cleanly. One noisy series shouldn't veto an otherwise
-    # clean read.
-    gross = [70.8, 69.9, 68.8, 68.3, 68.7, 70.6, 71.0, 72.0, 72.4, 74.3, 74.3]
-    net = [25.9, 27.6, 27.4, 27.2, 27.1, 30.2, 31.1, 32.0, 29.7, 27.0, 27.0]
-    pattern, score = _classify_margins(gross, net, revenue_growing=True)
-    assert pattern != "wildly_inconsistent"
-
-
-def test_margins_sharp_decline_rescued_by_robust_early_direction_when_early_window_has_a_one_off_high_year():
-    # GLW's real shape (2026-08-13 investigation): 2016 net margin (39.35%)
-    # is an evident one-off (immediately followed by a -4.91% 2017), and
-    # sits inside the 3-year early window `net.direction` averages against
-    # -- inflating that average enough that direction reads -6.2pp even
-    # though net margin has genuinely recovered the last 3 years
-    # (4.62 -> 3.86 -> 10.21 -> 11.2). Excluding just that one point flips
-    # direction to +6.16pp. Must no longer read "sharply_declining" -- but
-    # _series_recovered is untouched by this fix, so it lands on
-    # "gradually_compressing", not a full "stable_or_expanding" rescue.
-    gross = [40.07, 39.74, 39.51, 35.08, 31.24, 35.95, 31.76, 31.23, 32.6, 35.28, 36.32]
-    net = [39.35, -4.91, 9.44, 8.35, 4.53, 13.54, 9.27, 4.62, 3.86, 10.21, 11.2]
-    pattern, score = _classify_margins(gross, net, revenue_growing=True)
-    assert pattern == "gradually_compressing"
-    # Score graduated (2026-09-10, no carveout for this synthetic non-
-    # exempt fixture) -- no longer a flat 60.
-    assert score == 53
-
-
-def test_margins_robust_early_direction_never_manufactures_a_sharp_decline_from_a_low_outlier():
-    # Regression guard for the asymmetry found during the same investigation:
-    # DVN's early window is [-10.25, 13.81, 34.44] (a real 2016 oil-crash
-    # trough, not a spike) -- the median-distance exclusion picks the LOW
-    # point as "most extreme," and excluding it RAISES the early average,
-    # making a blind (non-max()) version of this rescue read direction as
-    # MORE negative (-7.4) than the raw average (+4.06) -- flipping a
-    # genuinely fine margin history (net margin ends at 15-17%, a real
-    # improvement) into a manufactured "sharply_declining". max() must keep
-    # this reading the raw (less negative) direction here.
-    gross = [8.46, 17.58, 24.66, 11.48, 8.12, 30.14, 43.66, 35.17, 29.55, 25.55, 34.04]
-    net = [-10.25, 13.81, 34.44, -5.71, -55.51, 23.05, 31.38, 24.56, 18.14, 15.37, 16.67]
-    pattern, score = _classify_margins(gross, net, revenue_growing=True)
-    assert pattern != "sharply_declining"
-
-
-# --- `gradually_compressing` graduated score + carveout (2026-09-10) ------
-
-
-def test_margins_graduated_score_applies_by_default_no_carveout():
-    # Same fixture as test_margins_sustained_decline_not_forgiven_by_
-    # partial_rebound above -- confirms _classify_margins graduates
-    # gradually_compressing by default (carveout=False) for a company NOT
-    # in MARGINS_SEVERITY_CARVEOUT_TYPES.
-    gross = [60, 58, 50, 42, 45, 46, 47, 48, 49]
-    net = [25, 24, 20, 15, 17, 18, 18, 19, 19]
-    pattern, score = _classify_margins(gross, net, revenue_growing=True)
-    assert pattern == "gradually_compressing"
-    assert score == 51
-
-
-def test_margins_carveout_keeps_old_flat_ceiling_for_the_same_severity():
-    # Identical fixture to the test above, carveout=True this time (as
-    # step1_data.py passes for Insurance/REIT-Property-Developer/Utility)
-    # -- the exact same underlying severity stays at the OLD flat 60,
-    # confirming the carveout is a real, effective override, not a no-op.
-    gross = [60, 58, 50, 42, 45, 46, 47, 48, 49]
-    net = [25, 24, 20, 15, 17, 18, 18, 19, 19]
-    pattern, score = _classify_margins(gross, net, revenue_growing=True, carveout=True)
-    assert pattern == "gradually_compressing"
-    assert score == 60
-
-
-def test_margins_carveout_does_not_affect_other_patterns():
-    # carveout only touches the gradually_compressing return points --
-    # sharply_declining/wildly_inconsistent/stable_or_expanding must be
-    # byte-identical with or without it.
-    gross = [30, 29, 30, 26, 22, 30, 32, 33, 32]
-    net = [20, 19, 18, 10, 5, 3, 2, 1, -3]
-    no_carveout = _classify_margins(gross, net, revenue_growing=True, carveout=False)
-    with_carveout = _classify_margins(gross, net, revenue_growing=True, carveout=True)
-    assert no_carveout == with_carveout == ("sharply_declining", 20)
-
-
-def test_score_step1_margins_severity_carveout_wires_through_correctly():
-    # End-to-end through score_step1 (not just the pure _classify_margins
-    # call) -- a CFO-exempt, non-Bank company type (e.g. Insurance) passing
-    # margins_severity_carveout=True keeps its gradually_compressing score
-    # at the flat 60 even though the underlying series would otherwise
-    # graduate lower.
-    sharply_compressing_margins = [60, 58, 50, 42, 45, 46, 47, 48, 49]
-    result = score_step1(
-        revenue=GROWING,
-        net_income=GROWING,
-        operating_income=GROWING,
-        cfo=None,
-        gross_margin=sharply_compressing_margins,
-        net_margin=[v / 2 for v in sharply_compressing_margins],
-        cfo_exempt=True,
-        margins_severity_carveout=True,
-    )
-    assert result["components"]["margins"]["pattern"] == "gradually_compressing"
-    assert result["components"]["margins"]["score"] == 60
-
-
-def test_score_clamped_to_valid_range():
-    result = score_step1(
-        revenue=GROWING,
-        net_income=GROWING,
-        operating_income=GROWING,
-        cfo=GROWING,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
-        cfo_exempt=False,
-    )
-    assert 0 <= result["score"] <= 100
-
-
-# --- FCF tiers -------------------------------------------------------------
-
-
-def test_fcf_excellent_all_positive():
-    pattern, score = _classify_fcf(FCF_ALL_POSITIVE)
-    assert pattern == "consistently_positive"
-    assert score == 100
-
-
-def test_fcf_good_single_isolated_negative_year():
-    # A one-off blip (index 2 only) surrounded by positive years on both
-    # sides -- not a pattern, shouldn't score like a real problem.
-    fcf = [50, 60, -5, 70, 65, 80]
-    pattern, score = _classify_fcf(fcf)
-    assert pattern == "isolated_dip"
-    assert score == 85
-
-
-def test_fcf_fail_two_consecutive_negative_years_mid_history():
-    fcf = [50, -10, -20, 70, 65, 80]
-    pattern, score = _classify_fcf(fcf)
-    assert pattern == "sustained_cash_burn"
-    assert score == 0
-
-
-def test_fcf_fail_consecutive_run_at_the_very_end_including_ttm():
-    # The 2-consecutive-negative pattern must be caught even when the run is
-    # the most recent two periods (including TTM), not just mid-history.
-    fcf = [50, 60, 70, -5, -10]
-    pattern, score = _classify_fcf(fcf)
-    assert pattern == "sustained_cash_burn"
-    assert score == 0
-
-
-def test_fcf_fail_sustained_burn_throughout_entire_window():
-    # RIVN-style: every single year is negative -- the strongest possible
-    # case of the consecutive-run rule, not just a borderline 2-in-a-row.
-    fcf = [-10, -20, -30, -15, -25, -5]
-    pattern, score = _classify_fcf(fcf)
-    assert pattern == "sustained_cash_burn"
-    assert score == 0
-
-
-def test_fcf_marginal_scattered_non_consecutive_negative_years():
-    # 2 negative years, but NOT adjacent to each other -- must be
-    # distinguished from the 2-consecutive Fail case, landing at Marginal.
-    fcf = [50, -10, 60, 70, -5, 80]
-    pattern, score = _classify_fcf(fcf)
-    assert pattern == "scattered_negative_years"
-    assert score == 60
-
-
-def test_fcf_old_recovered_cash_burn_scores_good_not_fail():
-    # Mirrors AMD's real shape: a 2-consecutive-negative run early in the
-    # window (indices 1-2 here, 7 periods before the last point), followed
-    # by strong, growing positive FCF ever since -- classify_trend reads
-    # this as multiple_dips_resolved, so an old, durably recovered
-    # cash-burn stretch no longer permanently reads as "sustained_cash_burn".
-    fcf = [10, -20, -30, 100, 200, 300, 400, 500, 600, 700]
-    pattern, score = _classify_fcf(fcf)
-    assert pattern == "cash_burn_recovered"
-    assert score == 85
-
-
-def test_fcf_old_unrecovered_cash_burn_still_fails():
-    # Same old run position as above, but the post-burn years plateau and
-    # then drift down (10 -> 12 -> 11 -> 10 -> 9 -> 8 -> 7) rather than
-    # durably improving -- classify_trend reads multiple_dips, not a
-    # resolved pattern (including the durable, non-literal dip_durably_
-    # resolved path -- see CLAUDE.md's Item 1 note -- which needs a
-    # genuinely non-negative robust late-window direction, absent here).
-    # An old run alone isn't enough to excuse the tier; the recovery must
-    # actually be confirmed. (A prior version of this fixture's post-burn
-    # years climbed steadily, which -- correctly, once dip_durably_resolved
-    # was added to RECOVERY_PATTERNS -- now reads as a genuine durable
-    # recovery instead; replaced here to keep testing the still-unrecovered
-    # case this test is named for.)
-    fcf = [100, -20, -30, 10, 12, 11, 10, 9, 8, 7]
-    pattern, score = _classify_fcf(fcf)
-    assert pattern == "sustained_cash_burn"
-    assert score == 0
-
-
-def test_fcf_old_recovered_cash_burn_tolerates_minor_ttm_wobble():
-    # TSLA-style: an old run, then several years of robust, growing positive
-    # FCF, then a TTM dip (>5%, would trip classify_trend's blunt
-    # any-TTM-decline rule on its own) that's still nowhere near the burn
-    # level. Dropping TTM reads as durably recovered, and TTM itself is
-    # still well above the early post-burn baseline -- the wobble shouldn't
-    # re-flag an already-resolved cash-burn stretch as ongoing risk.
-    fcf = [10, -20, -30, 100, 200, 300, 700, 400, 350, 600, 550]
-    pattern, score = _classify_fcf(fcf)
-    assert pattern == "cash_burn_recovered"
-    assert score == 85
-
-
-def test_fcf_recurring_negative_years_since_the_run_still_fails():
-    # PEG-style: the LAST 2+-consecutive run ended long enough ago to clear
-    # the recency gate, but a further isolated negative year (and a
-    # negative TTM) since then shows the company hasn't actually been
-    # solidly positive since -- must not be waved through as a "wobble".
-    fcf = [100, -20, -30, 10, 15, 12, -40, 18, 20, -5]
-    pattern, score = _classify_fcf(fcf)
-    assert pattern == "sustained_cash_burn"
-    assert score == 0
-
-
-def test_fcf_insufficient_data_below_two_points():
-    pattern, score = _classify_fcf([50])
-    assert pattern == "insufficient_data"
-    assert score == 0
-
-
-# --- FCF capex-driven softening (2026-08-08 fix) ---------------------------
-
-# AEP/DUK/ED/ES/FE/SO-shaped: a 3-year negative-FCF run ending at TTM (too
-# recent to clear FCF_CASH_BURN_RECENCY_YEARS on its own).
-_CAPEX_HEAVY_FCF = [50, 60, 70, -5, -8, -10]
-
-
-def test_fcf_capex_driven_burn_scores_good_when_cfo_positive_and_growing_throughout():
-    # CFO stayed positive and grew across the entire negative-FCF run --
-    # there was never a real cash crisis, just heavy capex outspending
-    # operating cash flow, so the recency gate doesn't apply.
-    pattern, score = _classify_fcf(_CAPEX_HEAVY_FCF, [400, 420, 450, 470, 485, 500])
-    assert pattern == "capex_driven_negative_fcf"
-    assert score == 85
-
-
-def test_fcf_capex_driven_check_requires_cfo_positive_throughout_not_just_endpoints():
-    # CFO dips negative in the MIDDLE of the run even though both endpoints
-    # are fine -- must not be softened just because CFO looks okay at a
-    # glance at the start/end of the window.
-    pattern, score = _classify_fcf(_CAPEX_HEAVY_FCF, [400, 420, 450, 470, -10, 500])
-    assert pattern == "sustained_cash_burn"
-    assert score == 0
-
-
-def test_fcf_capex_driven_check_requires_cfo_non_declining():
-    # CFO positive throughout the run, but declining (not growing) across
-    # it -- doesn't read as "strong operations funding an investment
-    # phase," so the softening doesn't apply.
-    pattern, score = _classify_fcf(_CAPEX_HEAVY_FCF, [400, 420, 450, 500, 490, 480])
-    assert pattern == "sustained_cash_burn"
-    assert score == 0
-
-
-def test_fcf_capex_driven_softening_requires_cfo_argument():
-    # No cfo passed (default None) -- unchanged legacy behavior, confirming
-    # backward compatibility for every existing caller of _classify_fcf.
-    pattern, score = _classify_fcf(_CAPEX_HEAVY_FCF)
-    assert pattern == "sustained_cash_burn"
-    assert score == 0
-
-
-# --- Thin-history cap on Strong Pass (H1) ------------------------------------
-
-
-def _strong(revenue):
-    return score_step1(
-        revenue=revenue,
-        net_income=GROWING,
-        operating_income=GROWING,
-        cfo=GROWING,
-        gross_margin=STABLE_MARGINS,
-        net_margin=NET_MARGINS_STABLE,
-        cfo_exempt=False,
-        fcf=FCF_ALL_POSITIVE,
-    )
+# --- thin-history cap on Strong Pass (H1) ------------------------------------------------------------------------------------------------
 
 
 def test_thin_history_7_points_caps_a_would_be_100_at_90_and_reads_pass():
-    result = _strong(LONG_GROWING[:7])
-    assert result["score"] == 90
-    assert result["verdict"] == "Pass"
+    result = strong(revenue=GROWING[:7])
+    assert (result["score"], result["verdict"]) == (90, "Pass")
 
 
 def test_history_of_8_points_is_not_capped():
-    result = _strong(LONG_GROWING)
-    assert result["score"] == 100
-    assert result["verdict"] == "Strong Pass"
+    result = strong(revenue=GROWING[:8])
+    assert (result["score"], result["verdict"]) == (100, "Strong Pass")
 
 
 def test_cap_leaves_a_score_at_or_below_90_alone():
-    # CFO strong, net income weak (a Pass-range blend): a thin series must not move it.
-    thin = score_step1(
-        revenue=GROWING, net_income=[100, 90, 80, 70, 60], operating_income=[100, 90, 80, 70, 60], cfo=GROWING,
-        gross_margin=STABLE_MARGINS, net_margin=NET_MARGINS_STABLE, cfo_exempt=False, fcf=FCF_ALL_POSITIVE,
-    )
-    long = score_step1(
-        revenue=LONG_GROWING, net_income=[100, 90, 80, 70, 60], operating_income=[100, 90, 80, 70, 60], cfo=GROWING,
-        gross_margin=STABLE_MARGINS, net_margin=NET_MARGINS_STABLE, cfo_exempt=False, fcf=FCF_ALL_POSITIVE,
-    )
+    weak = [100, 90, 80, 70, 60, 50, 40, 30]
+    thin = strong(revenue=GROWING[:5], net_income=weak, operating_income=weak)
+    long = strong(revenue=GROWING[:8], net_income=weak, operating_income=weak)
     assert thin["score"] == long["score"] <= 90
 
 
-def test_exactly_90_is_not_lowered_and_a_thin_100_lands_on_it():
-    # The cap line is 90 itself: a thin series that would score 100 reads 90 / Pass, and 90 is never reduced further.
-    thin = _strong(LONG_GROWING[:5])
-    assert thin["score"] == 90 and thin["verdict"] == "Pass"
-
-
 def test_the_count_is_the_revenue_series_not_the_other_series():
-    # Revenue has 8 points, CFO only 5: not thin (Revenue is the counted series).
-    result = score_step1(
-        revenue=LONG_GROWING, net_income=GROWING, operating_income=GROWING, cfo=GROWING,
-        gross_margin=STABLE_MARGINS, net_margin=NET_MARGINS_STABLE, cfo_exempt=False, fcf=FCF_ALL_POSITIVE,
-    )
+    result = strong(revenue=GROWING, cfo=GROWING[:5], fcf=GROWING[:5], net_income=GROWING[:5], operating_income=GROWING[:5])
     assert result["score"] == 100

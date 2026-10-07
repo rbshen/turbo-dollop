@@ -127,9 +127,9 @@ def test_a_gated_step1_reads_unclear_with_an_evidence_string_and_no_hint_label()
     evidence = reason["evidence"]
     assert "net_income declining 30" in evidence and "margins compressing 20" in evidence
     assert "revenue" not in evidence.split(";")[0]  # 80 is not weak
-    assert "TTM operating margin 4.0%" in evidence
+    assert "latest fiscal year operating margin 4.0%" in evidence
     assert "operating-health gate fails" in evidence  # 4% < 5% margin floor
-    assert "net income 2/5, operating income 1/5" in evidence
+    assert "loss years: net income 2/5, operating income 1/5" in evidence
 
 
 def test_the_operating_health_gate_can_pass():

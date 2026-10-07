@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { backupNote, exemptionNote, TIER_LABELS } from "@/components/step1/Step1Card";
 import type { Step1Out } from "@/lib/api/types";
 
-const TREND = { score: 75, pattern: "multiple_dips_resolved" };
-const NI = { score: 75, pattern: "multiple_dips_resolved", used_operating_income_backup: false };
+const TREND = { score: 75, pattern: "uptrend_dips" };
+const NI = { score: 75, pattern: "uptrend_dips", used_operating_income_backup: false };
 
 function makeStep1Out(overrides: Partial<Step1Out>): Step1Out {
   return {
@@ -84,28 +84,16 @@ describe("exemptionNote", () => {
   });
 });
 
-// Every pattern scoring/step1.py can emit: classify_trend (+ not_yet_positive), _classify_margins, _classify_fcf.
+// Every pattern scoring/step1.py can emit: the engine's six labels, the positivity gate and insufficient_data.
 const BACKEND_PATTERNS = [
   "insufficient_data",
   "not_yet_positive",
-  "declining",
-  "grows_every_year",
-  "multiple_dips",
-  "small_dip_recovers",
-  "significant_dip_recovers",
-  "flat_then_spike",
-  "multiple_dips_resolved",
-  "dip_durably_resolved",
-  "sharply_declining",
-  "gradually_compressing",
-  "stable_or_expanding",
-  "wildly_inconsistent",
-  "consistently_positive",
-  "sustained_cash_burn",
-  "cash_burn_recovered",
-  "capex_driven_negative_fcf",
-  "isolated_dip",
-  "scattered_negative_years",
+  "uptrend",
+  "uptrend_dips",
+  "flat",
+  "flat_dips",
+  "decline",
+  "decline_dips",
 ];
 
 describe("TIER_LABELS", () => {
@@ -123,10 +111,10 @@ describe("TIER_LABELS", () => {
 
 const LIFTED_NI = {
   score: 80,
-  pattern: "multiple_dips",
+  pattern: "flat_dips",
   used_operating_income_backup: true,
   score_before_backup: 65,
-  backup_gates: { ttm_oi_margin_pct: 7.3, min_ttm_oi_margin_pct: 5, positive_periods: 4, min_positive_periods: 4, window: 5 },
+  backup_gates: { oi_margin_pct: 7.3, min_oi_margin_pct: 5, positive_periods: 4, min_positive_periods: 4, window: 5 },
 };
 
 describe("backupNote", () => {
@@ -141,8 +129,8 @@ describe("backupNote", () => {
     expect(note?.text).toBe("Score lifted using Operating Income (backup)");
     expect(note?.tooltip).toBe(
       "Net Income was inconsistent, which can be distorted by one-offs, so the score uses Operating Income, which strips them out. " +
-        "Net Income score 65 lifted to 80. Backup gates: TTM Operating Income margin 7.3% (needs at least 5%), " +
-        "positive in 4 of the last 5 periods (needs at least 4).",
+        "Net Income score 65 lifted to 80. Backup gates: last fiscal year Operating Income margin 7.3% (needs at least 5%), " +
+        "positive in 4 of the last 5 fiscal years (needs at least 4).",
     );
   });
 

@@ -6,6 +6,7 @@ from sqlmodel import SQLModel, create_engine
 
 import data.step1_data as step1_data
 from data.step1_data import get_step1_data
+from scoring.step1_engine import assess_series
 
 PROFILE = [{"sector": "Technology", "industry": "Consumer Electronics"}]
 
@@ -78,8 +79,10 @@ def test_get_step1_data_builds_series_and_ttm_and_caches(monkeypatch):
     assert result.gross_margin[0] == 50.0
     assert result.cfo_exempt_reason is None
     assert result.components["cfo"] is not None
-    assert result.components["fcf"]["pattern"] == "consistently_positive"
-    assert result.components["fcf"]["score"] == 100
+    # Scoring reads the completed fiscal years only: the FCF component is the engine on 40, 55, 70 (the TTM 76 is display-only).
+    expected_fcf = assess_series([40, 55, 70], "dollar")
+    assert (result.components["fcf"]["pattern"], result.components["fcf"]["score"]) == tuple(expected_fcf)
+    assert result.components["fcf"]["pattern"] == "uptrend"
     assert 0 <= result.score <= 100
     assert result.verdict in {"Strong Pass", "Pass", "Fail"}
     assert call_count == {
@@ -322,6 +325,31 @@ def test_margins_severity_carveout_wiring_by_company_type(monkeypatch):
         assert captured["margins_exempt"] is expected_margins_exempt, (sector, industry)
 
 
+def test_score_step1_is_fed_completed_fiscal_years_only_including_the_operating_margin(monkeypatch):
+    captured: dict = {}
+    real_score_step1 = step1_data.score_step1
+
+    def capturing_score_step1(*args, **kwargs):
+        captured.update(kwargs)
+        return real_score_step1(*args, **kwargs)
+
+    monkeypatch.setattr(step1_data, "score_step1", capturing_score_step1)
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch, {"profile": 0, "income_annual": 0, "income_quarter": 0, "cash_flow_annual": 0, "cash_flow_quarter": 0})
+
+    result = asyncio.run(get_step1_data("fy"))
+
+    assert result.years[-1] == "TTM" and len(result.revenue) == 4  # the display keeps the TTM point
+    assert captured["revenue"] == [200, 250, 300]
+    assert captured["net_income"] == [40, 60, 80] and captured["operating_income"] == [60, 80, 100]
+    assert captured["cfo"] == [50, 70, 90] and captured["fcf"] == [40, 55, 70]
+    assert captured["gross_margin"] == [50.0, 48.0, 50.0]
+    assert captured["operating_margin"] == [30.0, 32.0, pytest.approx(100 / 300 * 100)]
+    assert captured["net_margin"] == [20.0, 24.0, pytest.approx(80 / 300 * 100)]
+    assert (captured["latest_revenue"], captured["latest_operating_income"]) == (300, 100)
+    assert "ttm_revenue" not in captured and "fcf_cfo" not in captured
+
+
 def test_insufficient_data_when_cash_flow_fetch_fails(monkeypatch):
     # Mirrors the confirmed Step 1 repro: a genuine FMP fetch failure on ONE
     # of Step 1's 5 independently-isolated safe_fetch calls (cash flow) must
@@ -400,7 +428,7 @@ def test_insufficient_data_when_genuinely_thin_cash_flow_history(monkeypatch):
     assert result.verdict == "insufficient_data"
 
 
-# --- Operating Income backup gates wired to the real TTM slots (K2) ---------
+# --- Operating Income backup gates wired to the last completed fiscal year (K2) ---------------------------------------------------------
 
 _BACKUP_ANNUAL = [
     {"fiscalYear": str(2021 + i), "revenue": rev, "netInterestIncome": 0, "grossProfit": rev // 2, "operatingIncome": oi, "netIncome": ni}
@@ -415,14 +443,16 @@ def _backup_quarters(oi_per_quarter, revenue_per_quarter=250):
     ]
 
 
-def _run_backup_case(monkeypatch, quarters):
+def _run_backup_case(monkeypatch, annual=None, quarters=None):
     _fresh_engine(monkeypatch)
+    annual = _BACKUP_ANNUAL if annual is None else annual
+    quarters = _backup_quarters([70, 70, 70, 70]) if quarters is None else quarters
 
     async def fake_profile(ticker):
         return PROFILE
 
     async def fake_income(ticker, period, limit):
-        return _BACKUP_ANNUAL if period == "annual" else quarters
+        return annual if period == "annual" else quarters
 
     async def fake_cash_flow(ticker, period, limit):
         return CASH_FLOW_ANNUAL if period == "annual" else CASH_FLOW_QUARTERLY
@@ -433,14 +463,50 @@ def _run_backup_case(monkeypatch, quarters):
     return asyncio.run(get_step1_data("bkup")).components["net_income"]
 
 
-def test_backup_gates_read_the_real_ttm_slots(monkeypatch):
-    # TTM OI 280 on TTM revenue 1000 = 28%, 5 of 5 positive: lifted.
-    assert _run_backup_case(monkeypatch, _backup_quarters([70, 70, 70, 70]))["used_operating_income_backup"] is True
-    # TTM OI 48 on 1000 = 4.8%: margin gate blocks.
-    assert _run_backup_case(monkeypatch, _backup_quarters([12, 12, 12, 12]))["used_operating_income_backup"] is False
-    # One quarter's OI missing -> TTM OI is None -> gate fails (even though
-    # the cleaned annual series alone would pass every gate).
-    assert _run_backup_case(monkeypatch, _backup_quarters([70, 70, 70, None]))["used_operating_income_backup"] is False
+def _annual_with_latest(oi, revenue=1000):
+    latest, *rest = _BACKUP_ANNUAL
+    return [{**latest, "operatingIncome": oi, "revenue": revenue, "grossProfit": revenue // 2}, *rest]
+
+
+def test_backup_gates_read_the_last_completed_fiscal_year_not_ttm(monkeypatch):
+    # Latest fiscal year OI 280 on revenue 1000 = 28%, 5 of 5 positive: lifted.
+    assert _run_backup_case(monkeypatch)["used_operating_income_backup"] is True
+    # Latest fiscal year OI 48 on 1000 = 4.8%: margin gate blocks.
+    assert _run_backup_case(monkeypatch, _annual_with_latest(48))["used_operating_income_backup"] is False
+    # Latest fiscal year OI missing -> the gate fails (even though the cleaned series alone would pass every other gate).
+    assert _run_backup_case(monkeypatch, _annual_with_latest(None))["used_operating_income_backup"] is False
+
+
+def test_backup_gates_ignore_the_ttm_slots_entirely(monkeypatch):
+    # A collapsed or missing TTM Operating Income (and a tiny TTM margin) neither blocks nor changes the lift: TTM is display-only.
+    for quarters in (_backup_quarters([12, 12, 12, 12]), _backup_quarters([70, 70, 70, None]), _backup_quarters([-50, -50, -50, -50])):
+        ni = _run_backup_case(monkeypatch, quarters=quarters)
+        assert ni["used_operating_income_backup"] is True
+        assert ni["backup_gates"]["oi_margin_pct"] == 28.0
+
+
+def test_the_score_does_not_read_ttm(monkeypatch):
+    def scored(quarters):
+        _fresh_engine(monkeypatch)
+
+        async def fake_profile(ticker):
+            return PROFILE
+
+        async def fake_income(ticker, period, limit):
+            return INCOME_ANNUAL if period == "annual" else quarters
+
+        async def fake_cash_flow(ticker, period, limit):
+            return CASH_FLOW_ANNUAL if period == "annual" else CASH_FLOW_QUARTERLY
+
+        monkeypatch.setattr(step1_data.fmp_client, "get_profile", fake_profile)
+        monkeypatch.setattr(step1_data.fmp_client, "get_income_statement", fake_income)
+        monkeypatch.setattr(step1_data.fmp_client, "get_cash_flow_statement", fake_cash_flow)
+        return asyncio.run(get_step1_data("ttmx"))
+
+    calm = scored(INCOME_QUARTERLY)
+    collapsed = scored([{**row, "revenue": 1, "grossProfit": -50, "operatingIncome": -50, "netIncome": -50} for row in INCOME_QUARTERLY])
+    assert collapsed.revenue[-1] != calm.revenue[-1]  # the display TTM point really did change
+    assert (collapsed.score, collapsed.components) == (calm.score, calm.components)
 
 
 # AZO-shaped: the newest quarter's cash-flow row (and the FY annual row) is an
