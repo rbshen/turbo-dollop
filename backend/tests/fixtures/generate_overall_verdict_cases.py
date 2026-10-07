@@ -83,6 +83,8 @@ def curated() -> list[dict]:
         case("Unrated, steps Fail (40)", steps_of(40, 40, 40, 40), None),
         case("Wide keeps Pass with caution", [step("step1", 100), step("step2", 100), step("step4", 100), step("step5", 74, "Pass with caution")], "wide_moat"),
         case("Narrow Pass with caution carries up", [step("step1", 100), step("step2", 100), step("step4", 100), step("step5", 74, "Pass with caution")], "narrow_moat"),
+        case("Debt Fail (stored key, shown as May not pass) blends by its score; no hard-fail override", [step("step1", 95), step("step2", 95), step("step4", 95), step("step5", 55, "Fail")], "wide_moat"),
+        case("Debt caution from an unrescued breach (74) carries up like any caution step", [step("step1", 90), step("step2", 90), step("step4", 90), step("step5", 74, "Pass with caution")], "wide_moat"),
         case("Fail stays Fail beside a caution step", [step("step1", 40), step("step2", 40), step("step4", 40), step("step5", 74, "Pass with caution")], "wide_moat"),
         case("A step with insufficient data: incomplete (Wide cannot rescue it)", [step("step1", 90), step("step2", 90), step("step4", 90), step("step5", None)], "wide_moat"),
         case("A step with insufficient data, unrated: incomplete, no note", [step("step1", 90), step("step2", 90), step("step4", 90), step("step5", None)], None),

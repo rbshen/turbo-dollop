@@ -48,7 +48,7 @@ CUSTOM = ScoreWeights(
     step1=Step1Weights(30, 20, 20, 20, 10),
     step2=Step2Weights(60, 40),
     step4=Step4Weights(25, 25, 25, 25),
-    step5=Step5Weights(20, 40, 40),
+    step5=Step5Weights(20, 50, 30),
 )
 
 
@@ -79,7 +79,7 @@ def test_bounds_are_the_owners_numbers():
     assert BOUNDS["step1"] == {"revenue": (20, 50), "net_income": (10, 40), "cfo": (10, 40), "margins": (0, 25), "fcf": (0, 15)}
     assert BOUNDS["step2"] == {"magnitude": (50, 100), "agreement": (0, 50)}
     assert BOUNDS["step4"] == {"roe": (15, 60), "roic": (15, 60), "ar": (0, 30), "ccc": (0, 30)}
-    assert BOUNDS["step5"] == {"current_ratio": (15, 60), "debt_to_ebitda": (15, 60), "debt_servicing": (15, 60)}
+    assert BOUNDS["step5"] == {"current_ratio": (15, 30), "debt_to_ebitda": (35, 60), "debt_servicing": (15, 30)}
 
 
 def test_the_overall_weights_add_up_to_100_and_no_step_can_exceed_half():
@@ -120,7 +120,7 @@ def test_the_row_is_seeded_from_the_defaults_and_save_bumps_the_version(monkeypa
     engine = _engine(monkeypatch)
     with Session(engine) as session:
         row = get_score_weights_row(session)
-        assert row.weights_version == 1 and row.step5_debt_servicing == 34 and row.overall_debt == 30
+        assert row.weights_version == 1 and row.step5_debt_servicing == 30 and row.step5_debt_to_ebitda == 45 and row.overall_debt == 30
         saved = save_score_weights(session, CUSTOM)
         assert saved.weights_version == 2
         again = save_score_weights(session, CUSTOM)
@@ -161,7 +161,12 @@ def test_get_returns_weights_defaults_bounds_sums_and_the_formula_version(monkey
     assert body["weights"] == body["defaults"] == weights_to_dict(DEFAULT_WEIGHTS)
     assert "moat_weight" not in body and body["overall_total"] == 100  # Moat is a multiplier now, not a weight
     assert body["weights"]["overall"] == {"financials": 30, "growth": 20, "profitability": 20, "debt": 30}
-    assert body["bounds"]["step5"]["current_ratio"] == {"min": 15, "max": 60}
+    assert body["bounds"]["step5"] == {
+        "current_ratio": {"min": 15, "max": 30},
+        "debt_to_ebitda": {"min": 35, "max": 60},
+        "debt_servicing": {"min": 15, "max": 30},
+    }
+    assert body["orderings"] == {"step5": ["debt_to_ebitda", "debt_servicing", "current_ratio"]}  # largest weight first
     assert body["bounds"]["overall"]["debt"] == {"min": 10, "max": 50}
     assert body["sums"] == {"overall": 100, "step1": 100, "step2": 100, "step4": 100, "step5": 100}
     assert body["weights_version"] == 1 and body["recompute"] is None
@@ -213,12 +218,25 @@ def test_put_rejects_a_value_outside_its_bounds(monkeypatch):
     _engine(monkeypatch)
     body = _body(DEFAULT_WEIGHTS)
     body["overall"]["financials"], body["overall"]["debt"] = 9, 51  # still sums to 100
-    body["step5"]["current_ratio"], body["step5"]["debt_servicing"] = 10, 56  # still sums to 100
+    body["step5"]["current_ratio"], body["step5"]["debt_servicing"] = 10, 45  # still sums to 100 (10 + 45 + 45)
     with TestClient(main.app) as client:
         detail = str(_put_error(client, body))
     assert "Overall: Financials must be between 10 and 50." in detail
     assert "Overall: Debt must be between 10 and 50." in detail
-    assert "Debt: Current Ratio must be between 15 and 60." in detail
+    assert "Debt: Current Ratio must be between 15 and 30." in detail
+    assert "Debt: Debt Servicing Ratio must be between 15 and 30." in detail
+
+
+def test_put_rejects_a_step5_set_that_breaks_the_strict_order(monkeypatch):
+    _engine(monkeypatch)
+    body = _body(DEFAULT_WEIGHTS)
+    body["step5"] = {"current_ratio": 30, "debt_to_ebitda": 40, "debt_servicing": 30}  # inside every bound, sums to 100, tied
+    with TestClient(main.app) as client:
+        detail = str(_put_error(client, body))
+    assert "Debt weights must keep this order, each strictly larger than the next: Debt/EBITDA > Debt Servicing Ratio > Current Ratio." in detail
+    body["step5"] = {"current_ratio": 20, "debt_to_ebitda": 40, "debt_servicing": 40}  # Debt/EBITDA tied with Debt Servicing
+    with TestClient(main.app) as client:
+        assert "must keep this order" in str(_put_error(client, body))
 
 
 @pytest.mark.parametrize("value", [33.0, 33.5, "33", None, True])
@@ -638,3 +656,95 @@ def test_the_new_tickerscore_columns_are_added_nullable(monkeypatch):
     for name in ("steps_score", "moat_multiplier", "formula_version"):
         assert name in columns and columns[name]["nullable"]
     assert "moat_score" not in columns
+
+
+# --- the Step 5 weights migration (2026-10-07, no hard fail) ---------------------------------------------------------------
+
+
+def _seed_step5(engine, current_ratio, debt_to_ebitda, debt_servicing, version=5):
+    with Session(engine) as session:
+        columns = {f"{g}_{f}": v for g, fields in weights_to_dict(DEFAULT_WEIGHTS).items() for f, v in fields.items()}
+        columns.update(step5_current_ratio=current_ratio, step5_debt_to_ebitda=debt_to_ebitda, step5_debt_servicing=debt_servicing)
+        session.add(ScoreWeightSettings(key="default", weights_version=version, updated_at=datetime.now(), **columns))
+        session.commit()
+
+
+def _step5_row(engine):
+    with Session(engine) as session:
+        row = session.get(ScoreWeightSettings, "default")
+        return (row.step5_current_ratio, row.step5_debt_to_ebitda, row.step5_debt_servicing), row.weights_version
+
+
+def test_the_old_33_33_34_step5_row_is_reset_to_the_new_defaults_and_the_version_goes_up(monkeypatch, caplog):
+    db, engine = _migration_engine(monkeypatch)
+    _seed_step5(engine, 33, 33, 34, version=5)
+    with caplog.at_level("WARNING"):
+        result = db._migrate_step5_weights()
+    assert result["weights"] == "defaults" and result["old"] == {"current_ratio": 33, "debt_to_ebitda": 33, "debt_servicing": 34}
+    assert _step5_row(engine) == ((25, 45, 30), 6)  # Current Ratio, Debt/EBITDA, Debt Servicing; weights_version bumped
+    assert "33" in caplog.text  # logged, not silent
+
+
+def test_a_customised_step5_row_that_breaks_the_new_rules_is_also_reset(monkeypatch):
+    for old in ((20, 20, 60), (30, 40, 30), (10, 50, 40)):  # bound broken, tie, bound broken
+        db, engine = _migration_engine(monkeypatch)
+        _seed_step5(engine, *old)
+        assert db._migrate_step5_weights()["weights"] == "defaults"
+        assert _step5_row(engine) == ((25, 45, 30), 6)
+
+
+def test_a_valid_customised_step5_row_is_left_alone_and_the_migration_is_idempotent(monkeypatch):
+    db, engine = _migration_engine(monkeypatch)
+    _seed_step5(engine, 20, 50, 30, version=7)
+    assert db._migrate_step5_weights()["weights"] is None
+    assert _step5_row(engine) == ((20, 50, 30), 7)  # no bump
+    with Session(engine) as session:
+        row = session.get(ScoreWeightSettings, "default")
+        row.step5_current_ratio, row.step5_debt_to_ebitda, row.step5_debt_servicing = 33, 33, 34
+        session.commit()
+    assert db._migrate_step5_weights()["weights"] == "defaults"
+    assert db._migrate_step5_weights()["weights"] is None and _step5_row(engine) == ((25, 45, 30), 8)
+
+
+def test_an_unseeded_database_has_no_step5_row_to_migrate(monkeypatch):
+    db, engine = _migration_engine(monkeypatch)
+    assert db._migrate_step5_weights() == {"weights": None}
+
+
+def test_a_valid_step5_row_issues_no_write_at_all(monkeypatch):
+    db, engine = _migration_engine(monkeypatch)
+    _seed_step5(engine, 25, 45, 30)
+    from sqlalchemy import event
+
+    statements = []
+    event.listen(engine, "before_cursor_execute", lambda conn, cur, stmt, *a: statements.append(stmt))
+    db._migrate_step5_weights()
+    assert not [x for x in statements if x.strip().upper().startswith(("UPDATE", "INSERT", "DELETE"))]
+
+
+def test_init_db_runs_the_step5_migration_after_the_overall_one(monkeypatch):
+    db, engine = _migration_engine(monkeypatch)
+    _seed_step5(engine, 33, 33, 34)
+    with Session(engine) as session:  # the pre-2026-10-07 Overall set too: both migrations bump the version once each
+        row = session.get(ScoreWeightSettings, "default")
+        row.overall_financials, row.overall_growth, row.overall_profitability, row.overall_debt = 24, 10, 20, 15
+        session.commit()
+    db._migrate_moat_and_overall_weights()
+    db._migrate_step5_weights()
+    assert _step5_row(engine) == ((25, 45, 30), 7)
+    assert _overall(engine) == ((30, 20, 20, 30), 7)
+
+
+def test_a_stale_step5_row_never_scores_even_before_it_is_migrated(monkeypatch, caplog):
+    # A cron job or the recompute subprocess can read the row before the app's init_db has migrated it: the snapshot serves the
+    # defaults for the Step 5 group (and leaves every other group as saved) rather than weights that would let a breach pass.
+    db, engine = _migration_engine(monkeypatch)
+    _seed_step5(engine, 33, 33, 34)
+    from data.score_weights import invalidate_cache, load_score_weights
+
+    invalidate_cache()
+    with caplog.at_level("WARNING"):
+        snapshot = load_score_weights(engine)
+    assert snapshot.weights == DEFAULT_WEIGHTS and snapshot.version == 5
+    assert "break the current bounds" in caplog.text
+    invalidate_cache()

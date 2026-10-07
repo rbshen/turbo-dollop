@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+
 from sqlmodel import SQLModel, create_engine
 
 import data.step5_data as step5_data
@@ -351,15 +353,17 @@ def test_negative_ebitda_end_to_end_is_a_real_fail_not_insufficient_data(monkeyp
 
     result = asyncio.run(get_step5_data("aapl"))
 
+    # No hard fail on the Standard path: the 0-point ratio stays in the blend and the weights alone end it under 70.
     assert result.verdict == "Fail"
-    assert result.hard_fail is True
-    assert result.score is not None
+    assert result.hard_fail is False
+    assert result.unrescued_breaches == ["debt_to_ebitda"]
+    assert result.score is not None and result.score < 70
     assert result.ratios["debt_to_ebitda"].label == "negative_ebitda"
     assert result.ratios["debt_to_ebitda"].value is None
     assert result.ratios["debt_to_ebitda"].note is not None
     assert "EBITDA is negative" in result.ratios["debt_to_ebitda"].note
     # Still blended, all 3 ratios weighted.
-    assert result.weights == {"current_ratio": 0.33, "debt_to_ebitda": 0.33, "debt_servicing_ratio": 0.34}
+    assert result.weights == {"current_ratio": 0.25, "debt_to_ebitda": 0.45, "debt_servicing_ratio": 0.30}
 
 
 CASH_FLOW_QUARTERLY_NEGATIVE = [{"date": "2026-03-28", "netCashProvidedByOperatingActivities": -50} for _ in range(4)]
@@ -385,8 +389,8 @@ def test_dsr_excluded_end_to_end_when_ebitda_positive_but_cfo_negative(monkeypat
     assert result.ratios["debt_servicing_ratio"].label == "excluded_negative_cfo"
     assert result.ratios["debt_servicing_ratio"].note is not None
     # DSR's weight is gone, not just zeroed -- only current_ratio and
-    # debt_to_ebitda remain, redistributed to 50/50.
-    assert result.weights == {"current_ratio": 0.5, "debt_to_ebitda": 0.5}
+    # debt_to_ebitda remain, redistributed in proportion (25 : 45).
+    assert result.weights == pytest.approx({"current_ratio": 25 / 70, "debt_to_ebitda": 45 / 70})
     assert result.hard_fail is False
 
 

@@ -230,7 +230,7 @@ def test_multiplier_constants():
     assert (WIDE_MOAT_MULTIPLIER, NO_MOAT_MULTIPLIER) == (1.0, 0.70)
     assert NARROW_MOAT_MULTIPLIER_OPTIONS == (0.80, 0.82, 0.85, 0.87, 0.90)
     assert DEFAULT_NARROW_MOAT_MULTIPLIER == 0.85 and DEFAULT_NARROW_MOAT_MULTIPLIER in NARROW_MOAT_MULTIPLIER_OPTIONS
-    assert SCORE_FORMULA_VERSION == 4
+    assert SCORE_FORMULA_VERSION == 5
 
 
 def test_moat_multiplier_resolution():

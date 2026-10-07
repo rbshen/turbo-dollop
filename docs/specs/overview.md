@@ -62,8 +62,11 @@ Python `round` (half to even; the app's convention). The Fundamentals score is s
 score first would sometimes change a verdict (Fundamentals 81.6 x 0.85 = 69.36 reads 69, a Fail; 82 x 0.85 = 69.7 would read 70, a Pass).
 
 The Overall verdict bands are the shared ones used app-wide: Fail below 70, Pass 70-90, Strong Pass above 90. There is **no cap and no
-hard-fail override**: a hard fail inside a check (Step 2 negative growth, Step 4 negative average ROE or ROIC, a Step 5 limit) still
-reads Fail on that check's own card and still enters the blend only through its score. The Economic Moat is no longer the one
+hard-fail override**: a hard fail inside a check (Step 2 negative growth, Step 4 negative average ROE or ROIC, a Bank or REIT Step 5
+limit) still reads Fail on that check's own card and still enters the blend only through its score. Step 5 for Standard and Utility
+companies has no hard fail since 2026-10-07: its three ratios are a pure weighted blend and 70 or more passes ([Debt](debt.md)).
+On the Debt surfaces the stored verdict `Fail` is displayed as **"May not pass"** (display only; the Overall verdict and the other
+steps still say Fail). The Economic Moat is no longer the one
 exception that can pull Overall below 70 by itself: the multiplier is the whole mechanism (a No moat or unrated ticker needs Fundamentals of 100
 to reach 70). The **Review status** (below) is not an override either.
 
@@ -105,7 +108,9 @@ Whole numbers only. The four Overall weights add up to **100** and each step's o
 10-50, Growth 5-50, Profitability 5-50, Debt 10-50 (a floor of 10 keeps the foundation and the bankruptcy filter from being diluted away; no
 step may exceed half of the Fundamentals score; before 2026-10-07 the cap was 30 so that Moat's 31 stayed the largest weight, a tie that no longer
 exists); Step 1 Revenue 20-50, Net Income 10-40, CFO 10-40, Margins 0-25, FCF 0-15; Step 2
-Magnitude 50-100, Agreement 0-50; Step 4 ROE 15-60, ROIC 15-60, AR 0-30, CCC 0-30; Step 5 each 15-60 (default 33/33/34).
+Magnitude 50-100, Agreement 0-50; Step 4 ROE 15-60, ROIC 15-60, AR 0-30, CCC 0-30; Step 5 Debt/EBITDA 35-60, Debt Servicing 15-30, Current Ratio 15-30 (default Current Ratio 25 / Debt/EBITDA 45 / Debt Servicing 30), and Step 5 must
+keep the strict order Debt/EBITDA > Debt Servicing > Current Ratio (the one ordering rule; `scoring/weights.py::ORDERINGS`, enforced in `validate_group`
+and in the Settings form, 422 on `PUT`): with no hard fail the weights alone keep a Debt/EBITDA breach below 70 ([Debt](debt.md), "Weights and bounds").
 
 **Migration (2026-10-07).** The Overall set used to add up to 69 (Moat was the other 31). `core/db.py::_migrate_moat_and_overall_weights`
 runs once at startup: a saved set still adding up to 69 is converted. The old defaults (24/10/20/15) become the new defaults
@@ -113,14 +118,19 @@ runs once at startup: a saved set still adding up to 69 is converted. The old de
 (`scoring/weights.py::rescale_overall_to_100`) and logged as a warning; either way `weights_version` goes up by one. A set already
 adding up to 100 is left alone, so the migration is idempotent and writes nothing once done.
 
+**Step 5 migration (2026-10-07).** `core/db.py::_migrate_step5_weights` runs right after it: a saved Step 5 set that breaks the new bounds or the strict
+order (the old default 33/33/34 does) is replaced by the new defaults and `weights_version` goes up by one (logged as a warning); a customised set that
+still satisfies the rules is left alone. Until it has run, `data/score_weights.py` serves the default Step 5 set for such a row, so a cron job or the
+recompute subprocess can never score with weights that would let a breach pass.
+
 `GET /api/config/score-weights` returns the weights, the defaults, the bounds and sums, `weights_version` and `formula_version`;
 `PUT` saves a full set (422 with a plain-English reason naming the set and the rule); `POST /api/config/score-weights/reset`
 restores the defaults. A weight of 0 removes a component from the blend only: a missing input can still make the step insufficient,
-and a hard fail still reads Fail. Saving does not rescore anything by itself; the stored rows stay on the older version until a full
+and a hard fail (Step 2, Step 4, Bank or REIT Debt) still reads Fail. Saving does not rescore anything by itself; the stored rows stay on the older version until a full
 recompute (`compute_ticker_score`) re-scores them, and a ticker-header read of a row on an older version re-scores it (cache only).
 
 **Formula version.** `weights_version` cannot see a change of *formula*, so every stored row also carries `TickerScore.formula_version`
-(`scoring/overall.py::SCORE_FORMULA_VERSION`; 1 = the old 69/31 blend, which rows never stored, so NULL; 2 = Fundamentals x multiplier). A row
+(`scoring/overall.py::SCORE_FORMULA_VERSION`; 1 = the old 69/31 blend, which rows never stored, so NULL; 2 = Fundamentals x multiplier; 3 = the neutral Step 1 engine; 4 = its age-decayed dip costs; 5 = Step 5 without its hard fail, 25/45/30). A row
 whose formula version is not the current one is stale: the ticker header re-scores it (cache only, whatever its weights version), and the
 Screener's "N scores are still on the previous weights" note counts it. Bump the constant whenever the Overall arithmetic changes.
 
@@ -193,7 +203,9 @@ reads it is the Review status filter, see Display). It applies
 only when the stored verdict is Pass, Pass with caution or Strong Pass; a Fail, an incomplete row and an ETF always have a null status.
 
 **Gate.** Step 1 (Financials) or Step 5 (Debt) has verdict Fail **and** a score below
-`REVIEW_GATE_SCORE = 50`. A step that is not supported, exempt, insufficient data or errored never gates;
+`REVIEW_GATE_SCORE = 50`. (Debt's stored `Fail` is displayed "May not pass"; the gate reads the stored key and the score, unchanged. With no Standard
+hard fail, a Debt `Fail` is always a blend below 70, so one below 50 still needs a breach beside weak ratios; a "Pass with caution" Debt is a Pass-family
+verdict and never gates.) A step that is not supported, exempt, insufficient data or errored never gates;
 Fundamentals 2 and 4 never gate.
 
 **Statuses.** `review_structural` "Review (structural)" (informational, not a Fail); `data_uncertain` "Data

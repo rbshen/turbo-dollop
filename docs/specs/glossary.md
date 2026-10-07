@@ -9,9 +9,12 @@ re-explaining it each time.
 
 The check found a genuine, meaningful weakness — not just "not the best," but falling short of
 what the check considers a healthy result. Most checks treat certain conditions as an automatic
-Fail regardless of how strong everything else looks (for example, Debt fails outright if any one
-ratio breaches a clearly unsafe level, even if the other ratios look fine) — the idea being that
-a single serious red flag shouldn't get averaged away by strength elsewhere.
+Fail regardless of how strong everything else looks (for example, Growth Rate fails on negative
+projected growth, and a Bank's Debt check fails if a capital ratio breaches its hard limit) — the idea
+being that a single serious red flag shouldn't get averaged away by strength elsewhere. Debt for
+ordinary companies has no automatic fail since 2026-10-07: a breach scores near zero and the
+weights, which put the most weight on Debt/EBITDA, keep it below 70. Debt shows that result as
+**"May not pass"** (the stored verdict is still Fail); see [Debt](debt.md).
 
 Growth Rate is a deliberate exception: it only fails when analysts project the company will
 actually shrink. See [Growth Rate](growth-rate.md) for why.
@@ -30,9 +33,9 @@ least 8 data points to reach it; a shorter history is held at a plain Pass (scor
 ## Pass with caution
 
 Currently used only by the **Debt** check. This means a real breach of a safety threshold did
-occur, but Fathom found enough offsetting evidence (such as a debt-reduction trend, strong free
-cash flow relative to debt, or comfortable interest coverage) to avoid treating it as an outright
-Fail. Read this as "passed, but only barely, and with a real caveat attached" — not as
+occur, but either Fathom found enough offsetting evidence (such as a debt-reduction trend, strong free
+cash flow relative to debt, or comfortable interest coverage) to excuse it, or nothing excused it and
+the other ratios still carried the blend to 70 or more (the card names the breached ratio). Read this as "passed, but only barely, and with a real caveat attached" — not as
 equivalent to a clean Pass. See [Debt](debt.md) for the details.
 
 ## Insufficient data

@@ -87,6 +87,16 @@ def test_gate_needs_a_fail_verdict_not_just_a_low_score():
     assert run(s1=step1(score=40, verdict="Pass")).status is None
 
 
+def test_step5_gate_reads_the_stored_fail_key_and_score_with_no_hard_fail_involved():
+    # 2026-10-07: Step 5 has no hard fail and the Debt card DISPLAYS "Fail" as "May not pass", but the stored verdict key is still
+    # "Fail": a blend under the Review line (50) still gates, a blend of 50-69 never did, and a caution Pass (an unrescued breach
+    # carried to 70+) is a Pass-family verdict and is not gated.
+    assert run(s5=step5(score=49, verdict="Fail")).status is not None
+    assert run(s5=step5(score=50, verdict="Fail")).status is None
+    assert run(s5=step5(score=69, verdict="Fail")).status is None
+    assert run(s5=step5(score=74, verdict="Pass with caution")).status is None
+
+
 def test_gate_can_be_overridden_for_the_information_run_only():
     assert run(s1=step1(score=60)).status is None
     assert run(s1=step1(score=60), gate=70).status == "review_unclear"

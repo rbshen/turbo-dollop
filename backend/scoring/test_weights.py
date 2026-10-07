@@ -33,7 +33,7 @@ def test_defaults_are_todays_weights():
     assert DEFAULT_WEIGHTS.step1 == Step1Weights(35, 20, 30, 10, 5)
     assert DEFAULT_WEIGHTS.step2 == Step2Weights(70, 30)
     assert DEFAULT_WEIGHTS.step4 == Step4Weights(25, 35, 20, 20)
-    assert DEFAULT_WEIGHTS.step5 == Step5Weights(33, 33, 34)  # whole numbers: the third ratio carries the odd point
+    assert DEFAULT_WEIGHTS.step5 == Step5Weights(25, 45, 30)  # Current Ratio, Debt/EBITDA, Debt Servicing (2026-10-07)
     assert sum(vars(DEFAULT_WEIGHTS.step5).values()) == 100
     assert sum(vars(DEFAULT_WEIGHTS.overall).values()) == 100
     assert sum(vars(DEFAULT_WEIGHTS.step1).values()) == 100
@@ -285,10 +285,10 @@ def _step5(weights=DEFAULT_WEIGHTS.step5, dsr=25.0, **overrides):
     return score_step5_standard(**args, weights=weights)
 
 
-def test_step5_default_is_33_33_34():
+def test_step5_default_is_25_45_30():
     result = _step5()
-    assert result["weights"] == {"current_ratio": 0.33, "debt_to_ebitda": 0.33, "debt_servicing_ratio": 0.34}
-    assert result["score"] == round(100 * 0.33 + 70 * 0.33 + 60 * 0.34)
+    assert result["weights"] == {"current_ratio": 0.25, "debt_to_ebitda": 0.45, "debt_servicing_ratio": 0.30}
+    assert result["score"] == round(100 * 0.25 + 70 * 0.45 + 60 * 0.30)
 
 
 def test_step5_relative_equal_weights_still_give_exact_thirds():
@@ -306,15 +306,16 @@ def test_step5_excluded_dsr_redistributes_proportionally():
     result = _step5(Step5Weights(60, 20, 20), dsr=None, cfo_ttm=-5.0)
     assert result["weights"] == pytest.approx({"current_ratio": 0.75, "debt_to_ebitda": 0.25})
     assert result["score"] == round(100 * 0.75 + 70 * 0.25)
-    # Equal base weights keep today's even split.
-    assert _step5(dsr=None, cfo_ttm=-5.0)["weights"] == {"current_ratio": 0.5, "debt_to_ebitda": 0.5}
+    # The defaults (25 / 45) keep their proportion: 5/14 and 9/14.
+    assert _step5(dsr=None, cfo_ttm=-5.0)["weights"] == pytest.approx({"current_ratio": 25 / 70, "debt_to_ebitda": 45 / 70})
 
 
-def test_step5_zero_weight_is_left_out_but_a_hard_limit_still_fails():
-    result = _step5(Step5Weights(50, 50, 0), dsr=45.0)  # DSR past its Severe line: a hard fail, weighted 0
+def test_step5_zero_weight_is_left_out_but_the_breach_is_still_named():
+    result = _step5(Step5Weights(50, 50, 0), dsr=45.0)  # DSR past its Severe line, weighted 0: not in the blend, still a breach
     assert result["weights"]["debt_servicing_ratio"] == 0.0
-    assert result["hard_fail"] is True and result["verdict"] == "Fail"
-    assert result["score"] == round(100 * 0.5 + 70 * 0.5)  # the displayed score is not adjusted for it
+    assert result["hard_fail"] is False and result["unrescued_breaches"] == ["debt_servicing_ratio"]
+    # 100*.5 + 70*.5 = 85 reaches the Pass line; the unrescued breach makes it a caution pass, capped at 74.
+    assert result["score"] == 74 and result["verdict"] == "Pass with caution"
 
 
 def test_step5_with_nothing_to_blend_is_insufficient_not_a_crash():
@@ -371,6 +372,117 @@ def test_a_whole_score_weights_object_can_be_built_and_shared():
         step1=Step1Weights(20, 20, 20, 20, 20),
         step2=Step2Weights(50, 50),
         step4=Step4Weights(25, 25, 25, 25),
-        step5=Step5Weights(33, 33, 34),
+        step5=Step5Weights(25, 45, 30),
     )
-    assert weights.step5.debt_servicing == 34
+    assert weights.step5.debt_servicing == 30
+
+
+# --- Step 5 bounds, ordering and the no-hard-fail guarantee (2026-10-07) -------------------------------------------------
+
+
+def _valid_step5_sets():
+    """Every whole-number Step 5 set the Settings page accepts: inside the bounds, adding up to 100, strictly ordered."""
+    from scoring.weights import BOUNDS
+
+    bounds = BOUNDS["step5"]
+    for debt_to_ebitda in range(bounds["debt_to_ebitda"][0], bounds["debt_to_ebitda"][1] + 1):
+        for debt_servicing in range(bounds["debt_servicing"][0], bounds["debt_servicing"][1] + 1):
+            current_ratio = 100 - debt_to_ebitda - debt_servicing
+            if bounds["current_ratio"][0] <= current_ratio <= bounds["current_ratio"][1] and debt_to_ebitda > debt_servicing > current_ratio:
+                yield Step5Weights(current_ratio, debt_to_ebitda, debt_servicing)
+
+
+def test_step5_bounds_and_ordering_are_the_owners_numbers():
+    from scoring.weights import BOUNDS, ORDERINGS
+
+    assert BOUNDS["step5"] == {"current_ratio": (15, 30), "debt_to_ebitda": (35, 60), "debt_servicing": (15, 30)}
+    assert ORDERINGS == {"step5": ("debt_to_ebitda", "debt_servicing", "current_ratio")}
+
+
+def test_the_default_step5_set_and_the_lowest_usable_set_are_valid():
+    from scoring.weights import ScoreWeights, validate_weights
+
+    assert validate_weights(DEFAULT_WEIGHTS) == []
+    sets = list(_valid_step5_sets())
+    assert Step5Weights(29, 41, 30) in sets  # the sum of 100 and the 30 caps make 41 the lowest Debt/EBITDA weight in use
+    assert min(w.debt_to_ebitda for w in sets) == 41 and max(w.debt_to_ebitda for w in sets) == 60
+    for weights in sets:
+        candidate = ScoreWeights(DEFAULT_WEIGHTS.overall, DEFAULT_WEIGHTS.step1, DEFAULT_WEIGHTS.step2, DEFAULT_WEIGHTS.step4, weights)
+        assert validate_weights(candidate) == []
+
+
+@pytest.mark.parametrize(
+    "step5, message",
+    [
+        (Step5Weights(30, 34, 36), "Debt: Debt/EBITDA must be between 35 and 60."),
+        (Step5Weights(15, 54, 31), "Debt: Debt Servicing Ratio must be between 15 and 30."),
+        (Step5Weights(31, 40, 29), "Debt: Current Ratio must be between 15 and 30."),
+        (Step5Weights(33, 33, 34), "Debt: Debt/EBITDA must be between 35 and 60."),  # the pre-2026-10-07 default
+    ],
+)
+def test_step5_bound_violations_are_named(step5, message):
+    from scoring.weights import ScoreWeights, validate_weights
+
+    candidate = ScoreWeights(DEFAULT_WEIGHTS.overall, DEFAULT_WEIGHTS.step1, DEFAULT_WEIGHTS.step2, DEFAULT_WEIGHTS.step4, step5)
+    assert message in validate_weights(candidate)
+
+
+@pytest.mark.parametrize("step5", [Step5Weights(30, 40, 30), Step5Weights(25, 35, 40), Step5Weights(30, 30, 40)])
+def test_step5_ordering_is_strict_and_named(step5):
+    from scoring.weights import ScoreWeights, validate_group, validate_weights, as_dict
+
+    messages = validate_group("step5", as_dict(step5))
+    order = [m for m in messages if "must keep this order" in m]
+    assert order == [
+        "Debt weights must keep this order, each strictly larger than the next: Debt/EBITDA > Debt Servicing Ratio > Current Ratio."
+    ]
+    candidate = ScoreWeights(DEFAULT_WEIGHTS.overall, DEFAULT_WEIGHTS.step1, DEFAULT_WEIGHTS.step2, DEFAULT_WEIGHTS.step4, step5)
+    assert order[0] in validate_weights(candidate)
+
+
+def test_step5_ordering_is_not_checked_on_a_set_that_is_not_whole_numbers_and_other_groups_have_none():
+    from scoring.weights import validate_group
+
+    assert validate_group("step2", {"magnitude": 50, "agreement": 50}) == []
+    assert any("whole number" in m for m in validate_group("step5", {"current_ratio": 25.5, "debt_to_ebitda": 45, "debt_servicing": 30}))
+
+
+def test_no_valid_step5_set_lets_negative_ebitda_or_a_debt_ebitda_breach_reach_70():
+    # With no hard fail the weights alone must keep these under the Pass line, for EVERY set the Settings page can save,
+    # with the other ratios as good as they can be.
+    sets = list(_valid_step5_sets())
+    assert sets
+    for weights in sets:
+        negative_ebitda = score_step5_standard(
+            current_ratio=3.0, adjusted_current_ratio=3.0, debt_to_ebitda=None, debt_servicing_pct=0.0,
+            interest_coverage_ratio=None, ebitda_ttm=-1.0, weights=weights,
+        )
+        assert negative_ebitda["score"] < 70 and negative_ebitda["verdict"] == "Fail", weights
+        # The same with Debt Servicing excluded (negative CFO): Current Ratio and Debt/EBITDA split the weight.
+        excluded = score_step5_standard(
+            current_ratio=3.0, adjusted_current_ratio=3.0, debt_to_ebitda=None, debt_servicing_pct=None,
+            interest_coverage_ratio=None, ebitda_ttm=-1.0, cfo_ttm=-1.0, weights=weights,
+        )
+        assert excluded["score"] < 70 and excluded["verdict"] == "Fail", weights
+        # Debt/EBITDA just over its limit with nothing to rescue it (0 points), the other two perfect.
+        breach = score_step5_standard(
+            current_ratio=3.0, adjusted_current_ratio=3.0, debt_to_ebitda=3.01, debt_servicing_pct=0.0,
+            interest_coverage_ratio=None, weights=weights,
+        )
+        assert breach["ratios"]["debt_to_ebitda"]["points"] == 0
+        assert breach["score"] < 70 and breach["verdict"] == "Fail", weights
+        # A severe Debt/EBITDA breach (4.01x, 15 points) is also kept under the line.
+        severe = score_step5_standard(
+            current_ratio=3.0, adjusted_current_ratio=3.0, debt_to_ebitda=4.01, debt_servicing_pct=0.0,
+            interest_coverage_ratio=None, weights=weights,
+        )
+        assert severe["score"] < 70 and severe["verdict"] == "Fail", weights
+
+
+def test_the_old_33_33_34_default_would_have_let_a_severe_breach_through():
+    # Why the bounds exist: at equal thirds a severe Debt/EBITDA breach with two perfect ratios blends to 71 and passes.
+    result = score_step5_standard(
+        current_ratio=3.0, adjusted_current_ratio=3.0, debt_to_ebitda=4.62, debt_servicing_pct=0.0,
+        interest_coverage_ratio=None, weights=Step5Weights(33, 33, 34),
+    )
+    assert result["score"] >= 70

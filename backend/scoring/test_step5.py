@@ -1,3 +1,5 @@
+import pytest
+
 from scoring.step5 import (
     BreachContextSignal,
     _evaluate_breach_context,
@@ -427,24 +429,30 @@ def test_gearing_boundary_at_45_is_approaching_limit_not_fail():
 
 def test_comfortable_company_completely_unaffected():
     # Mirrors AAPL's real shape: every ratio Comfortable, no deferred
-    # revenue or ICR involvement at all.
+    # revenue or ICR involvement at all. 25/45/30 weights: 70*.25 + 100*.45 + 100*.30 = 92.5 -> 92.
     result = score_step5_standard(
         current_ratio=1.07, adjusted_current_ratio=1.15, debt_to_ebitda=0.53, debt_servicing_pct=0.0,
         interest_coverage_ratio=None,
     )
     assert result["hard_fail"] is False
+    assert result["unrescued_breaches"] == []
     assert result["pass_with_caution"] is False
-    assert result["verdict"] == "Pass"
+    assert result["score"] == 92
+    assert result["verdict"] == "Strong Pass"
 
 
-def test_severe_breach_fails_regardless_of_strong_icr():
+def test_severe_breach_still_fails_regardless_of_strong_icr():
     # Mirrors ABBV's real shape: Debt/EBITDA is Severe (4.31) despite a
-    # strong ICR (5.96x) -- Severe can never be saved.
+    # strong ICR (5.96x) -- Severe can never be saved. There is no hard
+    # fail any more: the blend alone lands far under 70 (0*.25 + 14*.45 + 85*.30 = 31.8 -> 32).
     result = score_step5_standard(
         current_ratio=0.80, adjusted_current_ratio=0.80, debt_to_ebitda=4.31, debt_servicing_pct=12.5,
         interest_coverage_ratio=5.96,
     )
-    assert result["hard_fail"] is True
+    assert result["hard_fail"] is False
+    assert result["unrescued_breaches"] == ["current_ratio", "debt_to_ebitda"]
+    assert result["ratios"]["debt_to_ebitda"]["label"] == "severe"
+    assert result["score"] == 32
     assert result["verdict"] == "Fail"
 
 
@@ -460,13 +468,15 @@ def test_borderline_debt_to_ebitda_with_strong_icr_becomes_pass_with_caution():
 
 
 def test_borderline_debt_to_ebitda_with_weak_icr_still_fails():
-    # Mirrors SYF's real shape.
+    # Mirrors SYF's real shape. The breach is not rescued (0 points), so the blend is 70*.25 + 0 + 100*.30 = 47.5 -> 48.
     result = score_step5_standard(
         current_ratio=1.33, adjusted_current_ratio=1.33, debt_to_ebitda=3.23, debt_servicing_pct=0.0,
         interest_coverage_ratio=1.13,
     )
-    assert result["hard_fail"] is True
+    assert result["hard_fail"] is False
+    assert result["unrescued_breaches"] == ["debt_to_ebitda"]
     assert result["pass_with_caution"] is False
+    assert result["score"] == 48
     assert result["verdict"] == "Fail"
 
 
@@ -521,28 +531,30 @@ def test_tiebreaker_saved_breach_with_sub_70_blend_stays_fail():
     # Pass VARIANT -- it must never promote an otherwise-failing blend into
     # a passing verdict. Debt/EBITDA's breach is saved by ICR (60 pts), but
     # Debt Servicing Ratio is separately just weak -- not breaching, only
-    # "approaching_limit" (60 pts, non-breach) -- so no ratio here is
-    # hard_fail, yet the blend (70+60+60)/3 = 63.3 -> 63 is well under the
-    # 70 Pass floor. Previously this read "Pass with caution" at score 63.
+    # "approaching_limit" (60 pts) -- so the blend 70*.25 + 60*.45 + 60*.30 =
+    # 62.5 -> 62 is well under the 70 Pass floor. Nothing is unrescued.
     result = score_step5_standard(
         current_ratio=1.0, adjusted_current_ratio=1.0, debt_to_ebitda=3.5, debt_servicing_pct=25.0,
         interest_coverage_ratio=5.0,
     )
     assert result["ratios"]["debt_to_ebitda"]["saved_by_tiebreaker"] is True
     assert result["hard_fail"] is False
-    assert result["score"] == 63
+    assert result["unrescued_breaches"] == []
+    assert result["score"] == 62
     assert result["pass_with_caution"] is False
     assert result["verdict"] == "Fail"
 
 
 def test_current_ratio_borderline_without_deferred_revenue_still_fails():
-    # Mirrors AZO's real shape: Borderline (0.89), no deferred revenue.
+    # Mirrors AZO's real shape: Borderline (0.89), no deferred revenue. 0*.25 + 70*.45 + 85*.30 = 57.
     result = score_step5_standard(
         current_ratio=0.89, adjusted_current_ratio=0.89, debt_to_ebitda=2.11, debt_servicing_pct=15.4,
         interest_coverage_ratio=7.63,
     )
-    assert result["hard_fail"] is True
+    assert result["hard_fail"] is False
+    assert result["unrescued_breaches"] == ["current_ratio"]
     assert result["pass_with_caution"] is False
+    assert result["score"] == 57
     assert result["verdict"] == "Fail"
 
 
@@ -568,18 +580,49 @@ def test_debt_to_ebitda_breach_context_gate_uses_raw_dsr_not_dsrs_own_rescue():
     assert result["ratios"]["debt_servicing_ratio"]["saved_by_tiebreaker"] is True
     assert result["ratios"]["debt_to_ebitda"]["saved_by_tiebreaker"] is False
     assert result["ratios"]["debt_to_ebitda"]["label"] == "borderline_fail"
-    assert result["hard_fail"] is True
+    assert result["hard_fail"] is False
+    assert result["unrescued_breaches"] == ["debt_to_ebitda"]
+    # 100*.25 + 0*.45 + 60*.30 = 43
+    assert result["score"] == 43
     assert result["verdict"] == "Fail"
 
 
-def test_hard_fail_overrides_score_even_with_two_excellent_ratios():
-    # Debt Servicing Ratio is Severe -- verdict must be Fail even though the
-    # blended score alone would land well into Pass territory.
+def test_severe_unrescued_breach_with_two_excellent_ratios_passes_with_caution():
+    # Debt Servicing Ratio is Severe (45% -> 14 points). Nothing forces a Fail any more: 100*.25 + 100*.45 + 14*.30
+    # = 74.2 -> 74 reaches the Pass line, and because a breach nothing excused is still in the blend the verdict is
+    # "Pass with caution" (the 74 cap applies to this kind of caution too), with the breached ratio named.
     result = score_step5_standard(
         current_ratio=3.0, adjusted_current_ratio=3.0, debt_to_ebitda=0.5, debt_servicing_pct=45.0,
         interest_coverage_ratio=None,
     )
-    assert result["hard_fail"] is True
+    assert result["hard_fail"] is False
+    assert result["ratios"]["debt_servicing_ratio"]["label"] == "severe"
+    assert result["unrescued_breaches"] == ["debt_servicing_ratio"]
+    assert result["score"] == 74
+    assert result["pass_with_caution"] is True
+    assert result["verdict"] == "Pass with caution"
+
+
+def test_unrescued_breach_caution_applies_the_74_cap():
+    # Current Ratio 0.95 (0 points) beside two excellent ratios: 0*.25 + 100*.45 + 100*.30 = 75 -> capped at 74, caution.
+    result = score_step5_standard(
+        current_ratio=0.95, adjusted_current_ratio=0.95, debt_to_ebitda=0.7, debt_servicing_pct=5.3,
+        interest_coverage_ratio=None,
+    )
+    assert result["unrescued_breaches"] == ["current_ratio"]
+    assert result["score"] == 74
+    assert result["verdict"] == "Pass with caution"
+
+
+def test_debt_to_ebitda_breach_alone_ends_below_70_with_the_default_weights():
+    # Debt/EBITDA just over its limit (3.01x, 0 points, nothing to rescue it) with Current Ratio and Debt Servicing perfect:
+    # 100*.25 + 0*.45 + 100*.30 = 55. Nothing but the weights keeps this under the Pass line.
+    result = score_step5_standard(
+        current_ratio=3.0, adjusted_current_ratio=3.0, debt_to_ebitda=3.01, debt_servicing_pct=0.0,
+        interest_coverage_ratio=None,
+    )
+    assert result["ratios"]["debt_to_ebitda"]["label"] == "borderline_fail"
+    assert result["score"] == 55
     assert result["verdict"] == "Fail"
 
 
@@ -624,25 +667,24 @@ def test_negative_ebitda_is_a_real_fail_not_insufficient_data():
     assert result["ratios"]["debt_to_ebitda"]["note"] is not None
     assert "EBITDA is negative" in result["ratios"]["debt_to_ebitda"]["note"]
     assert "$-2,892,963,000" in result["ratios"]["debt_to_ebitda"]["note"]
-    assert result["hard_fail"] is True
+    # No hard fail: the 0-point ratio stays IN the blend and the weights alone end it under 70.
+    assert result["hard_fail"] is False
+    assert result["unrescued_breaches"] == ["debt_to_ebitda"]
     assert result["verdict"] == "Fail"
-    # Still blends -- a negative-EBITDA Fail counts as a real 0-point
-    # component of the ordinary 3-way split, not one that vanishes.
-    # Default weights are 33/33/34 (Current Ratio, Debt/EBITDA, Debt Servicing).
-    assert result["weights"] == {"current_ratio": 0.33, "debt_to_ebitda": 0.33, "debt_servicing_ratio": 0.34}
-    assert result["score"] == round(100 * 0.33 + 0 * 0.33 + 100 * 0.34)
+    # Default weights are 25/45/30 (Current Ratio, Debt/EBITDA, Debt Servicing).
+    assert result["weights"] == {"current_ratio": 0.25, "debt_to_ebitda": 0.45, "debt_servicing_ratio": 0.30}
+    assert result["score"] == round(100 * 0.25 + 0 * 0.45 + 100 * 0.30) == 55
 
 
-def test_negative_ebitda_hard_fail_is_not_diluted_by_other_excellent_ratios():
-    # Same shape as test_hard_fail_overrides_score_even_with_two_excellent_
-    # ratios above, but the breach is negative EBITDA instead of a Severe
-    # DSR -- verdict must still be Fail regardless of the blended number.
+def test_negative_ebitda_ends_below_70_through_the_weights_alone():
+    # Same shape as the severe-DSR case above, but the breach is negative EBITDA: with every other ratio perfect the
+    # blend is still under 70 (no hard fail is involved).
     result = score_step5_standard(
         current_ratio=3.0, adjusted_current_ratio=3.0, debt_to_ebitda=None, debt_servicing_pct=5.0,
         interest_coverage_ratio=None, ebitda_ttm=-1.0,
     )
-    assert result["score"] > 60  # the blend itself is not low
-    assert result["hard_fail"] is True
+    assert result["hard_fail"] is False
+    assert result["score"] == 55 and result["score"] < 70
     assert result["verdict"] == "Fail"
 
 
@@ -676,30 +718,35 @@ def test_dsr_excluded_for_negative_cfo_when_ebitda_positive_is_not_a_fail():
     assert result["ratios"]["debt_servicing_ratio"]["note"] is not None
     assert "$-1,680,000,000" in result["ratios"]["debt_servicing_ratio"]["note"]
     assert result["hard_fail"] is False
-    # Only current_ratio and debt_to_ebitda count -- DSR's 1/3 weight is
-    # redistributed proportionally (1/3 / (2/3) = 1/2 each), mirroring
-    # Profitability's own equal-weight redistribution for exempt metrics.
-    assert result["weights"] == {"current_ratio": 0.5, "debt_to_ebitda": 0.5}
+    assert result["unrescued_breaches"] == []
+    # Only current_ratio and debt_to_ebitda count -- DSR's weight is
+    # redistributed proportionally (25 : 45 -> 5/14 and 9/14), mirroring
+    # Profitability's own redistribution for exempt metrics.
+    assert set(result["weights"]) == {"current_ratio", "debt_to_ebitda"}
+    assert result["weights"]["current_ratio"] == pytest.approx(25 / 70)
+    assert result["weights"]["debt_to_ebitda"] == pytest.approx(45 / 70)
     assert "debt_servicing_ratio" not in result["weights"]
     # current_ratio=1.5 -> "good" (85), debt_to_ebitda=0.65 -> "excellent"
-    # (100) -> 92.5, rounds to 92, which is > the 90 Strong Pass threshold.
-    assert result["score"] == round((85 + 100) / 2)
+    # (100) -> 85*25/70 + 100*45/70 = 94.6, rounds to 95, a Strong Pass.
+    assert result["score"] == 95
     assert result["verdict"] == "Strong Pass"
 
 
 def test_dsr_excluded_and_negative_ebitda_can_combine():
     # Mirrors MRNA/ECHO's real shape: EBITDA AND CFO are both <=0. The two
-    # fixes are independent -- Debt/EBITDA still fails and still counts,
+    # fixes are independent -- Debt/EBITDA still scores 0 and still counts,
     # DSR is still excluded and its weight still drops out -- so only two
-    # components remain, one of which is a 0-point Fail.
+    # components remain, one of which is a 0-point breach: 70*25/70 = 25.
     result = score_step5_standard(
         current_ratio=1.2, adjusted_current_ratio=1.2, debt_to_ebitda=None, debt_servicing_pct=None,
         interest_coverage_ratio=None, ebitda_ttm=-2_829_000_000, cfo_ttm=-1_052_000_000,
     )
     assert result["ratios"]["debt_to_ebitda"]["label"] == "negative_ebitda"
     assert result["ratios"]["debt_servicing_ratio"]["label"] == "excluded_negative_cfo"
-    assert result["weights"] == {"current_ratio": 0.5, "debt_to_ebitda": 0.5}
-    assert result["hard_fail"] is True
+    assert set(result["weights"]) == {"current_ratio", "debt_to_ebitda"}
+    assert result["hard_fail"] is False
+    assert result["unrescued_breaches"] == ["debt_to_ebitda"]
+    assert result["score"] == 25
     assert result["verdict"] == "Fail"
 
 
@@ -1158,10 +1205,11 @@ def test_current_ratio_breach_context_end_to_end_becomes_pass_with_caution():
     assert result["score"] == 74
 
 
-def test_ma_real_shape_end_to_end_stays_fail():
-    # Full integration check against MA's actual live cached data
-    # (2026-08-01) -- confirms the framework doesn't force a rescue just
-    # because it exists; the real secondary signals here don't support one.
+def test_ma_real_shape_end_to_end_is_not_rescued_but_carried_by_the_other_ratios():
+    # Full integration check against MA's actual cached data (2026-08-01) -- the framework doesn't force a rescue
+    # just because it exists; the real secondary signals here don't support one, so the Current Ratio breach stays
+    # unrescued (0 points). Since the 2026-10-07 hard-fail removal the blend (0*.25 + 100*.45 + 100*.30 = 75) is
+    # what decides: it reaches the Pass line, flagged "Pass with caution" with the breach named, capped at 74.
     result = score_step5_standard(
         current_ratio=0.981, adjusted_current_ratio=0.981, debt_to_ebitda=0.898, debt_servicing_pct=3.54,
         interest_coverage_ratio=27.8,
@@ -1171,5 +1219,7 @@ def test_ma_real_shape_end_to_end_stays_fail():
     )
     assert result["ratios"]["current_ratio"]["label"] == "borderline_fail"
     assert result["ratios"]["current_ratio"]["saved_by_tiebreaker"] is False
-    assert result["hard_fail"] is True
-    assert result["verdict"] == "Fail"
+    assert result["hard_fail"] is False
+    assert result["unrescued_breaches"] == ["current_ratio"]
+    assert result["score"] == 74
+    assert result["verdict"] == "Pass with caution"
