@@ -37,6 +37,14 @@ from helpers.ttm import sum_last_four_quarters
 # deviations for the full investigation.
 MARGINS_EXEMPT_TYPES = {"Bank"}
 
+# Commodity Company is detected by profile sector text alone (Basic Materials/Energy), so a ticker FMP files under the wrong sector
+# gets the CFO/FCF exemption it should not have. Same pattern as scoring/classification.py::NON_LENDER_TICKER_OVERRIDES: a small,
+# hand-verified, ticker-keyed set (it does not depend on the cached profile, so a profile refresh cannot undo it, and it does not
+# change the displayed sector). JCI (Johnson Controls) and MAS (Masco) are industrials (S&P 500 sector Industrials) but FMP labels
+# both "Basic Materials / Construction Materials" (2026-10-07). Listed ones are scored as Standard in Step 1: CFO and FCF scored,
+# standard weights. See docs/specs/company-type-variations.md and docs/decisions.md 2026-10-07.
+COMMODITY_EXEMPTION_TICKER_OVERRIDES = {"JCI", "MAS"}
+
 
 def _detect_exemption(
     sector: str | None, industry: str | None, ticker: str | None = None, is_fund: bool = False
@@ -64,7 +72,7 @@ def _detect_exemption(
         return shared_type
     if shared_type == "REIT/Property Developer":
         return "Property Developer"
-    if sector in {"Basic Materials", "Energy"}:
+    if sector in {"Basic Materials", "Energy"} and not (ticker and ticker.upper() in COMMODITY_EXEMPTION_TICKER_OVERRIDES):
         return "Commodity Company"
     return None
 

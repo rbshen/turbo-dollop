@@ -283,6 +283,66 @@ def test_property_developer_and_commodity_company_also_keep_margins_scored(monke
         assert result.weights["margins"] == pytest.approx(13 / 60, abs=1e-5)
 
 
+def test_commodity_override_scores_jci_and_mas_as_standard_while_real_commodity_names_stay_exempt(monkeypatch):
+    # FMP files JCI (Johnson Controls) and MAS (Masco) under "Basic Materials / Construction Materials"; they are industrials, so
+    # COMMODITY_EXEMPTION_TICKER_OVERRIDES keeps them off the CFO/FCF exemption. LIN and XOM carry the same kind of sector text and are
+    # genuine commodity companies: still exempt.
+    assert step1_data.COMMODITY_EXEMPTION_TICKER_OVERRIDES == {"JCI", "MAS"}
+    cases = [
+        ("JCI", "Basic Materials", "Construction Materials", None),
+        ("MAS", "Basic Materials", "Construction Materials", None),
+        ("LIN", "Basic Materials", "Chemicals - Specialty", "Commodity Company"),
+        ("XOM", "Energy", "Oil & Gas Integrated", "Commodity Company"),
+    ]
+    for ticker, sector, industry, expected_reason in cases:
+        _fresh_engine(monkeypatch)
+        call_count = {"profile": 0, "income_annual": 0, "income_quarter": 0, "cash_flow_annual": 0, "cash_flow_quarter": 0}
+        _patch_fmp(monkeypatch, call_count, sector=sector, industry=industry)
+
+        result = asyncio.run(get_step1_data(ticker))
+
+        assert result.cfo_exempt_reason == expected_reason, ticker
+        if expected_reason is None:
+            # Standard table: CFO and FCF scored, default weights 35/20/30/10/5.
+            assert result.components["cfo"] is not None
+            assert result.components["fcf"] is not None
+            assert result.weights["cfo"] == pytest.approx(0.30)
+            assert result.weights["fcf"] == pytest.approx(0.05)
+            assert result.weights["revenue"] == pytest.approx(0.35)
+        else:
+            assert result.components["cfo"] is None
+            assert result.components["fcf"] is None
+            assert result.weights["cfo"] == 0
+
+
+def test_commodity_override_is_keyed_on_the_ticker_so_a_profile_refresh_cannot_undo_it(monkeypatch):
+    # A refresh re-fetches the profile and FMP still answers "Basic Materials": the cached profile is replaced, the override is not
+    # stored in it, so JCI stays Standard. Also checks the lower-case ticker path and that the displayed sector is untouched.
+    from sqlmodel import Session, select
+
+    from core.models import FundamentalsCache
+
+    test_engine = _fresh_engine(monkeypatch)
+    call_count = {"profile": 0, "income_annual": 0, "income_quarter": 0, "cash_flow_annual": 0, "cash_flow_quarter": 0}
+    _patch_fmp(monkeypatch, call_count, sector="Basic Materials", industry="Construction Materials")
+
+    first = asyncio.run(get_step1_data("jci"))
+    assert first.cfo_exempt_reason is None
+
+    with Session(test_engine) as session:
+        rows = session.exec(select(FundamentalsCache).where(FundamentalsCache.statement_type == "profile")).all()
+        assert len(rows) == 1
+        assert '"Basic Materials"' in rows[0].raw_json  # the stored profile is exactly what FMP said
+        for row in rows:
+            session.delete(row)
+        session.commit()
+
+    refreshed = asyncio.run(get_step1_data("JCI"))
+    assert call_count["profile"] == 2  # the profile really was fetched again
+    assert refreshed.cfo_exempt_reason is None
+    assert refreshed.components["cfo"] is not None and refreshed.components["fcf"] is not None
+
+
 def test_margins_severity_carveout_wiring_by_company_type(monkeypatch):
     # Orchestration-level wiring check (the graduated-formula math itself
     # is covered exhaustively in scoring/test_step1.py) -- confirms

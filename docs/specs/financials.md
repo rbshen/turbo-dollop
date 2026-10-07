@@ -94,7 +94,8 @@ Cash From Operations and Free Cash Flow are skipped for:
   Profitability, Debt, and Valuation.
 
 Bank/Insurance/Property Developer are detected via the same shared sector/industry classifier
-the other checks use. Commodity Company is detected locally by sector text alone.
+the other checks use. Commodity Company is detected locally by sector text alone. A small hand-verified list of tickers FMP files under the wrong sector (JCI, MAS) is excluded from the Commodity branch and scored as Standard
+(`COMMODITY_EXEMPTION_TICKER_OVERRIDES`, [Company type variations](company-type-variations.md)).
 
 **Bank-only substitution:** the series scored and displayed as "Revenue" for a Bank is actually
 **Net Interest Income** (FMP's `netInterestIncome` field), not total revenue — FMP's raw Revenue
