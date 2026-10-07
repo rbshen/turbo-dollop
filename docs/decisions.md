@@ -619,6 +619,17 @@ Owner decisions, built in four commits (engines, endpoint, frontend, docs); beha
 - **Panes:** Warren RSI, ADX with ±DI, WVF replace RSI/Stochastic at the same 580/100 stretch factors; existing tokens only (see `docs/design-system-charts.md`).
 - **The nightly Warren job and the old 2h builder are untouched.** The vectorised builder is bit-identical on all 108 cached tickers; switching the nightly job to it (about 100 s down to about 10 s) is a separate, unmade decision.
 
+### 2026-10-07 — Step 1 (Financials): one neutral trend engine
+
+Owner decisions, built in five commits (spec, engine, integration, tests, version bump and recompute); mechanism in `docs/specs/financials.md`.
+
+- **One engine for every metric** (`scoring/step1_engine.py::assess_series`): long-term direction, a smooth dip penalty from a spike-robust peak, a last-completed-fiscal-year check and a series kind (dollar: Revenue, Net Income, Operating Income, CFO, FCF; ratio in points: gross, operating, net margin, with a positivity ceiling). It replaces the `classify_trend` tiers for Revenue/Net Income/CFO inside Step 1, the FCF tiers and the margins classifier; `classify_trend` is untouched (Steps 3 and 4).
+- **Completed fiscal years only, no TTM anywhere in Step 1**, including the Net Income Operating Income backup's two health gates (latest fiscal year OI > 0 and >= 5% of that year's revenue; positive in 4 of the last 5 years). TTM stays a display column.
+- **Margins = min(G, max(N, O))**, a missing input drops out, N and O both missing is insufficient data; Banks still skip Margins, CFO/FCF exemptions and the carve-out are unchanged wrappers. Accepted limitation: FMP gross profit is not a goods margin for some sectors (HCA's G is 0), so the hard gross-margin cap holds some tickers low; no exception.
+- **Thresholds are the design's start values**, in named constants in one place; nothing was tuned or added during the build. Reproduces every figure of the design's synthetic table (grower with dips 100 / 96 / 89 / 80 / 72, flat 68, declines 60 / 52 / 35, zigzags 32 / 15, spike 62 / 25; ratio flat 88).
+- **`SCORE_FORMULA_VERSION` 2 -> 3** (the Overall arithmetic did not change, but every stored row carries the old Financials score, so it must read stale). Backups taken first: `~/fathom-score-backup-2026-10-07.json` (every TickerScore row) and `~/fathom-db-backup-2026-10-07.db.gz`.
+- **Recompute result (582 tracked tickers, 0 failed, 45 s, cache only):** 579 scored, 3 insufficient data (ACHR, HONA, VYLR); Financials at the saved weights mean 65.7, median 70, Fail / Pass / Strong 50% / 38% / 12%; the eight spot checks (ABBV 74, DIS 47, KR 59, TSCO 93, WMT 64, AAPL 92, MSFT 96, HCA 82) equal the design's list exactly; no retired pattern key remains anywhere (component patterns are the six engine labels plus `not_yet_positive`, review evidence strings carry none).
+
 ## Known open items (re-verified against code 2026-09-29, analyst labels fixed same day — all resolved)
 
 - **`MultiSelect` primitive — resolved, built.** `components/screener/MultiSelectDropdown.tsx` is

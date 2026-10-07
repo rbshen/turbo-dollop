@@ -20,8 +20,10 @@ PASS_THRESHOLD = 70
 
 # The version of the Overall FORMULA (not of the weights). TickerScore.formula_version records it; a stored row whose version is
 # not this one was scored by a different formula and is stale (weights_version cannot see a formula change). Bump it whenever
-# compute_overall_assessment's arithmetic changes. 1 = the old 69/31 Moat blend (rows have no version), 2 = Steps x Moat multiplier.
-SCORE_FORMULA_VERSION = 2
+# compute_overall_assessment's arithmetic changes. 1 = the old 69/31 Moat blend (rows have no version), 2 = Steps x Moat multiplier,
+# 3 = the same Overall arithmetic over the neutral Step 1 engine (2026-10-07: Step 1 now scores completed fiscal years with scoring/
+# step1_engine.py, so every row stored under 2 carries the old Financials score and is stale).
+SCORE_FORMULA_VERSION = 3
 
 # Moat multipliers. Wide and No moat are fixed; Narrow is the one Settings > Economic Moat setting, one of the allowed values.
 # A ticker with Moat unset is scored as No moat (there is no separate "not rated" verdict any more).
