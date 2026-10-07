@@ -130,7 +130,7 @@ and a hard fail (Step 2, Step 4, Bank or REIT Debt) still reads Fail. Saving doe
 recompute (`compute_ticker_score`) re-scores them, and a ticker-header read of a row on an older version re-scores it (cache only).
 
 **Formula version.** `weights_version` cannot see a change of *formula*, so every stored row also carries `TickerScore.formula_version`
-(`scoring/overall.py::SCORE_FORMULA_VERSION`; 1 = the old 69/31 blend, which rows never stored, so NULL; 2 = Fundamentals x multiplier; 3 = the neutral Step 1 engine; 4 = its age-decayed dip costs; 5 = Step 5 without its hard fail, 25/45/30). A row
+(`scoring/overall.py::SCORE_FORMULA_VERSION`; 1 = the old 69/31 blend, which rows never stored, so NULL; 2 = Fundamentals x multiplier; 3 = the neutral Step 1 engine; 4 = its age-decayed dip costs; 5 = Step 5 without its hard fail, 25/45/30; 6 = the Step 1 Commodity exemption by industry allowlist). A row
 whose formula version is not the current one is stale: the ticker header re-scores it (cache only, whatever its weights version), and the
 Screener's "N scores are still on the previous weights" note counts it. Bump the constant whenever the Overall arithmetic changes.
 
