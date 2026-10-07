@@ -39,6 +39,18 @@ export function toneForNullable(score: number | null, verdict: string | null): S
   return toneFor(score, verdict ?? "");
 }
 
+// The text colour of a tone, for a bare number that carries the tone itself (the Analysis card's arithmetic table), matching the text
+// colour of the same tone's pill (components/ui/pill.tsx). Full literals so Tailwind sees them.
+export const TONE_TEXT_CLASS: Record<StatusTone, string> = {
+  strong: "text-positive-strong",
+  positive: "text-positive",
+  warn: "text-warn",
+  caution: "text-caution",
+  negative: "text-negative",
+  speculative: "text-chart-purple",
+  neutral: "text-text-secondary",
+};
+
 // Display wording for an Overall verdict (just pillLabel'd: the old "moat_not_rated" key was retired 2026-10-07, an unrated ticker now
 // reads its verdict from its score). Use this wherever the Overall verdict itself is drawn.
 export function verdictLabel(verdict: string): string {

@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { Warning } from "@phosphor-icons/react";
+import { CaretDown, CaretUp, Warning } from "@phosphor-icons/react";
 
 import { CircularScoreBadge } from "@/components/overall/CircularScoreBadge";
-import { Status, Verdict } from "@/components/ui/status";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Verdict } from "@/components/ui/status";
 import { useMoatConfig } from "@/lib/hooks/useMoatConfig";
 import { useOverallAssessment } from "@/lib/hooks/useOverallAssessment";
 import { useTickerScore } from "@/lib/hooks/useTickerScore";
@@ -25,24 +27,10 @@ import {
   type OverallAssessment,
   type StepBreakdownEntry,
 } from "@/lib/overallScore";
-import { toneFor, toneForNullable, pillLabel, verdictLabel } from "@/lib/tierColor";
+import { TONE_TEXT_CLASS, toneFor, toneForNullable, pillLabel, verdictLabel } from "@/lib/tierColor";
 
 interface Props {
   ticker: string;
-}
-
-function chipLabel(entry: StepBreakdownEntry): string {
-  if (entry.status === "exempt") return `${entry.label} · N/A`;
-  const pct = entry.effectiveWeight != null ? `${Math.round(entry.effectiveWeight * 100)}%` : `${Math.round(entry.baseWeight * 100)}%`;
-  return `${entry.label} · ${pct} · ${entry.score ?? "—"}`;
-}
-
-// "N/A" alone reads ambiguously (temporary gap vs. deliberate exemption) --
-// a tooltip on hover makes clear this step's weight was deliberately
-// redistributed among the rest, not just missing.
-function chipTitle(entry: StepBreakdownEntry): string | undefined {
-  if (entry.status !== "exempt") return undefined;
-  return `${entry.label} doesn't apply to this company and isn't scored — its weight is redistributed across the other steps below.`;
 }
 
 // One-line rollup summary, generated from the same breakdown data the
@@ -112,13 +100,22 @@ function MultiplierDescription({ result, multipliers }: { result: OverallAssessm
   );
 }
 
-// The arithmetic behind the score: each step with its score, weight and points, then the Steps score, then Steps x multiplier = Overall.
-function ArithmeticBlock({ result }: { result: OverallAssessment }) {
+// The result line: Steps score x multiplier = Overall.
+function ScoreEquation({ result }: { result: OverallAssessment }) {
   if (result.stepsScore == null || result.moatMultiplier == null || result.score == null) return null;
   const moatName = result.moat ? pillLabel(MOAT_LABELS[result.moat]) : "No moat";
-  const rows = result.breakdown;
   return (
-    <div className="space-y-2" data-testid="score-arithmetic">
+    <p className="text-sm text-text-primary" data-testid="score-equation">
+      Steps {result.stepsScore.toFixed(1)} × {moatName} {fmtMultiplier(result.moatMultiplier)} = <span className="font-semibold">{result.score}</span>
+    </p>
+  );
+}
+
+// The arithmetic behind the score: each step with its score, weight and points, then the Steps score.
+function ArithmeticTable({ result }: { result: OverallAssessment }) {
+  if (result.stepsScore == null) return null;
+  return (
+    <div data-testid="score-arithmetic">
       <table className="w-full max-w-md text-sm">
         <thead>
           <tr className="text-left text-xs text-text-tertiary">
@@ -129,11 +126,14 @@ function ArithmeticBlock({ result }: { result: OverallAssessment }) {
           </tr>
         </thead>
         <tbody className="font-mono text-text-secondary">
-          {rows.map((entry) =>
+          {result.breakdown.map((entry) =>
             entry.effectiveWeight != null && entry.score != null ? (
               <tr key={entry.key}>
                 <td className="py-0.5 font-sans">{entry.label}</td>
-                <td className="py-0.5 text-right">{entry.score}</td>
+                {/* The score takes the tone the breakdown pills used to carry; weight, points and the Steps score stay plain. */}
+                <td className={`py-0.5 text-right ${TONE_TEXT_CLASS[toneForNullable(entry.score, entry.verdict)]}`} data-testid={`score-${entry.key}`}>
+                  {entry.score}
+                </td>
                 <td className="py-0.5 text-right">{fmtWeightPct(entry.effectiveWeight)}</td>
                 <td className="py-0.5 text-right">{(entry.effectiveWeight * entry.score).toFixed(1)}</td>
               </tr>
@@ -154,10 +154,32 @@ function ArithmeticBlock({ result }: { result: OverallAssessment }) {
           </tr>
         </tbody>
       </table>
-      <p className="text-sm text-text-primary" data-testid="score-equation">
-        Steps {result.stepsScore.toFixed(1)} × {moatName} {fmtMultiplier(result.moatMultiplier)} = <span className="font-semibold">{result.score}</span>
-      </p>
     </div>
+  );
+}
+
+// The calculation, collapsed by default on every render (the state is not persisted): the one-line result and a toggle; expanded, the
+// arithmetic table, the result line and the explanatory paragraph. Same toggle pattern as AnalysisSectionCard's "Show reasoning".
+function CalculationSection({ result, multipliers }: { result: OverallAssessment; multipliers: MoatMultipliers }) {
+  const [open, setOpen] = useState(false); // collapsed on every render; never persisted
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="space-y-3" data-testid="calculation">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        {/* Collapsed: the one-line result sits beside the toggle. Expanded it moves under the table (below), as it always read. */}
+        {open ? <span /> : <ScoreEquation result={result} />}
+        <CollapsibleTrigger className="group flex shrink-0 items-center gap-1 text-left text-xs text-text-tertiary hover:text-text-secondary">
+          <span className="group-data-[panel-open]:hidden">Show calculation</span>
+          <span className="hidden group-data-[panel-open]:inline">Hide calculation</span>
+          <CaretDown size={12} aria-hidden="true" className="group-data-[panel-open]:hidden" />
+          <CaretUp size={12} aria-hidden="true" className="hidden group-data-[panel-open]:block" />
+        </CollapsibleTrigger>
+      </div>
+      <CollapsibleContent className="space-y-3">
+        <ArithmeticTable result={result} />
+        <ScoreEquation result={result} />
+        <MultiplierDescription result={result} multipliers={multipliers} />
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -235,17 +257,7 @@ export function OverallAssessmentView({
             </div>
           )}
 
-          <div className="flex flex-wrap gap-2">
-            {result.breakdown.map((entry) => (
-              <Status key={entry.key} tone={toneForNullable(entry.score, entry.verdict)} title={chipTitle(entry)}>
-                {pillLabel(chipLabel(entry))}
-              </Status>
-            ))}
-          </div>
-
-          <ArithmeticBlock result={result} />
-
-          <MultiplierDescription result={result} multipliers={multipliers} />
+          <CalculationSection result={result} multipliers={multipliers} />
 
           {result.failingSteps.length > 0 && (
             <p className="text-sm text-warn">

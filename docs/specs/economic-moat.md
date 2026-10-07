@@ -34,7 +34,7 @@ The four automated checks combine into a Steps score; the Overall Assessment is 
 This is a deliberate design choice: a durable competitive advantage is treated as at least as important to a company's long-term
 investment case as any one quarter's worth of financial performance, so it acts on the whole result. A Wide Moat leaves the Steps
 score as it is, a Narrow Moat takes 15% off by default, and a missing or No Moat takes 30% off. For example, Steps 83.8 x Narrow 0.85 =
-71 (the Analysis card shows this arithmetic).
+71 (the Analysis card shows this arithmetic in a collapsible "Show calculation" section).
 
 **Not rated is not neutral.** A ticker with no rating is **scored as No moat** (multiplier 0.70) and the Analysis card and the ticker
 header say so: "Moat not rated, scored as No moat". There is no separate "Moat not rated" verdict any more (retired 2026-10-07, replacing the 2026-10-05

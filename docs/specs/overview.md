@@ -51,8 +51,11 @@ perfect check scores, which does not happen in practice (the verification after 
 
 **Worked example.** Financials 84, Growth Rate 84, Profitability 83 and Debt 84 give a Steps score of
 0.30 x 84 + 0.20 x 84 + 0.20 x 83 + 0.30 x 84 = 83.8; for a Narrow Moat ticker at 0.85 that is 83.8 x 0.85 = 71.23, an Overall score of
-**71**. The Analysis card shows exactly this arithmetic: a table of each step with its score, weight and points, then the Steps score
-(one decimal), then "Steps 83.8 x Narrow moat 0.85 = 71".
+**71**. The Analysis card shows exactly this arithmetic, **collapsed by default** (state not persisted) to the one line "Steps 83.8 x Narrow moat 0.85 = 71" with a
+"Show calculation" toggle; expanded it shows a table of each step with its score, weight and points, then the Steps score (one decimal), the result line, and the
+explanatory paragraph with its links. The Score cells in the table are coloured with the same green / amber / red tones the step pills used (the pills under
+the header were removed 2026-10-07); weights, points and the Steps score are not. The score circle, the verdict, the "N of 4 weighted components" line and the
+failing / caution / Review warning lines stay outside the collapsible and are always visible.
 
 **Rounding (decision 2026-10-07).** The Steps score is computed unrounded, multiplied, and the Overall score is rounded **once**, with
 Python `round` (half to even; the app's convention). The Steps score is stored unrounded and shown to one decimal. Rounding the Steps
