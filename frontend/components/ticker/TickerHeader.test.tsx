@@ -83,7 +83,7 @@ describe("AssessmentChipView: the Review status", () => {
     expect(chip).not.toHaveClass("text-negative");
     expect(chip).toHaveAttribute(
       "title",
-      expect.stringContaining("Overall 78 would read Pass. Debt scored 43 (Fail). Debt/EBITDA 3.59x outside the band. Conviction: medium."),
+      expect.stringContaining("Overall 78 would read Pass. Debt scored 43 (May not pass). Debt/EBITDA 3.59x outside the band. Conviction: medium."),
     );
     expect(screen.queryByText("Pass")).not.toBeInTheDocument();
   });

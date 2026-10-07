@@ -383,7 +383,7 @@ describe("WatchlistTable: Review marker", () => {
     expect(marker).toHaveTextContent(label); // screen-reader text only
     expect(marker.querySelector(".sr-only")).not.toBeNull();
     expect(marker.getAttribute("title")).toBe(
-      `Overall 71 would read Pass. Debt scored 43 (Fail). ${REASON.evidence}. Conviction: high.`,
+      `Overall 71 would read Pass. Debt scored 43 (May not pass). ${REASON.evidence}. Conviction: high.`,
     );
   });
 

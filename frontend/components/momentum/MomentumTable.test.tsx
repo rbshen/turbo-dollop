@@ -208,7 +208,7 @@ describe("MomentumTable Review marker", () => {
     render(<MomentumTable rows={[reviewed({ ...ROWS[0], overall_score: 79 }, status)]} />);
     const marker = scoreCell("SNDK").querySelector("[data-testid='review-marker']") as HTMLElement;
     expect(marker).toHaveTextContent(label);
-    expect(marker.getAttribute("title")).toBe(`Overall 79 would read Pass. Debt scored 25 (Fail). ${REASON.evidence}. Conviction: high.`);
+    expect(marker.getAttribute("title")).toBe(`Overall 79 would read Pass. Debt scored 25 (May not pass). ${REASON.evidence}. Conviction: high.`);
     const score = screen.getByText("79");
     expect(score).toHaveClass("text-text-secondary"); // still the neutral pill
     expect(scoreCell("SNDK").querySelector("span[title]:not([data-testid])")).toBeNull(); // no other tooltip added
