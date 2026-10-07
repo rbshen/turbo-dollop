@@ -147,7 +147,18 @@ min(3, floor(n/2))`. The trend score `T(g)` is piecewise linear:
   points; `dd` is the depth below a peak that itself decays at the series' own decline (`pk[t] = max over s <= t of
   x~[s] * (1 + min(0, g))^(t-s)` in own-size units for DOLLAR, positive candidates only; `x~[s] + min(0, g) * (t-s)` in points
   for RATIO).
-- Burden `K = sum a[t] * (1 + u[t]) + W`. Discount `D(K) = 80 * (1 - exp(-(K / 12)^1.5))` points (K 1/2/3/5/8/10/20: 1.9 / 5.3
+- **Age-decayed dip costs (2026-10-07).** A dip or underwater year long ago costs less once the series has clearly grown since. With
+  `age` = completed fiscal years before the last one (the last year = 0; a dip's age is the year it falls *into*) and
+  `d[age] = 1 - (1 - 0.5^(age / H)) * s`, `H = DECAY_HALF_LIFE_YEARS = 4` (a constant, not a setting) and
+  `s = clamp(min(g, g') / T_full, 0, 1)` (`g` the Part 1 trend, `g'` the same trend computed with the last completed year dropped,
+  `T_full` the trend that already earns 100: +6% of own size per year DOLLAR, +1.0 point RATIO), the burden is
+  `K = sum a[t] * (d[age(t)] + u[t]) + sum d[age(t)] * w[t]` where `w[t]` is year `t`'s underwater fraction (`W = sum w[t]`
+  before). So `s = 1` halves a cost every 4 years (age 4: 0.5, age 8: 0.25); `s = 0` (no real, lasting uptrend) leaves `d = 1` and the
+  score exactly as it was. Using `g'` is deliberate: a series whose uptrend is one final-year spike gets no forgiveness. The unrecovered
+  extra `a[t] * u[t]` is **never decayed**. Only dip weights and underwater years decay: the direction measure, the last-year cut,
+  the ceiling, the positivity gate, Margins `min(G, max(N, O))` and the company-type exemptions are untouched, and the same code path
+  serves every metric and both kinds (no per-metric branch). Series of 3 points or fewer have no `g'` to judge and are never forgiven.
+- Burden `K = sum a[t] * (d[age(t)] + u[t]) + sum d[age(t)] * w[t]` (`d = 1` without a real uptrend, so `K = sum a[t] * (1 + u[t]) + W`). Discount `D(K) = 80 * (1 - exp(-(K / 12)^1.5))` points (K 1/2/3/5/8/10/20: 1.9 / 5.3
   / 9.4 / 18.9 / 33.6 / 42.6 / 70.7 points off), strictly increasing, saturating at 80, same for both kinds.
 
 **Part 3: last completed fiscal year.** `s = clamp((e[last] - lo) / (hi - lo), 0, 1)`, `(lo, hi)` DOLLAR 10% / 50%, RATIO 2 / 12
@@ -162,7 +173,7 @@ capped at `C = 40 * max(0, 1 + x[last] / 10)`: 40 at a zero margin, falling 4 po
 points or more. A positive latest value is not capped. Earlier negative years are ordinary dips. The cap is applied to each of
 gross, operating and net margin separately, before the combination and before the carve-out; dollar series are untouched.
 
-**Score and labels.** `score = round(min(clamp(max(0, T(g) - D(K)) * (1 - 0.6 * s), 0, 100), C))` (the ceiling only for
+**Score and labels.** (K above includes the age decay.) `score = round(min(clamp(max(0, T(g) - D(K)) * (1 - 0.6 * s), 0, 100), C))` (the ceiling only for
 RATIO). Labels (information, and the Margins carve-out only; they never change a score): `uptrend` if `g >= +2%` per year
 (DOLLAR) or `+0.25` point per year (RATIO), `decline` if `g` is at or below the negative of that, else `flat`; `_dips` is
 appended when `K >= 0.25`. The six labels plus `insufficient_data` are the only patterns the engine emits (`not_yet_positive`
@@ -179,10 +190,12 @@ same dip recovered, a flat series with one spike year above a steady decline and
 spike, no cliff in a 0.1%-step sweep of one fall); the ratio ceiling (the score never above `C`, strictly falling below zero,
 an improving-but-still-negative series below a flat positive one). For RATIO, "growers with 2-3 dips above flat" is **not**
 guaranteed (a flat margin scores 88 by design; that ordering is stated for dollar series only). Not guaranteed either: adding
-a dip almost always lowers a real series' score, not always.
+a dip almost always lowers a real series' score, not always. With the age decay, more dips score strictly lower only while the dips are
+young (within about 6 years of the last completed year); for older dips the score only falls or ties (integer rounding), and a recovered
+old dip in a growing series never scores below flat.
 
-Reference scores (11 points; dollar growth 8% a year, a dip is a 15% fall that returns to the path): clean grower 100, one
-dip 96, two 89, three 80, four 72; flat 68; decline at 3% / 6% / 12% a year 60 / 52 / 35; zigzag 100/85 32, 100/70 15; flat
+Reference scores (11 points; dollar growth 8% a year, a dip is a 15% fall that returns to the path; dips at indices 3 / 3,6 /
+2,5,8 / 2,4,6,8): clean grower 100, one dip 99, two 97, three 93, four 90 (before the age decay: 96 / 89 / 80 / 72); flat 68; decline at 3% / 6% / 12% a year 60 / 52 / 35; zigzag 100/85 32, 100/70 15; flat
 with one +75% year 62; that spike followed by a -6% a year decline 25. Ratio: flat positive 88 at any level, clean grower
 (+0.8 a year) 98, steady declines of 0.6 / 1.2 points a year 76 / 65, zigzags 20/15 and 20/10 54 / 31.
 
@@ -355,6 +368,12 @@ Fail / Pass / Strong 51% / 37% / 12% (defaults: mean 67.3, 46% / 39% / 14%). Mar
 scored (ACHR, HONA, VYLR `insufficient_data`); binding input G 282, O 148, N 84, N = O 42; O lifts Margins above `min(G, N)` for 225
 tickers and a sub-70 Margins to 70+ for 65. 60 tickers have a latest N or O at or below zero (38 both): RIVN and SNOW score Margins 0.
 The ranges are context for revisiting a threshold, not live invariants: re-scan before relying on the counts.
+
+**Calibration shift from the age decay (2026-10-07; 579 scored tickers, saved weights 30/20/25/10/15):** Financials mean 65.7 -> 70.5, Fail /
+Pass / Strong Pass 288 / 221 / 70 (50% / 38% / 12%) -> 228 / 222 / 129 (39% / 38% / 22%); 215 tickers up by more than 5 points, none down
+(the decay only ever lowers a burden); 60 cross 70 upward, 59 cross 91 upward. CLS (recovered early weakness, then growth): Net Income 64 -> 91,
+CFO 52 -> 85, FCF 38 -> 74, Financials 68 -> 89. The Strong Pass share nearly doubled, so "Strong Pass" now means a clearly growing series with
+a long recovered history, not a clean record. Rationale and rejected options: docs/decisions.md 2026-10-07 (age decay).
 
 - **`not_yet_positive` floor at -20% margin (`NOT_YET_POSITIVE_FLOOR_MARGIN`).** 45 hits, margin (value ÷ real revenue) from about
   -149% (a real structural loss) to -0.1% (effectively breakeven); -20% covers 34/45 (76%) of hits.
