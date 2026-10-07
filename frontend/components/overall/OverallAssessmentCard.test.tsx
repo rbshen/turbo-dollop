@@ -34,7 +34,7 @@ describe("OverallAssessmentView: the failing and caution notes", () => {
 
   it("names the failing steps in a warn-toned note", () => {
     render(<OverallAssessmentView result={result({ failingSteps: ["Debt", "Growth Rate"] })} />);
-    const note = screen.getByText(/Debt, Growth Rate failed — reflected in the weighted score above/);
+    const note = screen.getByText(/Growth Rate failed; Debt may not pass — reflected in the weighted score above/);
     expect(note).toHaveClass("text-warn");
   });
 
@@ -49,7 +49,7 @@ describe("OverallAssessmentView: the failing and caution notes", () => {
       <OverallAssessmentView result={result({ failingSteps: ["Debt"], cautionSteps: ["Growth Rate"] })} />,
     );
     expect(container.textContent).not.toMatch(/[\u26A0\uFE0F]/);
-    const notes = [screen.getByText(/Debt failed/), screen.getByText(/Growth Rate passed with caution/)];
+    const notes = [screen.getByText(/Debt may not pass/), screen.getByText(/Growth Rate passed with caution/)];
     for (const note of notes) {
       expect(note.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
       expect(note.querySelector(".sr-only")).toHaveTextContent("Warning:");
@@ -187,7 +187,7 @@ describe("OverallAssessmentView: the Review status block", () => {
     const block = screen.getByTestId("review-status");
     expect(block).toHaveTextContent("Review (unclear)");
     expect(block).toHaveTextContent("Conviction: high");
-    expect(block).toHaveTextContent("Debt scored 43 (Fail): Debt/EBITDA 3.59x (borderline_fail): outside +/-20%");
+    expect(block).toHaveTextContent("Debt scored 43 (May not pass): Debt/EBITDA 3.59x (borderline_fail): outside +/-20%");
     expect(block).toHaveClass("text-warn");
   });
 
@@ -278,9 +278,9 @@ describe("OverallAssessmentView: the collapsible calculation", () => {
   it("keeps the failing and caution warning lines outside the collapsible, visible in both states", () => {
     render(<OverallAssessmentView result={result({ ...props, failingSteps: ["Debt"], cautionSteps: ["Growth Rate"] })} />);
     for (let pass = 0; pass < 2; pass++) {
-      expect(screen.getByText(/Debt failed — reflected/)).toBeInTheDocument();
+      expect(screen.getByText(/Debt may not pass — reflected/)).toBeInTheDocument();
       expect(screen.getByText(/Growth Rate passed with caution/)).toBeInTheDocument();
-      expect(screen.getByTestId("calculation")).not.toContainElement(screen.getByText(/Debt failed — reflected/));
+      expect(screen.getByTestId("calculation")).not.toContainElement(screen.getByText(/Debt may not pass — reflected/));
       fireEvent.click(screen.getAllByRole("button", { name: /calculation/ })[0]);
     }
   });

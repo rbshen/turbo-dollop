@@ -6,11 +6,27 @@ import { AnalysisSectionCard, type ReasoningBullet, weightScoreSuffix } from "@/
 import { BankCapitalMetricsForm } from "@/components/step5/BankCapitalMetricsForm";
 import { useStep5 } from "@/lib/hooks/useStep5";
 import { fmtNumber, fmtPct, fmtTableMoney } from "@/lib/format";
+import { debtVerdictLabel } from "@/lib/tierColor";
 import type { BreachContextSignal, Step5Out, Step5RatioResult } from "@/lib/api/types";
 
-const METHODOLOGY =
-  "Current Ratio, Debt/EBITDA, and Debt Servicing Ratio (Gearing Ratio for REITs; CET1/NPL for Banks), each " +
-  "tiered against a hard limit; breaching any hard limit fails the section outright regardless of the blended score.";
+// The weights are the saved ones (data.weights), so the line follows Settings > Score weighting.
+function methodology(data: Step5Out): string {
+  if (data.company_type === "Bank" || data.company_type === "REIT/Property Developer") {
+    return (
+      "Gearing Ratio for REITs, CET1 and NPL for Banks, each tiered against a hard limit; breaching a hard limit means " +
+      "the section may not pass regardless of the blended score."
+    );
+  }
+  const shares = REASONING_ORDER.slice(0, 3)
+    .filter((key) => data.weights[key] != null)
+    .map((key) => `${RATIO_LABELS[key]} ${Math.round((data.weights[key] as number) * 100)}%`)
+    .join(", ");
+  return (
+    `A weighted blend of ${shares || "Current Ratio, Debt/EBITDA and Debt Servicing Ratio"}, each tiered against its limit; ` +
+    "70 or more passes, below 70 may not pass. A ratio in breach scores 0 (or close to it) instead of failing the section on its own, " +
+    "and a pass that still contains an unrescued breach reads Pass with caution."
+  );
+}
 
 // Order mirrors scoring/step5.py's WEIGHTS_STANDARD / WEIGHTS_REIT /
 // WEIGHTS_BANK -- the ratios that actually carry weight/points. Interest
@@ -50,7 +66,7 @@ const TIER_LABELS: Record<string, string> = {
   good: "Good",
   acceptable: "Acceptable",
   approaching_limit: "Approaching limit",
-  fail: "Fail",
+  fail: "May not pass",
   // Severity-band tiers (Current Ratio, Debt/EBITDA, Debt Servicing Ratio).
   borderline_saved_by_icr: "Borderline (saved by Interest Coverage)",
   // Debt/EBITDA's and Current Ratio's Borderline breach, downgraded by the
@@ -58,16 +74,16 @@ const TIER_LABELS: Record<string, string> = {
   // successor to borderline_saved_by_icr for these two ratios specifically
   // (DSR keeps the older label; its own rescue is unchanged).
   marginal_via_breach_context: "Marginal (context-adjusted)",
-  borderline_fail: "Borderline — Fail",
-  severe: "Severe — Fail",
+  borderline_fail: "Borderline — may not pass",
+  severe: "Severe — may not pass",
   // Debt/EBITDA only: EBITDA itself is <=0, so the ratio can't be
-  // meaningfully calculated -- treated as a real Fail (0 points, counts
-  // toward the blend), not insufficient_data (2026-08-06 fix). See the
-  // ratio's own `note` for the full explanation, rendered separately below.
-  negative_ebitda: "Negative EBITDA — Fail",
+  // meaningfully calculated -- scored 0 and kept in the blend, not
+  // insufficient_data (2026-08-06 fix). See the ratio's own `note` for the
+  // full explanation, rendered separately below.
+  negative_ebitda: "Negative EBITDA — may not pass",
   // DSR only: TTM operating cash flow is <=0 this period (temporary/
   // seasonal, e.g. CTVA/SMCI) -- excluded from the blend and its weight
-  // redistributed across the other ratios, not scored as a Fail.
+  // redistributed across the other ratios, not scored as a breach.
   excluded_negative_cfo: "Excluded (negative CFO)",
   // Interest Coverage Ratio's own tiers (informational, no points of its own).
   safe: "Safe",
@@ -135,6 +151,23 @@ function savedRatioSummary(ratios: Record<string, Step5RatioResult>): string {
     .join("; ");
 }
 
+// The caution note: the excused breaches, then the unexcused ones (named, with the points they scored) that the other ratios outweighed.
+function cautionSummary(data: Step5Out, breaches: string[]): string {
+  const parts: string[] = [];
+  const saved = savedRatioSummary(data.ratios);
+  if (saved) parts.push(saved);
+  if (breaches.length > 0) {
+    const named = breaches
+      .map((key) => {
+        const ratio = data.ratios[key];
+        return `${RATIO_LABELS[key] ?? key} (${TIER_LABELS[ratio?.label ?? ""] ?? ratio?.label}, ${ratio?.points ?? 0}/100)`;
+      })
+      .join(" and ");
+    parts.push(`${named} ${breaches.length > 1 ? "are" : "is"} in breach and not excused, but the other ratios carry the blend to ${data.score}`);
+  }
+  return parts.join("; ");
+}
+
 function reasoningBullets(data: Step5Out): ReasoningBullet[] {
   const bullets: ReasoningBullet[] = [];
   for (const key of REASONING_ORDER) {
@@ -177,6 +210,10 @@ export function Step5Card({ ticker }: Props) {
   const isInsurance = data.company_type === "Insurance";
   const bullets = data.score != null ? reasoningBullets(data) : [];
   const icr = data.ratios.interest_coverage_ratio;
+  // The Standard path's unrescued breaches, named for the blurb and the caution note ("Current Ratio is" / "Current Ratio and Debt/EBITDA are").
+  const breaches = data.unrescued_breaches ?? [];
+  const breachList = breaches.map((key) => RATIO_LABELS[key] ?? key).join(" and ");
+  const breachNames = breaches.length > 1 ? `${breachList} are` : `${breachList} is`;
 
   const blurb = isBank
     ? data.bank_capital_metrics_editable
@@ -193,18 +230,15 @@ export function Step5Card({ ticker }: Props) {
       : data.verdict === "insufficient_data"
         ? `Required balance sheet/income statement figures were unavailable for ${ticker}.`
         : data.hard_fail
-          ? "At least one ratio breached its hard limit, so this fails regardless of the blended score."
+          ? // Bank (CET1/NPL) and REIT (gearing) only: their hard fail is unchanged.
+            "At least one ratio breached its hard limit, so this may not pass regardless of the blended score."
           : data.pass_with_caution
-            ? "No ratio breached its hard limit outright, but see the caution note below."
-            : // `hard_fail` only fires from a literal ratio breach -- a ticker can
-              // still land on a Fail verdict via the score<70 floor
-              // (`_verdict_for`, see CLAUDE.md's Debt deviations) with no ratio
-              // ever breaching its hard limit at all (e.g. a mediocre-but-legal
-              // REIT gearing tier). Naming that mechanism avoids stating "No
-              // ratio breached its hard limit" next to a Fail badge.
-              data.verdict === "Fail"
-              ? "No individual ratio breached its hard limit outright, but the blended score still fell short of the Pass threshold."
-              : "No ratio breached its hard limit.";
+            ? "The blended score reaches the Pass threshold, but see the caution note below."
+            : data.verdict === "Fail"
+              ? breaches.length > 0
+                ? `${breachNames} in breach and the blended score falls short of the Pass threshold (70), so Debt may not pass.`
+                : "No ratio is in breach, but the blended score falls short of the Pass threshold (70), so Debt may not pass."
+              : "No ratio is in breach.";
 
   const notes = (
     <>
@@ -236,7 +270,7 @@ export function Step5Card({ ticker }: Props) {
         </p>
       )}
       {!isBank && !isInsurance && data.pass_with_caution && (
-        <p className="text-sm text-caution">Pass with caution: {savedRatioSummary(data.ratios)}.</p>
+        <p className="text-sm text-caution">Pass with caution: {cautionSummary(data, breaches)}.</p>
       )}
     </>
   );
@@ -247,8 +281,9 @@ export function Step5Card({ ticker }: Props) {
         title="Debt"
         score={data.score}
         verdict={data.verdict}
+        verdictText={debtVerdictLabel(data.verdict)}
         blurb={blurb}
-        methodology={METHODOLOGY}
+        methodology={methodology(data)}
         notes={notes}
         bullets={bullets}
       />

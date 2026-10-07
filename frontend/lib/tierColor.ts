@@ -57,6 +57,14 @@ export function verdictLabel(verdict: string): string {
   return pillLabel(verdict);
 }
 
+// Display wording for a Step 5 (Debt) verdict (2026-10-07): the stored key "Fail" reads "May not pass" on every Debt surface. Display only:
+// every comparison (verdict === "Fail", the Review gate, the Overall rollup) still runs on the raw value, and the other steps and the
+// Overall verdict keep saying "Fail".
+export const DEBT_FAIL_LABEL = "May not pass";
+export function debtVerdictLabel(verdict: string): string {
+  return verdict === "Fail" ? DEBT_FAIL_LABEL : pillLabel(verdict);
+}
+
 // Display-only sentence casing for a pill label ("Strong Pass" -> "Strong
 // pass", "Wide Moat" -> "Wide moat", "Growth Rate · 25% · 92" -> "Growth rate
 // · 25% · 92"). Backend strings stay as-is -- every comparison

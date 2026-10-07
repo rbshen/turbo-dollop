@@ -15,6 +15,7 @@ import {
   displayedReview,
   REVIEW_STATUS_LABEL,
   REVIEW_STATUS_TONE,
+  reasonVerdictLabel,
   reviewHintLabel,
   reviewStepName,
   type DisplayedReview,
@@ -27,7 +28,7 @@ import {
   type OverallAssessment,
   type StepBreakdownEntry,
 } from "@/lib/overallScore";
-import { TONE_TEXT_CLASS, toneFor, toneForNullable, pillLabel, verdictLabel } from "@/lib/tierColor";
+import { DEBT_FAIL_LABEL, TONE_TEXT_CLASS, toneFor, toneForNullable, pillLabel, verdictLabel } from "@/lib/tierColor";
 
 interface Props {
   ticker: string;
@@ -40,6 +41,15 @@ function rollupSummary(breakdown: StepBreakdownEntry[]): string {
   const counted = breakdown.filter((b) => b.score != null);
   const passing = counted.filter((b) => b.verdict !== "Fail").length;
   return `${passing} of ${counted.length} weighted components at Pass level or better.`;
+}
+
+// "Financials failed" / "Debt may not pass" (Debt's stored "Fail" reads "May not pass", display only; the other steps keep "failed").
+function failingStepsText(labels: string[]): string {
+  const failed = labels.filter((label) => label !== "Debt");
+  const parts: string[] = [];
+  if (failed.length > 0) parts.push(`${failed.join(", ")} failed`);
+  if (failed.length < labels.length) parts.push(`Debt ${DEBT_FAIL_LABEL.toLowerCase()}`);
+  return parts.join("; ");
 }
 
 // The three multipliers the description quotes: Wide and No moat are fixed, Narrow is the saved setting.
@@ -199,7 +209,7 @@ function ReviewStatusBlock({ review }: { review: DisplayedReview }) {
       <ul className="list-disc space-y-1 pl-6">
         {review.reasons.map((reason) => (
           <li key={reason.step}>
-            <span className="font-semibold">{reviewStepName(reason.step)}</span> scored {reason.score} ({reason.verdict}):{" "}
+            <span className="font-semibold">{reviewStepName(reason.step)}</span> scored {reason.score} ({reasonVerdictLabel(reason)}):{" "}
             {reason.evidence}
             {reason.guarded && ` If the data is confirmed this would read ${reviewHintLabel(reason.raw_hint)}.`}
           </li>
@@ -263,7 +273,7 @@ export function OverallAssessmentView({
             <p className="text-sm text-warn">
               <Warning size={16} weight="bold" aria-hidden="true" className="-mt-0.5 mr-1.5 inline" />
               <span className="sr-only">Warning: </span>
-              {result.failingSteps.join(", ")} failed — reflected in the weighted score above, but worth reviewing
+              {failingStepsText(result.failingSteps)} — reflected in the weighted score above, but worth reviewing
               directly.
             </p>
           )}
@@ -274,8 +284,9 @@ export function OverallAssessmentView({
             <p className="text-sm text-caution">
               <Warning size={16} weight="bold" aria-hidden="true" className="-mt-0.5 mr-1.5 inline" />
               <span className="sr-only">Warning: </span>
-              {result.cautionSteps.join(", ")} passed with caution — a real breach was excused by its tiebreaker,
-              reflected in the weighted score above, but worth reviewing directly.
+              {result.cautionSteps.join(", ")} passed with caution — a real breach was excused by its tiebreaker (or, for
+              Debt, is still unrescued but outweighed by the other ratios), reflected in the weighted score above, but
+              worth reviewing directly.
             </p>
           )}
         </>

@@ -42,7 +42,7 @@ describe("ReviewPill", () => {
   it("the tooltip carries the Overall score and verdict, the step, the evidence and the conviction", () => {
     render(<ReviewPill review={stored("review_unclear")} overallScore={71} />);
     expect(screen.getByText("Review (unclear)").getAttribute("title")).toBe(
-      "Overall 71 would read Pass. Debt scored 43 (Fail). Current Ratio 0.78 (borderline_fail): below 1.0 in 1 of the last 5 fiscal years and 5 of the last 8 quarters. Conviction: high.",
+      "Overall 71 would read Pass. Debt scored 43 (May not pass). Current Ratio 0.78 (borderline_fail): below 1.0 in 1 of the last 5 fiscal years and 5 of the last 8 quarters. Conviction: high.",
     );
   });
 
@@ -74,6 +74,6 @@ describe("ReviewMarker", () => {
 
   it("omits the Overall sentence when the row carries no verdict (the tooltip helper skips it)", () => {
     render(<ReviewMarker review={{ ...stored("review_unclear"), overall_verdict: undefined }} overallScore={71} />);
-    expect(screen.getByTestId("review-marker").getAttribute("title")).toMatch(/^Debt scored 43 \(Fail\)\./);
+    expect(screen.getByTestId("review-marker").getAttribute("title")).toMatch(/^Debt scored 43 \(May not pass\)\./);
   });
 });

@@ -137,8 +137,22 @@ function WeightsForm({ data, saver }: { data: ScoreWeightsOut; saver: SettingsSa
     return { group: group.key, sum, needs: data.sums[group.key], ok: sum === data.sums[group.key] };
   });
 
+  // Strict orderings (the endpoint's `orderings`: Debt/EBITDA > Debt Servicing > Current ratio), checked on what is typed once every
+  // entry of the group is a number. One message per group that breaks its order.
+  const orderMessages: Partial<Record<ScoreWeightGroupKey, string>> = {};
+  for (const group of GROUPS) {
+    const order = data.orderings?.[group.key];
+    if (!order) continue;
+    const typed = order.map((field) => checks[textKey(group.key, field)].value);
+    if (typed.some((v) => v === null)) continue;
+    if (typed.some((v, i) => i > 0 && (typed[i - 1] as number) <= (v as number))) {
+      const names = order.map((field) => group.fields.find((f) => f.key === field)?.label ?? field).join(" > ");
+      orderMessages[group.key] = `${group.title} weights must keep this order, each strictly larger than the next: ${names}.`;
+    }
+  }
+
   const fieldsInvalid = Object.values(checks).some((c) => c.error !== null);
-  const invalid = fieldsInvalid || sums.some((s) => !s.ok);
+  const invalid = fieldsInvalid || sums.some((s) => !s.ok) || Object.keys(orderMessages).length > 0;
   const unchanged = GROUPS.every((group) =>
     group.fields.every(
       (field) => checks[textKey(group.key, field.key)].value === (data.weights[group.key] as Record<string, number>)[field.key],
@@ -218,6 +232,11 @@ function WeightsForm({ data, saver }: { data: ScoreWeightsOut; saver: SettingsSa
             />
           ))}
           <SumCaption sum={sums[index + 1]} />
+          {orderMessages[group.key] && (
+            <p role="alert" data-testid="weight-order" className="pb-2 text-xs text-negative">
+              {orderMessages[group.key]}
+            </p>
+          )}
         </SettingsGroup>
       ))}
 
@@ -227,7 +246,11 @@ function WeightsForm({ data, saver }: { data: ScoreWeightsOut; saver: SettingsSa
           Banks, Insurance, Utilities and REITs use fewer parts, so the Financials and Profitability weights apply only to the
           checks that exist for them; the rest share the weight in proportion.
         </p>
-        <p>A hard fail still reads Fail whatever the weights.</p>
+        <p>
+          Debt has no hard fail: a ratio in breach scores 0 (or close to it) and the weights decide the rest. Debt/EBITDA must be the
+          largest Debt weight and Current ratio the smallest, so a breach cannot be averaged away. Banks and REITs keep their hard
+          limits.
+        </p>
         <p>Applies to all tickers. Saving recomputes all scores (about a minute).</p>
       </div>
 

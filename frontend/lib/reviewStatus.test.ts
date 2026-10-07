@@ -36,7 +36,7 @@ describe("label and tone", () => {
 describe("reviewTooltip", () => {
   it("reads Overall, the step, the evidence and the conviction", () => {
     expect(reviewTooltip(78, "Pass", [STEP5], "medium")).toBe(
-      "Overall 78 would read Pass. Debt scored 43 (Fail). Debt/EBITDA 3.59x (borderline_fail): outside +/-20%. Conviction: medium.",
+      "Overall 78 would read Pass. Debt scored 43 (May not pass). Debt/EBITDA 3.59x (borderline_fail): outside +/-20%. Conviction: medium.",
     );
   });
 
@@ -50,7 +50,7 @@ describe("reviewTooltip", () => {
   it("adds what a guarded step would read once the data is confirmed", () => {
     const guarded: ReviewReason = { ...STEP5, hint: "data_uncertain", raw_hint: "structural", guarded: true, evidence: "Debt servicing ratio 89.9%" };
     expect(reviewTooltip(81, "Pass", [guarded], "high")).toBe(
-      "Overall 81 would read Pass. Debt scored 43 (Fail). Debt servicing ratio 89.9%. If the data is confirmed this would read Review (structural). Conviction: high.",
+      "Overall 81 would read Pass. Debt scored 43 (May not pass). Debt servicing ratio 89.9%. If the data is confirmed this would read Review (structural). Conviction: high.",
     );
   });
 

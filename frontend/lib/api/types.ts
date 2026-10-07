@@ -441,10 +441,18 @@ export interface Step5Out {
   // null for Bank (not yet supported) or when required data is missing.
   score: number | null;
   // "Fail" / "Pass" / "Strong Pass" / "Pass with caution" for scored
-  // tickers; "not_supported" for Bank; "insufficient_data" when required
-  // figures are missing.
+  // tickers ("Fail" is the stored key for a blend under 70; the Debt card
+  // DISPLAYS it as "May not pass" -- see debtVerdictLabel in lib/tierColor.ts);
+  // "not_supported" for Bank; "insufficient_data" when required figures
+  // are missing.
   verdict: string;
+  // Bank (CET1/NPL) and REIT (gearing) only: a ratio past its hard limit
+  // forces Fail. Always false on the Standard path (no hard fail since
+  // 2026-10-07); see unrescued_breaches.
   hard_fail: boolean;
+  // Standard path: keys of `ratios` in an unrescued breach this period. A
+  // blend of 70 or more that holds one reads "Pass with caution".
+  unrescued_breaches: string[];
   // True whenever verdict === "Pass with caution".
   pass_with_caution: boolean;
   // Weight each ratio contributed to `score`, keyed the same as `ratios`.
@@ -670,6 +678,8 @@ export interface ScoreWeightsOut {
   bounds: { [G in ScoreWeightGroupKey]: Record<keyof ScoreWeightGroups[G], WeightBoundsOut> };
   /** What each group's weights must add up to. */
   sums: Record<ScoreWeightGroupKey, number>;
+  /** Strict orderings a group must keep, largest weight first (only step5: Debt/EBITDA > Debt Servicing > Current Ratio). */
+  orderings: Partial<Record<ScoreWeightGroupKey, string[]>>;
   weights_version: number;
   /** The current Overall formula version: a stored row scored under another one is stale (see TickerScoreOut.formula_version). */
   formula_version: number;

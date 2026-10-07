@@ -34,7 +34,7 @@ const DEFAULTS = {
   step1: { revenue: 35, net_income: 20, cfo: 30, margins: 10, fcf: 5 },
   step2: { magnitude: 70, agreement: 30 },
   step4: { roe: 25, roic: 35, ar: 20, ccc: 20 },
-  step5: { current_ratio: 33, debt_to_ebitda: 33, debt_servicing: 34 },
+  step5: { current_ratio: 25, debt_to_ebitda: 45, debt_servicing: 30 },
 };
 
 const BOUNDS = {
@@ -42,7 +42,7 @@ const BOUNDS = {
   step1: { revenue: { min: 20, max: 50 }, net_income: { min: 10, max: 40 }, cfo: { min: 10, max: 40 }, margins: { min: 0, max: 25 }, fcf: { min: 0, max: 15 } },
   step2: { magnitude: { min: 50, max: 100 }, agreement: { min: 0, max: 50 } },
   step4: { roe: { min: 15, max: 60 }, roic: { min: 15, max: 60 }, ar: { min: 0, max: 30 }, ccc: { min: 0, max: 30 } },
-  step5: { current_ratio: { min: 15, max: 60 }, debt_to_ebitda: { min: 15, max: 60 }, debt_servicing: { min: 15, max: 60 } },
+  step5: { current_ratio: { min: 15, max: 30 }, debt_to_ebitda: { min: 35, max: 60 }, debt_servicing: { min: 15, max: 30 } },
 };
 
 function payload(overrides: Partial<ScoreWeightsOut> = {}): ScoreWeightsOut {
@@ -52,6 +52,7 @@ function payload(overrides: Partial<ScoreWeightsOut> = {}): ScoreWeightsOut {
     overall_total: 100,
     bounds: structuredClone(BOUNDS),
     sums: { overall: 100, step1: 100, step2: 100, step4: 100, step5: 100 },
+    orderings: { step5: ["debt_to_ebitda", "debt_servicing", "current_ratio"] },
     weights_version: 1,
     formula_version: 2,
     updated_at: "2026-10-06T09:00:00",
@@ -108,7 +109,7 @@ describe("ScoreWeightingForm: layout", () => {
     expect(["revenue", "net_income", "cfo", "margins", "fcf"].map((f) => input("step1", f).value)).toEqual(["35", "20", "30", "10", "5"]);
     expect(["magnitude", "agreement"].map((f) => input("step2", f).value)).toEqual(["70", "30"]);
     expect(["roe", "roic", "ar", "ccc"].map((f) => input("step4", f).value)).toEqual(["25", "35", "20", "20"]);
-    expect(["current_ratio", "debt_to_ebitda", "debt_servicing"].map((f) => input("step5", f).value)).toEqual(["33", "33", "34"]);
+    expect(["current_ratio", "debt_to_ebitda", "debt_servicing"].map((f) => input("step5", f).value)).toEqual(["25", "45", "30"]);
     const row = input("overall", "debt").closest("div.grid");
     expect(row).toHaveClass("sm:grid-cols-[minmax(0,1fr)_16rem]");
   });
@@ -128,7 +129,8 @@ describe("ScoreWeightingForm: layout", () => {
     const text = document.body.textContent ?? "";
     expect(text).toContain("A weight of 0 means the part is not counted in the score, but missing data can still affect the check.");
     expect(text).toContain("Banks, Insurance, Utilities and REITs use fewer parts");
-    expect(text).toContain("A hard fail still reads Fail whatever the weights.");
+    expect(text).toContain("Debt has no hard fail");
+    expect(text).not.toContain("A hard fail still reads Fail whatever the weights.");
     expect(text).toContain("Applies to all tickers. Saving recomputes all scores (about a minute).");
   });
 });
@@ -167,7 +169,9 @@ describe("ScoreWeightingForm: validation", () => {
     ["step1", "margins", "26", "Enter a value between 0 and 25."],
     ["step2", "magnitude", "49", "Enter a value between 50 and 100."],
     ["step4", "roe", "14", "Enter a value between 15 and 60."],
-    ["step5", "current_ratio", "61", "Enter a value between 15 and 60."],
+    ["step5", "current_ratio", "31", "Enter a value between 15 and 30."],
+    ["step5", "debt_to_ebitda", "34", "Enter a value between 35 and 60."],
+    ["step5", "debt_servicing", "31", "Enter a value between 15 and 30."],
   ])("rejects %s/%s = %s with the range message and blocks Save", (group, field, value, message) => {
     render(<ScoreWeightingForm />);
     type(input(group, field), value);
@@ -180,6 +184,31 @@ describe("ScoreWeightingForm: validation", () => {
     render(<ScoreWeightingForm />);
     type(input("step1", "cfo"), value);
     expect(screen.getAllByRole("alert")[0]).toHaveTextContent(value === "17.5" ? "Enter a whole number." : "Enter a number.");
+    expect(save()).toBeDisabled();
+  });
+
+  it("blocks Save when the Debt weights break the strict order Debt/EBITDA > Debt servicing > Current ratio, and says so", () => {
+    render(<ScoreWeightingForm />);
+    // 40 / 30 / 30 adds up to 100 and is inside every bound, but Debt servicing and Current ratio are tied.
+    type(input("step5", "current_ratio"), "30");
+    type(input("step5", "debt_to_ebitda"), "40");
+    expect(sums()[4]).toBe("Sum 100 of 100");
+    expect(screen.getByTestId("weight-order")).toHaveTextContent(
+      "Debt weights must keep this order, each strictly larger than the next: Debt / EBITDA > Debt servicing ratio > Current ratio.",
+    );
+    expect(save()).toBeDisabled();
+    // 41 / 30 / 29 is the lowest usable set: the message goes and Save is allowed.
+    type(input("step5", "current_ratio"), "29");
+    type(input("step5", "debt_to_ebitda"), "41");
+    expect(screen.queryByTestId("weight-order")).toBeNull();
+    expect(save()).toBeEnabled();
+  });
+
+  it("flags Debt servicing above Debt/EBITDA even when the sum and bounds hold (a swap of the two)", () => {
+    render(<ScoreWeightingForm />);
+    type(input("step5", "debt_to_ebitda"), "30");
+    type(input("step5", "debt_servicing"), "45");
+    expect(screen.getByTestId("weight-order")).toBeInTheDocument();
     expect(save()).toBeDisabled();
   });
 
@@ -223,8 +252,8 @@ describe("ScoreWeightingForm: Save", () => {
     type(input("overall", "financials"), "32");
     type(input("overall", "growth"), "18");
     type(input("step5", "current_ratio"), "20");
-    type(input("step5", "debt_to_ebitda"), "40");
-    type(input("step5", "debt_servicing"), "40");
+    type(input("step5", "debt_to_ebitda"), "50");
+    type(input("step5", "debt_servicing"), "30");
     fireEvent.click(save());
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Confirm" })));
     expect(mockedPut).toHaveBeenCalledTimes(1);
@@ -233,7 +262,7 @@ describe("ScoreWeightingForm: Save", () => {
       step1: DEFAULTS.step1,
       step2: DEFAULTS.step2,
       step4: DEFAULTS.step4,
-      step5: { current_ratio: 20, debt_to_ebitda: 40, debt_servicing: 40 },
+      step5: { current_ratio: 20, debt_to_ebitda: 50, debt_servicing: 30 },
     });
     expect(h.refresh).toHaveBeenCalledTimes(1);
     expect(h.revalidate).toHaveBeenCalledTimes(1);
