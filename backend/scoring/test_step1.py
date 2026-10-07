@@ -166,7 +166,7 @@ def test_an_insufficient_data_series_is_a_gap_not_a_scored_zero():
 
 # --- Net Income Operating Income backup (completed fiscal years) --------------------------------------------------------------------------
 
-WEAK_NI = [100, 140, 120, 150, 130, 170, 190, 150, 210, 185]  # a recent real dip (age 0); engine score 69 (<= 79)
+WEAK_NI = [100, 140, 120, 150, 130, 150, 160, 130, 170, 150]  # a recent real dip (age 0); engine score 58 (<= 79)
 REVENUE = [600, 650, 700, 750, 800, 850, 900, 950, 1000, 1050]
 CLEAN_OI = [200 + 20.0 * t for t in range(N)]
 

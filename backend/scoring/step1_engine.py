@@ -75,6 +75,10 @@ DISCOUNT_MAX = 80.0  # D(K) = DISCOUNT_MAX * (1 - exp(-(K / DISCOUNT_SCALE) ** D
 DISCOUNT_SCALE = 12.0
 DISCOUNT_POWER = 1.5
 LAST_YEAR_MAX_CUT = 0.6  # last completed fiscal year: the score is multiplied by 1 - cut * s
+# Age decay (docs/specs/financials.md, "Age-decayed dip costs"): a dip's cost and an underwater year's cost are multiplied by
+# d = 1 - (1 - 0.5 ** (age / DECAY_HALF_LIFE_YEARS)) * s, age = completed fiscal years before the last one (last year = 0), and
+# s = clamp(min(g, g without the last year) / trend_full, 0, 1): the forgiveness is earned only by a real, lasting uptrend. s = 0 -> d = 1.
+DECAY_HALF_LIFE_YEARS = 4.0
 DIPS_LABEL_MIN_K = 0.25  # "_dips" is appended to the label from this burden up
 # Positivity ceiling (RATIO only): a series whose latest value is at or below zero is capped at CEILING_AT_ZERO, falling linearly to
 # 0 at CEILING_ZERO_LOSS points of loss. A positive latest value is not capped.
@@ -147,15 +151,16 @@ def _peak_candidates(y: np.ndarray, lift: float) -> np.ndarray:
     return cand
 
 
-def _years_underwater(y: np.ndarray, cand: np.ndarray, g: float, kind: str, p: KindParams) -> float:
+def _years_underwater(y: np.ndarray, cand: np.ndarray, g: float, kind: str, p: KindParams) -> np.ndarray:
+    """How much of each year counts as underwater (0-1), oldest first."""
     n = len(y)
-    total = 0.0
+    out = np.zeros(n)
     if kind == RATIO:
         decay = min(0.0, g)
         for t in range(n):
             peak = max(cand[s] + decay * (t - s) for s in range(t + 1))
-            total += _ramp(peak - y[t], p.underwater_lo, p.underwater_hi)
-        return total
+            out[t] = _ramp(peak - y[t], p.underwater_lo, p.underwater_hi)
+        return out
     base = max(0.0, 1.0 + min(0.0, g))
     positive = [s for s in range(n) if cand[s] > 0]
     for t in range(n):
@@ -163,8 +168,19 @@ def _years_underwater(y: np.ndarray, cand: np.ndarray, g: float, kind: str, p: K
         if not peaks:
             continue
         peak = max(peaks)
-        total += _ramp((peak - y[t]) / max(abs(peak), BASE_FLOOR), p.underwater_lo, p.underwater_hi)
-    return total
+        out[t] = _ramp((peak - y[t]) / max(abs(peak), BASE_FLOOR), p.underwater_lo, p.underwater_hi)
+    return out
+
+
+def _age_decay(y: np.ndarray, g: float, p: KindParams) -> np.ndarray:
+    """The factor d per year (oldest first) applied to that year's dip and underwater costs: 1 for the last year and for any series
+    without a real, lasting uptrend; down to 0.5 ** (age / DECAY_HALF_LIFE_YEARS) for a series at full trend. The trend is the weaker of the
+    full window's and the window without the last year's, so one final-year spike cannot unlock the forgiveness."""
+    n = len(y)
+    g_before_last = _trend(y[:-1]) if n > 2 else 0.0
+    s = float(min(max(min(g, g_before_last) / p.trend_full, 0.0), 1.0))
+    age = np.arange(n - 1, -1, -1)
+    return 1.0 - (1.0 - 0.5 ** (age / DECAY_HALF_LIFE_YEARS)) * s
 
 
 def assess_series_detail(values: Sequence[float], kind: str) -> SeriesAssessment:
@@ -197,9 +213,10 @@ def assess_series_detail(values: Sequence[float], kind: str) -> SeriesAssessment
         if y[t] < running_peak:
             unresolved[t - 1] = 1.0 - _ramp(y[-1] - y[t], 0.0, running_peak - y[t])
         running_peak = max(running_peak, cand[t])
-    burden = float(np.sum(weight * (1.0 + UNRESOLVED_FACTOR * unresolved))) + UNDERWATER_WEIGHT * _years_underwater(
-        y, cand, g, kind, p
-    )
+    decay = _age_decay(y, g, p)
+    # excess[t - 1] / weight[t - 1] is the fall into year t, so it ages as year t; the unrecovered extra is never decayed
+    dip_cost = float(np.sum(weight * (decay[1:] + UNRESOLVED_FACTOR * unresolved)))
+    burden = dip_cost + UNDERWATER_WEIGHT * float(np.sum(decay * _years_underwater(y, cand, g, kind, p)))
 
     discount = DISCOUNT_MAX * (1.0 - math.exp(-((burden / DISCOUNT_SCALE) ** DISCOUNT_POWER)))
     last_cut = 1.0 - LAST_YEAR_MAX_CUT * _ramp(float(excess[-1]), p.last_year_lo, p.last_year_hi)
