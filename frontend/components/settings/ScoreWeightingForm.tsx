@@ -3,13 +3,11 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { NumberField } from "@/components/ui/number-field";
 import { NumberSettingRow } from "@/components/settings/NumberSettingRow";
 import { RecomputeStatusLine } from "@/components/settings/RecomputeStatusLine";
 import {
   SettingsFooter,
   SettingsGroup,
-  SettingsRow,
   SettingsSection,
 } from "@/components/settings/SettingsLayout";
 import { useSettingsSave, type SettingsSaver } from "@/components/settings/useSettingsSave";
@@ -183,7 +181,7 @@ function WeightsForm({ data, saver }: { data: ScoreWeightsOut; saver: SettingsSa
   return (
     <SettingsSection
       title="Score weighting"
-      intro="Sets how much each check counts in a ticker's Overall Assessment, and how much each part counts inside each check. The weights are whole numbers and apply to all tickers. Economic moat is fixed at 31%; the four automated checks split the other 69%."
+      intro="Sets how much each check counts in a ticker's Overall Assessment, and how much each part counts inside each check. The weights are whole numbers and apply to all tickers. The four automated checks add up to 100% and give the Steps score; the Economic moat multiplier (Settings > Economic moat) is then applied to it."
     >
       <RecomputeStatusLine />
 
@@ -201,13 +199,6 @@ function WeightsForm({ data, saver }: { data: ScoreWeightsOut; saver: SettingsSa
             disabled={locked}
           />
         ))}
-        <SettingsRow
-          label="Economic moat"
-          htmlFor="weight-moat-locked"
-          hint="Fixed at 31% so a No moat rating always fails. It is not one of the four weights above and cannot be changed."
-        >
-          <NumberField id="weight-moat-locked" value={String(data.moat_weight)} onChange={() => {}} size="short" unit="%" readOnly disabled />
-        </SettingsRow>
         <SumCaption sum={sums[0]} />
       </SettingsGroup>
 

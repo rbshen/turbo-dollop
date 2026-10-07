@@ -1,10 +1,11 @@
 import { pySum, roundHalfEven } from "@/lib/pyNumeric";
 
-// The Overall Assessment blend: a TypeScript mirror of backend/scoring/overall.py::compute_overall_assessment. The weights are NOT
-// constants here any more: they are the saved set (GET /api/config/score-weights, hook useScoreWeights), passed in by the caller,
-// so the backend's scoring/weights.py stays the one definition. The four step weights are whole numbers adding up to
-// `overallTotal` (69) and each step's share is its weight over that total; Economic Moat is the locked remainder
-// (`moatWeight`, 31 percent). Both implementations read the shared fixture backend/tests/fixtures/overall_verdict_cases.json.
+// Overall Assessment = Steps score x Moat multiplier: a TypeScript mirror of backend/scoring/overall.py::compute_overall_assessment. The Steps
+// score is the weighted blend of the four automated steps (Financials, Growth Rate, Profitability, Debt), kept unrounded; Economic Moat is not
+// a blend component, it scales that score, and Overall is rounded once, after the multiplication. The step weights are the saved set
+// (GET /api/config/score-weights, hook useScoreWeights), whole numbers adding up to `overallTotal` (100), passed in by the caller so the
+// backend's scoring/weights.py stays the one definition; the Narrow multiplier is the saved setting (GET /api/config/moat). Both
+// implementations read the shared fixture backend/tests/fixtures/overall_verdict_cases.json.
 export interface OverallWeights {
   financials: number;
   growth: number;
@@ -14,10 +15,8 @@ export interface OverallWeights {
 
 export interface OverallBlendWeights {
   overall: OverallWeights;
-  /** What the four overall weights add up to (69). */
+  /** What the four overall weights add up to (100). */
   overallTotal: number;
-  /** Economic Moat's locked share of Overall, in percent (31). */
-  moatWeight: number;
 }
 
 const STEP_WEIGHT_FIELD = { step1: "financials", step2: "growth", step4: "profitability", step5: "debt" } as const;
@@ -36,13 +35,15 @@ function inCanonicalOrder<T extends { key: StepKey }>(items: T[]): T[] {
   return [...items].sort((a, b) => STEP_ORDER.indexOf(a.key) - STEP_ORDER.indexOf(b.key));
 }
 
-// Overall verdict for a ticker with NO Moat rating whose four automated steps would otherwise read Pass / Pass with
-// caution / Strong Pass: Moat is non-negotiable, so an unrated ticker cannot pass. A stable key (stored in
-// TickerScore.overall_verdict), not display text -- lib/tierColor.ts::verdictLabel turns it into "Moat not rated".
-// Verdict only: the score is still the steps-only blend. Mirrors backend/scoring/overall.py::MOAT_NOT_RATED_VERDICT /
-// MOAT_NOT_RATED_REASON.
-export const MOAT_NOT_RATED_VERDICT = "moat_not_rated";
-export const MOAT_NOT_RATED_REASON = "Moat not rated: rate the moat to enable a Pass";
+// Moat multipliers. Wide and No moat are fixed (backend scoring/overall.py::WIDE_MOAT_MULTIPLIER / NO_MOAT_MULTIPLIER); Narrow is the
+// saved setting, one of NARROW_MOAT_MULTIPLIER_OPTIONS (default 0.85). A ticker with Moat unset is scored as No moat.
+export const WIDE_MOAT_MULTIPLIER = 1.0;
+export const NO_MOAT_MULTIPLIER = 0.7;
+export const NARROW_MOAT_MULTIPLIER_OPTIONS = [0.8, 0.82, 0.85, 0.87, 0.9] as const;
+export const DEFAULT_NARROW_MOAT_MULTIPLIER = 0.85;
+
+// Shown beside the verdict when Moat is unset. Mirrors backend/scoring/overall.py::MOAT_NOT_RATED_NOTE.
+export const MOAT_NOT_RATED_NOTE = "Moat not rated, scored as No moat";
 
 // Shared 0-69/70-90/91-100 verdict bands used everywhere else in the app
 // (see CLAUDE.md's "Scoring rubric deviations") -- must match backend
@@ -64,11 +65,11 @@ export const MOAT_LABELS: Record<MoatValue, string> = {
   wide_moat: "Wide Moat",
 };
 
-export interface MoatSnapshot {
-  moat: MoatValue;
-  // Resolved point value (0-100) from MoatScoreConfig for this moat state --
-  // callers resolve this before calling computeOverallAssessment.
-  score: number;
+/** The multiplier for a Moat state (null/undefined = unset = No moat) under the saved Narrow setting. */
+export function moatMultiplier(moat: MoatValue | null | undefined, narrowMultiplier: number = DEFAULT_NARROW_MOAT_MULTIPLIER): number {
+  if (moat === "wide_moat") return WIDE_MOAT_MULTIPLIER;
+  if (moat === "narrow_moat") return narrowMultiplier;
+  return NO_MOAT_MULTIPLIER;
 }
 
 export type StepStatus = "loading" | "ok" | "exempt" | "error" | "incomplete";
@@ -82,12 +83,12 @@ export interface StepSnapshot {
 }
 
 export interface StepBreakdownEntry {
-  key: StepKey | "moat";
+  key: StepKey;
   label: string;
   baseWeight: number;
   // The weight actually used in the calculation, renormalized across
-  // applicable steps -- null when the step was excluded (exempt) or when no
-  // score could be computed at all (incomplete/loading).
+  // applicable steps (they add up to 1) -- null when the step was excluded
+  // (exempt) or when no score could be computed at all (incomplete/loading).
   effectiveWeight: number | null;
   score: number | null;
   verdict: string | null;
@@ -96,10 +97,17 @@ export interface StepBreakdownEntry {
 
 export interface OverallAssessment {
   status: "loading" | "complete" | "incomplete";
+  /** Overall: round(stepsScore x moatMultiplier), rounded once. */
   score: number | null;
-  verdict: "Strong Pass" | "Pass" | "Pass with caution" | "Fail" | typeof MOAT_NOT_RATED_VERDICT | null;
-  // Short explanation beside a "moat_not_rated" verdict; null/absent otherwise.
-  verdictReason?: string | null;
+  /** The weighted blend of the steps, UNROUNDED (show one decimal). null when loading or incomplete. */
+  stepsScore: number | null;
+  /** The multiplier applied (1.0 / the saved Narrow value / 0.7). null when loading or incomplete. */
+  moatMultiplier: number | null;
+  verdict: "Strong Pass" | "Pass" | "Pass with caution" | "Fail" | null;
+  /** The Moat rating the multiplier came from (null = unset, scored as No moat). */
+  moat: MoatValue | null;
+  /** MOAT_NOT_RATED_NOTE when Moat is unset (complete assessments only); null otherwise. */
+  moatNote: string | null;
   breakdown: StepBreakdownEntry[];
   incompleteSteps: string[];
   failingSteps: string[];
@@ -131,27 +139,21 @@ function statusFor(snapshot: StepSnapshot): StepStatus {
  * mocking SWR/React -- the OverallAssessmentCard component is a thin wrapper
  * around this that supplies live hook data.
  *
- * `moat`: omitted/`undefined` or `null` both mean confirmed "not set" (the
- * default -- byte-identical to the pre-Moat behavior below, and the
- * omitted-arg form every existing call site/test uses); a `MoatSnapshot`
- * means a moat is set and its point value has been resolved. `moatLoading`
- * is a SEPARATE flag (default `false`, so omitting it never changes
- * existing behavior) the caller sets while its moat/moat-config SWR hooks
- * haven't settled yet -- kept distinct from `moat` itself so "not set" and
- * "still loading" can't be confused the way overloading `undefined` for
- * both would. Once resolved, Moat is applied as a SECOND stage on top of
- * the Steps 1/2/4/5 blend (`0.69 * stepsScore + 0.31 * moat.score`), not
- * folded into a single flat weight table -- mirrors
- * backend/scoring/overall.py::compute_overall_assessment exactly; see that
- * module's docstring for why a flat renormalization doesn't reduce to this
- * formula once a step is also exempt/missing. */
+ * `moat`: omitted/`undefined` or `null` both mean confirmed "not set" (scored as No moat, with the note). `moatLoading` is a SEPARATE
+ * flag the caller sets while its Moat reads (the ticker's rating, and the Narrow setting when it is Narrow) haven't settled yet --
+ * kept distinct from `moat` itself so "not set" and "still loading" can't be confused. `narrowMultiplier` is the saved Narrow setting
+ * (only read for a Narrow rating). Steps score = the weighted average of the steps that apply (an exempt "not_supported" step is
+ * excluded and the rest reweighted; any step with missing data makes the whole assessment incomplete, which no Moat rating can
+ * rescue), unrounded; Overall = round(steps score x multiplier). No cap and no hard-fail override: the verdict is read from the Overall
+ * score, and a step's "Pass with caution" still carries up beside an otherwise-passing score. Mirrors
+ * backend/scoring/overall.py::compute_overall_assessment exactly. */
 export function computeOverallAssessment(
   steps: StepSnapshot[],
-  moat: MoatSnapshot | null | undefined,
+  moat: MoatValue | null | undefined,
   moatLoading: boolean,
-  weights: OverallBlendWeights
+  weights: OverallBlendWeights,
+  narrowMultiplier: number = DEFAULT_NARROW_MOAT_MULTIPLIER
 ): OverallAssessment {
-  const moatShare = weights.moatWeight / 100;
   // The breakdown keeps the caller's order (it is what the card lists); only the arithmetic below runs in canonical order.
   const withStatus = steps.map((s) => ({ ...s, status: statusFor(s) }));
 
@@ -159,7 +161,11 @@ export function computeOverallAssessment(
     return {
       status: "loading",
       score: null,
+      stepsScore: null,
+      moatMultiplier: null,
       verdict: null,
+      moat: moat ?? null,
+      moatNote: null,
       breakdown: withStatus.map((s) => ({
         key: s.key,
         label: s.label,
@@ -184,79 +190,40 @@ export function computeOverallAssessment(
   // misleading, so this short-circuits to an explicit incomplete state
   // rather than silently computing a partial number.
   const canCompute = incomplete.length === 0 && totalWeight > 0;
-  const stepsScore = canCompute
-    ? roundHalfEven(pySum(ok.map((s) => stepFraction(weights, s.key) * (s.data!.score as number))) / totalWeight)
-    : null;
+  const stepsScore = canCompute ? pySum(ok.map((s) => stepFraction(weights, s.key) * (s.data!.score as number))) / totalWeight : null;
+  const multiplier = canCompute ? moatMultiplier(moat, narrowMultiplier) : null;
+  const score = stepsScore !== null && multiplier !== null ? roundHalfEven(stepsScore * multiplier) : null;
 
   const failingSteps = ok.filter((s) => s.data!.verdict === "Fail").map((s) => s.label);
   const cautionSteps = ok.filter((s) => s.data!.verdict === "Pass with caution").map((s) => s.label);
-
-  let score: number | null;
-  let displayScale: number;
-  if (!moat) {
-    score = stepsScore;
-    displayScale = 1;
-  } else if (stepsScore === null) {
-    score = null;
-    displayScale = 1 - moatShare;
-  } else {
-    score = roundHalfEven((1 - moatShare) * stepsScore + moatShare * moat.score);
-    displayScale = 1 - moatShare;
-  }
 
   const breakdown: StepBreakdownEntry[] = withStatus.map((s) => ({
     key: s.key,
     label: s.label,
     baseWeight: stepFraction(weights, s.key),
-    effectiveWeight: canCompute && s.status === "ok" ? (stepFraction(weights, s.key) / totalWeight) * displayScale : null,
+    effectiveWeight: canCompute && s.status === "ok" ? stepFraction(weights, s.key) / totalWeight : null,
     score: s.data?.score ?? null,
     verdict: s.data?.verdict ?? null,
     status: s.status,
   }));
-  if (moat) {
-    breakdown.push({
-      key: "moat",
-      label: "Economic Moat",
-      baseWeight: moatShare,
-      effectiveWeight: score !== null ? moatShare : null,
-      score: moat.score,
-      // Deliberately not "Pass"/"Fail" text -- keeps Moat out of
-      // failingSteps above, which filters on verdict === "Fail".
-      verdict: MOAT_LABELS[moat.moat],
-      status: "ok",
-    });
-  }
 
-  // No hard-fail override among the 4 computed steps themselves --
-  // deliberately a pure weighted average there; the failingSteps warning
-  // note is the separate, non-blocking signal for "worth reviewing
-  // directly". Moat is the one deliberate exception: since it's
-  // user-asserted, not computed, a No Moat score of 0 combined with the
-  // 69/31 split can cap the overall score below the 70 Pass threshold
-  // regardless of how the 4 steps blend -- that's intended, not a bug.
-  // The verdict BAND, though, must match the shared bands used everywhere
-  // else in the app -- a score under 70 showing "Pass" was a bug.
+  // The verdict BAND must match the shared bands used everywhere else in the app.
   const scoreVerdict = score !== null ? verdictFor(score) : null;
   // A step-level "Pass with caution" flag must win over the blended
   // score's own band -- Fail stays Fail (already the strongest signal),
   // but an otherwise-green Pass/Strong Pass displays as caution instead.
   // This changes only the DISPLAYED verdict; `score` above is untouched.
-  let verdict: OverallAssessment["verdict"] =
+  const verdict: OverallAssessment["verdict"] =
     scoreVerdict !== null && scoreVerdict !== "Fail" && cautionSteps.length > 0 ? "Pass with caution" : scoreVerdict;
-  // Moat unset can never pass: a would-be Pass-family verdict on a complete steps-only score becomes
-  // "moat_not_rated". Fail stays Fail, incomplete stays incomplete (verdict null), `score` is untouched. Mirrors
-  // backend/scoring/overall.py::compute_overall_assessment.
-  let verdictReason: string | null = null;
-  if (!moat && canCompute && verdict !== null && verdict !== "Fail") {
-    verdict = MOAT_NOT_RATED_VERDICT;
-    verdictReason = MOAT_NOT_RATED_REASON;
-  }
 
   return {
     status: canCompute ? "complete" : "incomplete",
     score,
+    stepsScore,
+    moatMultiplier: multiplier,
     verdict,
-    verdictReason,
+    moat: moat ?? null,
+    moatNote: !moat && canCompute ? MOAT_NOT_RATED_NOTE : null,
     breakdown,
     incompleteSteps: canCompute ? [] : incomplete.map((s) => s.label),
     failingSteps,

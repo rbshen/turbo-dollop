@@ -48,9 +48,9 @@ describe("sortWatchlistRows", () => {
     expect(result.map((r) => r.ticker)).toEqual(["HIGH", "LOW"]);
   });
 
-  it("sorts a Moat not rated row by its steps-only score like any other", () => {
+  it("sorts an unrated (scored as No moat) row by its Overall score like any other", () => {
     const rows = [
-      row({ ticker: "UNRATED", overall_score: 81, overall_verdict: "moat_not_rated" }),
+      row({ ticker: "UNRATED", overall_score: 81, overall_verdict: "Pass", moat: null }),
       row({ ticker: "PASS", overall_score: 75, overall_verdict: "Pass" }),
       row({ ticker: "FAIL", overall_score: 60, overall_verdict: "Fail" }),
     ];

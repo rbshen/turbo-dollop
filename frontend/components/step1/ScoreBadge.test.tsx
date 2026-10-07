@@ -7,11 +7,10 @@ import { ScoreBadge } from "@/components/step1/ScoreBadge";
 afterEach(cleanup);
 
 describe("ScoreBadge (Screener card)", () => {
-  it("shows a Moat not rated ticker's steps-only score above a neutral Moat not rated pill", () => {
-    render(<ScoreBadge score={81} verdict="moat_not_rated" />);
-    expect(screen.getByText("81")).toBeInTheDocument();
-    expect(screen.getByText("Moat not rated")).toHaveClass("text-text-secondary");
-    expect(screen.queryByText("Moat_not_rated")).not.toBeInTheDocument();
+  it("draws any Overall verdict in its own tone and label (an unrated ticker reads its verdict from its x0.7 score)", () => {
+    render(<ScoreBadge score={56} verdict="Fail" />);
+    expect(screen.getByText("56")).toBeInTheDocument();
+    expect(screen.getByText("Fail")).toHaveClass("text-negative");
   });
 
   it("still tones a real Pass", () => {

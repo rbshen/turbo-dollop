@@ -5,6 +5,7 @@ import { Warning } from "@phosphor-icons/react";
 
 import { CircularScoreBadge } from "@/components/overall/CircularScoreBadge";
 import { Status, Verdict } from "@/components/ui/status";
+import { useMoatConfig } from "@/lib/hooks/useMoatConfig";
 import { useOverallAssessment } from "@/lib/hooks/useOverallAssessment";
 import { useTickerScore } from "@/lib/hooks/useTickerScore";
 import type { TickerScoreOut } from "@/lib/api/types";
@@ -16,7 +17,14 @@ import {
   reviewStepName,
   type DisplayedReview,
 } from "@/lib/reviewStatus";
-import type { OverallAssessment, StepBreakdownEntry } from "@/lib/overallScore";
+import {
+  DEFAULT_NARROW_MOAT_MULTIPLIER,
+  MOAT_LABELS,
+  NO_MOAT_MULTIPLIER,
+  WIDE_MOAT_MULTIPLIER,
+  type OverallAssessment,
+  type StepBreakdownEntry,
+} from "@/lib/overallScore";
 import { toneFor, toneForNullable, pillLabel, verdictLabel } from "@/lib/tierColor";
 
 interface Props {
@@ -46,11 +54,111 @@ function rollupSummary(breakdown: StepBreakdownEntry[]): string {
   return `${passing} of ${counted.length} weighted components at Pass level or better.`;
 }
 
+// The three multipliers the description quotes: Wide and No moat are fixed, Narrow is the saved setting.
+export interface MoatMultipliers {
+  wide: number;
+  narrow: number;
+  noMoat: number;
+}
+
+const DEFAULT_MULTIPLIERS: MoatMultipliers = {
+  wide: WIDE_MOAT_MULTIPLIER,
+  narrow: DEFAULT_NARROW_MOAT_MULTIPLIER,
+  noMoat: NO_MOAT_MULTIPLIER,
+};
+
+// 1 reads "1.0", everything else two decimals (0.85, 0.70).
+export const fmtMultiplier = (m: number): string => (m === 1 ? "1.0" : m.toFixed(2));
+
+/** A weight as a percent, one decimal only when it is not whole (30%, 42.9%). */
+export const fmtWeightPct = (fraction: number): string => `${Number((fraction * 100).toFixed(1))}%`;
+
 export function OverallAssessmentCard({ ticker }: Props) {
   const result = useOverallAssessment(ticker);
   // The stored TickerScore row (Refresh and a Moat PUT revalidate every /tickers/{t}/... key, this one included).
   const { data: stored } = useTickerScore(ticker);
-  return <OverallAssessmentView result={result} stored={stored} />;
+  const { data: moatConfig } = useMoatConfig();
+  const multipliers: MoatMultipliers = {
+    wide: moatConfig?.wide_moat_multiplier ?? WIDE_MOAT_MULTIPLIER,
+    narrow: moatConfig?.narrow_moat_multiplier ?? DEFAULT_NARROW_MOAT_MULTIPLIER,
+    noMoat: moatConfig?.no_moat_multiplier ?? NO_MOAT_MULTIPLIER,
+  };
+  return <OverallAssessmentView result={result} stored={stored} multipliers={multipliers} />;
+}
+
+// How the Overall score is built, in words: the weights come from the breakdown (so they follow the saved weights and any exempt
+// step), the multipliers from the moat config.
+function MultiplierDescription({ result, multipliers }: { result: OverallAssessment; multipliers: MoatMultipliers }) {
+  const weights = result.breakdown
+    .filter((b) => b.effectiveWeight != null)
+    .map((b) => `${b.label} ${fmtWeightPct(b.effectiveWeight as number)}`)
+    .join(", ");
+  return (
+    <div className="space-y-2 text-xs text-text-tertiary" data-testid="weighting-note">
+      <p>
+        The Steps score is the weighted blend of the checks ({weights}), using your saved weights. The Overall score is the Steps
+        score times a Moat multiplier: Wide moat × {fmtMultiplier(multipliers.wide)}, Narrow moat × {fmtMultiplier(multipliers.narrow)},
+        No moat × {fmtMultiplier(multipliers.noMoat)}. A ticker with no Moat rated is scored as No moat.{" "}
+        <Link href="/settings?section=score-weighting" className="underline underline-offset-2 hover:text-text-secondary">
+          Adjust the weights
+        </Link>{" "}
+        or{" "}
+        <Link href="/settings?section=economic-moat" className="underline underline-offset-2 hover:text-text-secondary">
+          the Narrow multiplier
+        </Link>
+        .
+      </p>
+    </div>
+  );
+}
+
+// The arithmetic behind the score: each step with its score, weight and points, then the Steps score, then Steps x multiplier = Overall.
+function ArithmeticBlock({ result }: { result: OverallAssessment }) {
+  if (result.stepsScore == null || result.moatMultiplier == null || result.score == null) return null;
+  const moatName = result.moat ? pillLabel(MOAT_LABELS[result.moat]) : "No moat";
+  const rows = result.breakdown;
+  return (
+    <div className="space-y-2" data-testid="score-arithmetic">
+      <table className="w-full max-w-md text-sm">
+        <thead>
+          <tr className="text-left text-xs text-text-tertiary">
+            <th className="pb-1 font-normal">Step</th>
+            <th className="pb-1 text-right font-normal">Score</th>
+            <th className="pb-1 text-right font-normal">Weight</th>
+            <th className="pb-1 text-right font-normal">Points</th>
+          </tr>
+        </thead>
+        <tbody className="font-mono text-text-secondary">
+          {rows.map((entry) =>
+            entry.effectiveWeight != null && entry.score != null ? (
+              <tr key={entry.key}>
+                <td className="py-0.5 font-sans">{entry.label}</td>
+                <td className="py-0.5 text-right">{entry.score}</td>
+                <td className="py-0.5 text-right">{fmtWeightPct(entry.effectiveWeight)}</td>
+                <td className="py-0.5 text-right">{(entry.effectiveWeight * entry.score).toFixed(1)}</td>
+              </tr>
+            ) : (
+              <tr key={entry.key} className="text-text-tertiary">
+                <td className="py-0.5 font-sans">{entry.label}</td>
+                <td className="py-0.5 text-right" colSpan={3}>
+                  not scored for this company
+                </td>
+              </tr>
+            ),
+          )}
+          <tr className="border-t border-border-subtle text-text-primary">
+            <td className="pt-1 font-sans font-semibold">Steps score</td>
+            <td />
+            <td />
+            <td className="pt-1 text-right font-semibold">{result.stepsScore.toFixed(1)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p className="text-sm text-text-primary" data-testid="score-equation">
+        Steps {result.stepsScore.toFixed(1)} × {moatName} {fmtMultiplier(result.moatMultiplier)} = <span className="font-semibold">{result.score}</span>
+      </p>
+    </div>
+  );
 }
 
 // The Review status block: the stored status, one line per gated step with its evidence, and the conviction. Facts come
@@ -84,9 +192,11 @@ function ReviewStatusBlock({ review }: { review: DisplayedReview }) {
 export function OverallAssessmentView({
   result,
   stored,
+  multipliers = DEFAULT_MULTIPLIERS,
 }: {
   result: OverallAssessment;
   stored?: TickerScoreOut | null;
+  multipliers?: MoatMultipliers;
 }) {
   // Only when the stored row's verdict is the one this card computes live; otherwise nothing (never a stale label).
   const review = result.status === "complete" ? displayedReview(stored, result.verdict) : null;
@@ -115,7 +225,11 @@ export function OverallAssessmentView({
               <CircularScoreBadge score={result.score} verdict={result.verdict} />
               <div className="space-y-1.5">
                 <Verdict tone={toneFor(result.score, result.verdict)}>{verdictLabel(result.verdict)}</Verdict>
-                {result.verdictReason && <p className="text-sm text-text-primary">{result.verdictReason}</p>}
+                {result.moatNote && (
+                  <p className="text-sm text-text-secondary" data-testid="moat-not-rated-note">
+                    {result.moatNote}
+                  </p>
+                )}
                 <p className="text-sm text-text-secondary">{rollupSummary(result.breakdown)}</p>
               </div>
             </div>
@@ -129,13 +243,9 @@ export function OverallAssessmentView({
             ))}
           </div>
 
-          <p className="text-xs text-text-tertiary" data-testid="weighting-note">
-            Economic Moat, once rated, is fixed at 31%; the four checks split the other 69% using your saved weights.{" "}
-            <Link href="/settings?section=score-weighting" className="underline underline-offset-2 hover:text-text-secondary">
-              Adjust in Settings
-            </Link>
-            .
-          </p>
+          <ArithmeticBlock result={result} />
+
+          <MultiplierDescription result={result} multipliers={multipliers} />
 
           {result.failingSteps.length > 0 && (
             <p className="text-sm text-warn">

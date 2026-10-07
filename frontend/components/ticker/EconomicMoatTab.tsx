@@ -9,7 +9,14 @@ import { SegmentedControl } from "@/components/ui/segmented-control";
 import { apiPut } from "@/lib/api/client";
 import type { TickerMoatOut } from "@/lib/api/types";
 import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
-import { MOAT_LABELS, type MoatValue } from "@/lib/overallScore";
+import { useMoatConfig } from "@/lib/hooks/useMoatConfig";
+import {
+  DEFAULT_NARROW_MOAT_MULTIPLIER,
+  MOAT_LABELS,
+  NO_MOAT_MULTIPLIER,
+  WIDE_MOAT_MULTIPLIER,
+  type MoatValue,
+} from "@/lib/overallScore";
 import { pillLabel } from "@/lib/tierColor";
 
 interface Props {
@@ -69,18 +76,26 @@ function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut })
   // Overall Assessment's scoring on save, unlike the design handoff's own
   // prototype which has no such consequence to guard against.
   const displayed = pending ?? data.moat;
+  const { data: moatConfig } = useMoatConfig();
+  const narrow = moatConfig?.narrow_moat_multiplier ?? DEFAULT_NARROW_MOAT_MULTIPLIER;
+  const multiplierSentence = `Wide moat × ${WIDE_MOAT_MULTIPLIER.toFixed(1)}, Narrow moat × ${narrow.toFixed(2)}, No moat × ${NO_MOAT_MULTIPLIER.toFixed(2)}.`;
 
   return (
     <div className="space-y-6 py-6">
       <div>
         <h2 className="font-heading text-sm font-semibold text-text-primary">Economic moat</h2>
         <p className="mt-1 text-sm text-text-secondary">
-          A manually-set classification, not computed from data. Once set, Moat is fixed at 31% of Overall Assessment;
-          Financials / Growth Rate / Profitability / Debt split the remaining 69% and are adjustable in{" "}
+          A manually-set classification, not computed from data. It is not a part of the score: it multiplies the Steps score
+          (the weighted blend of Financials / Growth Rate / Profitability / Debt) to give the Overall score. {multiplierSentence}{" "}
+          A ticker with no moat rated is scored as No moat. The weights are adjustable in{" "}
           <Link href="/settings?section=score-weighting" className="underline underline-offset-2 hover:text-text-primary">
-            Settings
+            Score weighting
           </Link>{" "}
-          — see the Overall Assessment card for how this ticker is currently blended.
+          and the Narrow multiplier in{" "}
+          <Link href="/settings?section=economic-moat" className="underline underline-offset-2 hover:text-text-primary">
+            Economic moat
+          </Link>{" "}
+          — see the Overall Assessment card for how this ticker is currently scored.
         </p>
       </div>
 
@@ -97,7 +112,7 @@ function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut })
             options={MOAT_OPTIONS.map((option) => ({ value: option, label: pillLabel(MOAT_LABELS[option]) }))}
           />
           <p className="text-sm text-text-secondary">
-            {displayed ? MOAT_DESCRIPTIONS[displayed] : "Not set — pick a rating above."}
+            {displayed ? MOAT_DESCRIPTIONS[displayed] : "Not set — scored as No moat until you pick a rating above."}
           </p>
         </div>
 

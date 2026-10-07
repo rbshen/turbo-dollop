@@ -10,6 +10,7 @@ const h = vi.hoisted(() => ({
   weights: undefined as unknown,
   swrCalls: [] as unknown[][],
   mutate: vi.fn(),
+  moat: null as string | null,
   step: (score: number) => ({ data: { score, verdict: "Pass" }, error: undefined }),
 }));
 
@@ -24,18 +25,19 @@ vi.mock("@/lib/hooks/useStep1", () => ({ useStep1: () => h.step(90) }));
 vi.mock("@/lib/hooks/useStep2", () => ({ useStep2: () => h.step(80) }));
 vi.mock("@/lib/hooks/useStep4", () => ({ useStep4: () => h.step(70) }));
 vi.mock("@/lib/hooks/useStep5", () => ({ useStep5: () => h.step(60) }));
-vi.mock("@/lib/hooks/useTickerMoat", () => ({ useTickerMoat: () => ({ data: { moat: null } }) }));
-vi.mock("@/lib/hooks/useMoatConfig", () => ({ useMoatConfig: () => ({ data: { wide_moat_score: 100, narrow_moat_score: 65, no_moat_score: 0 } }) }));
+vi.mock("@/lib/hooks/useTickerMoat", () => ({ useTickerMoat: () => ({ data: { moat: h.moat } }) }));
+vi.mock("@/lib/hooks/useMoatConfig", () => ({ useMoatConfig: () => ({ data: { wide_moat_multiplier: 1, narrow_moat_multiplier: 0.9, no_moat_multiplier: 0.7 } }) }));
 
 function payload(
   overall: { financials: number; growth: number; profitability: number; debt: number },
   recompute: { state: string } | null = null,
 ): ScoreWeightsOut {
-  return { weights: { overall, step1: {}, step2: {}, step4: {}, step5: {} }, moat_weight: 31, overall_total: 69, weights_version: 2, recompute } as unknown as ScoreWeightsOut;
+  return { weights: { overall, step1: {}, step2: {}, step4: {}, step5: {} }, overall_total: 100, weights_version: 2, formula_version: 2, recompute } as unknown as ScoreWeightsOut;
 }
-const DEFAULT_OVERALL = { financials: 24, growth: 10, profitability: 20, debt: 15 };
+const DEFAULT_OVERALL = { financials: 30, growth: 20, profitability: 20, debt: 30 };
 
 beforeEach(() => {
+  h.moat = null;
   h.weights = undefined;
   h.swrCalls = [];
 });
@@ -57,11 +59,10 @@ describe("useScoreWeights", () => {
     expect(refreshInterval(undefined)).toBe(0);
   });
 
-  it("maps the payload to what the Overall blend needs, with Moat's locked percent from the endpoint", () => {
-    expect(overallBlendWeights(payload({ financials: 17, growth: 17, profitability: 17, debt: 18 }))).toEqual({
-      overall: { financials: 17, growth: 17, profitability: 17, debt: 18 },
-      overallTotal: 69,
-      moatWeight: 31,
+  it("maps the payload to what the Overall blend needs: the four weights and what they add up to (Moat is not a weight)", () => {
+    expect(overallBlendWeights(payload({ financials: 25, growth: 25, profitability: 25, debt: 25 }))).toEqual({
+      overall: { financials: 25, growth: 25, profitability: 25, debt: 25 },
+      overallTotal: 100,
     });
   });
 });
@@ -108,10 +109,21 @@ describe("useOverallAssessment reads the saved weights", () => {
     expect(result.current.score).toBeNull();
   });
 
-  it("blends with the saved set: defaults give 76, a debt-heavy set gives 71", () => {
+  it("blends with the saved set: the defaults give a Steps score of 75 (unrated: x0.70 = 52), a debt-heavy set 68.8 (48)", () => {
     h.weights = payload(DEFAULT_OVERALL);
-    expect(renderHook(() => useOverallAssessment("AAPL")).result.current.score).toBe(76);
-    h.weights = payload({ financials: 15, growth: 8, profitability: 16, debt: 30 });
-    expect(renderHook(() => useOverallAssessment("AAPL")).result.current.score).toBe(71);
+    const defaults = renderHook(() => useOverallAssessment("AAPL")).result.current;
+    expect([defaults.stepsScore, defaults.score, defaults.moatNote]).toEqual([75, 52, "Moat not rated, scored as No moat"]);
+    h.weights = payload({ financials: 15, growth: 8, profitability: 27, debt: 50 });
+    const debtHeavy = renderHook(() => useOverallAssessment("AAPL")).result.current;
+    expect(debtHeavy.stepsScore).toBeCloseTo(68.8, 10);
+    expect(debtHeavy.score).toBe(48);
+  });
+
+  it("applies the saved Narrow multiplier for a Narrow rating (0.9 here) and 1.0 for a Wide one", () => {
+    h.weights = payload(DEFAULT_OVERALL);
+    h.moat = "narrow_moat";
+    expect(renderHook(() => useOverallAssessment("AAPL")).result.current).toMatchObject({ moatMultiplier: 0.9, score: 68, moatNote: null }); // 75 x 0.9 = 67.5 -> 68
+    h.moat = "wide_moat";
+    expect(renderHook(() => useOverallAssessment("AAPL")).result.current).toMatchObject({ moatMultiplier: 1, score: 75 });
   });
 });

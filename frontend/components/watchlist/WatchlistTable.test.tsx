@@ -235,14 +235,14 @@ describe("WatchlistTable remove button", () => {
 });
 
 describe("WatchlistTable: Moat not rated", () => {
-  it("draws the steps-only score in a neutral pill with the reason as its tooltip", () => {
-    const unrated: WatchlistRowOut = { ...ROWS[0], ticker: "WSM", moat: null, overall_score: 81, overall_verdict: "moat_not_rated" };
+  it("draws the score in its normal verdict tone with the note as its tooltip (scored as No moat)", () => {
+    const unrated: WatchlistRowOut = { ...ROWS[0], ticker: "WSM", moat: null, overall_score: 56, overall_verdict: "Fail" };
     render(<WatchlistTable watchlist={WATCHLIST} rows={[ROWS[0], unrated]} sortRules={DEFAULT_SORT_RULES} onSortRulesChange={vi.fn()} />);
     const cell = (ticker: string) => (screen.getByText(ticker).closest("tr") as HTMLElement).querySelectorAll("td")[8];
     const pill = cell("WSM").querySelector("span[title]") as HTMLElement;
-    expect(pill).toHaveTextContent("81");
-    expect(pill).toHaveAttribute("title", "Moat not rated: rate the moat to enable a Pass");
-    expect(pill).toHaveClass("text-text-secondary");
+    expect(pill).toHaveTextContent("56");
+    expect(pill).toHaveAttribute("title", "Moat not rated, scored as No moat");
+    expect(pill).toHaveClass("text-negative"); // a Fail, not a neutral "not rated" pill
     expect(cell("AAPL").querySelector("span[title]")).toBeNull(); // a rated Pass is unchanged
   });
 });

@@ -9,6 +9,7 @@ import { useMoatConfig } from "@/lib/hooks/useMoatConfig";
 import { refreshScoreWeights, revalidateScores, useRecomputeStatus } from "@/lib/hooks/useScoreWeights";
 import { RecomputeStatusLine } from "@/components/settings/RecomputeStatusLine";
 import { NumberField } from "@/components/ui/number-field";
+import { Select } from "@/components/ui/Select";
 import {
   SettingsFooter,
   SettingsGroup,
@@ -16,7 +17,6 @@ import {
   SettingsSection,
 } from "@/components/settings/SettingsLayout";
 import { useSettingsSave, type SettingsSaver } from "@/components/settings/useSettingsSave";
-import { checkNumber } from "@/lib/numberInput";
 
 export function MoatSettingsForm() {
   const { data, error, isLoading } = useMoatConfig();
@@ -36,55 +36,29 @@ export function MoatSettingsForm() {
   return <MoatScoreForm key={data.updated_at} data={data} saver={saver} />;
 }
 
-// The three scores are points on a 0-100 scale. The backend has no bound and
-// the API is unchanged, so this is a FORM-LEVEL check only: a value outside
-// 0-100 shows an inline error and blocks Save; it is never clamped or corrected.
-const MOAT_SCORE_RULES = { min: 0, max: 100 };
-// No moat is capped at 1 point (the server enforces it too): with Moat fixed at 31%, that keeps a No moat rating from ever lifting
-// the Overall score to 70, whatever the four checks score. It must also stay below the other two ratings.
-const NO_MOAT_RULES = { min: 0, max: 1 };
-const NO_MOAT_ORDER_ERROR = "Must be lower than the Narrow moat and Wide moat points.";
+// Wide and No moat / not rated are fixed (the backend enforces them: only the Narrow value is an input), shown read-only. Narrow is
+// one of the server's allowed values (`narrow_moat_multiplier_options`: 0.80, 0.82, 0.85, 0.87, 0.90), so there is nothing to type
+// and nothing to validate in the form: a select cannot hold a value outside its options.
+const fmt = (value: number) => value.toFixed(2);
 
-// A single config object, three fields.
 function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: SettingsSaver }) {
-  const [wideText, setWideText] = useState(String(data.wide_moat_score));
-  const [narrowText, setNarrowText] = useState(String(data.narrow_moat_score));
-  const [noMoatText, setNoMoatText] = useState(String(data.no_moat_score));
+  const [narrow, setNarrow] = useState(fmt(data.narrow_moat_multiplier));
+  const unchanged = Number(narrow) === data.narrow_moat_multiplier;
 
-  const wide = checkNumber(wideText, MOAT_SCORE_RULES);
-  const narrow = checkNumber(narrowText, MOAT_SCORE_RULES);
-  const noMoat = checkNumber(noMoatText, NO_MOAT_RULES);
-  const noMoatOutOfOrder =
-    noMoat.error === null &&
-    noMoat.value !== null &&
-    ((narrow.error === null && narrow.value !== null && noMoat.value >= narrow.value) ||
-      (wide.error === null && wide.value !== null && noMoat.value >= wide.value));
-  const noMoatError = noMoat.error ?? (noMoatOutOfOrder ? NO_MOAT_ORDER_ERROR : null);
-  const invalid = wide.error !== null || narrow.error !== null || noMoatError !== null;
-  const unchanged =
-    wide.value === data.wide_moat_score &&
-    narrow.value === data.narrow_moat_score &&
-    noMoat.value === data.no_moat_score;
-
-  // Identifies the field values, so a failed save's message stays until they change.
-  const signature = JSON.stringify([wideText, narrowText, noMoatText]);
+  // Identifies the field value, so a failed save's message stays until it changes.
+  const signature = narrow;
   const shown = saver.view(signature);
   const { running } = useRecomputeStatus();
 
   function handleSave() {
-    if (invalid || wide.value === null || narrow.value === null || noMoat.value === null) return;
-    const body = {
-      wide_moat_score: wide.value,
-      narrow_moat_score: narrow.value,
-      no_moat_score: noMoat.value,
-    };
+    const body = { narrow_moat_multiplier: Number(narrow) };
     void saver.run(async () => {
       await apiPut<MoatScoreConfigOut>("/config/moat", body);
       // Every mounted OverallAssessmentCard reads this same global SWR key
-      // -- one revalidation reflows every open ticker's blended score
+      // -- one revalidation reflows every open ticker's score
       // without a manual page reload.
       await mutate("/config/moat");
-      // Saving the points starts a full score recompute: read its status now so the polling begins, and refresh the scores shown.
+      // Saving the multiplier starts a full score recompute: read its status now so the polling begins, and refresh the scores shown.
       await refreshScoreWeights();
       await revalidateScores();
     }, signature);
@@ -92,41 +66,44 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
 
   return (
     <SettingsSection
-      title="Economic moat point values"
-      intro="Sets the points each moat rating counts for in a ticker's Overall Assessment. Once you have set a moat for a ticker, it makes up 31% of that ticker's overall score (a fixed share) and the four automated checks split the other 69%; how they split it is set under Score weighting. A ticker with no moat set is scored on the four checks alone. Saving recomputes all scores."
+      title="Economic moat multipliers"
+      intro="A ticker's Overall score is its Steps score (the weighted blend of the four checks, set under Score weighting) times a multiplier for its moat rating. Wide moat keeps the Steps score as it is, Narrow moat scales it down by the factor you choose, and No moat scales it to 70%. A ticker with no moat rated is scored as No moat. Saving the Narrow multiplier recomputes all scores."
     >
       <RecomputeStatusLine />
       <SettingsGroup>
         <SettingsRow
           label="Wide moat"
-          hint="The points, out of 100, that a Wide moat rating counts for in the Overall Assessment. The default is 100."
-          htmlFor="wide-moat-score"
-          error={wide.error}
+          hint="Fixed at 1.0: a Wide moat leaves the Steps score unchanged."
+          htmlFor="wide-moat-multiplier"
         >
-          <NumberField value={wideText} onChange={setWideText} size="short" step={0.1} {...MOAT_SCORE_RULES} />
+          <NumberField id="wide-moat-multiplier" value="1.0" onChange={() => {}} size="short" readOnly disabled />
         </SettingsRow>
         <SettingsRow
           label="Narrow moat"
-          hint="The points, out of 100, that a Narrow moat rating counts for in the Overall Assessment. The default is 65."
-          htmlFor="narrow-moat-score"
-          error={narrow.error}
+          hint="Multiplies the Steps score of a Narrow moat ticker. The default is 0.85."
+          htmlFor="narrow-moat-multiplier"
         >
-          <NumberField value={narrowText} onChange={setNarrowText} size="short" step={0.1} {...MOAT_SCORE_RULES} />
+          <Select size="short" value={narrow} onChange={(e) => setNarrow(e.target.value)}>
+            {data.narrow_moat_multiplier_options.map((option) => (
+              <option key={option} value={fmt(option)}>
+                {fmt(option)}
+              </option>
+            ))}
+          </Select>
         </SettingsRow>
         <SettingsRow
-          label="No moat"
-          hint="The points, out of 100, that a No moat rating counts for in the Overall Assessment. Capped at 1: Moat is fixed at 31%, so the four checks can add at most 69, and a No moat rating of 1 point or less can then never lift the overall score to 70, whatever the four checks say. Above about 1.6 points it could. The default is 0."
-          htmlFor="no-moat-score"
-          error={noMoatError}
+          label="No moat / not rated"
+          hint="Fixed at 0.70: a No moat rating, or a ticker with no moat rated, scales the Steps score to 70%. It cannot be changed."
+          htmlFor="no-moat-multiplier"
         >
-          <NumberField value={noMoatText} onChange={setNoMoatText} size="short" step={0.1} {...NO_MOAT_RULES} />
+          <NumberField id="no-moat-multiplier" value={fmt(data.no_moat_multiplier)} onChange={() => {}} size="short" readOnly disabled />
         </SettingsRow>
       </SettingsGroup>
 
       <SettingsFooter
         onSave={handleSave}
         status={shown.status}
-        invalid={invalid}
+        invalid={false}
         unchanged={unchanged || running}
         message={shown.detail}
         updatedAt={data.updated_at}

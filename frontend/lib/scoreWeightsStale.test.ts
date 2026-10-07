@@ -17,6 +17,26 @@ describe("staleWeightsCount", () => {
   });
 });
 
+describe("staleWeightsCount: the Overall formula version", () => {
+  it("counts a row scored under another formula (null = before the Moat multiplier formula) even at the current weights version", () => {
+    const rows = [
+      { weights_version: 2, formula_version: 2 },
+      { weights_version: 2, formula_version: 1 },
+      { weights_version: 2, formula_version: null },
+      { weights_version: 2 },
+      { weights_version: null, formula_version: null },
+      { weights_version: 1, formula_version: 2 },
+    ];
+    // current weights version 2, formula 2: rows 2, 3, 4, 5 are on another formula; row 6 is on older weights
+    expect(staleWeightsCount(rows, 2, 2)).toBe(5);
+    // a row is counted once even when both are old
+    expect(staleWeightsCount([{ weights_version: 1, formula_version: 1 }], 2, 2)).toBe(1);
+  });
+  it("ignores the formula version when the current one is not known yet", () => {
+    expect(staleWeightsCount([{ weights_version: 2, formula_version: null }], 2)).toBe(0);
+  });
+});
+
 describe("staleWeightsMessage", () => {
   it("says N scores, and 1 score for one", () => {
     expect(staleWeightsMessage(46)).toBe("46 scores are still on the previous weights");

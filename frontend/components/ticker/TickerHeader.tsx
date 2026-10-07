@@ -18,7 +18,7 @@ import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
 import { useTickerScore } from "@/lib/hooks/useTickerScore";
 import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
 import { fmtMoney } from "@/lib/format";
-import { MOAT_NOT_RATED_REASON, MOAT_NOT_RATED_VERDICT } from "@/lib/overallScore";
+import { MOAT_NOT_RATED_NOTE } from "@/lib/overallScore";
 import { displayedReview, REVIEW_STATUS_LABEL, REVIEW_STATUS_TONE, reviewTooltip } from "@/lib/reviewStatus";
 import { toneForNullable, verdictLabel } from "@/lib/tierColor";
 import type { ReactNode } from "react";
@@ -43,23 +43,36 @@ export function AssessmentChipView({ data }: { data: TickerScoreOut | null | und
   if (!data || data.overall_score == null || data.overall_verdict == null) return null;
 
   const asOf = `As of ${new Date(data.computed_at).toLocaleString()}`;
+  // A ticker with no Moat rated is scored as No moat (multiplier 0.70): the note says so, beside the chip and in its tooltip.
+  const notRated = data.moat == null;
+  const note = notRated ? (
+    <span className="text-xs text-text-tertiary" data-testid="moat-not-rated-note">
+      {MOAT_NOT_RATED_NOTE}
+    </span>
+  ) : null;
   const review = displayedReview(data);
   if (review) {
     return (
-      <Status
-        tone={REVIEW_STATUS_TONE[review.status]}
-        title={`${reviewTooltip(data.overall_score, data.overall_verdict, review.reasons, review.conviction)} ${asOf}`}
-      >
-        {REVIEW_STATUS_LABEL[review.status]}
-      </Status>
+      <>
+        <Status
+          tone={REVIEW_STATUS_TONE[review.status]}
+          title={`${reviewTooltip(data.overall_score, data.overall_verdict, review.reasons, review.conviction)}${notRated ? ` ${MOAT_NOT_RATED_NOTE}.` : ""} ${asOf}`}
+        >
+          {REVIEW_STATUS_LABEL[review.status]}
+        </Status>
+        {note}
+      </>
     );
   }
-  const title = data.overall_verdict === MOAT_NOT_RATED_VERDICT ? `${MOAT_NOT_RATED_REASON}. ${asOf}` : asOf;
+  const title = notRated ? `${MOAT_NOT_RATED_NOTE}. ${asOf}` : asOf;
 
   return (
-    <Status tone={toneForNullable(data.overall_score, data.overall_verdict)} title={title}>
-      {verdictLabel(data.overall_verdict)}
-    </Status>
+    <>
+      <Status tone={toneForNullable(data.overall_score, data.overall_verdict)} title={title}>
+        {verdictLabel(data.overall_verdict)}
+      </Status>
+      {note}
+    </>
   );
 }
 

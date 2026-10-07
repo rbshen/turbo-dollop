@@ -31,9 +31,10 @@ const mockedMutate = vi.mocked(mutate);
 const mockedHook = vi.mocked(useMoatConfig);
 
 const STORED: MoatScoreConfigOut = {
-  wide_moat_score: 100,
-  narrow_moat_score: 65,
-  no_moat_score: 0,
+  wide_moat_multiplier: 1,
+  narrow_moat_multiplier: 0.85,
+  no_moat_multiplier: 0.7,
+  narrow_moat_multiplier_options: [0.8, 0.82, 0.85, 0.87, 0.9],
   updated_at: "2026-09-26T09:14:00",
 };
 
@@ -43,10 +44,10 @@ function serve(data: MoatScoreConfigOut | undefined, extra: Record<string, unkno
 }
 
 const wide = () => screen.getByLabelText("Wide moat") as HTMLInputElement;
-const narrow = () => screen.getByLabelText("Narrow moat") as HTMLInputElement;
-const noMoat = () => screen.getByLabelText("No moat") as HTMLInputElement;
+const narrow = () => screen.getByLabelText("Narrow moat") as HTMLSelectElement;
+const noMoat = () => screen.getByLabelText("No moat / not rated") as HTMLInputElement;
 const save = () => screen.getByRole("button", { name: "Save" });
-const type = (el: HTMLElement, value: string) => fireEvent.change(el, { target: { value } });
+const pick = (value: string) => fireEvent.change(narrow(), { target: { value } });
 
 beforeEach(() => {
   serve(STORED);
@@ -61,47 +62,55 @@ afterEach(() => {
 });
 
 describe("MoatSettingsForm: layout", () => {
-  it("renders with the Settings kit: sentence-case title, plain intro, three short rows, footer", () => {
+  it("renders with the Settings kit: sentence-case title, plain intro, three rows, footer", () => {
     render(<MoatSettingsForm />);
-    expect(screen.getByRole("heading", { name: "Economic moat point values" })).toBeInTheDocument();
-    expect(screen.getByText(/Sets the points each moat rating counts for/)).toHaveClass("max-w-xl");
-    for (const label of ["Wide moat", "Narrow moat", "No moat"]) {
+    expect(screen.getByRole("heading", { name: "Economic moat multipliers" })).toBeInTheDocument();
+    expect(screen.getByText(/Overall score is its Steps score/)).toHaveClass("max-w-xl");
+    for (const label of ["Wide moat", "Narrow moat", "No moat / not rated"]) {
       const row = screen.getByText(label, { selector: "label" }).closest("div.grid");
       expect(row).toHaveClass("sm:grid-cols-[minmax(0,1fr)_16rem]");
     }
     expect(screen.getByText(/^Last updated /)).toBeInTheDocument();
   });
 
-  it("shows the stored values in short typed fields with no unit and no tooltip", () => {
+  it("shows Wide (1.0) and No moat / not rated (0.70) read-only, and Narrow as the saved value in a select", () => {
     render(<MoatSettingsForm />);
-    expect([wide().value, narrow().value, noMoat().value]).toEqual(["100", "65", "0"]);
-    for (const el of [wide(), narrow(), noMoat()]) {
-      expect(el).toHaveAttribute("type", "text");
-      expect(el).toHaveClass("w-24");
+    expect(wide().value).toBe("1.0");
+    expect(noMoat().value).toBe("0.70");
+    for (const el of [wide(), noMoat()]) {
+      expect(el).toHaveAttribute("readonly");
+      expect(el).toBeDisabled();
     }
-    expect(screen.queryByText("%")).toBeNull();
-    expect(screen.queryByRole("button", { name: /About/ })).toBeNull();
+    expect(narrow().value).toBe("0.85");
+    expect(narrow().tagName).toBe("SELECT");
   });
 
-  it("gives each field a hint that states only what the specs support, with no formula or file names", () => {
+  it("offers exactly the allowed Narrow values, 0.80 / 0.82 / 0.85 / 0.87 / 0.90", () => {
+    render(<MoatSettingsForm />);
+    const options = Array.from(narrow().options).map((o) => o.value);
+    expect(options).toEqual(["0.80", "0.82", "0.85", "0.87", "0.90"]);
+  });
+
+  it("explains the model in plain words, with no points, no 31% and no 'No moat <= 1' rule", () => {
     render(<MoatSettingsForm />);
     const text = document.body.textContent ?? "";
-    expect(text).toContain("counts for in the Overall Assessment");
-    expect(text).toContain("makes up 31%");
-    expect(text).not.toMatch(/0\.69|0\.31|×|CLAUDE\.md|\.md|§/);
-    expect(text).not.toMatch(/\badds\b/);
-    expect(wide().getAttribute("aria-describedby")).toContain("wide-moat-score-hint");
-    expect(noMoat().getAttribute("aria-describedby")).toContain("no-moat-score-hint");
+    expect(text).toContain("Steps score");
+    expect(text).toContain("A ticker with no moat rated is scored as No moat");
+    expect(text).toContain("Saving the Narrow multiplier recomputes all scores.");
+    expect(text).not.toMatch(/31%|points|capped at 1|Capped at 1|CLAUDE\.md|\.md/);
+    expect(narrow().getAttribute("aria-describedby")).toContain("narrow-moat-multiplier-hint");
+    expect(wide().getAttribute("aria-describedby")).toContain("wide-moat-multiplier-hint");
+    expect(noMoat().getAttribute("aria-describedby")).toContain("no-moat-multiplier-hint");
   });
 });
 
 describe("MoatSettingsForm: Save until edited", () => {
-  it("is disabled until any field differs from the stored value, and again when reverted", () => {
+  it("is disabled until the Narrow value differs from the stored one, and again when reverted", () => {
     render(<MoatSettingsForm />);
     expect(save()).toBeDisabled();
-    type(narrow(), "70");
+    pick("0.90");
     expect(save()).toBeEnabled();
-    type(narrow(), "65.0");
+    pick("0.85");
     expect(save()).toBeDisabled();
   });
 
@@ -110,168 +119,52 @@ describe("MoatSettingsForm: Save until edited", () => {
     fireEvent.click(save());
     expect(mockedPut).not.toHaveBeenCalled();
   });
-});
 
-describe("MoatSettingsForm: validation", () => {
-  it.each(["abc", "", "1e2"])("flags %j inline on that field only, blocks Save and says why", (text) => {
+  it("has nothing to validate: a select cannot hold a value outside its options", () => {
     render(<MoatSettingsForm />);
-    type(narrow(), text);
-    expect(screen.getAllByRole("alert")).toHaveLength(1);
-    expect(screen.getByRole("alert")).toHaveTextContent("Enter a number.");
-    expect(narrow()).toHaveAttribute("aria-invalid", "true");
-    expect(wide()).not.toHaveAttribute("aria-invalid");
-    expect(save()).toBeDisabled();
-    expect(screen.getByText("Fix the highlighted fields to save.")).toBeInTheDocument();
-    expect(screen.queryByText("Save failed")).toBeNull();
-    fireEvent.click(save());
-    expect(mockedPut).not.toHaveBeenCalled();
-  });
-
-  it("stays blocked while ANY field is invalid, even if another was validly edited", () => {
-    render(<MoatSettingsForm />);
-    type(wide(), "90");
-    type(noMoat(), "x");
-    expect(save()).toBeDisabled();
-    type(noMoat(), "0.5");
-    expect(save()).toBeEnabled();
-  });
-
-  it.each(["2", "100", "65", "1.5", "99.99"])("accepts %j (0 to 100, inclusive, above No moat)", (text) => {
-    render(<MoatSettingsForm />);
-    type(narrow(), text);
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(narrow()).not.toHaveAttribute("aria-invalid");
-  });
-
-  it.each(["-1", "101", "100.01", "-0.5"])("rejects %j with the range message, on that field only, and blocks Save", (text) => {
-    render(<MoatSettingsForm />);
-    type(narrow(), text);
-    expect(screen.getAllByRole("alert")).toHaveLength(1);
-    expect(screen.getByRole("alert")).toHaveTextContent("Enter a value between 0 and 100.");
-    expect(narrow()).toHaveAttribute("aria-invalid", "true");
-    expect(narrow().value).toBe(text); // never clamped or corrected
-    expect(save()).toBeDisabled();
-    expect(screen.getByText("Fix the highlighted fields to save.")).toBeInTheDocument();
-    fireEvent.click(save());
-    expect(mockedPut).not.toHaveBeenCalled();
-  });
-
-  it("checks the wide field the same way", () => {
-    render(<MoatSettingsForm />);
-    type(wide(), "101");
-    expect(screen.getByRole("alert")).toHaveTextContent("Enter a value between 0 and 100.");
-    type(wide(), "50");
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  it("still says 'Enter a number.' for text and empty, not the range message", () => {
-    render(<MoatSettingsForm />);
-    type(wide(), "");
-    expect(screen.getByRole("alert")).toHaveTextContent("Enter a number.");
-    type(wide(), "abc");
-    expect(screen.getByRole("alert")).toHaveTextContent("Enter a number.");
-  });
-
-  it("stays in range at both edges through the arrow keys (stepping stops at 0 and 100)", () => {
-    render(<MoatSettingsForm />);
-    fireEvent.keyDown(wide(), { key: "ArrowUp" });
-    expect(wide().value).toBe("100");
-    fireEvent.keyDown(noMoat(), { key: "ArrowDown" });
-    expect(noMoat().value).toBe("0");
-  });
-});
-
-describe("MoatSettingsForm: the No moat cap", () => {
-  it.each(["1.1", "1.7", "5", "100"])("rejects %j (above 1) with the range message and blocks Save", (text) => {
-    render(<MoatSettingsForm />);
-    type(noMoat(), text);
-    expect(screen.getByRole("alert")).toHaveTextContent("Enter a value between 0 and 1.");
-    expect(noMoat()).toHaveAttribute("aria-invalid", "true");
-    expect(save()).toBeDisabled();
-  });
-
-  it.each(["0", "0.5", "1"])("accepts %j", (text) => {
-    render(<MoatSettingsForm />);
-    type(noMoat(), text);
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  it("requires No moat to stay below the Narrow and Wide moat points", () => {
-    render(<MoatSettingsForm />);
-    type(narrow(), "1");
-    type(noMoat(), "1");
-    expect(screen.getByRole("alert")).toHaveTextContent("Must be lower than the Narrow moat and Wide moat points.");
-    expect(save()).toBeDisabled();
-    type(narrow(), "65");
-    expect(screen.queryByRole("alert")).toBeNull();
-    type(narrow(), "0"); // Narrow at 0 is not above No moat's 0 either
-    expect(screen.getByRole("alert")).toHaveTextContent("Must be lower than the Narrow moat and Wide moat points.");
-  });
-
-  it("states exactly what the cap guarantees, and why", () => {
-    render(<MoatSettingsForm />);
-    const hint = document.getElementById("no-moat-score-hint")?.textContent ?? "";
-    expect(hint).toContain("Capped at 1");
-    expect(hint).toContain("fixed at 31%");
-    expect(hint).toContain("never lift the overall score to 70");
+    expect(screen.queryByText("Fix the highlighted fields to save.")).toBeNull();
   });
 });
 
 describe("MoatSettingsForm: saving", () => {
-  it("sends the boundary values (No moat at its cap of 1) unchanged", async () => {
+  it.each(["0.80", "0.82", "0.87", "0.90"])("sends only the Narrow multiplier, as a number (%s)", async (value) => {
     render(<MoatSettingsForm />);
-    type(wide(), "100");
-    type(narrow(), "2");
-    type(noMoat(), "1");
-    await act(async () => fireEvent.click(save()));
-    expect(mockedPut).toHaveBeenCalledWith("/config/moat", {
-      wide_moat_score: 100,
-      narrow_moat_score: 2,
-      no_moat_score: 1,
-    });
-  });
-
-  it("sends the same endpoint and payload shape as before, all three values", async () => {
-    render(<MoatSettingsForm />);
-    type(narrow(), "70.5");
+    pick(value);
     await act(async () => fireEvent.click(save()));
     expect(mockedPut).toHaveBeenCalledTimes(1);
-    expect(mockedPut).toHaveBeenCalledWith("/config/moat", {
-      wide_moat_score: 100,
-      narrow_moat_score: 70.5,
-      no_moat_score: 0,
-    });
+    expect(mockedPut).toHaveBeenCalledWith("/config/moat", { narrow_moat_multiplier: Number(value) });
   });
 
   it("revalidates the shared /config/moat key and nothing else", async () => {
     render(<MoatSettingsForm />);
-    type(wide(), "95");
+    pick("0.9");
     await act(async () => fireEvent.click(save()));
     expect(mockedMutate.mock.calls).toEqual([["/config/moat"]]);
   });
 
-  it("reports a failed save and keeps the typed values; the message stays until the next edit", async () => {
+  it("reports a failed save and keeps the picked value; the message stays until the next edit", async () => {
     vi.useFakeTimers();
     mockedPut.mockRejectedValue(new Error("500"));
     render(<MoatSettingsForm />);
-    type(wide(), "95");
+    pick("0.90");
     await act(async () => fireEvent.click(save()));
     expect(screen.getByText("Save failed")).toBeInTheDocument();
-    expect(wide().value).toBe("95");
+    expect(narrow().value).toBe("0.90");
     act(() => { vi.advanceTimersByTime(60_000); });
     expect(screen.getByText("Save failed")).toBeInTheDocument();
-    type(narrow(), "66");
+    pick("0.82");
     expect(screen.queryByText(/Save failed/)).toBeNull();
   });
 
   it("shows the server's reason and clears it when Save is attempted again", async () => {
-    mockedPut.mockRejectedValueOnce(new Error("PUT /config/moat failed: 422 - wide_moat_score: bad"));
+    mockedPut.mockRejectedValueOnce(new Error("PUT /config/moat failed: 422 - The Narrow moat multiplier must be one of 0.80"));
     render(<MoatSettingsForm />);
-    type(wide(), "95");
+    pick("0.90");
     await act(async () => fireEvent.click(save()));
-    expect(screen.getByText("Save failed: wide_moat_score: bad")).toBeInTheDocument();
+    expect(screen.getByText(/Save failed: The Narrow moat multiplier must be one of/)).toBeInTheDocument();
     await act(async () => fireEvent.click(save()));
-    expect(screen.queryByText(/wide_moat_score: bad/)).toBeNull();
+    expect(screen.queryByText(/must be one of/)).toBeNull();
     expect(screen.getByText("Saved ✓")).toBeInTheDocument();
   });
 
@@ -279,13 +172,13 @@ describe("MoatSettingsForm: saving", () => {
     vi.useFakeTimers();
     const { rerender } = render(<MoatSettingsForm />);
     mockedMutate.mockImplementationOnce(async () => {
-      serve({ ...STORED, wide_moat_score: 95, updated_at: "2026-09-30T10:00:00" });
+      serve({ ...STORED, narrow_moat_multiplier: 0.9, updated_at: "2026-09-30T10:00:00" });
       act(() => rerender(<MoatSettingsForm />));
       return undefined;
     });
-    type(wide(), "95");
+    pick("0.90");
     await act(async () => fireEvent.click(save()));
-    expect(wide().value).toBe("95");
+    expect(narrow().value).toBe("0.90");
     expect(screen.getByText("Saved ✓")).toBeInTheDocument();
     expect(save()).toBeDisabled();
     act(() => { vi.advanceTimersByTime(3000); });
@@ -296,23 +189,17 @@ describe("MoatSettingsForm: saving", () => {
 describe("MoatSettingsForm: saving recomputes all scores", () => {
   it("reads the recompute status and refreshes the scores right after a save, so the busy state starts at once", async () => {
     render(<MoatSettingsForm />);
-    type(narrow(), "70");
+    pick("0.87");
     await act(async () => fireEvent.click(save()));
     expect(mockedPut).toHaveBeenCalledTimes(1);
-    expect(recompute.refresh).toHaveBeenCalledTimes(1);
+    expect(recompute.refresh).toHaveBeenCalledTimes(1); // the status read that starts the polling (and the Screener's stale note)
     expect(recompute.revalidate).toHaveBeenCalledTimes(1);
-  });
-
-  it("says so in the intro", () => {
-    render(<MoatSettingsForm />);
-    expect(document.body.textContent).toContain("Saving recomputes all scores.");
-    expect(document.body.textContent).toContain("how they split it is set under Score weighting");
   });
 
   it("cannot be saved while a recompute is running, and shows its progress", () => {
     recompute.status = { run: { state: "running", processed: 120, total: 582, failed: 0 }, running: true };
     render(<MoatSettingsForm />);
-    type(narrow(), "70");
+    pick("0.87");
     expect(save()).toBeDisabled();
     expect(screen.getByTestId("recompute-status")).toHaveTextContent("Recomputing scores, 120 of 582");
   });
@@ -320,7 +207,7 @@ describe("MoatSettingsForm: saving recomputes all scores", () => {
   it("shows a server 409 as the save's failure reason", async () => {
     mockedPut.mockRejectedValueOnce(Object.assign(new Error("409"), { detail: "A score recompute is already running (5 of 582); try again when it finishes." }));
     render(<MoatSettingsForm />);
-    type(narrow(), "70");
+    pick("0.87");
     await act(async () => fireEvent.click(save()));
     expect(screen.getByText(/Save failed/)).toBeInTheDocument();
   });

@@ -2,7 +2,7 @@
 
 import { useRecomputeStatus } from "@/lib/hooks/useScoreWeights";
 
-/** The score recompute's state in one line, for the Settings sections whose save starts one (Score weighting, Economic moat points):
+/** The score recompute's state in one line, for the Settings sections whose save starts one (Score weighting, Economic moat multiplier):
  * "Recomputing scores, N of M" while it runs, the reason when the last run failed (until a later run succeeds), and how many tickers
  * could not be scored when a run finished with some. Nothing otherwise. */
 export function RecomputeStatusLine() {

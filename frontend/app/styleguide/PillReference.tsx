@@ -215,7 +215,8 @@ const SCREENER_CARD: TickerScoreOut = {
   step5_score: 85,
   step5_verdict: "Pass",
   moat: "wide_moat",
-  moat_score: 95,
+  steps_score: 92,
+  moat_multiplier: 1,
   overall_score: 92,
   overall_verdict: "Strong Pass",
   market_cap: 4_300_000_000_000,
@@ -336,14 +337,17 @@ const MOMENTUM_ROWS: MomentumSnapshotRowOut[] = [
 function overallResult(overrides: Partial<OverallAssessment>): OverallAssessment {
   return {
     status: "complete",
-    score: 95,
+    score: 91,
+    stepsScore: 90.6,
+    moatMultiplier: 1,
+    moat: "wide_moat",
+    moatNote: null,
     verdict: "Strong Pass",
     breakdown: [
-      { key: "step1", label: "Financials", baseWeight: 0.25, effectiveWeight: 0.25, score: 92, verdict: "Strong Pass", status: "ok" },
-      { key: "step2", label: "Growth Rate", baseWeight: 0.25, effectiveWeight: 0.25, score: 88, verdict: "Pass", status: "ok" },
-      { key: "step4", label: "Profitability", baseWeight: 0.2, effectiveWeight: 0.2, score: 74, verdict: "Pass with caution", status: "ok" },
-      { key: "step5", label: "Debt", baseWeight: 0.15, effectiveWeight: null, score: null, verdict: null, status: "exempt" },
-      { key: "moat", label: "Economic Moat", baseWeight: 0.15, effectiveWeight: 0.3, score: 95, verdict: "Wide Moat", status: "ok" },
+      { key: "step1", label: "Financials", baseWeight: 0.3, effectiveWeight: 0.375, score: 92, verdict: "Strong Pass", status: "ok" },
+      { key: "step2", label: "Growth Rate", baseWeight: 0.2, effectiveWeight: 0.25, score: 88, verdict: "Pass", status: "ok" },
+      { key: "step4", label: "Profitability", baseWeight: 0.2, effectiveWeight: 0.375, score: 74, verdict: "Pass with caution", status: "ok" },
+      { key: "step5", label: "Debt", baseWeight: 0.3, effectiveWeight: null, score: null, verdict: null, status: "exempt" },
     ],
     incompleteSteps: [],
     failingSteps: [],
@@ -533,6 +537,7 @@ export function PillReference() {
             <OverallAssessmentView
               result={overallResult({
                 score: 74,
+                stepsScore: 74,
                 verdict: "Pass with caution",
                 failingSteps: ["Debt"],
                 cautionSteps: ["Profitability"],

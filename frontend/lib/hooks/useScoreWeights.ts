@@ -11,7 +11,7 @@ const KEY = "/config/score-weights";
 /** How often the status is re-read while a recompute is running. */
 export const RECOMPUTE_POLL_MS = 1500;
 
-/** The saved score weights, their defaults, the locked Moat weight, the bounds and the latest recompute run. It re-reads itself every
+/** The saved score weights, their defaults, the bounds and the latest recompute run. It re-reads itself every
  * 1.5 s while a recompute is running (every subscriber shares the one SWR entry), and not at all otherwise. */
 export function useScoreWeights() {
   return useSWR<ScoreWeightsOut>(KEY, (path: string) => apiFetch<ScoreWeightsOut>(path), {
@@ -19,7 +19,7 @@ export function useScoreWeights() {
   });
 }
 
-/** What the Overall blend needs from the payload (the four step weights, what they add up to, Moat's locked percent). */
+/** What the Overall blend needs from the payload (the four step weights and what they add up to). */
 export function overallBlendWeights(data: ScoreWeightsOut): OverallBlendWeights {
   return {
     overall: {
@@ -29,7 +29,6 @@ export function overallBlendWeights(data: ScoreWeightsOut): OverallBlendWeights 
       debt: data.weights.overall.debt,
     },
     overallTotal: data.overall_total,
-    moatWeight: data.moat_weight,
   };
 }
 

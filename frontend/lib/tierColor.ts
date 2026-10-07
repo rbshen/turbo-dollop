@@ -7,11 +7,9 @@
 //  - pillLabel: the sentence-case display wording for any pill label.
 
 import type { StatusTone } from "@/components/ui/status";
-import { MOAT_NOT_RATED_VERDICT } from "@/lib/overallScore";
 
-// The 5 score tiers map 1:1 onto 5 of Status's 7 tones. "neutral" is the one
-// verdict-driven exception: an Overall verdict of "moat_not_rated" (Moat unset,
-// not a pass and not a fail) has no read to colour. ("speculative" is never
+// The 5 score tiers map 1:1 onto 5 of Status's 7 tones. "neutral" is used only
+// when there is no score to colour (toneForNullable). ("speculative" is never
 // produced here.)
 export type ScoreTone = Extract<StatusTone, "negative" | "caution" | "strong" | "positive" | "warn" | "neutral">;
 
@@ -22,7 +20,6 @@ export type ScoreTone = Extract<StatusTone, "negative" | "caution" | "strong" | 
 // occurred regardless of how high the blended score is, and Step 2's Fail is
 // gated on projected growth being negative, not on the blended score.
 export function toneFor(score: number, verdict: string): ScoreTone {
-  if (verdict === MOAT_NOT_RATED_VERDICT) return "neutral";
   if (verdict === "Fail") return "negative";
   if (verdict === "Pass with caution") return "caution";
   // Strong Pass (91-100) gets a deeper shade than a plain Pass (75-90).
@@ -42,10 +39,10 @@ export function toneForNullable(score: number | null, verdict: string | null): S
   return toneFor(score, verdict ?? "");
 }
 
-// Display wording for an Overall verdict: "moat_not_rated" is a key, not text, so it reads "Moat not rated"; every
-// other verdict is just pillLabel'd. Use this (not pillLabel) wherever the Overall verdict itself is drawn.
+// Display wording for an Overall verdict (just pillLabel'd: the old "moat_not_rated" key was retired 2026-10-07, an unrated ticker now
+// reads its verdict from its score). Use this wherever the Overall verdict itself is drawn.
 export function verdictLabel(verdict: string): string {
-  return verdict === MOAT_NOT_RATED_VERDICT ? "Moat not rated" : pillLabel(verdict);
+  return pillLabel(verdict);
 }
 
 // Display-only sentence casing for a pill label ("Strong Pass" -> "Strong

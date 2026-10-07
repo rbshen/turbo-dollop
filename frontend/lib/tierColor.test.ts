@@ -41,16 +41,15 @@ describe("toneFor", () => {
   });
 });
 
-describe("Moat not rated", () => {
-  it("reads neutral at any score, never the green Pass tiers", () => {
-    for (const score of [70, 74, 75, 90, 91, 100]) expect(toneFor(score, "moat_not_rated")).toBe("neutral");
-    expect(toneForNullable(81, "moat_not_rated")).toBe("neutral");
-  });
-
-  it("verdictLabel turns the key into sentence-case text and leaves other verdicts to pillLabel", () => {
-    expect(verdictLabel("moat_not_rated")).toBe("Moat not rated");
+describe("verdictLabel", () => {
+  it("is pillLabel for every verdict (the moat_not_rated key was retired 2026-10-07)", () => {
     expect(verdictLabel("Strong Pass")).toBe("Strong pass");
     expect(verdictLabel("Pass with caution")).toBe("Pass with caution");
     expect(verdictLabel("Fail")).toBe("Fail");
+  });
+
+  it("nothing is neutral while there is a score; no score is neutral", () => {
+    for (const score of [70, 74, 75, 90, 91, 100]) expect(toneFor(score, "Pass")).not.toBe("neutral");
+    expect(toneForNullable(null, "Fail")).toBe("neutral");
   });
 });

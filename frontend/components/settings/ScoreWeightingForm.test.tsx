@@ -30,7 +30,7 @@ const mockedPut = vi.mocked(apiPut);
 const mockedPost = vi.mocked(apiPost);
 
 const DEFAULTS = {
-  overall: { financials: 24, growth: 10, profitability: 20, debt: 15 },
+  overall: { financials: 30, growth: 20, profitability: 20, debt: 30 },
   step1: { revenue: 35, net_income: 20, cfo: 30, margins: 10, fcf: 5 },
   step2: { magnitude: 70, agreement: 30 },
   step4: { roe: 25, roic: 35, ar: 20, ccc: 20 },
@@ -38,7 +38,7 @@ const DEFAULTS = {
 };
 
 const BOUNDS = {
-  overall: { financials: { min: 10, max: 30 }, growth: { min: 5, max: 30 }, profitability: { min: 5, max: 30 }, debt: { min: 10, max: 30 } },
+  overall: { financials: { min: 10, max: 50 }, growth: { min: 5, max: 50 }, profitability: { min: 5, max: 50 }, debt: { min: 10, max: 50 } },
   step1: { revenue: { min: 20, max: 50 }, net_income: { min: 10, max: 40 }, cfo: { min: 10, max: 40 }, margins: { min: 0, max: 25 }, fcf: { min: 0, max: 15 } },
   step2: { magnitude: { min: 50, max: 100 }, agreement: { min: 0, max: 50 } },
   step4: { roe: { min: 15, max: 60 }, roic: { min: 15, max: 60 }, ar: { min: 0, max: 30 }, ccc: { min: 0, max: 30 } },
@@ -49,11 +49,11 @@ function payload(overrides: Partial<ScoreWeightsOut> = {}): ScoreWeightsOut {
   return {
     weights: structuredClone(DEFAULTS),
     defaults: structuredClone(DEFAULTS),
-    moat_weight: 31,
-    overall_total: 69,
+    overall_total: 100,
     bounds: structuredClone(BOUNDS),
-    sums: { overall: 69, step1: 100, step2: 100, step4: 100, step5: 100 },
+    sums: { overall: 100, step1: 100, step2: 100, step4: 100, step5: 100 },
     weights_version: 1,
+    formula_version: 2,
     updated_at: "2026-10-06T09:00:00",
     recompute: null,
     ...overrides,
@@ -104,7 +104,7 @@ describe("ScoreWeightingForm: layout", () => {
 
   it("shows the saved values, one row per component, in the Settings kit", () => {
     render(<ScoreWeightingForm />);
-    expect([input("overall", "financials").value, input("overall", "growth").value, input("overall", "profitability").value, input("overall", "debt").value]).toEqual(["24", "10", "20", "15"]);
+    expect([input("overall", "financials").value, input("overall", "growth").value, input("overall", "profitability").value, input("overall", "debt").value]).toEqual(["30", "20", "20", "30"]);
     expect(["revenue", "net_income", "cfo", "margins", "fcf"].map((f) => input("step1", f).value)).toEqual(["35", "20", "30", "10", "5"]);
     expect(["magnitude", "agreement"].map((f) => input("step2", f).value)).toEqual(["70", "30"]);
     expect(["roe", "roic", "ar", "ccc"].map((f) => input("step4", f).value)).toEqual(["25", "35", "20", "20"]);
@@ -113,14 +113,14 @@ describe("ScoreWeightingForm: layout", () => {
     expect(row).toHaveClass("sm:grid-cols-[minmax(0,1fr)_16rem]");
   });
 
-  it("has a locked, read-only Economic moat row at 31% that explains why it is fixed", () => {
+  it("has no Economic moat row: Moat is a multiplier now, set under Economic moat", () => {
     render(<ScoreWeightingForm />);
-    const moat = document.getElementById("weight-moat-locked") as HTMLInputElement;
-    expect(moat.value).toBe("31");
-    expect(moat).toBeDisabled();
-    expect(moat).toHaveAttribute("readonly");
-    expect(screen.getByText(/Fixed at 31% so a No moat rating always fails/)).toBeInTheDocument();
-    expect(screen.getAllByText("Economic moat")).toHaveLength(1);
+    expect(document.getElementById("weight-moat-locked")).toBeNull();
+    expect(screen.queryByText(/Fixed at 31%/)).toBeNull();
+    expect(screen.queryByText("Economic moat", { selector: "label" })).toBeNull();
+    const text = document.body.textContent ?? "";
+    expect(text).not.toMatch(/31%|69%/);
+    expect(text).toContain("The four automated checks add up to 100% and give the Steps score");
   });
 
   it("carries the help text and the applies-to-all note", () => {
@@ -134,20 +134,20 @@ describe("ScoreWeightingForm: layout", () => {
 });
 
 describe("ScoreWeightingForm: validation", () => {
-  it("shows a Sum caption per set, 'Sum 69 of 69' for the defaults", () => {
+  it("shows a Sum caption per set, 'Sum 100 of 100' for the defaults", () => {
     render(<ScoreWeightingForm />);
-    expect(sums()).toEqual(["Sum 69 of 69", "Sum 100 of 100", "Sum 100 of 100", "Sum 100 of 100", "Sum 100 of 100"]);
+    expect(sums()).toEqual(["Sum 100 of 100", "Sum 100 of 100", "Sum 100 of 100", "Sum 100 of 100", "Sum 100 of 100"]);
   });
 
-  it("flags a set that does not add up, 'Sum 71, needs 69', and blocks Save until it does", () => {
+  it("flags a set that does not add up, 'Sum 102, needs 100', and blocks Save until it does", () => {
     render(<ScoreWeightingForm />);
-    type(input("overall", "financials"), "26");
-    expect(sums()[0]).toBe("Sum 71, needs 69");
+    type(input("overall", "financials"), "32");
+    expect(sums()[0]).toBe("Sum 102, needs 100");
     expect(screen.getAllByTestId("weight-sum")[0]).toHaveClass("text-negative");
     expect(save()).toBeDisabled();
     expect(screen.getByText("Fix the highlighted fields to save.")).toBeInTheDocument();
-    type(input("overall", "growth"), "8");
-    expect(sums()[0]).toBe("Sum 69 of 69");
+    type(input("overall", "growth"), "18");
+    expect(sums()[0]).toBe("Sum 100 of 100");
     expect(save()).toBeEnabled();
   });
 
@@ -161,8 +161,8 @@ describe("ScoreWeightingForm: validation", () => {
   });
 
   it.each([
-    ["overall", "financials", "9", "Enter a value between 10 and 30."],
-    ["overall", "financials", "31", "Enter a value between 10 and 30."],
+    ["overall", "financials", "9", "Enter a value between 10 and 50."],
+    ["overall", "financials", "51", "Enter a value between 10 and 50."],
     ["step1", "revenue", "19", "Enter a value between 20 and 50."],
     ["step1", "margins", "26", "Enter a value between 0 and 25."],
     ["step2", "magnitude", "49", "Enter a value between 50 and 100."],
@@ -220,8 +220,8 @@ describe("ScoreWeightingForm: Save", () => {
 
   it("Confirm sends the full set to PUT /config/score-weights, then refreshes the status and the scores", async () => {
     render(<ScoreWeightingForm />);
-    type(input("overall", "financials"), "26");
-    type(input("overall", "growth"), "8");
+    type(input("overall", "financials"), "32");
+    type(input("overall", "growth"), "18");
     type(input("step5", "current_ratio"), "20");
     type(input("step5", "debt_to_ebitda"), "40");
     type(input("step5", "debt_servicing"), "40");
@@ -229,7 +229,7 @@ describe("ScoreWeightingForm: Save", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Confirm" })));
     expect(mockedPut).toHaveBeenCalledTimes(1);
     expect(mockedPut).toHaveBeenCalledWith("/config/score-weights", {
-      overall: { financials: 26, growth: 8, profitability: 20, debt: 15 },
+      overall: { financials: 32, growth: 18, profitability: 20, debt: 30 },
       step1: DEFAULTS.step1,
       step2: DEFAULTS.step2,
       step4: DEFAULTS.step4,

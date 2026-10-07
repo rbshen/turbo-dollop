@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { HEAD_CLASS, openTickerPage, RemoveCell, SkeletonRows, SortableColumnHead, useRemoveFlow } from "@/components/watchlist/tableParts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { SortableField, WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
-import { MOAT_NOT_RATED_REASON, MOAT_NOT_RATED_VERDICT } from "@/lib/overallScore";
+import { MOAT_NOT_RATED_NOTE } from "@/lib/overallScore";
 import { fmtCompactMoney, fmtMoney, fmtNumber, fmtSignedCompactMoneyTooltip } from "@/lib/format";
 import { toneForNullable } from "@/lib/tierColor";
 import { cn } from "@/lib/utils";
@@ -66,12 +66,12 @@ function cautionStepLabels(row: WatchlistRowOut): string[] {
   return labels;
 }
 
-// Hover text for the Analysis pill: names the cautioned steps, or says why a "Moat not rated" ticker (a neutral pill
-// holding its steps-only score) is not reading Pass.
+// Hover text for the Analysis pill: names the cautioned steps and/or says the ticker has no Moat rated (it is scored as No moat).
 export function overallCellTitle(row: WatchlistRowOut): string | undefined {
-  if (row.overall_verdict === "Pass with caution") return `Passed with caution: ${cautionStepLabels(row).join(", ")}`;
-  if (row.overall_verdict === MOAT_NOT_RATED_VERDICT) return MOAT_NOT_RATED_REASON;
-  return undefined;
+  const parts: string[] = [];
+  if (row.overall_verdict === "Pass with caution") parts.push(`Passed with caution: ${cautionStepLabels(row).join(", ")}`);
+  if (row.moat == null && row.overall_score != null) parts.push(MOAT_NOT_RATED_NOTE);
+  return parts.length > 0 ? parts.join(". ") : undefined;
 }
 
 // Same buy/hold/sell bucketing ConsensusBanner's distribution bar already

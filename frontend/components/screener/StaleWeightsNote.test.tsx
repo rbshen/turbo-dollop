@@ -24,6 +24,17 @@ describe("StaleWeightsNote", () => {
     expect(note).toHaveClass("text-text-tertiary");
   });
 
+  it("counts rows scored under an older Overall formula too (the multiplier redesign), whatever their weights version", () => {
+    h.data = { weights_version: 3, formula_version: 2, recompute: null };
+    const rows = [
+      { weights_version: 3, formula_version: 2 },
+      { weights_version: 3, formula_version: null },
+      { weights_version: 3, formula_version: 1 },
+    ] as unknown as TickerScoreOut[];
+    render(<StaleWeightsNote rows={rows} />);
+    expect(screen.getByTestId("stale-weights-note")).toHaveTextContent("2 scores are still on the previous weights.");
+  });
+
   it("adds that a recompute is running while one is", () => {
     h.data = { weights_version: 3, recompute: { state: "running" } };
     render(<StaleWeightsNote rows={[row(2)]} />);

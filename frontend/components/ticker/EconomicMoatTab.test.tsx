@@ -15,6 +15,9 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
 }));
 vi.mock("swr", () => ({ mutate: (...args: unknown[]) => mutate(...args) }));
 vi.mock("@/lib/hooks/useTickerMoat", () => ({ useTickerMoat: () => hook }));
+vi.mock("@/lib/hooks/useMoatConfig", () => ({
+  useMoatConfig: () => ({ data: { wide_moat_multiplier: 1, narrow_moat_multiplier: 0.87, no_moat_multiplier: 0.7 } }),
+}));
 
 beforeEach(() => {
   hook = { data: { ticker: "AAPL", moat: "narrow_moat", updated_at: "2026-06-01T00:00:00" } };
@@ -40,11 +43,16 @@ describe("EconomicMoatTab: the headings", () => {
   });
 });
 
-describe("EconomicMoatTab: the weighting copy", () => {
-  it("says Moat is fixed at 31%, the four checks split the other 69% and are adjustable in Settings (with a link)", () => {
+describe("EconomicMoatTab: the multiplier copy", () => {
+  it("says Moat is a multiplier on the Steps score, quotes the saved multipliers, and links to both Settings sections", () => {
     render(<EconomicMoatTab ticker="AAPL" />);
-    expect(document.body.textContent).toMatch(/Moat is fixed at 31% of Overall Assessment;\s+Financials \/ Growth Rate \/ Profitability \/ Debt split the remaining 69% and are adjustable in\s+Settings/);
-    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings?section=score-weighting");
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("It is not a part of the score: it multiplies the Steps score");
+    expect(text).toContain("Wide moat × 1.0, Narrow moat × 0.87, No moat × 0.70.");
+    expect(text).toContain("A ticker with no moat rated is scored as No moat.");
+    expect(text).not.toMatch(/31%|69%/);
+    expect(screen.getByRole("link", { name: "Score weighting" })).toHaveAttribute("href", "/settings?section=score-weighting");
+    expect(screen.getByRole("link", { name: "Economic moat" })).toHaveAttribute("href", "/settings?section=economic-moat");
   });
 });
 

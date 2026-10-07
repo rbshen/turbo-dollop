@@ -38,7 +38,8 @@ function row(overrides: Partial<TickerScoreOut> = {}): TickerScoreOut {
     step5_score: 60,
     step5_verdict: "Pass",
     moat: null,
-    moat_score: null,
+    steps_score: null,
+    moat_multiplier: null,
     overall_score: 78,
     overall_verdict: "Pass",
     market_cap: 3_000_000_000_000,
@@ -102,9 +103,9 @@ describe("filterTickerScores", () => {
     expect(result.map((r) => r.ticker)).toEqual(["HIGH"]);
   });
 
-  it("an Overall range filter reads the steps-only score of a Moat not rated ticker, like any other score", () => {
+  it("an Overall range filter reads the stored Overall score of an unrated ticker (scored as No moat), like any other score", () => {
     const rows = [
-      row({ ticker: "UNRATED_HIGH", overall_score: 81, overall_verdict: "moat_not_rated" }),
+      row({ ticker: "UNRATED_HIGH", overall_score: 71, overall_verdict: "Pass" }),
       row({ ticker: "UNRATED_LOW", overall_score: 55, overall_verdict: "Fail" }),
     ];
     const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, overallScore: { min: 70, max: null } };

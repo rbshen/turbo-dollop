@@ -621,10 +621,13 @@ export interface TickerBankCapitalMetricsIn {
   npl_as_of: string | null;
 }
 
+/** The Economic Moat multipliers (GET/PUT /api/config/moat): Overall = Steps score x the ticker's multiplier. Wide and No moat / not
+ * rated are fixed; Narrow is the one saved setting, one of `narrow_moat_multiplier_options`. */
 export interface MoatScoreConfigOut {
-  wide_moat_score: number;
-  narrow_moat_score: number;
-  no_moat_score: number;
+  wide_moat_multiplier: number;
+  narrow_moat_multiplier: number;
+  no_moat_multiplier: number;
+  narrow_moat_multiplier_options: number[];
   updated_at: string;
 }
 
@@ -662,14 +665,14 @@ export interface RecomputeRunOut {
 export interface ScoreWeightsOut {
   weights: ScoreWeightGroups;
   defaults: ScoreWeightGroups;
-  /** Economic Moat's locked share of Overall, in percent. Never part of `weights`. */
-  moat_weight: number;
-  /** What the four overall weights add up to. */
+  /** What the four overall weights add up to (100). Economic Moat is not a weight: it is a multiplier (MoatScoreConfigOut). */
   overall_total: number;
   bounds: { [G in ScoreWeightGroupKey]: Record<keyof ScoreWeightGroups[G], WeightBoundsOut> };
   /** What each group's weights must add up to. */
   sums: Record<ScoreWeightGroupKey, number>;
   weights_version: number;
+  /** The current Overall formula version: a stored row scored under another one is stale (see TickerScoreOut.formula_version). */
+  formula_version: number;
   updated_at: string;
   recompute: RecomputeRunOut | null;
 }
@@ -700,15 +703,17 @@ export interface TickerScoreOut {
   step4_verdict: string | null;
   step5_score: number | null;
   step5_verdict: string | null;
-  // null when no moat is set for this ticker.
+  // null when no moat is set for this ticker: it is then scored as No moat (multiplier 0.70).
   moat: MoatValue | null;
-  moat_score: number | null;
+  // The weighted blend of the four steps, UNROUNDED (show one decimal), and the Moat multiplier applied to it:
+  // overall_score = round(steps_score x moat_multiplier). null for an incomplete row, and for a row computed before the
+  // multiplier formula until its next recompute.
+  steps_score: number | null;
+  moat_multiplier: number | null;
   // null (along with overall_verdict) when any non-exempt step is missing --
   // a ticker can have a row here without a full Overall Assessment.
   overall_score: number | null;
-  // "Strong Pass" | "Pass" | "Pass with caution" | "Fail", or "moat_not_rated" (Moat unset and the steps-only blend would
-  // pass; overall_score is still that score) -- see MOAT_NOT_RATED_VERDICT in lib/overallScore.ts. Use verdictLabel()
-  // from lib/tierColor.ts to draw it.
+  // "Strong Pass" | "Pass" | "Pass with caution" | "Fail". Use verdictLabel() from lib/tierColor.ts to draw it.
   overall_verdict: string | null;
   market_cap: number | null;
   // See models.py::TickerScore.last_price -- null for a row computed
@@ -732,6 +737,8 @@ export interface TickerScoreOut {
   computed_at: string;
   // See backend models.py::TickerScore.weights_version: the saved-weights version this row was scored with (null for a row scored before weights were adjustable).
   weights_version?: number | null;
+  // See backend models.py::TickerScore.formula_version: the Overall formula version this row was scored with (null = before the multiplier formula).
+  formula_version?: number | null;
   // See TickerSummaryOut.perf_5y_vs_spy_pct/_status above.
   perf_5y_vs_spy_pct: number | null;
   perf_5y_vs_spy_status: PerfVsSpyStatus | null;

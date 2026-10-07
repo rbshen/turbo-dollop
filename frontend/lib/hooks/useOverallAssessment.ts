@@ -1,4 +1,3 @@
-import type { MoatScoreConfigOut } from "@/lib/api/types";
 import { useMoatConfig } from "@/lib/hooks/useMoatConfig";
 import { overallBlendWeights, useScoreWeights } from "@/lib/hooks/useScoreWeights";
 import { useStep1 } from "@/lib/hooks/useStep1";
@@ -8,7 +7,7 @@ import { useStep5 } from "@/lib/hooks/useStep5";
 import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
 import {
   computeOverallAssessment,
-  type MoatSnapshot,
+  DEFAULT_NARROW_MOAT_MULTIPLIER,
   type OverallAssessment,
   type OverallBlendWeights,
   type StepSnapshot,
@@ -22,13 +21,7 @@ const STEP_LABELS = {
 } as const;
 
 // Never used to compute a score: computeOverallAssessment returns "loading" (no score) whenever its loading flag is set.
-const LOADING_WEIGHTS: OverallBlendWeights = { overall: { financials: 0, growth: 0, profitability: 0, debt: 0 }, overallTotal: 1, moatWeight: 0 };
-
-const MOAT_SCORE_FIELD: Record<"no_moat" | "narrow_moat" | "wide_moat", (config: MoatScoreConfigOut) => number> = {
-  no_moat: (config) => config.no_moat_score,
-  narrow_moat: (config) => config.narrow_moat_score,
-  wide_moat: (config) => config.wide_moat_score,
-};
+const LOADING_WEIGHTS: OverallBlendWeights = { overall: { financials: 0, growth: 0, profitability: 0, debt: 0 }, overallTotal: 1 };
 
 // Shared by OverallAssessmentCard (Analysis tab) and the sticky ticker
 // header's "Assessment" chip -- both need the exact same weighted
@@ -51,16 +44,13 @@ export function useOverallAssessment(ticker: string): OverallAssessment {
     { key: "step4", label: STEP_LABELS.step4, hasError: !!step4.error, data: step4.data ? { score: step4.data.score, verdict: step4.data.verdict } : undefined },
   ];
 
-  // tickerMoat.data.moat === null means confirmed "not set" -- no moat
-  // config lookup needed in that case, so moatLoading only waits on
-  // moatConfig when a moat is actually set.
-  const moatLoading = !tickerMoat.data || (tickerMoat.data.moat !== null && !moatConfig.data);
-  const moat: MoatSnapshot | null =
-    tickerMoat.data?.moat && moatConfig.data
-      ? { moat: tickerMoat.data.moat, score: MOAT_SCORE_FIELD[tickerMoat.data.moat](moatConfig.data) }
-      : null;
+  // tickerMoat.data.moat === null means confirmed "not set" (scored as No moat, multiplier 0.70): no config lookup needed, so the
+  // saved Narrow multiplier is only waited on for a Narrow rating.
+  const moat = tickerMoat.data?.moat ?? null;
+  const moatLoading = !tickerMoat.data || (moat === "narrow_moat" && !moatConfig.data);
+  const narrowMultiplier = moatConfig.data?.narrow_moat_multiplier ?? DEFAULT_NARROW_MOAT_MULTIPLIER;
 
   // The saved weights are part of the blend: until they arrive the assessment is "loading" (never a score on stale defaults).
-  if (!scoreWeights.data) return computeOverallAssessment(snapshots, moat, true, LOADING_WEIGHTS);
-  return computeOverallAssessment(snapshots, moat, moatLoading, overallBlendWeights(scoreWeights.data));
+  if (!scoreWeights.data) return computeOverallAssessment(snapshots, moat, true, LOADING_WEIGHTS, narrowMultiplier);
+  return computeOverallAssessment(snapshots, moat, moatLoading, overallBlendWeights(scoreWeights.data), narrowMultiplier);
 }

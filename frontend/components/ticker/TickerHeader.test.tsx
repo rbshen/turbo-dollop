@@ -109,10 +109,23 @@ describe("AssessmentChipView: the Review status", () => {
     expect(screen.queryByText(/Review/)).not.toBeInTheDocument();
   });
 
-  it("renders nothing without a computed score, and keeps the Moat-not-rated pill", () => {
-    const { container, rerender } = render(<AssessmentChipView data={{ ...ROW, overall_score: null } as typeof ROW} />);
+  it("renders nothing without a computed score", () => {
+    const { container } = render(<AssessmentChipView data={{ ...ROW, overall_score: null } as typeof ROW} />);
     expect(container).toBeEmptyDOMElement();
-    rerender(<AssessmentChipView data={{ ...ROW, overall_verdict: "moat_not_rated", review_status: null, review_reasons: null } as typeof ROW} />);
-    expect(screen.getByText("Moat not rated")).toBeInTheDocument();
+  });
+
+  it("shows the 'Moat not rated, scored as No moat' note beside the verdict chip (and in its tooltip) for an unrated ticker only", () => {
+    const unrated = { ...ROW, moat: null, overall_score: 56, overall_verdict: "Fail", review_status: null, review_reasons: null } as typeof ROW;
+    const { rerender } = render(<AssessmentChipView data={unrated} />);
+    expect(screen.getByText("Fail")).toHaveAttribute("title", expect.stringContaining("Moat not rated, scored as No moat."));
+    expect(screen.getByTestId("moat-not-rated-note")).toHaveTextContent("Moat not rated, scored as No moat");
+    expect(screen.queryByText("Moat not rated")).not.toBeInTheDocument(); // no verdict pill of that name any more
+    rerender(<AssessmentChipView data={{ ...unrated, moat: "wide_moat" } as typeof ROW} />);
+    expect(screen.queryByTestId("moat-not-rated-note")).not.toBeInTheDocument();
+  });
+
+  it("keeps the note beside a Review chip for an unrated ticker", () => {
+    render(<AssessmentChipView data={{ ...ROW, moat: null } as typeof ROW} />);
+    expect(screen.getByTestId("moat-not-rated-note")).toBeInTheDocument();
   });
 });

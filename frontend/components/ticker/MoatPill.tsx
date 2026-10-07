@@ -40,6 +40,14 @@ const LABEL_SETS: Record<"full" | "screener", Record<MoatValue, string>> = {
   screener: LABELS_SCREENER,
 };
 
+// Hover text: what the rating does to the Overall score (Overall = Steps score x multiplier). Narrow's factor is a setting, so it is
+// named rather than quoted.
+const MOAT_TITLE: Record<MoatValue, string> = {
+  wide_moat: "Wide moat: Overall = Steps score × 1.0",
+  narrow_moat: "Narrow moat: Overall = Steps score × the Narrow multiplier (Settings > Economic moat)",
+  no_moat: "No moat: Overall = Steps score × 0.70",
+};
+
 interface Props {
   // null (or undefined while loading) renders nothing -- only shown once a
   // moat is actually set (see CLAUDE.md's Economic Moat deviation note),
@@ -53,5 +61,9 @@ interface Props {
 export function MoatPill({ moat, labelSet = "full" }: Props) {
   if (!moat) return null;
 
-  return <Status tone={MOAT_TONE[moat]}>{pillLabel(LABEL_SETS[labelSet][moat])}</Status>;
+  return (
+    <Status tone={MOAT_TONE[moat]} title={MOAT_TITLE[moat]}>
+      {pillLabel(LABEL_SETS[labelSet][moat])}
+    </Status>
+  );
 }
