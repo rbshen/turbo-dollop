@@ -42,7 +42,7 @@ DIP_RESOLUTION_MIN_AGE = 4
 DIP_RESOLUTION_MIN_RECOVERY_RUN = 3
 # Shared early/late window for robust_late_direction, reused by both the
 # durable-resolution direction check and flat_then_spike's narrowing below --
-# matches the "3" convention already used by Step 1's MARGIN_TREND_WINDOW.
+# matches the "3" convention used by the engine's own window (scoring/step1_engine.py).
 TREND_RECOVERY_WINDOW = 3
 # flat_then_spike's own "was it really flat before the spike" check only
 # looks at 2 points (arr[0] vs arr[-2]), which misses a genuine multi-year
@@ -359,7 +359,7 @@ def _graduated_resolved_score(events: list[DipEvent], ttm: float) -> int:
 
 # Thin-history cap ("H1"): a step with fewer than THIN_HISTORY_MIN_POINTS data points cannot be a Strong Pass (the
 # line is above 90), so its score is capped at THIN_HISTORY_SCORE_CAP. The verdict stays a plain Pass; no flag. Step 1
-# counts the cleaned Revenue series handed to score_step1 (TTM included; Net Interest Income for a Bank). Step 4 has
+# counts the cleaned Revenue series handed to score_step1 (completed fiscal years only; Net Interest Income for a Bank). Step 4 has
 # its own count (scoring/step4.py); both import these two constants.
 THIN_HISTORY_MIN_POINTS = 8
 THIN_HISTORY_SCORE_CAP = 90

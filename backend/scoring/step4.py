@@ -53,9 +53,9 @@ ROE_SUSTAINED_DECLINE_STEPS = 2
 ROE_SUSTAINED_DECLINE_POINTS = 15.0
 # An old, since-recovered bad year (single low ROE/ROIC year, or a
 # negative-equity-substitute loss year) shouldn't permanently disqualify --
-# same recency-gate + classify_trend fallback Step 1/Step 3 use. Matches
+# same recency-gate + classify_trend fallback Step 3 uses. Matches
 # the app-wide "3" recency convention (AR_RED_FLAG_RECENCY_WINDOW below,
-# Step 1's FCF_CASH_BURN_RECENCY_YEARS, Step 3's NEGATIVE_VALUE_RECENCY_YEARS).
+# Step 3's NEGATIVE_VALUE_RECENCY_YEARS).
 DIP_RECOVERY_RECENCY_YEARS = 3
 # --- Below-floor graduated scale (2026-08-13) --------------------------------
 # Below ROE_MARGINAL_AVG, avg/min-year tiering used to collapse to a flat

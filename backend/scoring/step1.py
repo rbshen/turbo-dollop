@@ -1,142 +1,56 @@
-import numpy as np
-
-from scoring.series_trend import analyze_series_direction, robust_early_direction, robust_late_direction
-from scoring.weights import DEFAULT_WEIGHTS, Step1Weights, step1_tables
+from scoring.step1_engine import DECLINE, DOLLAR, INSUFFICIENT, RATIO, assess_series
 from scoring.trend import (
-    RECOVERY_PATTERNS,
     THIN_HISTORY_MIN_POINTS,
     THIN_HISTORY_SCORE_CAP,
     TrendResult,
-    classify_trend,
     most_recent_real_dip_age,
 )
+from scoring.weights import DEFAULT_WEIGHTS, Step1Weights, step1_tables
 
-# Revenue > CFO > Net Income priority hierarchy per a refined reading of
-# the methodology doc: Revenue is the foundation ("if revenue isn't
-# growing, the business is shrinking"); CFO is weighted above Net Income
-# since it's "the actual cash the business generates," while Net Income is
-# explicitly "most susceptible to distortion" (one-off gains/losses, tax
-# anomalies, non-operating items) -- see the Operating-Income backup
-# mechanism below, which already exists for exactly this reason. Margins
-# stay a lower-weight supporting indicator (unchanged); FCF drops to the
-# smallest weight, matching its own simpler role (a positive/negative
-# check, not a growth trend -- see _classify_fcf). Was
-# {0.25, 0.25, 0.25, 0.10, 0.15}. Verified via a full 427-ticker simulation
-# before adopting: real trade-offs exist (10 tickers flip Pass->Fail,
-# e.g. AMGN: Net Income 75 via Operating-Income backup vs CFO 40
-# unresolved -- shifting weight toward the harder-to-distort CFO figure is
-# the hierarchy working as intended there, not collateral damage).
-# The weight tables are no longer constants: score_step1 takes a Step1Weights (scoring/weights.py, default DEFAULT_WEIGHTS) and
-# derives the three tables below from it with scoring/weights.py::step1_tables -- the same procedures as before (CFO-exempt:
-# CFO+FCF split equally over Revenue/Net Income/Margins; Bank: Margins also dropped and its weight spread proportionally over
-# Revenue/Net Income, 28/47 and 19/47 at the defaults). The three names below are the DEFAULT tables, kept for readers and tests.
+# Step 1 (Financials) scores five metrics with ONE neutral engine (scoring/step1_engine.py::assess_series; docs/specs/financials.md):
+# Revenue, Net Income, Operating Income, CFO and FCF as DOLLAR series, gross / operating / net margin as RATIO series. Every series
+# is COMPLETED FISCAL YEARS ONLY -- no TTM point anywhere in Step 1. This module is the wrapper around the engine: the positivity gate,
+# the Net Income Operating Income backup, the Margins combination and carve-out, the CFO/FCF and Margins exemptions, the blend and the
+# thin-history cap.
+#
+# The weight tables are not constants: score_step1 takes a Step1Weights (scoring/weights.py, default DEFAULT_WEIGHTS) and derives the
+# three tables below from it with scoring/weights.py::step1_tables (CFO-exempt: CFO+FCF split equally over Revenue/Net Income/Margins;
+# Bank: Margins also dropped and its weight spread proportionally over Revenue/Net Income, 28/47 and 19/47 at the defaults). The three
+# names below are the DEFAULT tables, kept for readers and tests.
 # Banks (2026-09-10): Margins is excluded on top of CFO/FCF -- `grossProfit`/`revenue` isn't a coherent concept for a lending
 # institution (an FMP data-methodology break confirmed across all 28 Bank tickers with margin data); Insurance/Property
 # Developer/Commodity Company stay on the CFO-exempt table. See docs/specs/financials.md.
 WEIGHTS_STANDARD, WEIGHTS_CFO_EXEMPT, WEIGHTS_CFO_MARGINS_EXEMPT = step1_tables(DEFAULT_WEIGHTS.step1)
 
-# --- Free Cash Flow tiers -----------------------------------------------
-# FCF is "consistently positive," not a growth trend -- what matters per the
-# doc's own rationale is whether a cash-burn stretch is sustained (2+
-# CONSECUTIVE negative years = bankruptcy risk), not merely whether a
-# negative year exists somewhere in the history. A qualifying run still
-# fails outright if it's recent; an older one is excused only if
-# classify_trend confirms the series has since durably recovered -- same
-# recency-gate + classify_trend fallback Step 3's method-selection tree
-# uses for CFO/Net Income/FCF (see scoring/step3.py).
-FCF_EXCELLENT_SCORE = 100
-FCF_GOOD_SCORE = 85
-FCF_MARGINAL_SCORE = 60
-FCF_FAIL_SCORE = 0
-# A qualifying 2+-consecutive-negative-year run still fails outright if it
-# ended within this many periods of TTM (too fresh to trust as resolved) --
-# matches the "3" recency convention already used throughout this app
-# (Step 3's NEGATIVE_VALUE_RECENCY_YEARS, Step 4's AR_RED_FLAG_RECENCY_WINDOW).
-FCF_CASH_BURN_RECENCY_YEARS = 3
-# Early-recovery baseline window for _fcf_durably_recovered, matching
-# MARGIN_TREND_WINDOW's sizing convention (see _series_recovered).
-FCF_RECOVERY_WINDOW = 3
-
-# Matches scoring/trend.py::MULTIPLE_DIPS_CEILING -- a mandatory companion
-# to that fix (2026-09-10), not an independent tuning choice. This gate
-# used to compare against classify_trend's old flat multiple_dips value
-# (40) directly; once that score is graduated up to a ceiling of 70 for a
-# near-recovered dip, leaving this threshold at 40 would silently exclude
-# exactly the mildly-graduated cases (e.g. a raw NI score of 45-60) from a
-# backup rescue they'd still benefit from -- confirmed via simulation to
-# regress 37 tickers (e.g. CTVA 94->88, CL 88->82, AEP 84->80) purely from
-# losing an already-computed OI rescue, with zero underlying data change.
-# See CLAUDE.md's Step 1 deviations for the full investigation.
-#
-# Raised again from 70 to 79 (2026-10-05, "K4") to remove a cliff: at <= 70 a
-# Net Income score of 70 could be lifted to the 80 cap while a 71 (a
-# near-identical business, e.g. a multiple_dips_resolved 71-75) got nothing.
-# 79 is CAP - 1: every score the backup could still improve is now eligible,
-# and 80+ is left alone (the cap would not change it). The K2 quality gates
-# below apply to this whole range. No longer equal to MULTIPLE_DIPS_CEILING
-# -- the invariant that matters is THRESHOLD >= MULTIPLE_DIPS_CEILING (see
-# test_net_income_backup_threshold_covers_multiple_dips_ceiling).
+# --- Net Income Operating Income backup (a wrapper, unchanged except that it reads completed fiscal years, not TTM) ---------------
+# When the Net Income score is at or below NET_INCOME_BACKUP_THRESHOLD (CAP - 1: every score the backup could still improve is
+# eligible, 80+ is left alone) and its most recent real dip (the old `most_recent_real_dip_age` helper, with its own -5% line) was
+# within NET_INCOME_BACKUP_RECENCY_YEARS fiscal years of the latest one -- or Net Income has too few points to have a "recency" at
+# all -- the engine is also run on Operating Income, and the Net Income score becomes min(CAP, max(NI, OI)) only if the business is
+# genuinely and durably operating-profitable, ALL of: latest completed-fiscal-year OI > 0; that OI >= NET_INCOME_BACKUP_MIN_OI_MARGIN
+# of that year's real revenue; OI positive in >= NET_INCOME_BACKUP_MIN_POSITIVE_PERIODS of the last NET_INCOME_BACKUP_OI_WINDOW
+# fiscal years (a series shorter than the window is judged on what it has).
 NET_INCOME_BACKUP_THRESHOLD = 79
 NET_INCOME_BACKUP_CAP = 80
-# "1 or 2 years in the past" -- deliberately includes age 0 (the dip
-# landing in the TTM transition itself). Excluding age 0 would mean the
-# single most common one-off shape -- a charge that just hit the LATEST
-# reported period -- could never qualify for the Operating Income
-# fallback, which reads as an unintended gap rather than an intended
-# exclusion.
 NET_INCOME_BACKUP_RECENCY_YEARS = 2
-# Quality gates on the backup itself (2026-10-05, "K2"): an Operating
-# Income rescue is only credible when the business is genuinely and durably
-# operating-profitable, otherwise a thin or sporadic OI (ECHO, LITE, WBD,
-# INTC) was lifting a weak Net Income score on little more than a positive
-# sign. ALL must hold or the backup cannot lift (the Net Income score stays
-# as computed): TTM OI > 0; TTM OI >= NET_INCOME_BACKUP_MIN_OI_MARGIN of TTM
-# revenue; OI positive in >= NET_INCOME_BACKUP_MIN_POSITIVE_PERIODS of the
-# last NET_INCOME_BACKUP_OI_WINDOW entries of the cleaned OI series (TTM
-# included; a series shorter than the window is judged on what it has).
 NET_INCOME_BACKUP_MIN_OI_MARGIN = 0.05
 NET_INCOME_BACKUP_OI_WINDOW = 5
 NET_INCOME_BACKUP_MIN_POSITIVE_PERIODS = 4
-# "No explicit TTM supplied": score_step1 then reads TTM as the last point of
-# the cleaned series it was handed. step1_data.py always passes the real TTM
-# values (None when missing), because a None-filtered series can't tell
-# "TTM missing" from "TTM present".
-_TTM_FROM_SERIES = object()
+# "No explicit latest-fiscal-year figure supplied": score_step1 then reads it as the last point of the cleaned series it was handed.
+# step1_data.py always passes the real latest-fiscal-year values (None when missing), because a None-filtered series can't tell
+# "missing" from "present".
+_LATEST_FROM_SERIES = object()
 
-# classify_trend is purely relative/directional -- it only asks whether a
-# series has grown/recovered relative to its OWN prior points, never
-# whether the values themselves are positive. A company whose Net Income
-# has never once been profitable but is trending toward breakeven (e.g.
-# SYM: -104.4M(FY19) -> ... -> -4.97M TTM, each "dip" a relative
-# worsening that later reverses) reads as multiple_dips_resolved/75 --
-# indistinguishable from a company that actually turned the corner into
-# real profitability. Revenue, Net Income, and CFO must be positive AND
-# increasing: a historical dip is still tolerated (even one that went
-# negative mid-dip) as long as the series has since recovered per
-# classify_trend's OWN unchanged dip-tolerance tiers AND the current/TTM
-# value clears zero. This is a hard gate layered on top of classify_trend,
-# not a replacement for its tiers.
+# The engine is purely relative/directional -- it never asks whether the values themselves are positive. Revenue, Net Income and CFO
+# must be positive AND growing: a latest completed fiscal year at or below zero is `not_yet_positive` whatever the shape. FCF is
+# deliberately NOT gated (the engine alone: a negative value is a dip).
 NOT_YET_POSITIVE_SCORE = 0  # kept as the fallback when no revenue scale is available (see below)
 # --- `not_yet_positive` graduated display (2026-08-13) ----------------------
-# A currently-non-positive value used to score a flat 0 regardless of
-# depth -- a company one dollar from breakeven (e.g. ZETA's TTM Net Income
-# margin of -0.1%) scored identically to one deep in genuine structural
-# loss (MRNA's Operating Income margin of -149.0%). Points now graduate
-# from NOT_YET_POSITIVE_CEILING_SCORE (15 -- deliberately below
-# flat_then_spike's 20, the next-lowest classify_trend pattern score, same
-# ceiling convention as `declining`'s graduated fix above, so this never
-# outranks a milder worst-tier pattern) at 0% margin down to 0 at
-# NOT_YET_POSITIVE_FLOOR_MARGIN (-20%). -20% was chosen from the real
-# tracked-universe distribution of `not_yet_positive` hits, not guessed:
-# it covers 34/45 (76%) of actual hits, leaving the genuinely severe tail
-# (MRNA, RIVN, NBIS, ARE, ECHO, SNOW -- all beyond -20% margin) at a flat
-# 0, unchanged. Margin is measured against REAL revenue (the same
-# `margin_context_revenue` Margins itself is judged against, not the
-# Bank-substituted Net-Interest-Income "revenue" -- see score_step1's own
-# comment on that distinction) -- passed in by the caller since this
-# function has no revenue context of its own. Revenue's own
-# not_yet_positive case (vanishingly rare) has nothing meaningful to
-# normalize against and stays a flat 0 (no `revenue_for_scale` passed).
+# A currently-non-positive value used to score a flat 0 regardless of depth -- a company one dollar from breakeven scored identically
+# to one deep in genuine structural loss. Points graduate from NOT_YET_POSITIVE_CEILING_SCORE (15) at 0% margin down to 0 at
+# NOT_YET_POSITIVE_FLOOR_MARGIN (-20%, chosen from the real distribution of hits, not guessed). Margin is measured against REAL
+# revenue (the same `margin_context_revenue` the margins use, not the Bank Net-Interest-Income "revenue") -- passed in by the caller.
+# Revenue's own not_yet_positive case (vanishingly rare) has nothing to normalize against and stays a flat 0.
 NOT_YET_POSITIVE_CEILING_SCORE = 15
 NOT_YET_POSITIVE_FLOOR_MARGIN = -20.0
 
@@ -152,72 +66,20 @@ def _not_yet_positive_result(value: float, revenue_for_scale: float | None) -> T
 
 
 def _classify_positive_trend(values: list[float], revenue_for_scale: list[float] | None = None) -> TrendResult:
-    trend = classify_trend(values)
-    if trend.pattern == "insufficient_data":
+    trend = assess_series(values, DOLLAR)
+    if trend.pattern == INSUFFICIENT:
         return trend
     if values[-1] <= 0:
         return _not_yet_positive_result(values[-1], revenue_for_scale[-1] if revenue_for_scale else None)
     return trend
 
-# Margin classification thresholds, in percentage points. Deliberately
-# refined beyond financials.md's original stdev-based volatility check
-# -- see CLAUDE.md's "Scoring rubric
-# deviations" section for why. A single big dip-and-full-recovery year
-# (e.g. one synchronized -8pt drop followed by a +15pt rebound) produces a
-# high stdev but isn't the same risk profile as genuine directionless
-# chaos, so we now classify on windowed direction + explicit dip/recovery
-# accounting instead of penalizing variance itself.
-MARGIN_TREND_WINDOW = 3  # early/late average window, in FYs (capped by series length)
-MARGIN_DIP_POINTS = 2.0  # a year-over-year drop bigger than this counts as a "real" one-year dip
-MARGIN_SUSTAINED_DECLINE_STEPS = 2  # 2+ consecutive down-years = a 3-FY declining stretch
-MARGIN_SUSTAINED_DECLINE_POINTS = 5.0  # ...and it must total more than this to count as genuinely "sustained"
-MARGIN_STABLE_TOLERANCE = -1.0
-MARGIN_SHARP_DECLINE = -5.0
-MARGIN_FLAT_DIRECTION = 1.0  # early-vs-late average move smaller than this counts as "no net direction"
 
-# --- `gradually_compressing` graduated score (2026-09-10) ------------------
-# Used to score a flat 60 no matter how far past MARGIN_STABLE_TOLERANCE
-# (-1.0pp) the worse of gross/net `direction` actually sat -- a company
-# barely past the tolerance line (e.g. -1.1pp) scored identically to one
-# with a much larger, genuinely compressing margin (e.g. -20pp). Confirmed
-# via the same feasibility investigation as MULTIPLE_DIPS_CEILING/
-# RESOLVED_CEILING above.
-#
-# MARGINS_CEILING (60) matches the OLD flat value -- like the resolved-dip
-# bucket (not the unresolved one), this has no headroom to graduate
-# UPWARD, so it can only ever lower some tickers' scores. Deliberately
-# GENTLE parameters (a 12pp band, not the full severity range some
-# tickers show) -- the same investigation found a more aggressive version
-# produces real regressions on names whose margin decline is genuine but
-# modest (e.g. ADI's -5.85pp real semiconductor-cycle compression,
-# combined with graduated resolved-dip scores elsewhere in its own blend,
-# tipped it Pass->Fail at more aggressive settings; these gentler
-# parameters keep it Pass).
-#
-# Deliberately does NOT apply to MARGINS_SEVERITY_CARVEOUT_TYPES (Insurance,
-# REIT/Property Developer, Utility -- Bank is excluded from this classifier
-# entirely as of Step 1's own margins exemption, see step1_data.py's
-# MARGINS_EXEMPT_TYPES, so it never reaches this carve-out check at all).
-# The same investigation found these three types' margins carry genuine,
-# structurally-noisier severity than a typical Standard company hitting
-# this pattern (median `direction` -12.88pp vs. -3.27pp) -- REIT
-# specifically via a distinct, separately-scoped terminal-period-collapse
-# artifact (O/PSA/VTR/DOC), not yet investigated or fixed here, just
-# protected from the graduated formula the same way it always was. See
-# CLAUDE.md's Step 1 deviations for the full investigation.
-MARGINS_CEILING = 60
-MARGINS_FLOOR = 45
-MARGINS_SEVERE_PP = 12.0
+# --- Margins: min(G, max(N, O)) ----------------------------------------------------------------------------------------------------
+# Insurance / REIT-Property-Developer / Utility: a margin series labelled `decline` / `decline_dips` is never scored below this
+# (applied per series, after the engine's positivity ceiling and before the combination). Their margins carry structurally noisier
+# severity than a typical company's.
 MARGINS_SEVERITY_CARVEOUT_TYPES = {"Insurance", "REIT/Property Developer", "Utility"}
-
-
-def _graduated_margins_score(gross, net) -> int:
-    worst_direction = min(gross.direction, net.direction)
-    past = max(0.0, MARGIN_STABLE_TOLERANCE - worst_direction)
-    clipped = min(past, MARGINS_SEVERE_PP)
-    fraction = clipped / MARGINS_SEVERE_PP
-    return round(MARGINS_CEILING - (MARGINS_CEILING - MARGINS_FLOOR) * fraction)
-
+MARGINS_CARVEOUT_FLOOR = 60
 
 VERDICT_BANDS = [
     (91, 100, "Strong Pass"),
@@ -226,252 +88,45 @@ VERDICT_BANDS = [
 ]
 
 
-def _analyze_margin_series(values: np.ndarray):
-    return analyze_series_direction(
-        values,
-        MARGIN_TREND_WINDOW,
-        MARGIN_DIP_POINTS,
-        MARGIN_SUSTAINED_DECLINE_STEPS,
-        MARGIN_SUSTAINED_DECLINE_POINTS,
-    )
-
-
-def _series_recovered(values: np.ndarray, analysis) -> bool:
-    """True if this series has no sustained decline, or -- if it does --
-    the decline has been durably reversed: direction is non-negative AND
-    the current (TTM) value has climbed back to at least the same
-    early-window baseline `direction` itself is measured against. Confirmed
-    via live data (see CLAUDE.md's Step 1 deviations) that a 10yr+TTM
-    window makes an old, small, fully-reversed decline (frequently the
-    COVID-2020 FY) permanently cap otherwise-excellent margins at
-    "gradually_compressing" -- the same class of bug fixed in Step 4's CCC
-    classifier. Uses the early-window AVERAGE rather than the single value
-    right before the decline began, since that value is often itself an
-    anomalous spike (e.g. a one-off gain) -- requiring a full re-exceedance
-    of a spike would leave genuine recoveries capped forever."""
-    if not analysis.sustained_decline:
-        return True
-    if analysis.direction < MARGIN_STABLE_TOLERANCE:
-        return False
-    w = min(MARGIN_TREND_WINDOW, len(values))
-    return bool(values[-1] >= values[:w].mean())
-
-
-def _stable_and_spike_robust(gross_arr: np.ndarray, gross, net_arr: np.ndarray, net) -> bool:
-    """True if both series read as non-negative direction AND that reading
-    isn't solely propped up by a single anomalous point in the late window
-    (e.g. LYV: a decade flat at 23-30% gross margin, then one TTM spike to
-    44.7% flips direction positive on its own). Mirrors sustained_decline's
-    dip-side gate, but for the opposite failure mode -- see CLAUDE.md's
-    Step 1 deviations."""
-    if not (gross.direction >= MARGIN_STABLE_TOLERANCE and net.direction >= MARGIN_STABLE_TOLERANCE):
-        return False
-    return (
-        robust_late_direction(gross_arr, MARGIN_TREND_WINDOW) >= MARGIN_STABLE_TOLERANCE
-        and robust_late_direction(net_arr, MARGIN_TREND_WINDOW) >= MARGIN_STABLE_TOLERANCE
-    )
+def _margin_input(values: list[float], carveout: bool) -> TrendResult | None:
+    """One margin series through the RATIO engine, then the carve-out. None = missing (fewer than 2 years): the input drops out."""
+    result = assess_series(values, RATIO)
+    if result.pattern == INSUFFICIENT:
+        return None
+    if carveout and result.pattern.startswith(DECLINE):
+        return TrendResult(result.pattern, max(result.score, MARGINS_CARVEOUT_FLOOR))
+    return result
 
 
 def _classify_margins(
-    gross_margin: list[float], net_margin: list[float], revenue_growing: bool, carveout: bool = False
-) -> TrendResult:
-    """`carveout` (Insurance / REIT-Property-Developer / Utility -- see
-    MARGINS_SEVERITY_CARVEOUT_TYPES) keeps `gradually_compressing` at the
-    old flat 60 instead of applying the graduated formula. Banks never
-    reach this function at all post-2026-09-10 (see step1_data.py's
-    MARGINS_EXEMPT_TYPES), so `carveout=True` should never actually be
-    needed for a Bank in practice -- it's a defensive parameter, not
-    Bank-specific."""
-    if len(gross_margin) < 2 or len(net_margin) < 2:
-        return TrendResult("insufficient_data", 0)
+    gross_margin: list[float], operating_margin: list[float], net_margin: list[float], carveout: bool = False
+) -> tuple[TrendResult, dict]:
+    """Margins = min(G, max(N, O)) of the three per-series RATIO scores (no averaging, no threshold). A missing input drops out: no
+    gross margin gives max(N, O); no operating margin gives min(G, N); no net margin gives min(G, O); N and O both missing makes
+    Margins `insufficient_data` whatever G is. Returns the result (the pattern is the deciding input's) and the display detail:
+    each present input's score/pattern under `inputs`, and which one decides under `binding`."""
+    inputs = {
+        "gross": _margin_input(gross_margin, carveout),
+        "operating": _margin_input(operating_margin, carveout),
+        "net": _margin_input(net_margin, carveout),
+    }
+    gross, operating, net = inputs["gross"], inputs["operating"], inputs["net"]
+    detail: dict = {"inputs": {key: {"score": r.score, "pattern": r.pattern} for key, r in inputs.items() if r is not None}}
+    if operating is None and net is None:
+        return TrendResult(INSUFFICIENT, 0), detail
 
-    gross_arr = np.asarray(gross_margin, dtype=float)
-    net_arr = np.asarray(net_margin, dtype=float)
-    gross = _analyze_margin_series(gross_arr)
-    net = _analyze_margin_series(net_arr)
-    gc_score = MARGINS_CEILING if carveout else _graduated_margins_score(gross, net)
-
-    # Rule 1: a sustained multi-year decline anywhere must not be masked by
-    # a later rebound -- UNLESS the decline has been durably reversed (see
-    # _series_recovered). The sharp-decline check always runs first,
-    # regardless of reversal status: a currently sharply-negative net
-    # margin must never be excused by an unrelated gross-side recovery.
-    if gross.sustained_decline or net.sustained_decline:
-        # Rescue-only: use whichever of the raw early-vs-late direction or
-        # the robust (single-outlier-excluded) early-window direction is
-        # LESS negative, never the robust value alone. A stale one-off high
-        # year sitting in the early window (e.g. GLW's 2016 39.35% net
-        # margin, itself a one-time-item artifact) can drag `net.direction`
-        # sharply negative even when the current trend is a genuine
-        # multi-year recovery -- excluding that single point corrects for
-        # exactly that. But the exclusion is symmetric by construction (it
-        # always drops whichever early point sits furthest from the
-        # window's own median), so it can just as easily drop a genuine LOW
-        # early anomaly (e.g. DVN's oil-crash-year trough), which RAISES
-        # the early average and makes the reading MORE negative -- the
-        # opposite of what this correction is for. max() makes it strictly
-        # one-directional: only ever rescues a false "sharply_declining"
-        # read, never manufactures one. See robust_early_direction's own
-        # docstring and CLAUDE.md's Step 1 deviations for the full
-        # investigation (confirmed via a full-universe check: the
-        # unguarded/non-max version regressed 16 tickers, including DVN
-        # 100->20; the max()-guarded version regresses none).
-        net_direction_for_sharp_check = max(net.direction, robust_early_direction(net_arr, MARGIN_TREND_WINDOW))
-        if net_direction_for_sharp_check < MARGIN_SHARP_DECLINE and revenue_growing:
-            return TrendResult("sharply_declining", 20)
-        if not (_series_recovered(gross_arr, gross) and _series_recovered(net_arr, net)):
-            return TrendResult("gradually_compressing", gc_score)
-        # Exempted: durably reversed. Read straight off the stable/expanding
-        # check below -- deliberately does NOT fall through to Rule 2,
-        # whose per-series dip count has its own separately-known issues
-        # (see CLAUDE.md) and would otherwise turn a confirmed recovery
-        # into the WORST tier for a near-flat-but-positive ticker.
-        if _stable_and_spike_robust(gross_arr, gross, net_arr, net):
-            return TrendResult("stable_or_expanding", 100)
-        return TrendResult("gradually_compressing", gc_score)
-
-    # Rule 2: 2+ real dips in a series that still nets out flat overall is
-    # genuine directionless chaos -- reserved for the bottom tier. Requires
-    # BOTH series to show the pattern, not either alone -- an OR here let one
-    # choppy series veto an unambiguously improving other series (e.g. GOOGL:
-    # net margin nearly doubled, scored 0 anyway because gross was choppy).
-    # Confirmed via live data that no ticker in the dataset currently
-    # satisfies both conditions at once -- this tier is reserved for genuine
-    # simultaneous dual-metric chaos, not one noisy series alone.
-    if (gross.num_real_dips >= 2 and abs(gross.direction) < MARGIN_FLAT_DIRECTION) and (
-        net.num_real_dips >= 2 and abs(net.direction) < MARGIN_FLAT_DIRECTION
-    ):
-        return TrendResult("wildly_inconsistent", 0)
-
-    if _stable_and_spike_robust(gross_arr, gross, net_arr, net):
-        return TrendResult("stable_or_expanding", 100)
-
-    if net.direction < MARGIN_SHARP_DECLINE and revenue_growing:
-        return TrendResult("sharply_declining", 20)
-
-    return TrendResult("gradually_compressing", gc_score)
+    present = {key: r for key, r in (("net", net), ("operating", operating)) if r is not None}
+    binding_key = max(present, key=lambda key: present[key].score)  # a tie between N and O goes to net margin (listed first)
+    if gross is not None and gross.score <= present[binding_key].score:
+        binding_key = "gross"
+    binding = inputs[binding_key]
+    detail["binding"] = binding_key
+    return TrendResult(binding.pattern, binding.score), detail
 
 
-def _fcf_durably_recovered(fcf: list[float], run_end: int) -> bool:
-    """Recovery check for a cash-burn run that classify_trend's full-series
-    read rejects SOLELY because of its own blunt "any TTM decline is
-    disqualifying" rule -- which doesn't distinguish an old, resolved burn
-    stretch followed by years of robust positive FCF from a genuinely fresh
-    decline (e.g. TSLA: an 8-year-old burn, 6 straight recovered years,
-    capped by a mere -7.4% TTM dip vs. last FY; GE: a -50% TTM pullback that
-    still lands well above its own early-recovery baseline). Three
-    conditions, all required:
-
-    1. Every year since the run ended -- including TTM -- must itself be
-       non-negative. This is what actually distinguishes "durable recovery,
-       one wobble year" from a company that's still periodically lurching
-       negative (e.g. PEG: a capex-heavy utility whose "post-burn" years
-       include a further -$1.25B year and a negative TTM -- superficially
-       past FCF_CASH_BURN_RECENCY_YEARS since its last 2+-consecutive run,
-       but nowhere near "solidly positive since"). Without this gate, a
-       negative value hiding in the post-burn window can also drag the
-       baseline in condition 3 negative, making an also-negative TTM look
-       like it clears the baseline.
-    2. Dropping the TTM period, does the series independently read as a
-       recovered classify_trend pattern? This confirms the run was already
-       durably resolved BEFORE this year's wobble, rather than merely
-       looking recovered because TTM's decline hasn't yet compounded into a
-       second bad year. A genuinely still-declining series (DE, AIG) fails
-       here too -- their unresolved dips sit in the recovery years
-       themselves (an interim peak TTM hasn't reclaimed), not just the
-       final wobble year, so dropping TTM alone doesn't fix their read.
-    3. Has TTM fallen back below the early post-burn recovery baseline?
-       Mirrors _series_recovered's early-window-baseline pattern (same
-       window size) -- a wobble that's merely off last year's number is
-       tolerable, but craters back toward the original burn level are not,
-       regardless of how the pre-TTM series reads on its own.
-    """
-    post_burn = fcf[run_end + 1 :]
-    if any(v < 0 for v in post_burn):
-        return False
-    pre_ttm_trend = classify_trend(fcf[:-1])
-    if pre_ttm_trend.pattern not in RECOVERY_PATTERNS:
-        return False
-    w = min(FCF_RECOVERY_WINDOW, len(post_burn))
-    baseline = float(np.mean(post_burn[:w]))
-    return fcf[-1] >= baseline
-
-
-def _fcf_capex_driven(cfo: list[float] | None, run_start: int, run_end: int) -> bool:
-    """True if the negative-FCF run is fully explained by heavy, CFO-funded
-    capex rather than operational distress -- CFO stayed positive
-    THROUGHOUT the run (every value, not just the endpoints -- closes the
-    "genuinely distressed company with a temporarily-propped-up CFO" gap
-    explicitly) and non-declining (last >= first, the same simple bar
-    Step 4's negative-equity substitute already uses). Confirmed real shape
-    for regulated utilities (AEP, DUK, ED, ES, FE, SO): FCF negative for
-    years on heavy rate-base capex while CFO stayed comfortably positive and
-    growing the entire time -- there was never a cash crisis, so the
-    recency gate below (built for "was this ever a real crisis, and if so
-    how long ago did it end") doesn't apply."""
-    if cfo is None:
-        return False
-    window = cfo[run_start : run_end + 1]
-    if len(window) < 2 or any(v is None or v <= 0 for v in window):
-        return False
-    return window[-1] >= window[0]
-
-
-def _classify_fcf(fcf: list[float], cfo: list[float] | None = None) -> TrendResult:
-    """FCF tiering: all-positive -> Excellent; a single isolated negative
-    year -> Good (a one-off blip, not a pattern); negative years present
-    but never 2 in a row (e.g. two scattered, non-adjacent negative years)
-    -> Marginal; a run of 2+ consecutive negative years -> Fail, UNLESS that
-    run ended more than FCF_CASH_BURN_RECENCY_YEARS ago AND either
-    classify_trend confirms the full series has since durably recovered
-    (e.g. AMD's FY2017/2018, since fully recovered to $8.57B TTM FCF), or
-    _fcf_durably_recovered confirms it recovered before a since-tolerable
-    single-year TTM wobble (e.g. TSLA, TMUS, GE -- see that function) -- an
-    old, resolved cash-burn stretch shouldn't permanently read as an ongoing
-    bankruptcy-risk signal just because the latest year alone dipped. A run
-    too recent to trust as resolved still fails outright UNLESS `cfo` shows
-    it was capex-driven the whole time (see _fcf_capex_driven) -- a
-    strong-and-growing CFO throughout means there was never a real cash
-    crisis for the recency gate to be protecting against."""
-    if len(fcf) < 2:
-        return TrendResult("insufficient_data", 0)
-
-    negative_years = sum(1 for v in fcf if v < 0)
-    if negative_years == 0:
-        return TrendResult("consistently_positive", FCF_EXCELLENT_SCORE)
-
-    # Track each qualifying 2+-consecutive-negative run's (start, end) span,
-    # not just whether one exists -- recency is judged off the most recent
-    # such run's end, and the capex-driven check needs the whole span.
-    run_spans: list[tuple[int, int]] = []
-    run_start = None
-    for i, v in enumerate(fcf):
-        if v < 0:
-            if run_start is None:
-                run_start = i
-        else:
-            if run_start is not None and i - run_start >= 2:
-                run_spans.append((run_start, i - 1))
-            run_start = None
-    if run_start is not None and len(fcf) - run_start >= 2:
-        run_spans.append((run_start, len(fcf) - 1))
-
-    if run_spans:
-        run_start, run_end = max(run_spans, key=lambda span: span[1])
-        years_since_run_end = (len(fcf) - 1) - run_end
-        if years_since_run_end <= FCF_CASH_BURN_RECENCY_YEARS:
-            if _fcf_capex_driven(cfo, run_start, run_end):
-                return TrendResult("capex_driven_negative_fcf", FCF_GOOD_SCORE)
-            return TrendResult("sustained_cash_burn", FCF_FAIL_SCORE)
-        trend = classify_trend(fcf)
-        if trend.pattern in RECOVERY_PATTERNS or _fcf_durably_recovered(fcf, run_end):
-            return TrendResult("cash_burn_recovered", FCF_GOOD_SCORE)
-        return TrendResult("sustained_cash_burn", FCF_FAIL_SCORE)
-
-    if negative_years == 1:
-        return TrendResult("isolated_dip", FCF_GOOD_SCORE)
-
-    return TrendResult("scattered_negative_years", FCF_MARGINAL_SCORE)
+def _classify_fcf(fcf: list[float]) -> TrendResult:
+    """FCF through the DOLLAR engine alone: no positivity gate, a negative value is a dip."""
+    return assess_series(fcf, DOLLAR)
 
 
 def _verdict_for(score: int) -> str:
@@ -482,34 +137,34 @@ def _verdict_for(score: int) -> str:
 
 
 def _operating_income_backup_allowed(
-    operating_income: list[float], ttm_operating_income: float | None, ttm_revenue: float | None
+    operating_income: list[float], latest_operating_income: float | None, latest_revenue: float | None
 ) -> bool:
-    """The K2 gates (see NET_INCOME_BACKUP_MIN_OI_MARGIN's comment). A missing
-    TTM Operating Income or TTM revenue fails its gate: no lift."""
-    if ttm_operating_income is None or ttm_revenue is None:
+    """The K2 gates (see NET_INCOME_BACKUP_MIN_OI_MARGIN's comment), on the latest completed fiscal year. A missing latest Operating
+    Income or revenue fails its gate: no lift."""
+    if latest_operating_income is None or latest_revenue is None:
         return False
-    if ttm_operating_income <= 0 or ttm_revenue <= 0:
+    if latest_operating_income <= 0 or latest_revenue <= 0:
         return False
-    if ttm_operating_income < NET_INCOME_BACKUP_MIN_OI_MARGIN * ttm_revenue:
+    if latest_operating_income < NET_INCOME_BACKUP_MIN_OI_MARGIN * latest_revenue:
         return False
     recent = operating_income[-NET_INCOME_BACKUP_OI_WINDOW:]
     return sum(1 for v in recent if v > 0) >= NET_INCOME_BACKUP_MIN_POSITIVE_PERIODS
 
 
 def _operating_income_backup_gates(
-    operating_income: list[float], ttm_operating_income: float | None, ttm_revenue: float | None
+    operating_income: list[float], latest_operating_income: float | None, latest_revenue: float | None
 ) -> dict:
     """The two measured K2 gate values the Step 1 card quotes when the backup lifted Net Income (display only; the
     pass/fail decision is _operating_income_backup_allowed's)."""
     recent = operating_income[-NET_INCOME_BACKUP_OI_WINDOW:]
     margin = (
-        round(ttm_operating_income / ttm_revenue * 100, 1)
-        if ttm_operating_income is not None and ttm_revenue
+        round(latest_operating_income / latest_revenue * 100, 1)
+        if latest_operating_income is not None and latest_revenue
         else None
     )
     return {
-        "ttm_oi_margin_pct": margin,
-        "min_ttm_oi_margin_pct": NET_INCOME_BACKUP_MIN_OI_MARGIN * 100,
+        "oi_margin_pct": margin,
+        "min_oi_margin_pct": NET_INCOME_BACKUP_MIN_OI_MARGIN * 100,
         "positive_periods": sum(1 for v in recent if v > 0),
         "min_positive_periods": NET_INCOME_BACKUP_MIN_POSITIVE_PERIODS,
         "window": len(recent),
@@ -517,10 +172,10 @@ def _operating_income_backup_gates(
 
 
 def operating_health_gate_passes(
-    operating_income: list[float], ttm_operating_income: float | None, ttm_revenue: float | None
+    operating_income: list[float], latest_operating_income: float | None, latest_revenue: float | None
 ) -> bool:
     """Public name for the K2 operating-health gate (scoring/review.py reads it for the Step 1 evidence string)."""
-    return _operating_income_backup_allowed(operating_income, ttm_operating_income, ttm_revenue)
+    return _operating_income_backup_allowed(operating_income, latest_operating_income, latest_revenue)
 
 
 def score_step1(
@@ -533,59 +188,35 @@ def score_step1(
     cfo_exempt: bool,
     fcf: list[float] | None = None,
     margin_context_revenue: list[float] | None = None,
-    fcf_cfo: list[float] | None = None,
     margins_exempt: bool = False,
     margins_severity_carveout: bool = False,
-    ttm_revenue: float | None | object = _TTM_FROM_SERIES,
-    ttm_operating_income: float | None | object = _TTM_FROM_SERIES,
+    latest_revenue: float | None | object = _LATEST_FROM_SERIES,
+    latest_operating_income: float | None | object = _LATEST_FROM_SERIES,
     weights: Step1Weights = DEFAULT_WEIGHTS.step1,
+    operating_margin: list[float] | None = None,
 ) -> dict:
-    """Pure scoring function per CLAUDE.md's Step 1 spec: takes parsed metric
-    series (chronological, oldest fiscal year -> TTM) and returns
-    {score, verdict, components}. No I/O, no FMP/DB dependency.
+    """Pure scoring function per docs/specs/financials.md: takes parsed metric series (chronological, oldest -> latest COMPLETED
+    fiscal year; no TTM point, no missing values) and returns {score, verdict, components}. No I/O, no FMP/DB dependency.
 
-    `margin_context_revenue` lets the caller feed a different series purely
-    for the margin classifier's revenue_growing check than the one being
-    trend-classified as "Revenue" -- used for Bank tickers, where `revenue`
-    is actually Net Interest Income (see step1_data.py), but margins should
-    still read against real revenue growth. Defaults to `revenue` itself,
-    unchanged behavior for every other company type.
+    `margin_context_revenue` is real revenue for Bank tickers, where `revenue` is actually Net Interest Income (see
+    step1_data.py): it scales the `not_yet_positive` graduation and is the revenue of the Operating Income backup's margin gate.
+    Defaults to `revenue` itself for every other company type.
 
-    `fcf_cfo` is CFO filtered to exactly the periods `fcf` has a value for
-    (NOT the same filter as `cfo` above -- `fcf[i]` is None whenever either
-    CFO or CapEx is missing for period i, so a naive shared filter would
-    desync the two arrays' indices; see step1_data.py's own comment on this)
-    -- feeds _classify_fcf's capex-driven softening (see that function).
+    `operating_margin` is the operating-income-over-revenue series (percent); None or too short is a missing input of the Margins
+    combination (it drops out).
 
-    `margins_exempt` (Banks only -- see MARGINS_EXEMPT_TYPES in
-    step1_data.py) skips `_classify_margins` entirely, same mechanism as
-    `cfo_exempt` skipping CFO/FCF -- `components["margins"]` comes back
-    `None` and `WEIGHTS_CFO_MARGINS_EXEMPT` is used instead of
-    `WEIGHTS_CFO_EXEMPT`. Always `False` unless `cfo_exempt` is also `True`
-    in practice (every MARGINS_EXEMPT_TYPES member is also CFO-exempt), but
-    this function doesn't enforce that -- it's a caller-level invariant.
+    `margins_exempt` (Banks only -- see MARGINS_EXEMPT_TYPES in step1_data.py) skips Margins entirely, same mechanism as
+    `cfo_exempt` skipping CFO/FCF -- `components["margins"]` comes back `None` and the Bank weight table is used.
 
-    `margins_severity_carveout` (Insurance / REIT-Property-Developer /
-    Utility -- see MARGINS_SEVERITY_CARVEOUT_TYPES) is passed straight
-    through to `_classify_margins`'s own `carveout` param -- keeps
-    `gradually_compressing` at the old flat 60 instead of the graduated
-    score for these three types, unrelated to (and never simultaneously
-    `True` with) `margins_exempt` above, which skips the classifier
-    entirely rather than carving out one of its patterns.
+    `margins_severity_carveout` (Insurance / REIT-Property-Developer / Utility -- see MARGINS_SEVERITY_CARVEOUT_TYPES) keeps a
+    declining margin series at 60 or above.
 
     `weights` is the Step 1 weight set (default DEFAULT_WEIGHTS.step1); a component weighted 0 is not counted in the blend, but
-    its data-gap check above still runs (a missing input can still null the step).
+    its data-gap check below still runs (a missing input can still null the step).
 
-    `ttm_revenue` / `ttm_operating_income` feed the Operating-Income backup's
-    quality gates (_operating_income_backup_allowed). Real revenue even for
-    Banks, like every other margin here. `None` means "TTM missing" (the gate
-    fails, no lift); omitted, they default to the last point of the (cleaned)
-    series passed in -- a convenience for direct scoring-function callers."""
-    # Computed early (moved ahead of the Margins section below, where it
-    # originally lived) so it's available as the `not_yet_positive`
-    # graduated-score denominator for Net Income/Operating Income/CFO --
-    # this is real revenue even for Banks (see the docstring above), the
-    # same scale Margins itself is judged against.
+    `latest_revenue` / `latest_operating_income` feed the Operating-Income backup's gates: the last completed fiscal year's REAL
+    revenue (even for Banks) and Operating Income. `None` means "missing" (the gate fails, no lift); omitted, they default to the
+    last point of the (cleaned) series passed in -- a convenience for direct scoring-function callers."""
     growth_reference = margin_context_revenue if margin_context_revenue is not None else revenue
 
     revenue_result = _classify_positive_trend(revenue)
@@ -595,56 +226,49 @@ def score_step1(
     net_income_backup_used = False
     net_income_backup_gates = None
     oi_pos_result = None
-    ni_is_insufficient = net_income_pos_result.pattern == "insufficient_data"
-    # The OI fallback is recency-gated -- it exists for a genuine one-off
-    # dip 1-2 years back, not a chronic negative/declining Net Income
-    # history -- EXCEPT when NI has too few points to have any notion of
-    # "recency" at all, where today's unconditional "always check OI"
-    # behavior is preserved unchanged (see the insufficient_data comment
-    # below).
+    ni_is_insufficient = net_income_pos_result.pattern == INSUFFICIENT
+    # The OI fallback is recency-gated -- it exists for a genuine one-off dip 1-2 years back, not a chronic negative/declining Net
+    # Income history -- EXCEPT when NI has too few points to have any notion of "recency" at all.
     ni_dip_age = None if ni_is_insufficient else most_recent_real_dip_age(net_income)
     ni_recent_enough = ni_is_insufficient or (
         ni_dip_age is not None and ni_dip_age <= NET_INCOME_BACKUP_RECENCY_YEARS
     )
     if net_income_pos_result.score <= NET_INCOME_BACKUP_THRESHOLD and ni_recent_enough:
         oi_pos_result = _classify_positive_trend(operating_income, growth_reference)
-        if ttm_operating_income is _TTM_FROM_SERIES:
-            ttm_operating_income = operating_income[-1] if operating_income else None
-        if ttm_revenue is _TTM_FROM_SERIES:
-            ttm_revenue = growth_reference[-1] if growth_reference else None
-        # The gates only decide whether OI may LIFT Net Income; oi_pos_result
-        # is still computed either way, so the "both NI and its backup came up
-        # short" data-gap rule below is unchanged.
-        if _operating_income_backup_allowed(operating_income, ttm_operating_income, ttm_revenue):
+        if latest_operating_income is _LATEST_FROM_SERIES:
+            latest_operating_income = operating_income[-1] if operating_income else None
+        if latest_revenue is _LATEST_FROM_SERIES:
+            latest_revenue = growth_reference[-1] if growth_reference else None
+        # The gates only decide whether OI may LIFT Net Income; oi_pos_result is still computed either way, so the "both NI and its
+        # backup came up short" data-gap rule below is unchanged.
+        if _operating_income_backup_allowed(operating_income, latest_operating_income, latest_revenue):
             backup_score = min(NET_INCOME_BACKUP_CAP, max(net_income_pos_result.score, oi_pos_result.score))
         else:
             backup_score = net_income_pos_result.score
         net_income_backup_used = backup_score != net_income_pos_result.score
         if net_income_backup_used:
-            net_income_backup_gates = _operating_income_backup_gates(operating_income, ttm_operating_income, ttm_revenue)
+            net_income_backup_gates = _operating_income_backup_gates(
+                operating_income, latest_operating_income, latest_revenue
+            )
         net_income_result = TrendResult(net_income_pos_result.pattern, backup_score)
 
-    # Net Income only reads as a genuine data gap if BOTH it and its own
-    # Operating-Income backup came up short -- if OI has real data, the
-    # backup mechanism above already produced a legitimate (if low) score,
-    # not a fabricated one.
-    net_income_insufficient = ni_is_insufficient and (
-        oi_pos_result is None or oi_pos_result.pattern == "insufficient_data"
-    )
+    # Net Income only reads as a genuine data gap if BOTH it and its own Operating-Income backup came up short -- if OI has real
+    # data, the backup mechanism above already produced a legitimate (if low) score, not a fabricated one.
+    net_income_insufficient = ni_is_insufficient and (oi_pos_result is None or oi_pos_result.pattern == INSUFFICIENT)
 
-    revenue_growing = growth_reference[-1] > growth_reference[0] if len(growth_reference) >= 2 else False
-    margin_result = (
-        None
-        if margins_exempt
-        else _classify_margins(gross_margin, net_margin, revenue_growing, carveout=margins_severity_carveout)
-    )
+    margin_result = None
+    margin_detail: dict = {}
+    if not margins_exempt:
+        margin_result, margin_detail = _classify_margins(
+            gross_margin, operating_margin or [], net_margin, carveout=margins_severity_carveout
+        )
 
     if cfo_exempt or cfo is None:
         cfo_result = None
         fcf_result = None
     else:
         cfo_result = _classify_positive_trend(cfo, growth_reference)
-        fcf_result = _classify_fcf(fcf, fcf_cfo) if fcf is not None else None
+        fcf_result = _classify_fcf(fcf) if fcf is not None else None
 
     standard_table, cfo_exempt_table, bank_table = step1_tables(weights)
     if margins_exempt:
@@ -654,30 +278,19 @@ def score_step1(
     else:
         table = standard_table
 
-    # A fetch failure (cache.py::safe_fetch swallows httpx.HTTPError to {})
-    # and a genuinely too-thin real response both collapse to the same
-    # classify_trend/_classify_fcf "insufficient_data" pattern -- previously
-    # that pattern's score of 0 was folded into the weighted sum below like
-    # any other real (if bad) result, fabricating a scored Fail out of a
-    # data gap (mirrors the bug already fixed in Step 2 -- see CLAUDE.md).
-    # cfo/fcf are only "required" when not cfo-exempt; an exemption is not
-    # a gap. fcf_result being None (not cfo-exempt, but no fcf series
-    # supplied at all) is a distinct, pre-existing "FCF isn't being scored"
-    # convention -- step1_data.py's real caller never actually passes
-    # fcf=None unless cfo_exempt is also True, so this branch only exists
-    # for direct scoring-function callers (tests) that omit the optional
-    # fcf param; it isn't a reachable fetch-failure/data-gap shape and
-    # shouldn't gate the whole step.
+    # A fetch failure (cache.py::safe_fetch swallows httpx.HTTPError to {}) and a genuinely too-thin real response both collapse to
+    # the "insufficient_data" pattern -- that pattern's score of 0 must never be folded into the weighted sum like a real (if bad)
+    # result, fabricating a scored Fail out of a data gap. cfo/fcf are only "required" when not cfo-exempt; an exemption is not a
+    # gap. fcf_result being None (not cfo-exempt, but no fcf series supplied at all) is the pre-existing "FCF isn't being scored"
+    # convention for direct scoring-function callers (tests), not a reachable fetch-failure shape.
     cfo_fcf_applicable = not (cfo_exempt or cfo is None)
-    cfo_insufficient = cfo_fcf_applicable and cfo_result.pattern == "insufficient_data"
-    fcf_insufficient = cfo_fcf_applicable and fcf_result is not None and fcf_result.pattern == "insufficient_data"
-    # Same "an exemption is not a gap" reasoning as cfo_fcf_applicable above
-    # -- margins_exempt Banks never reach _classify_margins at all, so
-    # there's no result to check for insufficiency.
-    margins_insufficient = not margins_exempt and margin_result.pattern == "insufficient_data"
+    cfo_insufficient = cfo_fcf_applicable and cfo_result.pattern == INSUFFICIENT
+    fcf_insufficient = cfo_fcf_applicable and fcf_result is not None and fcf_result.pattern == INSUFFICIENT
+    # Same "an exemption is not a gap" reasoning -- margins_exempt Banks have no Margins result to check.
+    margins_insufficient = not margins_exempt and margin_result.pattern == INSUFFICIENT
 
     if (
-        revenue_result.pattern == "insufficient_data"
+        revenue_result.pattern == INSUFFICIENT
         or net_income_insufficient
         or margins_insufficient
         or cfo_insufficient
@@ -685,8 +298,8 @@ def score_step1(
     ):
         return {"score": None, "verdict": "insufficient_data", "components": {}, "weights": table or {}}
 
-    # No table means every weight that applies to this company type is 0: nothing to blend, the same "cannot be scored"
-    # outcome as a data gap (never a division by zero). Unreachable under the saved-weight bounds.
+    # No table means every weight that applies to this company type is 0: nothing to blend, the same "cannot be scored" outcome as a
+    # data gap (never a division by zero). Unreachable under the saved-weight bounds.
     if table is None:
         return {"score": None, "verdict": "insufficient_data", "components": {}, "weights": {}}
 
@@ -718,7 +331,10 @@ def score_step1(
             "revenue": {"score": revenue_result.score, "pattern": revenue_result.pattern},
             "net_income": net_income_component,
             "cfo": {"score": cfo_result.score, "pattern": cfo_result.pattern} if cfo_result else None,
-            "margins": {"score": margin_result.score, "pattern": margin_result.pattern} if margin_result else None,
+            # `inputs` / `binding` are additive display fields: the three margin scores and which one decides the Margins score.
+            "margins": {"score": margin_result.score, "pattern": margin_result.pattern, **margin_detail}
+            if margin_result
+            else None,
             "fcf": {"score": fcf_result.score, "pattern": fcf_result.pattern} if fcf_result else None,
         },
         "weights": table,

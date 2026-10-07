@@ -135,6 +135,17 @@ async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWe
     # capitalExpenditure, which would double-subtract it.
     capex = [cash_flow_by_year.get(year, {}).get("capitalExpenditure") for year in years]
 
+    # Scoring reads the completed fiscal years only (docs/specs/financials.md); the TTM point appended below is display-only.
+    annual = {
+        "revenue": revenue,
+        "net_interest_income": net_interest_income,
+        "gross_profit": gross_profit,
+        "operating_income": operating_income,
+        "net_income": net_income,
+        "cfo": cfo,
+        "capex": capex,
+    }
+
     years = years + ["TTM"]
     revenue_result = sum_last_four_quarters(income_quarterly, "revenue", income_annual)
     net_interest_income_result = sum_last_four_quarters(income_quarterly, "netInterestIncome", income_annual)
@@ -174,8 +185,11 @@ async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWe
 
     # Margins are always computed from real Revenue, regardless of company
     # type -- deliberately untouched by the Bank substitution below.
-    gross_margin = [(gp / rev * 100) if gp is not None and rev else None for gp, rev in zip(gross_profit, revenue)]
-    net_margin = [(ni / rev * 100) if ni is not None and rev else None for ni, rev in zip(net_income, revenue)]
+    def _margins(numerator: list[float | None], denominator: list[float | None]) -> list[float | None]:
+        return [(n / d * 100) if n is not None and d else None for n, d in zip(numerator, denominator)]
+
+    gross_margin = _margins(gross_profit, revenue)
+    net_margin = _margins(net_income, revenue)
 
     is_fund = bool(profile.get("isEtf") or profile.get("isFund"))
     exemption = _detect_exemption(profile.get("sector"), profile.get("industry"), ticker, is_fund=is_fund)
@@ -199,51 +213,40 @@ async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWe
     display_revenue = net_interest_income if is_bank else revenue
     revenue_label = "Net Interest Income" if is_bank else "Revenue"
 
-    # classify_trend needs a clean, gap-free chronological series -- the raw
-    # (with-gaps) arrays above are what the UI renders, these filtered copies
-    # are only for scoring. FCF mirrors CFO's exemption exactly (it's
-    # derived from CFO, so the same "not a reliable signal for these
-    # business models" reasoning applies).
-    #
-    # Computed unconditionally, regardless of cfo_exempt, since score_step1
-    # already short-circuits on the `cfo_exempt` flag itself (`if cfo_exempt
-    # or cfo is None: cfo_result = None; fcf_result = None`, and every other
-    # cfo_exempt-gated branch in score_step1 follows the same `cfo_exempt
-    # or ...` pattern) -- the *value* passed for cfo/fcf/fcf_cfo is never
-    # consulted once cfo_exempt is True, so pre-nulling it here bought
-    # nothing for scoring and only served to double as the frontend's
-    # "hide this card" signal (see the Step1Out.cfo/fcf docstring below --
-    # that's now handled via cfo_exempt_reason instead).
-    clean_cfo = [v for v in cfo if v is not None]
-    clean_fcf = [v for v in fcf if v is not None]
-    # NOT the same filter as clean_cfo above: fcf[i] is None whenever EITHER
-    # cfo[i] or capex[i] is missing, so clean_cfo's own independent
-    # None-filter can drop a different set of periods than clean_fcf did --
-    # passing clean_cfo alongside clean_fcf would silently desync indices.
-    # This filter instead walks fcf's own None-ness, guaranteeing fcf_cfo is
-    # None-free and positionally aligned with clean_fcf (fcf[i] is only
-    # non-None when cfo[i] is too).
-    fcf_cfo = [c for c, f in zip(cfo, fcf) if f is not None]
+    # The engine needs a clean, gap-free chronological series of COMPLETED fiscal years -- the raw (with-gaps, TTM-ended) arrays above
+    # are what the UI renders, the annual-only filtered copies below are only for scoring. FCF mirrors CFO's exemption exactly (it is
+    # derived from CFO, so the same "not a reliable signal for these business models" reasoning applies). Computed unconditionally,
+    # regardless of cfo_exempt: score_step1 short-circuits on the `cfo_exempt` flag itself, so the cfo/fcf values passed for an
+    # exempt ticker are never consulted.
+    def _present(values: list[float | None]) -> list[float]:
+        return [v for v in values if v is not None]
+
+    revenue_fy = annual["revenue"]
+    cfo_fy = annual["cfo"]
+    fcf_fy = [c + x if c is not None and x is not None else None for c, x in zip(cfo_fy, annual["capex"])]
+    display_revenue_fy = annual["net_interest_income"] if is_bank else revenue_fy
+    gross_margin_fy = _margins(annual["gross_profit"], revenue_fy)
+    operating_margin_fy = _margins(annual["operating_income"], revenue_fy)
+    net_margin_fy = _margins(annual["net_income"], revenue_fy)
 
     result = score_step1(
-        revenue=[v for v in display_revenue if v is not None],
-        net_income=[v for v in net_income if v is not None],
-        operating_income=[v for v in operating_income if v is not None],
-        cfo=clean_cfo,
-        gross_margin=[v for v in gross_margin if v is not None],
-        net_margin=[v for v in net_margin if v is not None],
+        revenue=_present(display_revenue_fy),
+        net_income=_present(annual["net_income"]),
+        operating_income=_present(annual["operating_income"]),
+        cfo=_present(cfo_fy),
+        gross_margin=_present(gross_margin_fy),
+        operating_margin=_present(operating_margin_fy),
+        net_margin=_present(net_margin_fy),
         cfo_exempt=cfo_exempt,
-        fcf=clean_fcf,
-        margin_context_revenue=[v for v in revenue if v is not None],
-        fcf_cfo=fcf_cfo,
+        fcf=_present(fcf_fy),
+        margin_context_revenue=_present(revenue_fy),
         margins_exempt=margins_exempt,
         margins_severity_carveout=margins_severity_carveout,
-        # Real revenue (not the Bank Net-Interest-Income substitution) and the
-        # raw TTM slots (None when FMP gave < 4 quarters) for the Operating
-        # Income backup's quality gates -- the filtered series above can't
-        # tell a missing TTM from a present one.
-        ttm_revenue=revenue[-1],
-        ttm_operating_income=operating_income[-1],
+        # Real revenue (not the Bank Net-Interest-Income substitution) and Operating Income of the last completed fiscal year (None
+        # when missing) for the Operating Income backup's quality gates -- the filtered series above can't tell a missing latest year
+        # from a present one.
+        latest_revenue=revenue_fy[-1] if revenue_fy else None,
+        latest_operating_income=annual["operating_income"][-1] if annual["operating_income"] else None,
         weights=weights.step1,
     )
 

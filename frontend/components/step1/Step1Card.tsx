@@ -5,18 +5,19 @@ import { useStep1 } from "@/lib/hooks/useStep1";
 import type { Step1Out } from "@/lib/api/types";
 
 const METHODOLOGY =
-  "A weighted blend of Revenue, Net Income, Cash Flow from Operations, Margins, and Free Cash Flow trend " +
-  "classifications (Revenue, Net Income, and Margins alone when CFO/FCF don't apply), banded 0–69 Fail / " +
-  "70–90 Pass / 91–100 Strong Pass.";
+  "A weighted blend of Revenue, Net Income, Cash Flow from Operations, Margins, and Free Cash Flow scores " +
+  "(Revenue, Net Income, and Margins alone when CFO/FCF don't apply), banded 0–69 Fail / 70–90 Pass / " +
+  "91–100 Strong Pass. Each is scored from its last 5–10 completed fiscal years (never the trailing twelve months) on one " +
+  "neutral trend assessment: long-term direction, a graduated penalty for dips (more, longer or unrecovered dips cost more), " +
+  "and a cut for a fresh fall in the last fiscal year. Margins is the lower of gross margin and the better of net and " +
+  "operating margin; a margin at or below zero in the latest year is capped.";
 
 interface Props {
   ticker: string;
 }
 
-// Order mirrors scoring/step1.py::score_step1's components dict -- revenue,
-// net income and CFO are trend-classified (classify_trend's shared 8-pattern
-// set), margins and FCF have their own smaller pattern sets (see CLAUDE.md's
-// Step 1 deviations for why each label reads the way it does).
+// Order mirrors scoring/step1.py::score_step1's components dict -- every component carries one of the six
+// scoring/step1_engine.py labels (or not_yet_positive / insufficient_data), see docs/specs/financials.md.
 const METRIC_ORDER = ["revenue", "net_income", "cfo", "margins", "fcf"] as const;
 
 const STATIC_METRIC_LABELS: Record<string, string> = {
@@ -38,28 +39,15 @@ const EXEMPTION_NOTE_METRIC_LABELS: Record<string, string> = {
 
 export const TIER_LABELS: Record<string, string> = {
   insufficient_data: "Insufficient data",
-  // classify_trend (revenue / net income / CFO)
+  // The Revenue / Net Income / CFO positivity gate (scoring/step1.py)
   not_yet_positive: "Not yet positive",
-  declining: "Declining (TTM down)",
-  grows_every_year: "Grows every year",
-  multiple_dips: "Dip(s), not yet recovered",
-  small_dip_recovers: "Small dip, recovered",
-  significant_dip_recovers: "Significant dip, recovered",
-  flat_then_spike: "Flat, then sudden spike",
-  multiple_dips_resolved: "Past dips, fully recovered",
-  dip_durably_resolved: "Durably improved, not yet a new high",
-  // margins
-  sharply_declining: "Sharply declining",
-  gradually_compressing: "Gradually compressing",
-  stable_or_expanding: "Stable or expanding",
-  wildly_inconsistent: "Wildly inconsistent",
-  // FCF
-  consistently_positive: "Consistently positive",
-  sustained_cash_burn: "Sustained cash burn",
-  cash_burn_recovered: "Cash burn, since recovered",
-  capex_driven_negative_fcf: "Negative FCF, funded by strong operating cash flow",
-  isolated_dip: "Isolated negative year",
-  scattered_negative_years: "Scattered negative years",
+  // scoring/step1_engine.py: long-term direction, with "_dips" when the dip burden is 0.25 or more
+  uptrend: "Growing",
+  uptrend_dips: "Growing, with dips",
+  flat: "Flat",
+  flat_dips: "Flat, with dips",
+  decline: "Declining",
+  decline_dips: "Declining, with dips",
 };
 
 function tierClass(score: number): string {
@@ -122,8 +110,8 @@ export function backupNote(data: Step1Out): { text: string; tooltip: string } | 
   if (!ni.used_operating_income_backup) return null;
   const gates = ni.backup_gates;
   const gateText = gates
-    ? ` Backup gates: TTM Operating Income margin ${gates.ttm_oi_margin_pct == null ? "n/a" : `${gates.ttm_oi_margin_pct}%`} ` +
-      `(needs at least ${gates.min_ttm_oi_margin_pct}%), positive in ${gates.positive_periods} of the last ${gates.window} periods ` +
+    ? ` Backup gates: last fiscal year Operating Income margin ${gates.oi_margin_pct == null ? "n/a" : `${gates.oi_margin_pct}%`} ` +
+      `(needs at least ${gates.min_oi_margin_pct}%), positive in ${gates.positive_periods} of the last ${gates.window} fiscal years ` +
       `(needs at least ${gates.min_positive_periods}).`
     : "";
   const liftText = ni.score_before_backup == null ? "" : ` Net Income score ${ni.score_before_backup} lifted to ${ni.score}.`;

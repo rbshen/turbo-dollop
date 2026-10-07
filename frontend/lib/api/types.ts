@@ -271,8 +271,8 @@ export interface Step1TrendComponent {
 
 // Measured values of the Operating Income backup's two quality gates, with the bars they must clear.
 export interface Step1BackupGates {
-  ttm_oi_margin_pct: number | null;
-  min_ttm_oi_margin_pct: number;
+  oi_margin_pct: number | null;
+  min_oi_margin_pct: number;
   positive_periods: number;
   min_positive_periods: number;
   window: number;

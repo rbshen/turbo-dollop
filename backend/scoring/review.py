@@ -184,22 +184,29 @@ def _loss_periods(series: Sequence[float | None]) -> str:
     return f"{sum(1 for v in real if v < 0)}/{len(real)}"
 
 
+def _completed_years(step1: Any, values: Sequence[float | None] | None) -> list[float | None]:
+    """The series without the display-only TTM slot at its end: Step 1 scores completed fiscal years only."""
+    series = list(values or [])
+    years = getattr(step1, "years", None) or []
+    return series[:-1] if years and years[-1] == "TTM" and len(series) == len(years) else series
+
+
 def _step1_evidence(step1: Any, gate: int) -> str:
     weak = []
     for name, component in (step1.components or {}).items():
         if component and component.get("score") is not None and component["score"] < gate:
             weak.append(f"{name} {component.get('pattern')} {component['score']}")
-    operating_income = list(step1.operating_income or [])
-    revenue = list(step1.revenue or [])
-    ttm_oi = operating_income[-1] if operating_income else None
-    ttm_revenue = revenue[-1] if revenue else None
-    margin = f"{ttm_oi / ttm_revenue * 100:.1f}%" if ttm_oi is not None and ttm_revenue else "n/a"
-    gate_passes = operating_health_gate_passes([v for v in operating_income if v is not None], ttm_oi, ttm_revenue)
+    operating_income = _completed_years(step1, step1.operating_income)
+    revenue = _completed_years(step1, step1.revenue)
+    latest_oi = operating_income[-1] if operating_income else None
+    latest_revenue = revenue[-1] if revenue else None
+    margin = f"{latest_oi / latest_revenue * 100:.1f}%" if latest_oi is not None and latest_revenue else "n/a"
+    gate_passes = operating_health_gate_passes([v for v in operating_income if v is not None], latest_oi, latest_revenue)
     return (
         f"weak components: {', '.join(weak) if weak else 'none below ' + str(gate)}; "
-        f"TTM operating margin {margin}; "
+        f"latest fiscal year operating margin {margin}; "
         f"operating-health gate {'passes' if gate_passes else 'fails'}; "
-        f"loss periods: net income {_loss_periods(step1.net_income or [])}, operating income {_loss_periods(operating_income)}"
+        f"loss years: net income {_loss_periods(_completed_years(step1, step1.net_income))}, operating income {_loss_periods(operating_income)}"
     )
 
 
