@@ -630,6 +630,7 @@ async def get_step5_data(
         score=result["score"],
         verdict=result["verdict"],
         hard_fail=result["hard_fail"],
+        unrescued_breaches=result["unrescued_breaches"],
         pass_with_caution=result["pass_with_caution"],
         weights=result["weights"],
         debt_ratios_evaluated=True,

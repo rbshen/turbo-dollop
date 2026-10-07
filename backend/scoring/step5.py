@@ -4,7 +4,7 @@ from scoring.classification import classify_company_type
 from scoring.weights import DEFAULT_WEIGHTS, Step5Weights, normalize
 
 # Score threshold for "Strong Pass" -- same convention as Step 1/Step 2's
-# shared badge tiers (>90 Strong Pass, else Pass when not a hard fail).
+# shared badge tiers (>90 Strong Pass, else Pass).
 STRONG_PASS_SCORE = 90
 
 # Same 70 floor "Pass" starts at everywhere else in the app (CLAUDE.md).
@@ -14,12 +14,12 @@ PASS_SCORE_THRESHOLD = 70
 
 # --- Severity bands ----------------------------------------------------------
 # Current Ratio, Debt/EBITDA, and Debt Servicing Ratio each used a single
-# hard-fail threshold with no gradation beyond it. Replaced with a 3-zone
+# hard-fail threshold with no gradation beyond it (historical: the Standard path has had no hard fail since 2026-10-07). Replaced with a 3-zone
 # read: Comfortable (unchanged sub-tiering below), Borderline (a real
 # breach, but one a tiebreaker -- deferred revenue for Current Ratio,
 # Interest Coverage for the other two -- can still save), and Severe (a
 # breach far enough beyond the old threshold that no tiebreaker applies;
-# always a hard Fail). The old single hard-fail boundary becomes each
+# scores 0-15 points). The old single hard-fail boundary becomes each
 # ratio's new *Comfortable* boundary -- nothing below it changes.
 CURRENT_RATIO_COMFORTABLE = 1.0
 CURRENT_RATIO_SEVERE = 0.7
@@ -33,14 +33,11 @@ DSR_SEVERE = 40.0
 # (barely past the 4.0x line, practically indistinguishable from a 3.99x
 # Borderline case that still gets a shot at the breach-context rescue)
 # scored identically to one at 84.56x. This graduates the DISPLAYED points
-# only -- `label` stays "severe" and `hard_fail` stays unconditionally
-# True for the whole zone, so the verdict (always a hard Fail here, per
-# CLAUDE.md's "Debt is a hard pass/fail bankruptcy filter, not a
-# continuous score") is completely untouched; only the number shown next
-# to it becomes honest instead of uniformly 0. Mirrors how Step 2's
-# negative-magnitude fix and Step 4's ROIC/ROE fix both graduate a value
-# while a separate mechanism (there, verdict gating; here, hard_fail)
-# still independently forces the correct outcome.
+# only -- `label` stays "severe" and the ratio stays flagged as an
+# unrescued breach for the whole zone (RatioResult.hard_fail); the number
+# becomes honest instead of uniformly 0. Since 2026-10-07 the Standard
+# path has no hard fail, so these points are real blend inputs: a severe
+# ratio is kept below the Pass line by the weights (docs/specs/debt.md).
 #
 # Both ceilings are deliberately kept below MARGINAL_SCORE_FLOOR (40) --
 # even a "least-bad" Severe reading must never numerically outscore a
@@ -66,8 +63,8 @@ DSR_SEVERE_DISPLAY_CEILING = 15
 def _graduated_severe_points(value: float, boundary: float, floor_value: float, ceiling: int) -> int:
     """Linear ramp from `ceiling` (at `boundary`, the Borderline/Severe
     line) down to 0 (at `floor_value`, beyond which it's all equally
-    "maximally bad"). Display-only -- never changes `label` or
-    `hard_fail`, see this module's Severe-zone comment above."""
+    "maximally bad"). Never changes `label` or `hard_fail`, see this
+    module's Severe-zone comment above."""
     if value >= floor_value:
         return 0
     fraction = (value - boundary) / (floor_value - boundary)
@@ -86,12 +83,14 @@ BORDERLINE_SAVED_SCORE = 60
 # comfortably ICR cleared the bar -- so a rescued Current Ratio can blend to
 # 95-100 (ADBE, AMP's real shape) despite a genuine breach elsewhere in the
 # picture. The verdict text already can't say "Strong Pass" for this case
-# (_verdict_for checks saved_by_tiebreaker first), but that only protects
+# (_standard_verdict checks the caution flag first), but that only protects
 # the label -- a 95-100 NUMBER next to an amber "caution" color still reads
 # to a user as contradictory (a top performer flagged as risky). Capped at
 # the same ceiling as ScoreBadge's lowest "Pass" shade (70-74, see
 # frontend/lib/tierColor.ts) so a caution ticker reads as barely passing,
 # not as an excellent result that merely got an asterisk.
+# Applies to BOTH kinds of caution (2026-10-07): a breach a tiebreaker excused and a breach nothing excused that the blend still
+# carried to 70 or more. The cap never lowers a score below 70, so it never changes pass/fail, only the number shown.
 PASS_WITH_CAUTION_SCORE_CAP = 74
 
 # --- Interest Coverage Ratio (EBIT / Interest Expense, TTM) -------------------
@@ -324,12 +323,11 @@ def evaluate_current_ratio_breach_context(
 
 
 # --- Weights ------------------------------------------------------------------
-# Unlike Step 1/Step 4, Step 5 has no exemption/redistribution logic -- these
-# are always flat splits, surfaced explicitly for the Reasoning breakdown UI
-# the same way Step 1/Step 2 do (WEIGHTS_STANDARD, MAGNITUDE_WEIGHT/
-# AGREEMENT_WEIGHT), rather than left implicit in the `/ 3` below.
-# The Standard-company split is a parameter now (scoring/weights.py::DEFAULT_WEIGHTS.step5 is the single source;
-# score_step5_standard takes a Step5Weights). REIT gearing and the Bank CET1/NPL split are fixed.
+# The Standard-company split is a parameter (scoring/weights.py::DEFAULT_WEIGHTS.step5 is the single source, saved in Settings >
+# Score weighting; score_step5_standard takes a Step5Weights): 25 / 45 / 30 (Current Ratio / Debt/EBITDA / Debt Servicing) by default.
+# When Debt Servicing is excluded for a negative CFO its weight is redistributed proportionally across the other two (the same
+# pattern Profitability uses for its exempt metrics); Current Ratio and Debt/EBITDA are never excluded. REIT gearing and the Bank
+# CET1/NPL split are fixed.
 STANDARD_WEIGHT_KEYS = {
     "current_ratio": "current_ratio",
     "debt_to_ebitda": "debt_to_ebitda",
@@ -369,6 +367,9 @@ __all__ = [
 class RatioResult(NamedTuple):
     label: str
     points: int
+    # The ratio is in an unrescued breach zone (Borderline not excused, Severe, negative EBITDA). Bank and REIT ratios: a hard fail that
+    # forces the verdict. Standard ratios (since 2026-10-07): only a flag, the points already carry it and nothing forces the verdict;
+    # score_step5_standard turns it into `unrescued_breaches` and the caution flag.
     hard_fail: bool
     # True when a Borderline breach was excused by its tiebreaker (deferred
     # revenue for Current Ratio, Interest Coverage for the other two, or the
@@ -439,8 +440,8 @@ def score_debt_to_ebitda(value: float) -> RatioResult:
     used to live here (a narrow icr_is_safe-only check), but is now the
     richer evaluate_debt_to_ebitda_breach_context, applied by the caller
     (score_step5_standard) since it needs context this function doesn't
-    have. Borderline always returns unrescued (hard_fail=True) here; the
-    caller may override that result."""
+    have. Borderline always returns unrescued (hard_fail=True, 0 points)
+    here; the caller may override that result."""
     if value <= DEBT_EBITDA_COMFORTABLE:
         if value > 2.0:
             return RatioResult("acceptable", 70, False)
@@ -514,8 +515,19 @@ def score_cet1(value_pct: float) -> RatioResult:
     return RatioResult("excellent", 100, False)
 
 
+def _standard_verdict(score: int, caution: bool) -> str:
+    """The Standard/Utility verdict: a pure read of the blend (2026-10-07, no hard fail). Below 70 is "Fail" (the stored key; the Debt
+    card displays it as "May not pass"); 70 or more is "Pass with caution" when `caution` (a rescued breach, or a breach no tiebreaker
+    excused), else "Strong Pass" above 90, else "Pass"."""
+    if score < PASS_SCORE_THRESHOLD:
+        return "Fail"
+    if caution:
+        return "Pass with caution"
+    return "Strong Pass" if score > STRONG_PASS_SCORE else "Pass"
+
+
 def _verdict_for(score: int, hard_fail: bool, saved_by_tiebreaker: bool) -> str:
-    # Hard-fail overrides the blended score entirely -- mirrors the Step 2
+    # REIT gearing and Bank CET1/NPL only (the Standard path uses _standard_verdict). Hard-fail overrides the blended score entirely -- mirrors the Step 2
     # fix (CLAUDE.md's "Scoring rubric deviations"): a breached hard limit
     # must never be diluted by averaging with healthy ratios.
     if hard_fail:
@@ -595,8 +607,9 @@ def score_step5_standard(
     Debt/EBITDA and DSR each handle their own "ratio undefined" case, but
     deliberately differently (2026-08-06 fix): negative EBITDA means the
     company isn't generating positive operating earnings at all -- a real
-    weakness, not a neutral "doesn't apply" -- so it fails outright (0
-    points, hard_fail) and stays IN the blend, same as any other Fail.
+    weakness, not a neutral "doesn't apply" -- so it scores 0 points and
+    stays IN the blend like any other breach (the weights alone keep it
+    below 70: Debt/EBITDA carries at least 41 of the 100 points).
     Negative/non-positive CFO blocking DSR specifically is treated as a
     genuine exemption instead (the CTVA/SMCI case -- a temporary/seasonal
     CFO swing, not evidence DSR itself is unhealthy): DSR is excluded and
@@ -679,17 +692,19 @@ def score_step5_standard(
             else cr._replace(breach_context=signals)
         )
 
-    hard_fail = cr.hard_fail or de.hard_fail or ds.hard_fail
     # cr/de's saved_by_tiebreaker can now come from the breach-context
     # framework above, independently of each other and of DSR's own
     # icr_is_safe-driven tiebreaker.
     saved_by_tiebreaker = cr.saved_by_tiebreaker or de.saved_by_tiebreaker or ds.saved_by_tiebreaker
-    # current_ratio and debt_to_ebitda are never excluded (a real Fail
-    # still counts toward the blend) -- only DSR's negative-CFO exclusion
-    # drops a ratio out. Proportionally renormalizes the remaining
-    # weight(s), mirroring Profitability's own equal-weight redistribution
-    # for its exempt metrics (scoring/step4.py::score_step4).
+    # current_ratio and debt_to_ebitda are never excluded (a real breach
+    # still counts toward the blend as its 0 points) -- only DSR's
+    # negative-CFO exclusion drops a ratio out. Proportionally renormalizes
+    # the remaining weight(s), mirroring Profitability's own equal-weight
+    # redistribution for its exempt metrics (scoring/step4.py::score_step4).
     applicable = [(key, result) for key, result in (("current_ratio", cr), ("debt_to_ebitda", de), ("debt_servicing_ratio", ds)) if not result.excluded]
+    # An unrescued breach (negative EBITDA included): nothing forces the verdict, the weights keep it below the Pass line unless the
+    # other ratios are strong enough to carry it, and then the card says so ("Pass with caution", the breached ratio named).
+    unrescued_breaches = [key for key, result in applicable if result.hard_fail]
     shares = normalize(_standard_weights(weights), [key for key, _ in applicable])
     if shares is None:
         # Every ratio that applies is weighted 0: nothing to blend, the same "cannot be scored" outcome as a data gap,
@@ -697,19 +712,20 @@ def score_step5_standard(
         score, verdict, shares = None, "insufficient_data", {}
     else:
         score = round(sum(result.points * shares[key] for key, result in applicable))
-        # See PASS_WITH_CAUTION_SCORE_CAP's comment -- a hard fail already
-        # forces "Fail" regardless of score, so this only ever lowers a
-        # genuine Pass-with-caution number, never a Fail's.
-        if not hard_fail and saved_by_tiebreaker:
+        # A "Pass with caution" blend is capped (see PASS_WITH_CAUTION_SCORE_CAP) whichever kind of caution it is: a breach a tiebreaker
+        # excused, or one nothing excused. The cap only ever lowers a score that is 70 or more, never one below it.
+        caution = saved_by_tiebreaker or bool(unrescued_breaches)
+        if caution and score >= PASS_SCORE_THRESHOLD:
             score = min(score, PASS_WITH_CAUTION_SCORE_CAP)
-        verdict = _verdict_for(score, hard_fail, saved_by_tiebreaker)
+        verdict = _standard_verdict(score, caution)
     return {
         "score": score,
         "verdict": verdict,
-        "hard_fail": hard_fail,
+        # No hard fail on the Standard path since 2026-10-07 (Bank and REIT keep theirs); kept so the three paths share one shape.
+        "hard_fail": False,
+        "unrescued_breaches": unrescued_breaches,
         # Derived from the actual verdict, not re-tested independently --
-        # saved_by_tiebreaker alone would say True even for the sub-70
-        # fall-through-to-Fail case above (see _verdict_for).
+        # a breach alone would say True even for the below-70 Fail (see _standard_verdict).
         "pass_with_caution": verdict == "Pass with caution",
         "weights": shares,
         "ratios": {

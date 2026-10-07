@@ -412,12 +412,16 @@ class Step5Out(BaseModel):
     # None for Bank (not yet supported) or when required raw data is
     # missing -- never a fabricated number.
     score: int | None = None
-    # "Fail" / "Pass" / "Strong Pass" for scored tickers; "Pass with
-    # caution" when a Borderline breach was excused by its tiebreaker;
-    # "not_supported" for Bank; "insufficient_data" when required figures
-    # are missing.
+    # "Fail" / "Pass" / "Strong Pass" for scored tickers (the stored key for a blend under 70; the Debt card DISPLAYS it as "May not
+    # pass"); "Pass with caution" when the blend reached 70 but a breach was excused by its tiebreaker or is still unrescued;
+    # "not_supported" for Bank; "insufficient_data" when required figures are missing.
     verdict: str
+    # Bank (CET1/NPL) and REIT (gearing) only: a ratio past its hard limit forces Fail whatever the score. Always False on the Standard
+    # path, which has had no hard fail since 2026-10-07 (docs/specs/debt.md); see `unrescued_breaches` there.
     hard_fail: bool = False
+    # Standard path: the ratios (keys of `ratios`) in an unrescued breach zone (borderline/severe, or negative EBITDA) this period.
+    # A blend of 70 or more that contains one reads "Pass with caution".
+    unrescued_breaches: list[str] = []
     # True whenever verdict == "Pass with caution" -- convenience flag so
     # the frontend doesn't need to string-match the verdict.
     pass_with_caution: bool = False
@@ -1174,6 +1178,8 @@ class ScoreWeightsOut(BaseModel):
     # Per group, per component, inclusive. The sets add up to `sums`.
     bounds: dict[str, dict[str, WeightBoundsOut]]
     sums: dict[str, int]
+    # Strict orderings a set must keep, per group, largest weight first (scoring/weights.py::ORDERINGS; only Step 5 has one).
+    orderings: dict[str, list[str]] = {}
     weights_version: int
     # scoring/overall.py::SCORE_FORMULA_VERSION: a stored row scored under another formula version is stale (the Screener note).
     formula_version: int

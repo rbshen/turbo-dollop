@@ -17,13 +17,18 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session
 
 from core.models import ScoreWeightSettings
+import logging
+
 from scoring.weights import (
     DEFAULT_WEIGHTS,
     GROUPS,
     ScoreWeights,
     as_dict,
+    validate_group,
     weights_from_dict,
 )
+
+logger = logging.getLogger(__name__)
 
 CONFIG_KEY = "default"
 CACHE_TTL_SECONDS = 5.0
@@ -47,6 +52,12 @@ def _snapshot_from_row(row: ScoreWeightSettings) -> WeightsSnapshot:
     for group in GROUPS:
         for field in as_dict(getattr(DEFAULT_WEIGHTS, group)):
             nested[group][field] = getattr(row, f"{group}_{field}")
+    # A Step 5 set that breaks the current bounds or ordering (a row saved before the 2026-10-07 hard-fail removal, read by a process
+    # that started before core/db.py's migration ran) must never score: with no hard fail the weights alone keep a breach below the
+    # Pass line. Serve the defaults for that group until the migration rewrites the row.
+    if validate_group("step5", nested["step5"]):
+        logger.warning("Saved Step 5 weights %s break the current bounds/ordering: using the defaults until they are migrated.", nested["step5"])
+        nested["step5"] = as_dict(DEFAULT_WEIGHTS.step5)
     return WeightsSnapshot(weights_from_dict(nested), row.weights_version, row.updated_at)
 
 
@@ -126,7 +137,7 @@ def build_out(row: ScoreWeightSettings, recompute=None):
     """The GET /api/config/score-weights payload for a saved row (`recompute` is the latest RecomputeRunOut or None)."""
     from core.schemas import ScoreWeightsOut, WeightBoundsOut
     from scoring.overall import SCORE_FORMULA_VERSION
-    from scoring.weights import BOUNDS, OVERALL_TOTAL, SUMS, weights_to_dict
+    from scoring.weights import BOUNDS, ORDERINGS, OVERALL_TOTAL, SUMS, weights_to_dict
 
     return ScoreWeightsOut(
         weights=weights_to_dict(snapshot_of(row).weights),
@@ -137,6 +148,7 @@ def build_out(row: ScoreWeightSettings, recompute=None):
             for group, fields in BOUNDS.items()
         },
         sums=dict(SUMS),
+        orderings={group: list(order) for group, order in ORDERINGS.items()},
         weights_version=row.weights_version,
         formula_version=SCORE_FORMULA_VERSION,
         updated_at=row.updated_at,

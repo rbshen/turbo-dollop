@@ -73,7 +73,7 @@ DEFAULT_WEIGHTS = ScoreWeights(
     step1=Step1Weights(revenue=35, net_income=20, cfo=30, margins=10, fcf=5),
     step2=Step2Weights(magnitude=70, agreement=30),
     step4=Step4Weights(roe=25, roic=35, ar=20, ccc=20),
-    step5=Step5Weights(current_ratio=33, debt_to_ebitda=33, debt_servicing=34),
+    step5=Step5Weights(current_ratio=25, debt_to_ebitda=45, debt_servicing=30),
 )
 
 
@@ -163,14 +163,20 @@ def step1_tables(
 # Whole numbers, inclusive. Why each floor/cap: docs/specs/overview.md ("Adjustable score weights"). The four Overall weights add
 # up to 100: Debt and Financials keep a floor of 10 so the bankruptcy filter and the foundation are never diluted away, Growth
 # and Profitability a floor of 5, and no step can exceed 50 (half the Steps score); Revenue (the foundation), ROE and ROIC (they
-# carry the Step 4 hard fail) and every Step 5 ratio (each is a hard limit) can never reach 0.
+# carry the Step 4 hard fail) and every Step 5 ratio can never reach 0. Step 5 has no hard fail since 2026-10-07 (docs/specs/debt.md): a
+# breach is kept below the Pass line by the weights alone, so Debt/EBITDA (the most important ratio) has a floor of 35 and the two
+# secondary ratios a cap of 30, and ORDERINGS requires Debt/EBITDA > Debt Servicing > Current Ratio (with the sum of 100 that
+# makes the lowest usable Debt/EBITDA weight 41: 41/30/29).
 BOUNDS: dict[str, dict[str, tuple[int, int]]] = {
     "overall": {"financials": (10, 50), "growth": (5, 50), "profitability": (5, 50), "debt": (10, 50)},
     "step1": {"revenue": (20, 50), "net_income": (10, 40), "cfo": (10, 40), "margins": (0, 25), "fcf": (0, 15)},
     "step2": {"magnitude": (50, 100), "agreement": (0, 50)},
     "step4": {"roe": (15, 60), "roic": (15, 60), "ar": (0, 30), "ccc": (0, 30)},
-    "step5": {"current_ratio": (15, 60), "debt_to_ebitda": (15, 60), "debt_servicing": (15, 60)},
+    "step5": {"current_ratio": (15, 30), "debt_to_ebitda": (35, 60), "debt_servicing": (15, 30)},
 }
+
+# Strict orderings a set must keep, per group, largest weight first (fields of that group). Only Step 5 has one.
+ORDERINGS: dict[str, tuple[str, ...]] = {"step5": ("debt_to_ebitda", "debt_servicing", "current_ratio")}
 
 # What each set must add up to.
 SUMS: dict[str, int] = {"overall": OVERALL_TOTAL, "step1": STEP_TOTAL, "step2": STEP_TOTAL, "step4": STEP_TOTAL, "step5": STEP_TOTAL}
@@ -220,21 +226,34 @@ def weights_from_dict(values: Mapping[str, Mapping[str, int]]) -> ScoreWeights:
     )
 
 
+def validate_group(group: str, fields: Mapping[str, int]) -> list[str]:
+    """Every rule one weight group must satisfy, as plain-English messages (empty = valid): each weight a whole number inside its
+    bounds, the group adding up to its total, and any strict ordering (ORDERINGS) kept."""
+    messages: list[str] = []
+    for field, value in fields.items():
+        label = COMPONENT_LABELS[group][field]
+        where = f"{GROUP_LABELS[group]}: {label}" if group != "overall" else f"Overall: {label}"
+        if isinstance(value, bool) or not isinstance(value, int):
+            messages.append(f"{where} must be a whole number.")
+            continue
+        low, high = BOUNDS[group][field]
+        if not low <= value <= high:
+            messages.append(f"{where} must be between {low} and {high}.")
+    values = list(fields.values())
+    if all(isinstance(v, int) and not isinstance(v, bool) for v in values):
+        if sum(values) != SUMS[group]:
+            messages.append(f"{GROUP_LABELS[group]} weights must add up to {SUMS[group]} (they add up to {sum(values)}).")
+        order = ORDERINGS.get(group)
+        if order and any(fields[a] <= fields[b] for a, b in zip(order, order[1:])):
+            names = " > ".join(COMPONENT_LABELS[group][field] for field in order)
+            messages.append(f"{GROUP_LABELS[group]} weights must keep this order, each strictly larger than the next: {names}.")
+    return messages
+
+
 def validate_weights(weights: ScoreWeights) -> list[str]:
     """Every rule a saved weight set must satisfy, as plain-English messages naming the set and the rule (empty = valid):
-    each weight a whole number inside its bounds, each set adding up to its total."""
+    each weight a whole number inside its bounds, each set adding up to its total, and the strict orderings."""
     messages: list[str] = []
     for group, fields in weights_to_dict(weights).items():
-        for field, value in fields.items():
-            label = COMPONENT_LABELS[group][field]
-            where = f"{GROUP_LABELS[group]}: {label}" if group != "overall" else f"Overall: {label}"
-            if isinstance(value, bool) or not isinstance(value, int):
-                messages.append(f"{where} must be a whole number.")
-                continue
-            low, high = BOUNDS[group][field]
-            if not low <= value <= high:
-                messages.append(f"{where} must be between {low} and {high}.")
-        values = list(fields.values())
-        if all(isinstance(v, int) and not isinstance(v, bool) for v in values) and sum(values) != SUMS[group]:
-            messages.append(f"{GROUP_LABELS[group]} weights must add up to {SUMS[group]} (they add up to {sum(values)}).")
+        messages.extend(validate_group(group, fields))
     return messages

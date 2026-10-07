@@ -23,8 +23,9 @@ PASS_THRESHOLD = 70
 # compute_overall_assessment's arithmetic changes. 1 = the old 69/31 Moat blend (rows have no version), 2 = Steps x Moat multiplier,
 # 3 = the same Overall arithmetic over the neutral Step 1 engine (2026-10-07: Step 1 now scores completed fiscal years with scoring/
 # step1_engine.py, so every row stored under 2 carries the old Financials score and is stale). 4 = the same engine with age-decayed dip
-# costs (2026-10-07), which moves Step 1 scores again.
-SCORE_FORMULA_VERSION = 4
+# costs (2026-10-07), which moves Step 1 scores again. 5 = Step 5 without its hard fail and with the 25/45/30 default weights
+# (2026-10-07): a Debt blend is now a pure read of its three ratios, so every Standard/Utility Debt score and verdict can move.
+SCORE_FORMULA_VERSION = 5
 
 # Moat multipliers. Wide and No moat are fixed; Narrow is the one Settings > Economic Moat setting, one of the allowed values.
 # A ticker with Moat unset is scored as No moat (there is no separate "not rated" verdict any more).

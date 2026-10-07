@@ -265,11 +265,50 @@ def _migrate_moat_and_overall_weights() -> dict:
     return result
 
 
+def _migrate_step5_weights() -> dict:
+    """One-time data migration for the Step 5 hard-fail removal (2026-10-07), run after _migrate_moat_and_overall_weights and idempotent.
+
+    Step 5 now has no hard fail, so the weights alone keep a breach below the Pass line, and its bounds got tighter (Debt/EBITDA at
+    least 35, Debt Servicing and Current Ratio at most 30) with a strict order Debt/EBITDA > Servicing > Current Ratio. A saved
+    Step 5 set that breaks any of that (the old 33/33/34 does) is replaced by the new defaults (scoring/weights.py) and
+    weights_version goes up by one; a customised set that still satisfies the new rules is left alone. A set read from the row
+    that is valid is never touched, so this issues no write on an already-migrated database. Returns {"weights": None | "defaults",
+    "old": ...}."""
+    from scoring.weights import DEFAULT_WEIGHTS, as_dict, validate_group
+
+    result: dict = {"weights": None}
+    if not inspect(engine).has_table("scoreweightsettings"):
+        return result
+    with engine.begin() as conn:
+        row = conn.execute(
+            text(
+                "SELECT step5_current_ratio, step5_debt_to_ebitda, step5_debt_servicing FROM scoreweightsettings WHERE key = 'default'"
+            )
+        ).first()
+        if row is None:
+            return result
+        old = {"current_ratio": row[0], "debt_to_ebitda": row[1], "debt_servicing": row[2]}
+        if not validate_group("step5", old):
+            return result
+        new = as_dict(DEFAULT_WEIGHTS.step5)
+        conn.execute(
+            text(
+                "UPDATE scoreweightsettings SET step5_current_ratio = :c, step5_debt_to_ebitda = :d, step5_debt_servicing = :s, "
+                "weights_version = weights_version + 1, updated_at = :now WHERE key = 'default'"
+            ).bindparams(bindparam("now", type_=DateTime())),
+            {"c": new["current_ratio"], "d": new["debt_to_ebitda"], "s": new["debt_servicing"], "now": datetime.now()},
+        )
+        result.update(weights="defaults", old=old, new=new)
+    logger.warning("Step 5 weights %s broke the new bounds/ordering (no hard fail since 2026-10-07): replaced with the defaults %s.", old, new)
+    return result
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _migrate_saved_filter_kind()
     _add_missing_columns()
     _migrate_moat_and_overall_weights()
+    _migrate_step5_weights()
     _ensure_unique_indexes()
     _drop_obsolete_columns()
     _seed_ticker_views()
