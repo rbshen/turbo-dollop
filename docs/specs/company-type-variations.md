@@ -25,7 +25,7 @@ auto-generalize to a newly-listed ticker in the same sector).
 | **Insurance** | Cash-flow checks skipped | EPS preferred, revenue fallback | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped) | Not supported — no reliable substitute available | Profit-based method (cash flow skipped) |
 | **REIT / Property Developer** | Cash-flow checks skipped | Always revenue (rental income); EPS never used | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped) | Judged on a Gearing ratio (debt vs. total assets) instead of the standard 3 ratios | Price-to-Book |
 | **Utility** | All 5 metrics checked (not exempted here) | EPS preferred, revenue fallback | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped — extended 2026-09-04) | Standard 3-ratio check (not exempted here) | Cash-flow or profit-based method |
-| **Commodity company** (e.g. mining, energy — Financials-local classification, sector `Basic Materials`/`Energy`) | Cash-flow checks skipped | EPS preferred, revenue fallback | All 4 metrics checked (not exempted here) | Standard 3-ratio check (not exempted here) | Cash-flow or profit-based method |
+| **Commodity company** (price-taking producers and extractors only — Financials-local classification: sector `Basic Materials`/`Energy` **and** an industry on the producer allowlist, below) | Cash-flow checks skipped | EPS preferred, revenue fallback | All 4 metrics checked (not exempted here) | Standard 3-ratio check (not exempted here) | Cash-flow or profit-based method |
 
 Growth Rate reads the same way for every company type except REITs, which are scored on revenue
 (rental income) growth instead of EPS — EPS is heavily distorted by non-cash real-estate
@@ -33,35 +33,61 @@ depreciation, and the data source has no forward-looking dividend/distribution e
 substitute instead. See [Growth Rate](growth-rate.md) for detail.
 
 Note that "Commodity Company" is a classification local to the **Financials** check only
-(detected by sector text alone, `sector in {"Basic Materials", "Energy"}`) — it has no
+(`data/step1_data.py::_detect_exemption`) — it has no
 equivalent branch in the shared classifier that Profitability, Debt, and Valuation all use, so a
 commodity company still runs the *standard* Profitability/Debt/Valuation path unless some other
 condition (e.g. REIT/Property Developer text) also applies.
 
+### Commodity industry allowlist (2026-10-07)
+
+The rule was sector text alone (`Basic Materials` or `Energy`) until 2026-10-07, which tagged businesses that are not price-taking
+producers (industrial gases, coatings, oilfield services, pipelines, building products). It is now an allowlist: a ticker is a
+Commodity Company only if its profile sector is `Basic Materials` or `Energy` **and** its FMP industry is one of
+`COMMODITY_PRODUCER_INDUSTRIES` (`backend/data/step1_data.py`, matched exactly after stripping, FMP's own spelling):
+
+| Group | Industries |
+|---|---|
+| Oil and gas | Oil & Gas Exploration & Production, Oil & Gas Integrated, Oil & Gas Refining & Marketing |
+| Metals and mining | Copper, Gold, Steel, Aluminum, Silver, Other Industrial Metals & Mining, Other Precious Metals & Mining |
+| Coal and uranium | Uranium, Coal, Thermal Coal, Coking Coal |
+| Agriculture and forest | Agricultural Inputs, Paper, Lumber & Forest Products |
+
+(Aluminum, Silver, the two "Other ... Mining" labels and the three coal labels have no scored ticker today; they are listed so a future
+ticker is handled.) Everything else in the two sectors is **Standard** in Step 1: Chemicals, Chemicals - Specialty, Construction
+Materials, Oil & Gas Equipment & Services, Oil & Gas Midstream, Solar, and any industry not on the list. A ticker in the two sectors
+whose cached profile has **no industry** stays Commodity (today's behaviour, so nothing changes silently). Of the 49 tickers that were
+Commodity, 26 stay and 23 are Standard now: ACA, BLDR, MLM, CRH, VMC; DD, DOW, LYB, ALB, APD, ECL, IFF, LIN, PPG, SHW; BKR, HAL, SLB;
+KMI, OKE, TRGP, WMB; FSLR. Known limits: FMP's industry labels are coarse (DOW, LYB and ALB are commodity producers filed under
+"Chemicals" / "Chemicals - Specialty" and are Standard now; TPL, a royalty owner, and CTVA, a seed company, stay Commodity), and FCX,
+MOS, NUE and STLD stay exempt although their cash flow is weak. No per-ticker overrides were added for these. Decision and evidence:
+docs/decisions.md 2026-10-07.
+
 ### Commodity override list (2026-10-07)
 
-Because Commodity Company is detected by profile sector text alone, a ticker that FMP files under the wrong sector inherits the
-CFO/FCF exemption. `COMMODITY_EXEMPTION_TICKER_OVERRIDES` (`backend/data/step1_data.py`, the same pattern as
-`NON_LENDER_TICKER_OVERRIDES`) lists tickers that are scored as **Standard** in Step 1 (CFO and FCF scored, standard weights) even though
-their profile says `Basic Materials` or `Energy`. It is keyed on the ticker, not on the cached profile, so a profile refresh (the 30-day
-staleness window, the Refresh button, the nightly fetch) cannot undo it; it changes neither the displayed sector nor `TickerScore.sector`.
+A ticker that FMP files under the wrong sector used to inherit the CFO/FCF exemption. `COMMODITY_EXEMPTION_TICKER_OVERRIDES`
+(`backend/data/step1_data.py`, the same pattern as `NON_LENDER_TICKER_OVERRIDES`) lists tickers that are scored as **Standard** in
+Step 1 (CFO and FCF scored, standard weights) even though their profile says `Basic Materials` or `Energy`. It is keyed on the ticker,
+not on the cached profile, so a profile refresh (the 30-day staleness window, the Refresh button, the nightly fetch) cannot undo it;
+it changes neither the displayed sector nor `TickerScore.sector`. Since the industry allowlist both tickers are Standard on the
+industry alone ("Construction Materials" is not on it), so the list is redundant; it is kept as a guard against FMP relabelling them
+into a producer industry.
 
 | Ticker | FMP profile | Why it is not a commodity company |
 |---|---|---|
 | JCI | Basic Materials / Construction Materials | Johnson Controls: building systems, HVAC and controls; S&P 500 sector Industrials |
 | MAS | Basic Materials / Construction Materials | Masco: branded home-improvement and building products; S&P 500 sector Industrials |
 
-Like the Bank list this does not generalize: a new mislabelled ticker needs a manual check and an entry. Names looked at and
-deliberately left as Commodity Company: BLDR, IP, ACA, TPL, FSLR, and the oilfield-services names (SLB, BKR, HAL). Only Step 1 reads this
-label (and Speculative Growth, which treats it as not applicable); `classify_company_type` already returned `Standard` for JCI and MAS, so
-Steps 3, 4 and 5 are unchanged. Decision: docs/decisions.md 2026-10-07.
+Like the Bank list this does not generalize: a new mislabelled ticker needs a manual check and an entry. Only Step 1 reads the
+Commodity label (and Speculative Growth, which treats any Step 1 exemption as not applicable, so the 23 tickers above are now
+evaluated by its gate as Standard; none qualifies); `classify_company_type` already returned `Standard` for all of them, so Steps 3, 4
+and 5 are unchanged. Decisions: docs/decisions.md 2026-10-07.
 
 ## Why cash-flow checks get skipped for some types
 
 Banks and Insurance companies report "cash from operations" very differently from a typical
 business — for a bank it's tangled up with customer deposits and loan originations, and for an
 insurer it moves with claim timing, reserve changes, and investment portfolio swings rather than
-the operating business itself. Property Developers and Commodity companies have their own
+the operating business itself. Property Developers and Commodity companies (price-taking producers) have their own
 version of this problem tied to how their industries recognize revenue and capital spending. In
 all of these cases, Financials leans more heavily on Revenue, Net Income, and Margins instead —
 and for a Bank specifically, the series scored and displayed as "Revenue" is actually Net

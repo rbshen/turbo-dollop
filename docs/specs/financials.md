@@ -89,13 +89,16 @@ Cash From Operations and Free Cash Flow are skipped for:
 - **Bank**
 - **Insurance**
 - **Property Developer** (the shared REIT/Property Developer classifier)
-- **Commodity Company** — sector is `Basic Materials` or `Energy`. This is a category specific
-  to this check; it has no equivalent in the shared company-type classifier used by
-  Profitability, Debt, and Valuation.
+- **Commodity Company** — a price-taking producer or extractor: the profile sector is `Basic Materials` or `Energy` **and**
+  the FMP industry is on the producer allowlist (`COMMODITY_PRODUCER_INDUSTRIES`, since 2026-10-07): Oil & Gas Exploration & Production, Oil & Gas Integrated, Oil & Gas Refining & Marketing, Agricultural Inputs, Uranium, Copper, Gold, Steel, Paper, Lumber & Forest Products, Aluminum, Silver, Other Industrial Metals & Mining, Other Precious Metals & Mining, Coal, Thermal Coal, Coking Coal.
+  Every other industry in those two sectors (Chemicals, Chemicals - Specialty, Construction Materials, Oil & Gas Equipment & Services,
+  Oil & Gas Midstream, Solar, ...) is scored as **Standard**, CFO and FCF included. A ticker in the two sectors with no cached industry
+  stays Commodity (the earlier behaviour). This is a category specific to this check; it has no equivalent in the shared company-type
+  classifier used by Profitability, Debt, and Valuation.
 
 Bank/Insurance/Property Developer are detected via the same shared sector/industry classifier
-the other checks use. Commodity Company is detected locally by sector text alone. A small hand-verified list of tickers FMP files under the wrong sector (JCI, MAS) is excluded from the Commodity branch and scored as Standard
-(`COMMODITY_EXEMPTION_TICKER_OVERRIDES`, [Company type variations](company-type-variations.md)).
+the other checks use. Commodity Company is detected locally by sector plus industry text. A small hand-verified list of tickers FMP files under the wrong sector (JCI, MAS) is excluded from the Commodity branch and scored as Standard
+(`COMMODITY_EXEMPTION_TICKER_OVERRIDES`; redundant since the allowlist, kept as a guard, [Company type variations](company-type-variations.md)).
 
 **Bank-only substitution:** the series scored and displayed as "Revenue" for a Bank is actually
 **Net Interest Income** (FMP's `netInterestIncome` field), not total revenue — FMP's raw Revenue
