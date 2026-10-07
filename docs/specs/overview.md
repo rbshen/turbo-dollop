@@ -8,8 +8,10 @@ calculated completely separately.
 
 ## The Analysis tab: Overall Assessment
 
-The Analysis tab blends four automated checks plus one manual rating into a single **Overall
-Assessment**:
+The Analysis tab blends four automated checks into a **Steps score**, then applies the manual **Economic Moat** rating as a
+**multiplier** to give the **Overall Assessment** (redesign of 2026-10-07; docs/decisions.md):
+
+**Overall = Steps score x Moat multiplier**
 
 | Card | What it checks |
 |---|---|
@@ -17,79 +19,113 @@ Assessment**:
 | **Growth Rate** | Forward analyst growth expectations — see [Growth Rate](growth-rate.md) |
 | **Profitability** | Return on Equity, Return on Invested Capital, Accounts Receivable trend, and Cash Conversion Cycle — see [Profitability](profitability.md) |
 | **Debt** | Short-term liquidity, leverage, and debt service burden — see [Debt](debt.md) |
-| **Economic Moat** | A manual, judgment-based competitive-advantage rating you set yourself — see [Economic Moat](economic-moat.md) |
+| **Economic Moat** | A manual, judgment-based competitive-advantage rating you set yourself — a multiplier, not a blend component; see [Economic Moat](economic-moat.md) |
 
 Each of the four automated cards produces its own score (0–100) and verdict (Fail / Pass /
-Strong Pass, or occasionally "Pass with caution" — see the [Glossary](glossary.md)). The
-Overall verdict adds one more value, "Moat not rated" (below). A separate **Review status**
+Strong Pass, or occasionally "Pass with caution" — see the [Glossary](glossary.md)). A separate **Review status**
 (below) can sit beside a Pass-family Overall verdict, but it is never a verdict: it does not
-change the number or the verdict. The
-Overall Assessment combines them into one number. These are the **default** weights; the four automated ones
-are adjustable in Settings > Score weighting (see "Adjustable weights" below), Economic Moat is fixed:
+change the number or the verdict.
+
+**The Steps score** is the weighted average of the four checks, rescaled to 100 over the checks that apply to the company. These are
+the **default** weights; all four are adjustable in Settings > Score weighting (see "Adjustable weights" below) and must add up to 100:
 
 | Component | Default weight |
 |---|---|
-| Financials | 24% |
-| Growth Rate | 10% |
+| Financials | 30% |
+| Debt | 30% |
+| Growth Rate | 20% |
 | Profitability | 20% |
-| Debt | 15% |
-| Economic Moat | 31% (fixed) |
 
-The defaults reflect a deliberate design choice: Economic Moat — a qualitative read on
-whether a company has a durable competitive advantage — carries the single largest weight, on
-the view that a strong moat matters at least as much as any one quarter-to-quarter financial
-metric. Among the four automated checks, Financials carries the most weight since it's the
-most foundational read on the business, while Debt was deliberately weighted above Growth Rate
-(2026-07-31 rebalance) so that a genuine debt problem can't be fully diluted away by strength
-elsewhere — see [Debt](debt.md), and docs/archive/claude-md-history-scoring.md for the
-investigation behind that rebalance. Its known, deliberate limits are described under "Overall
-weighting rebalance" below.
+**The Moat multiplier** scales the finished Steps score:
 
-**Moat stays the single largest weight** because the four adjustable weights are capped at 30 each (and the four always add up to
-exactly 69). **No Moat always fails**, whatever the split of the four, as long as the No Moat points stay at or below 1: the steps blend
-is a weighted average of scores of at most 100, so `round(0.69 x steps + 0.31 x points)` is at most 69 (31% is the smallest whole-number
-Moat weight for which that holds; the guarantee would end at about 1.6 points, which is why that setting is capped at 1). That
-guarantee is about the verdict only through the score; the "Moat not rated" rule is separate and reads the verdict.
+| Moat rating | Multiplier |
+|---|---|
+| Wide Moat | 1.0 (fixed) |
+| Narrow Moat | 0.85 by default; one of 0.80, 0.82, 0.85, 0.87, 0.90, set in Settings > Economic moat |
+| No Moat, or **not rated** | 0.70 (fixed, not editable) |
+
+A ticker with no Moat rating is **scored as No moat**: there is no separate "Moat not rated" verdict (retired 2026-10-07). Its verdict is
+read from its Overall score like any other, and the Analysis card and the ticker header show the note "Moat not rated, scored as No
+moat". Because 0.70 x a perfect Steps score of 100 is exactly 70, a No moat or unrated ticker can reach the Pass line only with four
+perfect check scores, which does not happen in practice (the verification after the 2026-10-07 recompute is in docs/decisions.md).
+
+**Worked example.** Financials 84, Growth Rate 84, Profitability 83 and Debt 84 give a Steps score of
+0.30 x 84 + 0.20 x 84 + 0.20 x 83 + 0.30 x 84 = 83.8; for a Narrow Moat ticker at 0.85 that is 83.8 x 0.85 = 71.23, an Overall score of
+**71**. The Analysis card shows exactly this arithmetic: a table of each step with its score, weight and points, then the Steps score
+(one decimal), then "Steps 83.8 x Narrow moat 0.85 = 71".
+
+**Rounding (decision 2026-10-07).** The Steps score is computed unrounded, multiplied, and the Overall score is rounded **once**, with
+Python `round` (half to even; the app's convention). The Steps score is stored unrounded and shown to one decimal. Rounding the Steps
+score first would sometimes change a verdict (Steps 81.6 x 0.85 = 69.36 reads 69, a Fail; 82 x 0.85 = 69.7 would read 70, a Pass).
+
+The Overall verdict bands are the shared ones used app-wide: Fail below 70, Pass 70-90, Strong Pass above 90. There is **no cap and no
+hard-fail override**: a hard fail inside a check (Step 2 negative growth, Step 4 negative average ROE or ROIC, a Step 5 limit) still
+reads Fail on that check's own card and still enters the blend only through its score. The Economic Moat is no longer the one
+exception that can pull Overall below 70 by itself: the multiplier is the whole mechanism (a No moat or unrated ticker needs Steps of 100
+to reach 70). The **Review status** (below) is not an override either.
+
+The defaults reflect two deliberate design choices. Financials and Debt carry the most weight: Financials is the most foundational
+read on the business, and Debt is weighted equally with it (originally lifted above Growth Rate in the 2026-07-31 rebalance, so that a genuine
+debt problem can't be fully diluted away by strength elsewhere; see [Debt](debt.md), and
+docs/archive/claude-md-history-scoring.md for that investigation). And a durable competitive advantage still matters at least as much as
+any single financial metric, but it now acts on the whole result rather than as one 31% slice: a Narrow Moat costs 15% of the Steps
+score by default, a missing or No Moat costs 30%.
 
 **Saved Screener views and the weights.** A saved view stores filters (including Overall score ranges) and a sort, never results. Changing
-the weights re-scores every ticker, so the same saved view then selects different tickers; nothing in the view itself changes.
+the weights or the Narrow multiplier re-scores every ticker, so the same saved view then selects different tickers; nothing in the view
+itself changes. The 2026-10-07 formula change moved scores too (see docs/decisions.md), so a saved Overall range selects different
+tickers than before.
 
 The default weights are defined once, in `backend/scoring/weights.py::DEFAULT_WEIGHTS` (every scorer takes a weight set as a
-parameter and defaults to it; `overall.py::STEP_WEIGHTS` is just the Overall defaults as fractions of 69). The frontend mirror
-`frontend/lib/overallScore.ts` has no weight constants any more: `computeOverallAssessment` takes the saved set as an argument (hook
-`useScoreWeights`, from `GET /api/config/score-weights`, which also carries Moat's locked percent), and both implementations are tested
-against one shared case file, `backend/tests/fixtures/overall_verdict_cases.json` (curated cases, cases for several non-default weight
-sets, exact-.5 rounding cases, and 150 random weight sets generated by the backend).
+parameter and defaults to it; `overall.py::STEP_WEIGHTS` is just the Overall defaults as fractions of 100). The multipliers are
+constants in `scoring/overall.py` (`WIDE_MOAT_MULTIPLIER`, `NO_MOAT_MULTIPLIER`, `NARROW_MOAT_MULTIPLIER_OPTIONS`,
+`DEFAULT_NARROW_MOAT_MULTIPLIER`); the saved Narrow value lives in `MoatScoreConfig`. The frontend mirror
+`frontend/lib/overallScore.ts` has no weight constants: `computeOverallAssessment` takes the saved set and the Narrow multiplier as
+arguments (hooks `useScoreWeights`, `useMoatConfig`), and both implementations are tested against one shared case file,
+`backend/tests/fixtures/overall_verdict_cases.json` (curated cases, every Narrow option, exact-.5 rounding cases, and 150 random weight
+sets generated by the backend: `backend/tests/fixtures/generate_overall_verdict_cases.py`).
 
-**Rounding (decision 2026-10-06).** The backend is unchanged: Python `round` (half to even), so no stored score moves. The TypeScript
-mirror matches it exactly: `lib/pyNumeric.ts::roundHalfEven` (JavaScript's `Math.round` sends 34.5 to 35, Python gives 34) and
-`pySum`, Python 3.12's compensated float `sum` (a plain left-to-right sum differs in the last bit for about a quarter of 4-term blends).
-The blend also runs in the fixed step order Financials, Growth, Profitability, Debt whatever order the caller lists the steps.
+**Rounding detail.** The backend uses Python `round` (half to even). The TypeScript mirror matches it exactly: `lib/pyNumeric.ts::roundHalfEven`
+(JavaScript's `Math.round` sends 42.5 to 43, Python gives 42) and `pySum`, Python 3.12's compensated float `sum` (a plain left-to-right
+sum differs in the last bit for about a quarter of 4-term blends). The blend also runs in the fixed step order Financials, Growth,
+Profitability, Debt whatever order the caller lists the steps.
 
-## Adjustable weights: storage, bounds and API (2026-10-06)
+## Adjustable weights: storage, bounds and API (2026-10-06; Overall set rescaled to 100 on 2026-10-07)
 
 The weights are one global set (no accounts, no per-user weights) saved in the database (`ScoreWeightSettings`, a lazily seeded singleton; `weights_version` goes up by
-one on every save or reset, and `TickerScore.weights_version` records the version a row was scored with). Definitions, defaults,
-bounds and the pure derivations are in `backend/scoring/weights.py`; loading, the 5-second in-process cache and saving are in
-`backend/data/score_weights.py`. A read never writes (an unseeded database serves the defaults at version 1). Economic Moat's 31%
-is a constant (`overall.py::MOAT_WEIGHT`), never a column and never accepted as input.
+one on every save or reset **and on every save of the Narrow moat multiplier**, and `TickerScore.weights_version` records the version a row was scored with).
+Definitions, defaults, bounds and the pure derivations are in `backend/scoring/weights.py`; loading, the 5-second in-process cache and saving are in
+`backend/data/score_weights.py`. A read never writes (an unseeded database serves the defaults at version 1). Economic Moat is not a weight and is not part of
+the set; its multipliers are `scoring/overall.py` constants plus the one saved Narrow setting.
 
-Whole numbers only. The four Overall weights add up to 69 and each step's own set to 100. Bounds, inclusive: Overall Financials
-10-30, Growth 5-30, Profitability 5-30, Debt 10-30; Step 1 Revenue 20-50, Net Income 10-40, CFO 10-40, Margins 0-25, FCF 0-15; Step 2
-Magnitude 50-100, Agreement 0-50; Step 4 ROE 15-60, ROIC 15-60, AR 0-30, CCC 0-30; Step 5 each 15-60 (default 33/33/34). The four
-Overall steps are capped at 30 so Moat (31) stays the single largest weight.
+Whole numbers only. The four Overall weights add up to **100** and each step's own set to 100. Bounds, inclusive: Overall Financials
+10-50, Growth 5-50, Profitability 5-50, Debt 10-50 (a floor of 10 keeps the foundation and the bankruptcy filter from being diluted away; no
+step may exceed half of the Steps score; before 2026-10-07 the cap was 30 so that Moat's 31 stayed the largest weight, a tie that no longer
+exists); Step 1 Revenue 20-50, Net Income 10-40, CFO 10-40, Margins 0-25, FCF 0-15; Step 2
+Magnitude 50-100, Agreement 0-50; Step 4 ROE 15-60, ROIC 15-60, AR 0-30, CCC 0-30; Step 5 each 15-60 (default 33/33/34).
 
-`GET /api/config/score-weights` returns the weights, the defaults, the locked Moat weight, the bounds and sums, and `weights_version`;
+**Migration (2026-10-07).** The Overall set used to add up to 69 (Moat was the other 31). `core/db.py::_migrate_moat_and_overall_weights`
+runs once at startup: a saved set still adding up to 69 is converted. The old defaults (24/10/20/15) become the new defaults
+(Financials 30, Growth 20, Profitability 20, Debt 30); a customised set is rescaled proportionally to 100 with largest-remainder rounding
+(`scoring/weights.py::rescale_overall_to_100`) and logged as a warning; either way `weights_version` goes up by one. A set already
+adding up to 100 is left alone, so the migration is idempotent and writes nothing once done.
+
+`GET /api/config/score-weights` returns the weights, the defaults, the bounds and sums, `weights_version` and `formula_version`;
 `PUT` saves a full set (422 with a plain-English reason naming the set and the rule); `POST /api/config/score-weights/reset`
 restores the defaults. A weight of 0 removes a component from the blend only: a missing input can still make the step insufficient,
 and a hard fail still reads Fail. Saving does not rescore anything by itself; the stored rows stay on the older version until a full
 recompute (`compute_ticker_score`) re-scores them, and a ticker-header read of a row on an older version re-scores it (cache only).
 
+**Formula version.** `weights_version` cannot see a change of *formula*, so every stored row also carries `TickerScore.formula_version`
+(`scoring/overall.py::SCORE_FORMULA_VERSION`; 1 = the old 69/31 blend, which rows never stored, so NULL; 2 = Steps x multiplier). A row
+whose formula version is not the current one is stale: the ticker header re-scores it (cache only, whatever its weights version), and the
+Screener's "N scores are still on the previous weights" note counts it. Bump the constant whenever the Overall arithmetic changes.
+
 ### Applying a change: the recompute job
 
-Every change that moves stored scores (saving or resetting the weights, saving the Moat points, the Screener's "Recompute all scores")
+Every change that moves stored scores (saving or resetting the weights, **saving the Narrow moat multiplier**, the Screener's "Recompute all scores")
 goes through the full `compute_ticker_score` path as one **background job** (`data/score_recompute.py`,
-`pipeline/score_recompute_job.py`), never a SQL re-blend: the Review status, conviction and the "Moat not rated" verdict all depend on
+`pipeline/score_recompute_job.py`), never a SQL re-blend: the Review status, conviction and the Overall verdict all depend on
 the Overall verdict. It runs in a subprocess so it cannot block the API, one run at a time (a second request is a 409 and is not
 queued), with a status row (`ScoreRecomputeRun`) the Settings page polls. The change is saved first, then the job starts, so it always
 scores with the new values. Until the job reaches a ticker its stored row keeps the old `weights_version`. Operations: OPS_RUNBOOK,
@@ -97,25 +133,19 @@ scores with the new values. Until the job reaches a ticker its stored row keeps 
 
 ## Overall weighting: how the weights are stored, and the 2026-07-31 rebalance
 
-In code the four automated steps are stored as fractions of the 69% non-Moat portion:
-`STEP_WEIGHTS = {"step1": 24/69, "step2": 10/69, "step4": 20/69, "step5": 15/69}` (Financials,
-Growth Rate, Profitability, Debt), and `MOAT_WEIGHT = 0.31`. Multiplying the step fractions by
-`1 − MOAT_WEIGHT` gives the percentages in the table above, which sum to exactly 100%. The
-Financials/Growth/Debt/Profitability blend is a plain weighted average with **no hard-fail
-override among the four automated steps** (Moat is the one deliberate exception, since it is
-user-asserted rather than computed; a No Moat score of 0 can cap Overall below 70 regardless of
-the steps). The **Review status** (below) is not an override: it flags a badly failing Financials or
-Debt step on a ticker that still passes, and leaves the score and the verdict as computed. The
-Overall verdict bands are the shared ones used app-wide: Fail below 70, Pass 70-90, Strong Pass
-above 90.
+In code the four automated steps are stored as fractions of their total:
+`STEP_WEIGHTS = {"step1": 30/100, "step2": 20/100, "step4": 20/100, "step5": 30/100}` (Financials,
+Growth Rate, Profitability, Debt) at the defaults. The blend is a plain weighted average with **no hard-fail override among the four
+automated steps**. The **Review status** (below) is not an override: it flags a badly failing Financials or
+Debt step on a ticker that still passes, and leaves the score and the verdict as computed.
 
-The 2026-07-31 rebalance moved the weights from Financials 24% (unchanged), Growth Rate 15%,
-Debt 10%, Profitability ~19%, Moat 31% (unchanged) to today's Growth Rate 10%, Debt 15%,
-Profitability 20%. (Profitability's old "~19%" was a rounding artifact of the former 0.28 × 0.69
-arithmetic, not a bug — the old weights always summed to exactly 100%.) **Motivation**: Debt's
+History: the 2026-07-31 rebalance moved the weights from Financials 24%, Growth Rate 15%,
+Debt 10%, Profitability ~19%, Moat 31% to Growth Rate 10%, Debt 15%,
+Profitability 20% (Moat 31% unchanged, Financials 24% unchanged; those were shares of the whole, i.e. 24/10/20/15 of 69). **Motivation**: Debt's
 previously-lowest weight let a genuine per-step Fail be fully absorbed by strong scores
 elsewhere. Worked examples: MA (Debt a genuine Fail at 67) blended to Overall 92 "Strong Pass"
-before the rebalance, 90 "Pass" after; FICO (Debt Fail at 52) went from 89 to 87, still "Pass".
+before the rebalance, 90 "Pass" after; FICO (Debt Fail at 52) went from 89 to 87, still "Pass". On 2026-10-07 the model moved again
+(Moat to a multiplier, the four weights to 30/20/20/30 of 100); see docs/decisions.md.
 
 **Known limit — re-weighting is a limited lever.** A universe-wide check at the time found the
 "Overall reads Pass while a contributing step scored below 70" pattern in about 25% of tickers
@@ -131,39 +161,24 @@ to "Pass" text (see [Growth Rate](growth-rate.md)).
 
 ## What happens if Economic Moat isn't set
 
-Economic Moat is the one manual, opt-in input in the whole blend, and it is **non-negotiable for
-a Pass**. If you haven't set a Moat rating for a ticker yet, the **score** is still the pure blend
-of the four automated checks (Financials, Growth Rate, Profitability, Debt), reweighted to add up
-to 100% on their own — leaving Moat unrated does not penalize the number — but the **verdict**
-cannot read a Pass:
+Economic Moat is the one manual, opt-in input. If you haven't set a Moat rating for a ticker yet, it is **scored as No moat**: the
+multiplier is 0.70, exactly as if you had rated it No Moat.
 
-- When Moat is unset, all four checks are complete, and the blend would read **Pass**, **Pass with
-  caution** or **Strong Pass**, the Overall verdict is **Moat not rated** (stable key
-  `moat_not_rated`, with the reason "Moat not rated: rate the moat to enable a Pass"). It is
-  neither displayed nor counted as a Pass, and it is neutral-toned (not green, not red).
-- An unrated ticker whose blend already reads **Fail** stays Fail; an **incomplete** one stays
-  incomplete (no verdict). ETFs have no Moat and no Overall, so they are unaffected.
-- The numeric `overall_score` is **exactly** the steps-only score it always was, including for
-  unrated tickers, so Screener sorting, filtering and saved views are unaffected. Only the verdict
-  text changed (2026-10-05; before that, an unrated ticker could read Pass, and this page said
-  leaving Moat unrated "does not penalize the score or force a Fail" — still true of the score,
-  no longer of the verdict).
-- Rating the ticker (Economic Moat tab) recomputes its stored row immediately (cache only), so
-  "Moat not rated" flips to the normal verdict for the new rating.
-
-Once you do set a Moat rating, it's folded in at its full 31% weight. This means a "No Moat"
-rating is itself a real, negative input — it's not a neutral default, it's an explicit judgment
-that actively pulls the blended score down. Only an explicit "No Moat" selection has this
-effect; the unrated state does not affect the score. See [Economic Moat](economic-moat.md) for
-the two-stage formula this actually uses.
+- The Overall score is the Steps score x 0.70, and the verdict is read from that score like any other (there is no separate verdict
+  for it). In practice an unrated ticker reads Fail.
+- The Analysis card and the ticker header show the note **"Moat not rated, scored as No moat"** (the header also puts it in the chip's
+  tooltip; the Watchlist Analysis pill carries it as its tooltip). The note shows only on a complete assessment.
+- An **incomplete** assessment (a check with missing data) stays incomplete: no score, no verdict, no note. ETFs have no Moat and no
+  Overall, so they are unaffected.
+- Rating the ticker (Economic Moat tab) recomputes its stored row immediately (cache only).
+- This replaces the 2026-10-05 rule (an unrated ticker kept its steps-only score but could never read Pass: verdict "Moat not rated"),
+  which is retired; and the old statement that leaving Moat unrated "does not penalize the number" no longer holds: unrated now costs 30%.
 
 The rule lives in two places that must agree: `backend/scoring/overall.py::compute_overall_assessment`
 and `frontend/lib/overallScore.ts::computeOverallAssessment`. Both are tested against one shared case
-file, `backend/tests/fixtures/overall_verdict_cases.json`. Display: `lib/tierColor.ts::verdictLabel`
-("Moat not rated", neutral tone) in the ticker header chip, the Analysis card (reason line), the Screener
-card and the Watchlist Analysis pill (reason as its tooltip). Sorts, the range filters and the Momentum
-badge read `overall_score` only and never see the verdict. The one filter that reads the Review status is the
-Screener's Review status multi-select (below); the Screener card and the Watchlist pill still draw
+file, `backend/tests/fixtures/overall_verdict_cases.json`. Display: the note in the ticker header chip, the Analysis card and the Watchlist
+Analysis pill. Sorts, the range filters and the Momentum badge read `overall_score` only and never see the verdict. The one filter that
+reads the Review status is the Screener's Review status multi-select (below); the Screener card and the Watchlist pill still draw
 `overall_verdict`, with the Review status shown beside it (below).
 
 ## Review status (phases 1 and 2)
@@ -172,8 +187,7 @@ A second, **demote-only** read stored beside the Overall verdict (`TickerScore.r
 `review_reasons`, `conviction`, `data_quality_flags`; `backend/scoring/review.py`). It never changes
 `overall_score` or `overall_verdict`, so Screener sorting and saved views are unaffected (the one filter that
 reads it is the Review status filter, see Display). It applies
-only when the stored verdict is Pass, Pass with caution or Strong Pass; a Fail, an incomplete row, a
-"Moat not rated" row and an ETF always have a null status.
+only when the stored verdict is Pass, Pass with caution or Strong Pass; a Fail, an incomplete row and an ETF always have a null status.
 
 **Gate.** Step 1 (Financials) or Step 5 (Debt) has verdict Fail **and** a score below
 `REVIEW_GATE_SCORE = 50`. A step that is not supported, exempt, insufficient data or errored never gates;
@@ -235,9 +249,8 @@ depending on why:
   since a partial average built on missing data would be misleading.
 - If a check comes back **not supported** — a structural exemption, such as a Bank ticker
   before its CET1 ratio has been entered, or Insurance for Debt — that one check is simply
-  excluded from the blend and the remaining checks are reweighted to fill the gap, the same way
-  an unset Economic Moat is handled for the score. It does **not** block the rest of Overall Assessment from
-  being computed.
+  excluded from the Steps score and the remaining checks are reweighted to add up to 100% again. It does **not** block the
+  rest of Overall Assessment from being computed, and the Moat multiplier is applied to the reweighted Steps score as usual.
 
 See the [Glossary](glossary.md) for how both differ from a genuine Fail, and for the additional
 rule that a **Pass with caution** on any one check carries up into Overall Assessment's own

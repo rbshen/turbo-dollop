@@ -55,8 +55,10 @@ figure that might show up on the next data refresh.
 
 ## Overall Assessment's own rules
 
-Overall Assessment uses these same labels, with two additions worth knowing (the weights each check carries are adjustable:
-see [Overview](overview.md), "Adjustable weights"; a hard fail still reads Fail whatever the weights):
+Overall Assessment is the **Steps score** (the weighted blend of the four automated checks, default weights Financials 30, Debt 30, Growth
+Rate 20, Profitability 20) times a **Moat multiplier** (Wide 1.0, Narrow 0.85 by default, No moat or not rated 0.70). It uses these same
+verdict labels, read from the Overall score (the weights each check carries are adjustable: see [Overview](overview.md), "Adjustable
+weights"; a hard fail still reads Fail on its own check):
 
 - If any of the four automated checks comes back **insufficient data** (or hits an internal
   error), Overall Assessment doesn't attempt a partial average — the whole Overall Assessment is
@@ -67,10 +69,9 @@ see [Overview](overview.md), "Adjustable weights"; a hard fail still reads Fail 
   own displayed verdict even if the blended number would otherwise read as a plain Pass or
   Strong Pass — a real caveat on one check isn't allowed to disappear once it's folded into the
   bigger picture.
-
-- If **Economic Moat** hasn't been rated and the blend would read Pass, Pass with caution or Strong
-  Pass, the Overall verdict is **Moat not rated** — not a Pass and not a Fail. The score is
-  unchanged; rate the moat to get a real verdict.
+- A ticker with **no Moat rated** is **scored as No moat** (multiplier 0.70): its verdict is read from its score like any other (in
+  practice Fail), and the Analysis card and header say "Moat not rated, scored as No moat". There is no separate "Moat not rated" verdict
+  any more (retired 2026-10-07).
 
 See [Overview](overview.md) for how Overall Assessment is built.
 
