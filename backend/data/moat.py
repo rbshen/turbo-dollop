@@ -5,14 +5,10 @@ from sqlmodel import Session
 
 from core.models import MoatScoreConfig, TickerMoat
 from core.tickers import normalize_ticker
+from scoring.overall import DEFAULT_NARROW_MOAT_MULTIPLIER, NARROW_MOAT_MULTIPLIER_OPTIONS, moat_multiplier
 
-# Seeded only as the config row's initial value on first read (see
-# get_moat_score_config) -- from then on the DB row (editable via
-# /settings) is the source of truth, not these constants.
-DEFAULT_WIDE_MOAT_SCORE = 100.0
-DEFAULT_NARROW_MOAT_SCORE = 65.0
-DEFAULT_NO_MOAT_SCORE = 0.0
-
+# The Narrow multiplier a fresh database starts with; from then on the DB row (editable via /settings > Economic Moat) is the
+# source of truth. Wide (1.0) and No moat / not rated (0.70) are constants in scoring/overall.py, never stored.
 CONFIG_KEY = "default"
 
 VALID_MOAT_VALUES = {"no_moat", "narrow_moat", "wide_moat"}
@@ -42,17 +38,14 @@ def get_moat_score_config(session: Session) -> MoatScoreConfig:
     """Get-or-create -- same lazy-seed pattern as
     discount_rate_config.get_discount_rate_config (this app has no
     migration tooling, so a first-boot default row is seeded on first read
-    rather than via a separate seed script)."""
+    rather than via a separate seed script). The row holds the Narrow multiplier; readers treat a NULL one (a row that predates the column and
+    was not migrated) as the default (resolve_moat_multiplier)."""
     row = session.get(MoatScoreConfig, CONFIG_KEY)
     if row is not None:
         return row
 
     row = MoatScoreConfig(
-        key=CONFIG_KEY,
-        wide_moat_score=DEFAULT_WIDE_MOAT_SCORE,
-        narrow_moat_score=DEFAULT_NARROW_MOAT_SCORE,
-        no_moat_score=DEFAULT_NO_MOAT_SCORE,
-        updated_at=datetime.now(),
+        key=CONFIG_KEY, narrow_moat_multiplier=DEFAULT_NARROW_MOAT_MULTIPLIER, updated_at=datetime.now()
     )
     session.add(row)
     session.commit()
@@ -60,13 +53,13 @@ def get_moat_score_config(session: Session) -> MoatScoreConfig:
     return row
 
 
-def update_moat_score_config(
-    session: Session, wide_moat_score: float, narrow_moat_score: float, no_moat_score: float
-) -> MoatScoreConfig:
+def update_moat_score_config(session: Session, narrow_moat_multiplier: float) -> MoatScoreConfig:
+    """Saves the Narrow multiplier. The caller has validated it against NARROW_MOAT_MULTIPLIER_OPTIONS (MoatScoreConfigIn does);
+    this refuses anything else too, so no other path can store an unsupported value."""
+    if narrow_moat_multiplier not in NARROW_MOAT_MULTIPLIER_OPTIONS:
+        raise ValueError(f"Narrow moat multiplier must be one of {', '.join(f'{v:.2f}' for v in NARROW_MOAT_MULTIPLIER_OPTIONS)}.")
     row = get_moat_score_config(session)
-    row.wide_moat_score = wide_moat_score
-    row.narrow_moat_score = narrow_moat_score
-    row.no_moat_score = no_moat_score
+    row.narrow_moat_multiplier = narrow_moat_multiplier
     row.updated_at = datetime.now()
     session.add(row)
     session.commit()
@@ -74,9 +67,7 @@ def update_moat_score_config(
     return row
 
 
-def resolve_moat_score(config: MoatScoreConfig, moat: str) -> float:
-    return {
-        "wide_moat": config.wide_moat_score,
-        "narrow_moat": config.narrow_moat_score,
-        "no_moat": config.no_moat_score,
-    }[moat]
+def resolve_moat_multiplier(config: MoatScoreConfig | None, moat: str | None) -> float:
+    """The multiplier for a Moat state (None = unset = No moat) under the saved Narrow setting (the default when no config)."""
+    narrow = (config.narrow_moat_multiplier if config is not None else None) or DEFAULT_NARROW_MOAT_MULTIPLIER
+    return moat_multiplier(moat, narrow)

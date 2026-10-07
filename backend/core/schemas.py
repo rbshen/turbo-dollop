@@ -1060,32 +1060,28 @@ class TickerBankCapitalMetricsIn(BaseModel):
 
 
 class MoatScoreConfigOut(BaseModel):
-    wide_moat_score: float
-    narrow_moat_score: float
-    no_moat_score: float
+    """The Economic Moat multipliers (scoring/overall.py): Wide and No moat / not rated are fixed, Narrow is the saved setting."""
+
+    wide_moat_multiplier: float
+    narrow_moat_multiplier: float
+    no_moat_multiplier: float
+    # The allowed values for the Narrow multiplier (the Settings selector's options).
+    narrow_moat_multiplier_options: list[float]
     updated_at: datetime
 
 
-# A No Moat rating can never lift Overall to 70 when its points stay at or below this (with Moat fixed at 31%, the four
-# checks add at most 69: 0.69 * 100 + 0.31 * 1 = 69.31, which rounds to 69). The guarantee ends near 1.6 points; the cap is 1.
-NO_MOAT_SCORE_CAP = 1.0
-
-
 class MoatScoreConfigIn(BaseModel):
-    wide_moat_score: float
-    narrow_moat_score: float
-    no_moat_score: float
+    narrow_moat_multiplier: float
 
-    @model_validator(mode="after")
-    def _no_moat_stays_below_the_cap_and_the_other_ratings(self):
-        if self.no_moat_score < 0 or self.no_moat_score > NO_MOAT_SCORE_CAP:
-            raise ValueError(
-                f"No moat points must be between 0 and {NO_MOAT_SCORE_CAP:g}: with Moat fixed at 31%, that is what keeps a "
-                "No moat rating from ever lifting the Overall score to 70."
-            )
-        if self.no_moat_score >= self.narrow_moat_score or self.no_moat_score >= self.wide_moat_score:
-            raise ValueError("No moat points must be lower than both the Narrow moat and the Wide moat points.")
-        return self
+    @field_validator("narrow_moat_multiplier")
+    @classmethod
+    def _one_of_the_allowed_values(cls, value: float) -> float:
+        from scoring.overall import NARROW_MOAT_MULTIPLIER_OPTIONS
+
+        if value not in NARROW_MOAT_MULTIPLIER_OPTIONS:
+            allowed = ", ".join(f"{v:.2f}" for v in NARROW_MOAT_MULTIPLIER_OPTIONS)
+            raise ValueError(f"The Narrow moat multiplier must be one of {allowed}.")
+        return value
 
 
 # --- Score weights (scoring/weights.py, data/score_weights.py) ----------------------------------------------------------------
@@ -1173,14 +1169,14 @@ class RecomputeRunOut(BaseModel):
 class ScoreWeightsOut(BaseModel):
     weights: dict[str, dict[str, int]]
     defaults: dict[str, dict[str, int]]
-    # Economic Moat's share of Overall, in percent: a constant, never part of `weights`. The four overall weights add up to
-    # `overall_total`.
-    moat_weight: int
+    # What the four overall weights add up to (100). Economic Moat is not a weight: it is a multiplier (GET /api/config/moat).
     overall_total: int
     # Per group, per component, inclusive. The sets add up to `sums`.
     bounds: dict[str, dict[str, WeightBoundsOut]]
     sums: dict[str, int]
     weights_version: int
+    # scoring/overall.py::SCORE_FORMULA_VERSION: a stored row scored under another formula version is stale (the Screener note).
+    formula_version: int
     updated_at: datetime
     recompute: RecomputeRunOut | None = None
 
@@ -1219,10 +1215,11 @@ class TickerScoreOut(BaseModel):
     step5_verdict: str | None = None
     # None when no moat is set for this ticker.
     moat: str | None = None
-    moat_score: float | None = None
+    # See models.py::TickerScore.steps_score / moat_multiplier: overall_score = round(steps_score x moat_multiplier).
+    steps_score: float | None = None
+    moat_multiplier: float | None = None
     overall_score: int | None = None
-    # "Strong Pass" / "Pass" / "Pass with caution" / "Fail", or "moat_not_rated" (Moat unset and the steps-only blend
-    # would pass; overall_score is still that steps-only score). None when incomplete. See scoring/overall.py.
+    # "Strong Pass" / "Pass" / "Pass with caution" / "Fail"; None when incomplete. See scoring/overall.py.
     overall_verdict: str | None = None
     market_cap: float | None = None
     # See models.py::TickerScore.last_price -- same rollout-gap convention,
@@ -1243,8 +1240,9 @@ class TickerScoreOut(BaseModel):
     # Step 2's analyst-estimate CAGR % (see models.py::TickerScore).
     growth_rate: float | None = None
     computed_at: datetime
-    # See models.py::TickerScore.weights_version.
+    # See models.py::TickerScore.weights_version / formula_version.
     weights_version: int | None = None
+    formula_version: int | None = None
     # See models.py::TickerScore.perf_5y_vs_spy_pct/_status.
     perf_5y_vs_spy_pct: float | None = None
     perf_5y_vs_spy_status: str | None = None
@@ -2019,8 +2017,7 @@ class WatchlistRowOut(BaseModel):
     step5_score: int | None = None
     step5_verdict: str | None = None
     overall_score: int | None = None
-    # "Strong Pass" / "Pass" / "Pass with caution" / "Fail", or "moat_not_rated" (Moat unset and the steps-only blend
-    # would pass; overall_score is still that steps-only score). None when incomplete. See scoring/overall.py.
+    # "Strong Pass" / "Pass" / "Pass with caution" / "Fail"; None when incomplete. See scoring/overall.py.
     overall_verdict: str | None = None
     market_cap: float | None = None
     # See models.py::TickerScore.quote_currency -- None (treat as "USD")

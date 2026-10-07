@@ -6,15 +6,15 @@ saved and loaded is data/score_weights.py. Weights are whole numbers; the scorer
 by the sum of the components that actually apply, so any weight set works and a component that does not apply to a company
 (an exempt type, a dropped metric) simply leaves the others to share its weight.
 
-Economic Moat's 31% is NOT part of a weight set (scoring/overall.py::MOAT_WEIGHT): it is a constant, never saved, never accepted
-as input.
+Economic Moat is NOT part of a weight set: since the multiplier redesign (2026-10-07) it is not a blend component at all, it
+scales the finished Steps score (scoring/overall.py, MOAT_MULTIPLIERS).
 """
 
 from dataclasses import dataclass
 from typing import Iterable, Mapping
 
-# The four automated steps share this many points of Overall (the rest, 31, is Moat's).
-OVERALL_TOTAL = 69
+# The four automated steps share 100 points of the Steps score (Moat is a multiplier on top, not a share).
+OVERALL_TOTAL = 100
 # Every step's own component set sums to this.
 STEP_TOTAL = 100
 
@@ -66,15 +66,31 @@ class ScoreWeights:
     step5: Step5Weights
 
 
-# The single source for the lazy seed, the reset and the tests. Step 5's default is 33/33/34 (Current Ratio, Debt/EBITDA, Debt
+# The single source for the lazy seed, the reset and the tests. Overall 30/30/20/20 (Financials, Debt, Growth, Profitability) since 2026-10-07. Step 5's default is 33/33/34 (Current Ratio, Debt/EBITDA, Debt
 # Servicing): whole numbers cannot express exact thirds, so the third ratio carries the odd point (2026-10-06 decision).
 DEFAULT_WEIGHTS = ScoreWeights(
-    overall=OverallWeights(financials=24, growth=10, profitability=20, debt=15),
+    overall=OverallWeights(financials=30, growth=20, profitability=20, debt=30),
     step1=Step1Weights(revenue=35, net_income=20, cfo=30, margins=10, fcf=5),
     step2=Step2Weights(magnitude=70, agreement=30),
     step4=Step4Weights(roe=25, roic=35, ar=20, ccc=20),
     step5=Step5Weights(current_ratio=33, debt_to_ebitda=33, debt_servicing=34),
 )
+
+
+# The Overall weights before 2026-10-07 (they added up to 69; Moat was the other 31). Only the one-time migration reads this.
+OLD_DEFAULT_OVERALL = {"financials": 24, "growth": 10, "profitability": 20, "debt": 15}
+
+
+def rescale_overall_to_100(old: Mapping[str, int]) -> dict[str, int]:
+    """A saved set of Overall weights, rescaled proportionally to add up to 100 (largest-remainder rounding, ties to the earlier
+    field), for the one-time migration of a customised set. Whole numbers; the relative proportions are kept."""
+    total = sum(old.values())
+    exact = {key: value * OVERALL_TOTAL / total for key, value in old.items()}
+    result = {key: int(value) for key, value in exact.items()}
+    leftover = OVERALL_TOTAL - sum(result.values())
+    for key in sorted(exact, key=lambda k: exact[k] - result[k], reverse=True)[:leftover]:
+        result[key] += 1
+    return result
 
 
 def as_dict(group) -> dict[str, int]:
@@ -94,7 +110,7 @@ def normalize(weights: Mapping[str, int | float], applicable: Iterable[str]) -> 
 
 
 def overall_fractions(weights: OverallWeights) -> dict[str, float]:
-    """Each automated step's share of the 69 points (the keys scoring/overall.py's steps use). Not renormalized: the
+    """Each automated step's share of the 100 points (the keys scoring/overall.py's steps use). Not renormalized: the
     caller renormalizes across the steps that apply."""
     return {
         "step1": weights.financials / OVERALL_TOTAL,
@@ -144,12 +160,12 @@ def step1_tables(
 
 # --- bounds and sums (the one source the API validates with and the Settings page reads) -----------------------------------
 
-# Whole numbers, inclusive. Why each floor/cap: docs/specs/overview.md ("Adjustable score weights"). The four Overall steps are
-# capped at 30 so Economic Moat (31) stays the single largest weight; Debt and Financials keep a floor of 10 so the bankruptcy
-# filter and the foundation are never diluted away; Revenue (the foundation), ROE and ROIC (they carry the Step 4 hard fail) and
-# every Step 5 ratio (each is a hard limit) can never reach 0.
+# Whole numbers, inclusive. Why each floor/cap: docs/specs/overview.md ("Adjustable score weights"). The four Overall weights add
+# up to 100: Debt and Financials keep a floor of 10 so the bankruptcy filter and the foundation are never diluted away, Growth
+# and Profitability a floor of 5, and no step can exceed 50 (half the Steps score); Revenue (the foundation), ROE and ROIC (they
+# carry the Step 4 hard fail) and every Step 5 ratio (each is a hard limit) can never reach 0.
 BOUNDS: dict[str, dict[str, tuple[int, int]]] = {
-    "overall": {"financials": (10, 30), "growth": (5, 30), "profitability": (5, 30), "debt": (10, 30)},
+    "overall": {"financials": (10, 50), "growth": (5, 50), "profitability": (5, 50), "debt": (10, 50)},
     "step1": {"revenue": (20, 50), "net_income": (10, 40), "cfo": (10, 40), "margins": (0, 25), "fcf": (0, 15)},
     "step2": {"magnitude": (50, 100), "agreement": (0, 50)},
     "step4": {"roe": (15, 60), "roic": (15, 60), "ar": (0, 30), "ccc": (0, 30)},

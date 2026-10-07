@@ -39,7 +39,7 @@ def _row(engine, run_id):
 
 def _body(**overall):
     body = weights_to_dict(DEFAULT_WEIGHTS)
-    body["overall"] = {"financials": 17, "growth": 17, "profitability": 17, "debt": 18, **overall}
+    body["overall"] = {"financials": 25, "growth": 25, "profitability": 25, "debt": 25, **overall}
     return body
 
 
@@ -263,7 +263,7 @@ def test_the_job_scores_with_the_saved_weights_and_stamps_their_version(engine, 
     with Session(engine) as session:
         from scoring.weights import weights_from_dict
 
-        score_weights.save_score_weights(session, weights_from_dict(_body(financials=17)))
+        score_weights.save_score_weights(session, weights_from_dict(_body()))
     run_id = sr.claim_run("weights", engine)
     asyncio.run(job.run_job(run_id, ["AAPL"]))
     with Session(engine) as session:
@@ -271,7 +271,8 @@ def test_the_job_scores_with_the_saved_weights_and_stamps_their_version(engine, 
 
         row = session.get(TickerScore, "AAPL")
     assert row.weights_version == 2
-    assert row.overall_score == round((90 * 17 + 80 * 17 + 70 * 17 + 60 * 18) / 69)
+    # Equal weights: Steps score (90 + 80 + 70 + 60) / 4 = 75.0; unrated is scored as No moat, 75.0 x 0.70 = 52.5 -> 52.
+    assert row.steps_score == 75.0 and row.overall_score == 52
     assert _row(engine, run_id).weights_version == 2
 
 
@@ -287,7 +288,7 @@ def test_saving_weights_saves_then_starts_the_job_once(engine, recompute_launche
         response = client.put("/api/config/score-weights", json=_body())
     assert response.status_code == 200
     body = response.json()
-    assert body["weights"]["overall"]["debt"] == 18 and body["weights_version"] == 2
+    assert body["weights"]["overall"]["debt"] == 25 and body["weights_version"] == 2
     assert body["recompute"]["state"] == "running" and body["recompute"]["trigger"] == "weights"
     assert len(recompute_launches) == 1  # the worker is started only after the save
 
@@ -345,31 +346,39 @@ def test_reset_restores_the_defaults_and_starts_the_job(engine, recompute_launch
     assert len(recompute_launches) == 1
 
 
-def test_saving_moat_points_starts_the_job_and_keeps_its_response_shape(engine, recompute_launches):
-    payload = {"wide_moat_score": 100.0, "narrow_moat_score": 65.0, "no_moat_score": 0.5}
+def test_saving_the_narrow_multiplier_starts_the_job_and_advances_the_weights_version(engine, recompute_launches):
     with TestClient(main.app) as client:
-        response = client.put("/api/config/moat", json=payload)
+        response = client.put("/api/config/moat", json={"narrow_moat_multiplier": 0.9})
+        weights = client.get("/api/config/score-weights").json()
     assert response.status_code == 200
-    assert set(response.json()) == {"wide_moat_score", "narrow_moat_score", "no_moat_score", "updated_at"}
-    assert response.json()["no_moat_score"] == 0.5
+    assert set(response.json()) == {
+        "wide_moat_multiplier",
+        "narrow_moat_multiplier",
+        "no_moat_multiplier",
+        "narrow_moat_multiplier_options",
+        "updated_at",
+    }
+    assert response.json()["narrow_moat_multiplier"] == 0.9
     assert len(recompute_launches) == 1
     assert _row(engine, 1).trigger == "moat"
+    # The same version a weights change advances: every stored row is now on the previous version (the Screener's note).
+    assert weights["weights_version"] == 2 and weights["recompute"]["trigger"] == "moat"
 
 
-def test_saving_moat_points_while_a_run_is_in_progress_is_a_409_and_saves_nothing(engine, recompute_launches):
+def test_saving_the_narrow_multiplier_while_a_run_is_in_progress_is_a_409_and_saves_nothing(engine, recompute_launches):
     sr.claim_run("weights", engine)
-    payload = {"wide_moat_score": 90.0, "narrow_moat_score": 60.0, "no_moat_score": 0.0}
     with TestClient(main.app) as client:
-        assert client.put("/api/config/moat", json=payload).status_code == 409
+        assert client.put("/api/config/moat", json={"narrow_moat_multiplier": 0.9}).status_code == 409
         stored = client.get("/api/config/moat").json()
-    assert stored["wide_moat_score"] == 100.0  # still the seeded defaults
+    assert stored["narrow_moat_multiplier"] == 0.85  # still the default
     assert recompute_launches == []
 
 
-def test_an_invalid_moat_save_starts_no_job(engine, recompute_launches):
+def test_an_invalid_narrow_multiplier_starts_no_job_and_takes_no_slot(engine, recompute_launches):
     with TestClient(main.app) as client:
-        response = client.put("/api/config/moat", json={"wide_moat_score": 100.0, "narrow_moat_score": 65.0, "no_moat_score": 5.0})
+        response = client.put("/api/config/moat", json={"narrow_moat_multiplier": 0.95})
     assert response.status_code == 422 and recompute_launches == []
+    sr.claim_run("weights", engine)  # the slot is free
 
 
 def test_the_status_is_part_of_the_settings_read(engine):

@@ -1,5 +1,6 @@
 """Saved score weights: the loader, the settings endpoints and their validation, the compute path that uses them, the stale
-check, and the Moat points cap (data/score_weights.py, core/main.py, scoring/weights.py)."""
+check, the Moat multiplier setting, and the one-time migration of the saved weights and the Moat config (data/score_weights.py,
+core/main.py, core/db.py, scoring/weights.py)."""
 
 import asyncio
 import copy
@@ -43,7 +44,7 @@ def _engine(monkeypatch):
 
 
 CUSTOM = ScoreWeights(
-    overall=OverallWeights(17, 17, 17, 18),
+    overall=OverallWeights(25, 25, 25, 25),
     step1=Step1Weights(30, 20, 20, 20, 10),
     step2=Step2Weights(60, 40),
     step4=Step4Weights(25, 25, 25, 25),
@@ -74,15 +75,18 @@ def test_every_default_sits_inside_its_bounds():
 
 
 def test_bounds_are_the_owners_numbers():
-    assert BOUNDS["overall"] == {"financials": (10, 30), "growth": (5, 30), "profitability": (5, 30), "debt": (10, 30)}
+    assert BOUNDS["overall"] == {"financials": (10, 50), "growth": (5, 50), "profitability": (5, 50), "debt": (10, 50)}
     assert BOUNDS["step1"] == {"revenue": (20, 50), "net_income": (10, 40), "cfo": (10, 40), "margins": (0, 25), "fcf": (0, 15)}
     assert BOUNDS["step2"] == {"magnitude": (50, 100), "agreement": (0, 50)}
     assert BOUNDS["step4"] == {"roe": (15, 60), "roic": (15, 60), "ar": (0, 30), "ccc": (0, 30)}
     assert BOUNDS["step5"] == {"current_ratio": (15, 60), "debt_to_ebitda": (15, 60), "debt_servicing": (15, 60)}
 
 
-def test_the_four_overall_weights_cap_below_moat():
-    assert max(high for _, high in BOUNDS["overall"].values()) == 30 < 31
+def test_the_overall_weights_add_up_to_100_and_no_step_can_exceed_half():
+    from scoring.weights import SUMS
+
+    assert SUMS["overall"] == 100
+    assert max(high for _, high in BOUNDS["overall"].values()) == 50
 
 
 def test_messages_name_the_set_and_the_rule():
@@ -94,7 +98,7 @@ def test_messages_name_the_set_and_the_rule():
         step5=Step5Weights(33, 33, 31),
     )
     messages = validate_weights(bad)
-    assert "Overall weights must add up to 69 (they add up to 120)." in messages
+    assert "Overall weights must add up to 100 (they add up to 120)." in messages
     assert "Growth Rate: Growth Magnitude must be between 50 and 100." in messages
     assert "Growth Rate: Estimate Agreement must be between 0 and 50." in messages
     assert "Debt weights must add up to 100 (they add up to 97)." in messages
@@ -116,7 +120,7 @@ def test_the_row_is_seeded_from_the_defaults_and_save_bumps_the_version(monkeypa
     engine = _engine(monkeypatch)
     with Session(engine) as session:
         row = get_score_weights_row(session)
-        assert row.weights_version == 1 and row.step5_debt_servicing == 34 and row.overall_debt == 15
+        assert row.weights_version == 1 and row.step5_debt_servicing == 34 and row.overall_debt == 30
         saved = save_score_weights(session, CUSTOM)
         assert saved.weights_version == 2
         again = save_score_weights(session, CUSTOM)
@@ -133,7 +137,7 @@ def test_a_save_drops_the_cache_but_a_second_read_is_served_from_it(monkeypatch)
     with Session(engine) as session:  # a write that bypasses the helpers is not seen until the TTL (or an invalidation)
         session.get(ScoreWeightSettings, "default").overall_debt = 99
         session.commit()
-    assert load_score_weights(engine).weights.overall.debt == 18
+    assert load_score_weights(engine).weights.overall.debt == 25
     score_weights.invalidate_cache()
     assert load_score_weights(engine).weights.overall.debt == 99
 
@@ -150,16 +154,20 @@ def test_reset_restores_the_defaults_and_still_bumps_the_version(monkeypatch):
 # --- the endpoints ---------------------------------------------------------------------------------------------------------
 
 
-def test_get_returns_weights_defaults_bounds_and_the_locked_moat_weight(monkeypatch):
+def test_get_returns_weights_defaults_bounds_sums_and_the_formula_version(monkeypatch):
     _engine(monkeypatch)
     with TestClient(main.app) as client:
         body = client.get("/api/config/score-weights").json()
     assert body["weights"] == body["defaults"] == weights_to_dict(DEFAULT_WEIGHTS)
-    assert body["moat_weight"] == 31 and body["overall_total"] == 69
+    assert "moat_weight" not in body and body["overall_total"] == 100  # Moat is a multiplier now, not a weight
+    assert body["weights"]["overall"] == {"financials": 30, "growth": 20, "profitability": 20, "debt": 30}
     assert body["bounds"]["step5"]["current_ratio"] == {"min": 15, "max": 60}
-    assert body["bounds"]["overall"]["debt"] == {"min": 10, "max": 30}
-    assert body["sums"] == {"overall": 69, "step1": 100, "step2": 100, "step4": 100, "step5": 100}
+    assert body["bounds"]["overall"]["debt"] == {"min": 10, "max": 50}
+    assert body["sums"] == {"overall": 100, "step1": 100, "step2": 100, "step4": 100, "step5": 100}
     assert body["weights_version"] == 1 and body["recompute"] is None
+    from scoring.overall import SCORE_FORMULA_VERSION
+
+    assert body["formula_version"] == SCORE_FORMULA_VERSION
     assert "moat" not in body["weights"]
 
 
@@ -204,12 +212,12 @@ def test_put_rejects_a_wrong_sum_naming_the_set(monkeypatch):
 def test_put_rejects_a_value_outside_its_bounds(monkeypatch):
     _engine(monkeypatch)
     body = _body(DEFAULT_WEIGHTS)
-    body["overall"]["financials"], body["overall"]["debt"] = 31, 8  # still sums to 69
+    body["overall"]["financials"], body["overall"]["debt"] = 9, 51  # still sums to 100
     body["step5"]["current_ratio"], body["step5"]["debt_servicing"] = 10, 56  # still sums to 100
     with TestClient(main.app) as client:
         detail = str(_put_error(client, body))
-    assert "Overall: Financials must be between 10 and 30." in detail
-    assert "Overall: Debt must be between 10 and 30." in detail
+    assert "Overall: Financials must be between 10 and 50." in detail
+    assert "Overall: Debt must be between 10 and 50." in detail
     assert "Debt: Current Ratio must be between 15 and 60." in detail
 
 
@@ -276,17 +284,19 @@ def test_compute_uses_the_saved_weights_once_and_stamps_the_version(monkeypatch)
 def test_the_overall_blend_uses_the_saved_overall_weights(monkeypatch):
     engine = _engine(monkeypatch)
     _patch_steps(monkeypatch, {})
-    # steps 90/80/70/60 (see test_ticker_score): defaults give 76; Debt-heavy 15/8/16/30 gives something else.
+    # steps 90/80/70/60 (see test_ticker_score): the defaults give a Steps score of 75.0 (x 0.70, unrated = 52); a Debt-heavy
+    # 15/8/27/50 set gives something else.
     default_row = asyncio.run(ticker_score.compute_ticker_score("AAPL", persist=False))
-    assert default_row.overall_score == 76
+    assert default_row.overall_score == 52 and default_row.steps_score == pytest.approx(75.0)
     debt_heavy = copy.deepcopy(weights_to_dict(DEFAULT_WEIGHTS))
-    debt_heavy["overall"] = {"financials": 15, "growth": 8, "profitability": 16, "debt": 30}
+    debt_heavy["overall"] = {"financials": 15, "growth": 8, "profitability": 27, "debt": 50}
     from scoring.weights import weights_from_dict
 
     with Session(engine) as session:
         save_score_weights(session, weights_from_dict(debt_heavy))
     row = asyncio.run(ticker_score.compute_ticker_score("AAPL", persist=False))
-    assert row.overall_score == round((90 * 15 + 80 * 8 + 70 * 16 + 60 * 30) / 69) == 71
+    assert row.steps_score == pytest.approx((90 * 15 + 80 * 8 + 70 * 27 + 60 * 50) / 100) == pytest.approx(68.8)
+    assert row.overall_score == round(68.8 * 0.70) == 48
 
 
 def test_an_explicit_weight_set_is_used_and_not_versioned(monkeypatch):
@@ -327,6 +337,9 @@ def test_step_functions_read_the_saved_weights_when_none_are_passed(monkeypatch)
 
 
 def _store_row(engine, **fields):
+    from scoring.overall import SCORE_FORMULA_VERSION
+
+    fields.setdefault("formula_version", SCORE_FORMULA_VERSION)  # a row scored under the current formula, unless a test says otherwise
     with Session(engine) as session:
         session.add(
             TickerScore(
@@ -389,6 +402,26 @@ def test_an_unversioned_or_current_row_is_served_as_stored(monkeypatch):
     assert calls == []
 
 
+@pytest.mark.parametrize("formula_version", [None, 1])
+def test_a_row_scored_under_another_formula_is_recomputed_even_at_the_current_weights_version(monkeypatch, formula_version):
+    # weights_version cannot see a change of formula: a row with the current weights version but no (or an older) formula version is
+    # stale, whatever its weights_version (even an unversioned one).
+    for weights_version in (1, None):
+        engine = _engine(monkeypatch)
+        calls = []
+        _patch_steps(monkeypatch, {})
+
+        async def recompute(ticker, cache_only=False, persist_etf=True, **kwargs):
+            calls.append(cache_only)
+            return TickerScore(ticker="AAPL", company_name="Apple Inc.", overall_score=52, computed_at=datetime.now())
+
+        monkeypatch.setattr(main, "compute_ticker_score", recompute)
+        _store_row(engine, weights_version=weights_version, formula_version=formula_version)
+        with TestClient(main.app) as client:
+            assert client.get("/api/tickers/AAPL/score").json()["overall_score"] == 52
+        assert calls == [True]  # recomputed once, cache only (no FMP call)
+
+
 # --- the column migration --------------------------------------------------------------------------------------------------
 
 
@@ -404,51 +437,204 @@ def test_the_nullable_column_is_added_to_an_existing_tickerscore_table(monkeypat
     assert "weights_version" in columns and columns["weights_version"]["nullable"]
 
 
-# --- Moat points -----------------------------------------------------------------------------------------------------------
+# --- Moat multiplier ----------------------------------------------------------------------------------------------------------
 
 
-def _put_moat(client, wide=100.0, narrow=65.0, no_moat=0.0):
-    return client.put("/api/config/moat", json={"wide_moat_score": wide, "narrow_moat_score": narrow, "no_moat_score": no_moat})
+def _put_moat(client, narrow=0.85):
+    return client.put("/api/config/moat", json={"narrow_moat_multiplier": narrow})
 
 
-def test_the_stored_moat_values_pass_the_new_validation(monkeypatch):
+def test_get_moat_returns_the_three_multipliers_the_options_and_the_default(monkeypatch):
     _engine(monkeypatch)
     with TestClient(main.app) as client:
-        assert _put_moat(client).status_code == 200  # the live row: 100 / 65 / 0
+        body = client.get("/api/config/moat").json()
+    assert (body["wide_moat_multiplier"], body["narrow_moat_multiplier"], body["no_moat_multiplier"]) == (1.0, 0.85, 0.70)
+    assert body["narrow_moat_multiplier_options"] == [0.80, 0.82, 0.85, 0.87, 0.90]
+    assert "wide_moat_score" not in body and "no_moat_score" not in body  # the points are gone
 
 
-@pytest.mark.parametrize("no_moat", [0.0, 0.5, 1.0])
-def test_no_moat_points_up_to_the_cap_are_accepted(monkeypatch, no_moat):
-    _engine(monkeypatch)
-    with TestClient(main.app) as client:
-        response = _put_moat(client, no_moat=no_moat)
-        assert response.status_code == 200 and response.json()["no_moat_score"] == no_moat
-
-
-@pytest.mark.parametrize("no_moat", [1.1, 1.7, 5.0, -0.1])
-def test_no_moat_points_above_the_cap_or_below_zero_are_rejected(monkeypatch, no_moat):
+@pytest.mark.parametrize("narrow", [0.80, 0.82, 0.85, 0.87, 0.90])
+def test_every_allowed_narrow_multiplier_is_saved(monkeypatch, narrow):
     engine = _engine(monkeypatch)
     with TestClient(main.app) as client:
-        response = _put_moat(client, no_moat=no_moat)
-    assert response.status_code == 422
-    assert "between 0 and 1" in str(response.json()["detail"]) and "31%" in str(response.json()["detail"])
+        response = _put_moat(client, narrow)
+        assert response.status_code == 200 and response.json()["narrow_moat_multiplier"] == narrow
+        assert client.get("/api/config/moat").json()["narrow_moat_multiplier"] == narrow
     with Session(engine) as session:
-        assert session.get(MoatScoreConfig, "default") is None  # nothing saved
+        assert session.get(MoatScoreConfig, "default").narrow_moat_multiplier == narrow
 
 
-def test_no_moat_must_be_lower_than_narrow_and_wide(monkeypatch):
+@pytest.mark.parametrize("narrow", [0.0, 0.7, 0.75, 0.84, 0.86, 0.95, 1.0, 1.5, -0.85])
+def test_any_other_narrow_multiplier_is_rejected_and_nothing_is_saved(monkeypatch, narrow):
+    engine = _engine(monkeypatch)
+    with TestClient(main.app) as client:
+        response = _put_moat(client, narrow)
+    assert response.status_code == 422 and "0.80, 0.82, 0.85, 0.87, 0.90" in str(response.json()["detail"])
+    with Session(engine) as session:
+        assert session.get(MoatScoreConfig, "default") is None  # nothing saved, no job claimed
+
+
+def test_wide_and_no_moat_multipliers_cannot_be_sent(monkeypatch):
     _engine(monkeypatch)
     with TestClient(main.app) as client:
-        assert _put_moat(client, narrow=1.0, no_moat=1.0).status_code == 422
-        assert _put_moat(client, wide=0.5, narrow=65.0, no_moat=1.0).status_code == 422
-        assert _put_moat(client, wide=100.0, narrow=0.9, no_moat=0.5).status_code == 200
+        # Only the Narrow value is an input; extra fields are ignored, the fixed ones never change.
+        response = client.put("/api/config/moat", json={"narrow_moat_multiplier": 0.9, "no_moat_multiplier": 0.95, "wide_moat_multiplier": 1.1})
+        assert response.status_code == 200
+        body = response.json()
+    assert (body["wide_moat_multiplier"], body["no_moat_multiplier"]) == (1.0, 0.70)
 
 
-def test_the_cap_keeps_no_moat_below_70_whatever_the_four_checks_score():
-    from scoring.overall import MoatSnapshot, StepSnapshot, compute_overall_assessment
+def test_saving_the_narrow_multiplier_advances_weights_version_so_stored_rows_read_as_stale(monkeypatch):
+    engine = _engine(monkeypatch)
+    with TestClient(main.app) as client:
+        assert _put_moat(client, 0.9).status_code == 200
+    assert load_score_weights(engine).version == 2  # 1 (seed) + 1 (the multiplier change)
 
-    perfect = [StepSnapshot(k, k, False, 100, "Strong Pass") for k in ("step1", "step2", "step4", "step5")]
-    result = compute_overall_assessment(perfect, moat=MoatSnapshot("no_moat", 1.0))
-    assert result.score == 69 and result.verdict == "Fail"
-    # ... and 1.7 points is where the guarantee ends (why the cap is 1, not 2).
-    assert compute_overall_assessment(perfect, moat=MoatSnapshot("no_moat", 1.7)).score == 70
+
+def test_the_compute_path_reads_the_saved_narrow_multiplier(monkeypatch):
+    engine = _engine(monkeypatch)
+    _patch_steps(monkeypatch, {})
+    from data.moat import set_ticker_moat, update_moat_score_config
+
+    with Session(engine) as session:
+        set_ticker_moat(session, "AAPL", "narrow_moat")
+        update_moat_score_config(session, 0.9)
+    row = asyncio.run(ticker_score.compute_ticker_score("AAPL", persist=False))
+    assert row.moat == "narrow_moat" and row.moat_multiplier == 0.9
+    assert row.overall_score == round(75.0 * 0.9) == 68  # 67.5 rounds half to even, to 68
+    # An absent config row reads as the default 0.85 (a read never creates it).
+    with Session(engine) as session:
+        session.delete(session.get(MoatScoreConfig, "default"))
+        session.commit()
+    again = asyncio.run(ticker_score.compute_ticker_score("AAPL", persist=False))
+    assert again.moat_multiplier == 0.85
+    with Session(engine) as session:
+        assert session.get(MoatScoreConfig, "default") is None
+
+
+def test_update_refuses_an_unsupported_value_directly_too(monkeypatch):
+    engine = _engine(monkeypatch)
+    from data.moat import update_moat_score_config
+
+    with Session(engine) as session, pytest.raises(ValueError):
+        update_moat_score_config(session, 0.86)
+
+
+# --- the one-time migration of the saved weights and the Moat config -----------------------------------------------------------
+
+
+def _migration_engine(monkeypatch):
+    import core.db as db
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(engine)
+    monkeypatch.setattr(db, "engine", engine)
+    return db, engine
+
+
+def _seed_weights(engine, financials, growth, profitability, debt, version=1):
+    with Session(engine) as session:
+        columns = {f"{g}_{f}": v for g, fields in weights_to_dict(DEFAULT_WEIGHTS).items() for f, v in fields.items()}
+        columns.update(overall_financials=financials, overall_growth=growth, overall_profitability=profitability, overall_debt=debt)
+        session.add(ScoreWeightSettings(key="default", weights_version=version, updated_at=datetime.now(), **columns))
+        session.commit()
+
+
+def _overall(engine):
+    with Session(engine) as session:
+        row = session.get(ScoreWeightSettings, "default")
+        return (row.overall_financials, row.overall_growth, row.overall_profitability, row.overall_debt), row.weights_version
+
+
+def test_the_old_default_overall_weights_are_replaced_with_the_new_defaults(monkeypatch):
+    db, engine = _migration_engine(monkeypatch)
+    _seed_weights(engine, 24, 10, 20, 15)
+    result = db._migrate_moat_and_overall_weights()
+    assert result["weights"] == "defaults"
+    assert _overall(engine) == ((30, 20, 20, 30), 2)  # Financials, Growth, Profitability, Debt; version bumped
+
+
+def test_a_custom_overall_set_is_rescaled_proportionally_to_100_and_warned_about(monkeypatch, caplog):
+    db, engine = _migration_engine(monkeypatch)
+    _seed_weights(engine, 17, 30, 11, 11, version=4)
+    with caplog.at_level("WARNING"):
+        result = db._migrate_moat_and_overall_weights()
+    assert result["weights"] == "rescaled" and result["old"] == {"financials": 17, "growth": 30, "profitability": 11, "debt": 11}
+    (financials, growth, profitability, debt), version = _overall(engine)
+    assert sum((financials, growth, profitability, debt)) == 100 and version == 5
+    assert (financials, growth, profitability, debt) == (25, 43, 16, 16)  # 24.6 / 43.5 / 15.9 / 15.9, largest remainder
+    assert "CUSTOM" in caplog.text  # flagged, not silent
+
+
+def test_an_already_migrated_set_is_left_alone_and_the_migration_is_idempotent(monkeypatch):
+    db, engine = _migration_engine(monkeypatch)
+    _seed_weights(engine, 24, 10, 20, 15)
+    db._migrate_moat_and_overall_weights()
+    after_first = _overall(engine)
+    assert db._migrate_moat_and_overall_weights()["weights"] is None
+    assert _overall(engine) == after_first  # no second bump
+    _seed_weights_again = None  # a fresh seed of the new defaults is also untouched
+    with Session(engine) as session:
+        row = session.get(ScoreWeightSettings, "default")
+        row.overall_financials, row.overall_growth, row.overall_profitability, row.overall_debt = 40, 10, 20, 30
+        session.commit()
+    assert db._migrate_moat_and_overall_weights()["weights"] is None and _overall(engine)[0] == (40, 10, 20, 30)
+
+
+def test_an_unseeded_database_migrates_nothing(monkeypatch):
+    db, engine = _migration_engine(monkeypatch)
+    assert db._migrate_moat_and_overall_weights() == {"moat_default_set": False, "weights": None}
+
+
+def test_a_migrated_database_issues_no_write_at_all(monkeypatch):
+    # The app's lifespan runs init_db on every start (and every test that boots the app against the real engine): once migrated, it
+    # must not write, or the real-database write guard in conftest would fail those tests.
+    db, engine = _migration_engine(monkeypatch)
+    with Session(engine) as session:
+        session.add(MoatScoreConfig(key="default", narrow_moat_multiplier=0.85, updated_at=datetime.now()))
+        session.commit()
+    _seed_weights(engine, 30, 20, 20, 30)
+    from sqlalchemy import event
+
+    statements = []
+    event.listen(engine, "before_cursor_execute", lambda conn, cur, stmt, *a: statements.append(stmt))
+    db._migrate_moat_and_overall_weights()
+    assert not [x for x in statements if x.strip().upper().startswith(("UPDATE", "INSERT", "DELETE"))]
+
+
+def test_an_old_moat_config_table_gets_the_multiplier_and_loses_the_points_columns(monkeypatch):
+    import core.db as db
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE moatscoreconfig (key VARCHAR PRIMARY KEY, wide_moat_score FLOAT NOT NULL, narrow_moat_score FLOAT NOT NULL, "
+                "no_moat_score FLOAT NOT NULL, updated_at DATETIME NOT NULL)"
+            )
+        )
+        conn.execute(text("INSERT INTO moatscoreconfig VALUES ('default', 100.0, 65.0, 0.0, '2026-07-23 13:15:43')"))
+    monkeypatch.setattr(db, "engine", engine)
+    db._add_missing_columns()
+    assert db._migrate_moat_and_overall_weights()["moat_default_set"] is True
+    db._drop_obsolete_columns()
+    inspector = inspect(engine)
+    assert {c["name"] for c in inspector.get_columns("moatscoreconfig")} == {"key", "updated_at", "narrow_moat_multiplier"}
+    with Session(engine) as session:
+        row = session.get(MoatScoreConfig, "default")
+        assert row.narrow_moat_multiplier == 0.85  # the row survived; the old points are gone with their columns
+
+
+def test_the_new_tickerscore_columns_are_added_nullable(monkeypatch):
+    import core.db as db
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE tickerscore (ticker VARCHAR PRIMARY KEY, computed_at DATETIME, moat_score FLOAT)"))
+    monkeypatch.setattr(db, "engine", engine)
+    db._add_missing_columns()
+    db._drop_obsolete_columns()
+    columns = {c["name"]: c for c in inspect(engine).get_columns("tickerscore")}
+    for name in ("steps_score", "moat_multiplier", "formula_version"):
+        assert name in columns and columns[name]["nullable"]
+    assert "moat_score" not in columns

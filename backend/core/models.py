@@ -495,17 +495,14 @@ class TickerMoat(SQLModel, table=True):
 
 
 class MoatScoreConfig(SQLModel, table=True):
-    """Configurable point values (0-100 scale, same as every step score)
-    each moat state contributes to Overall Assessment once a ticker has a
-    moat set -- editable via /settings, same lazy-seed get-or-create
-    pattern as DiscountRateConfig (see moat.py). Singleton row, keyed on a
-    fixed `key` the way DiscountRateConfig is keyed by region -- no region
-    concept applies here, just one global config."""
+    """The Economic Moat multipliers (scoring/overall.py), repurposed from the old per-tier points (2026-10-07): Overall = Steps
+    score x the ticker's multiplier. Wide (1.0) and No moat / not rated (0.70) are fixed constants, so the one stored setting is
+    the Narrow multiplier, one of scoring/overall.py::NARROW_MOAT_MULTIPLIER_OPTIONS (default 0.85). Same lazy-seed get-or-create
+    pattern as DiscountRateConfig (see moat.py), singleton row keyed on a fixed `key`. The old wide/narrow/no-moat point columns
+    were dropped (core/db.py::_OBSOLETE_COLUMNS)."""
 
     key: str = Field(primary_key=True, default="default")
-    wide_moat_score: float
-    narrow_moat_score: float
-    no_moat_score: float
+    narrow_moat_multiplier: float = 0.85
     updated_at: datetime
 
 
@@ -573,7 +570,7 @@ class WeinsteinSettings(SQLModel, table=True):
 class ScoreWeightSettings(SQLModel, table=True):
     """The adjustable score weights (scoring/weights.py) -- ONE global singleton row, lazy-seeded from DEFAULT_WEIGHTS, edited
     via /settings > Score weighting (data/score_weights.py). Same shape as MoatScoreConfig/WeinsteinSettings: typed whole-number
-    columns, one per component. Economic Moat's weight is NOT stored: it is the constant scoring/overall.py::MOAT_WEIGHT.
+    columns, one per component. Economic Moat is not a weight (it multiplies the finished Steps score, see MoatScoreConfig).
     `weights_version` starts at 1 and goes up by one on every save (and reset); TickerScore.weights_version records which
     version a row was scored with, so a row older than this one is known to be stale."""
 
@@ -757,10 +754,13 @@ class TickerScore(SQLModel, table=True):
     step4_verdict: str | None = None
     step5_score: int | None = None
     step5_verdict: str | None = None
-    # None when no moat is set for this ticker -- Overall Assessment
-    # ignores moat entirely in that case (see scoring/overall.py).
+    # None when no moat is set for this ticker -- it is then scored as No moat (multiplier 0.70, see scoring/overall.py).
     moat: str | None = None
-    moat_score: float | None = None
+    # The weighted blend of the four steps, UNROUNDED (display to one decimal), and the Moat multiplier applied to it;
+    # overall_score = round(steps_score x moat_multiplier). None when the row is incomplete (and for a row computed before
+    # 2026-10-07, until its next recompute).
+    steps_score: float | None = None
+    moat_multiplier: float | None = None
     overall_score: int | None = None
     overall_verdict: str | None = None
     market_cap: float | None = None
@@ -811,6 +811,9 @@ class TickerScore(SQLModel, table=True):
     # ScoreWeightSettings.weights_version the step scores and the Overall blend were computed with. None for a row computed
     # before the weights were adjustable (not treated as stale: it was computed with the defaults).
     weights_version: int | None = None
+    # scoring/overall.py::SCORE_FORMULA_VERSION the Overall score was computed with. weights_version cannot see a change of
+    # formula, so a row whose formula_version is not the current one (None = computed before the multiplier formula) is stale.
+    formula_version: int | None = None
     # Ticker's own 5yr price return minus SPY's -- lifted straight from the
     # same get_summary() call market_cap/pe_ratio/beta above already come
     # from (see ticker_summary.py::_resolve_perf_vs_spy). status is

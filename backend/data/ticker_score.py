@@ -11,8 +11,9 @@ from core.db import engine
 from core.models import TechnicalEntrySignal, TickerScore, TrendAnalysis
 from core.tickers import normalize_ticker
 from data.entry_signal_data import DEFAULT_SIGNAL_TYPE, DEFAULT_TIMEFRAME, is_entry_signal_active
-from data.moat import get_moat_score_config, get_ticker_moat, resolve_moat_score
-from scoring.overall import MoatSnapshot, StepSnapshot, compute_overall_assessment
+from core.models import MoatScoreConfig
+from data.moat import CONFIG_KEY as MOAT_CONFIG_KEY, get_ticker_moat, resolve_moat_multiplier
+from scoring.overall import SCORE_FORMULA_VERSION, StepSnapshot, compute_overall_assessment
 from data.step1_data import get_step1_data
 from data.step2_data import get_step2_data
 from data.speculative_growth_data import get_speculative_growth_data
@@ -154,14 +155,15 @@ async def compute_ticker_score(
 
     # Moat is user-set, not fetched -- reading it is a plain DB lookup, not
     # part of the cache_only/FMP-call story the 5 _safe_step calls above are
-    # guarding.
+    # guarding. Unset = scored as No moat (multiplier 0.70). The Narrow multiplier is read without get-or-create, so a read-only
+    # engine never writes (an absent config row reads as the default).
     with Session(engine) as session:
         ticker_moat = get_ticker_moat(session, ticker)
-        moat_snapshot = (
-            MoatSnapshot(ticker_moat.moat, resolve_moat_score(get_moat_score_config(session), ticker_moat.moat))
-            if ticker_moat is not None
-            else None
-        )
+        moat = ticker_moat.moat if ticker_moat is not None else None
+        narrow_multiplier = None
+        moat_config = session.get(MoatScoreConfig, MOAT_CONFIG_KEY)
+        if moat_config is not None:
+            narrow_multiplier = moat_config.narrow_moat_multiplier
         # Plain same-session sibling read, same shape as ticker_moat above --
         # not one of the FMP-backed _safe_step calls, so a missing row (a
         # ticker Weinstein hasn't processed yet) is just None, never a raise.
@@ -177,8 +179,9 @@ async def compute_ticker_score(
             _snapshot("step4", step4, step4_error),
             _snapshot("step5", step5, step5_error),
         ],
-        moat=moat_snapshot,
+        moat=moat,
         weights=weights.overall,
+        narrow_multiplier=narrow_multiplier or resolve_moat_multiplier(None, "narrow_moat"),
     )
 
     # Demote-only status beside the verdict, never feeding it (an ETF/fund has none: the 5-step framework is not applied).
@@ -217,8 +220,9 @@ async def compute_ticker_score(
         step4_verdict=step4.verdict if step4 else None,
         step5_score=step5.score if step5 else None,
         step5_verdict=step5.verdict if step5 else None,
-        moat=moat_snapshot.moat if moat_snapshot else None,
-        moat_score=moat_snapshot.score if moat_snapshot else None,
+        moat=moat,
+        steps_score=overall.steps_score,
+        moat_multiplier=overall.moat_multiplier,
         overall_score=overall.score,
         overall_verdict=overall.verdict,
         market_cap=summary.market_cap,
@@ -232,6 +236,7 @@ async def compute_ticker_score(
         growth_rate=step2.growth_rate if step2 else None,
         computed_at=datetime.now(),
         weights_version=weights_version,
+        formula_version=SCORE_FORMULA_VERSION,
         perf_5y_vs_spy_pct=summary.perf_5y_vs_spy_pct,
         perf_5y_vs_spy_status=summary.perf_5y_vs_spy_status,
         speculative_growth_qualifies=speculative_growth.qualifies if speculative_growth else None,

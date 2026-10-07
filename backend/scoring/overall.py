@@ -2,26 +2,14 @@ from typing import NamedTuple
 
 from scoring.weights import DEFAULT_WEIGHTS, OverallWeights, overall_fractions
 
-# The DEFAULT step weights (scoring/weights.py::DEFAULT_WEIGHTS is the single
-# source; a saved weight set is passed to compute_overall_assessment as a
-# parameter). Mirrored by frontend/lib/overallScore.ts, which must produce the
-# same Overall Assessment for the same ticker as this module -- both read the
-# shared fixture backend/tests/fixtures/overall_verdict_cases.json. No
-# allocation for Step 3 (Valuation is not part of Overall).
+# Overall Assessment = Steps score x Moat multiplier (2026-10-07; docs/decisions.md). The Steps score is the weighted blend of the
+# four automated steps (Financials, Growth Rate, Profitability, Debt), computed UNROUNDED; Economic Moat is not a blend component
+# any more, it scales that score, and Overall is rounded once, after the multiplication (Python `round`, half to even, the app's
+# convention). Mirrored by frontend/lib/overallScore.ts, which must produce the same result for the same ticker -- both read the
+# shared fixture backend/tests/fixtures/overall_verdict_cases.json. No allocation for Step 3 (Valuation is not part of Overall).
 #
-# 2026-07-31 rebalance: expressed here as fractions of the 69% non-Moat
-# portion (this dict's own 4 values always sum to 1.0, renormalized further
-# still if a step is exempt/missing -- see compute_overall_assessment).
-# What actually lands in a ticker's full Overall blend once MOAT_WEIGHT's
-# 31% is layered on top (see below) is Financials 24% (unchanged), Growth
-# Rate 10% (was 15%), Debt 15% (was 10%), Profitability 20% (was 19% --
-# that 19% was itself a rounding artifact of the old 0.28*0.69, not a real
-# bug in the code; 20% is the actual intended target), Moat 31%
-# (unchanged) -- summing to exactly 100% (24+10+20+15 = 69, the exact
-# complement of Moat's 31%). Growth Rate down / Debt up specifically
-# because Debt's previously-lowest weight was letting genuine per-step
-# Fails (e.g. FICO, MA) get fully absorbed by strong scores elsewhere --
-# see the 2026-07-31 Overall-vs-per-step contradiction investigation.
+# The default step weights live in scoring/weights.py::DEFAULT_WEIGHTS (30/20/20/30, adding up to 100); a saved weight set is passed
+# to compute_overall_assessment as a parameter.
 STEP_WEIGHTS = overall_fractions(DEFAULT_WEIGHTS.overall)
 
 IMPLEMENTED_STEPS = len(STEP_WEIGHTS)
@@ -30,25 +18,31 @@ TOTAL_METHODOLOGY_STEPS = 5
 STRONG_PASS_THRESHOLD = 90
 PASS_THRESHOLD = 70
 
-# Once a ticker has an Economic Moat set (any of the 3 real states -- "not
-# set" is unaffected and uses the pure Steps 1/2/4/5 blend above, untouched),
-# Steps 1+2+4+5 combined occupy 69% of Overall Assessment and Moat occupies
-# the other 31%. Mirrors frontend/lib/overallScore.ts::MOAT_WEIGHT exactly --
-# see STEP_WEIGHTS's own comment above on why these two implementations must
-# never drift.
-MOAT_WEIGHT = 0.31
+# The version of the Overall FORMULA (not of the weights). TickerScore.formula_version records it; a stored row whose version is
+# not this one was scored by a different formula and is stale (weights_version cannot see a formula change). Bump it whenever
+# compute_overall_assessment's arithmetic changes. 1 = the old 69/31 Moat blend (rows have no version), 2 = Steps x Moat multiplier.
+SCORE_FORMULA_VERSION = 2
+
+# Moat multipliers. Wide and No moat are fixed; Narrow is the one Settings > Economic Moat setting, one of the allowed values.
+# A ticker with Moat unset is scored as No moat (there is no separate "not rated" verdict any more).
+WIDE_MOAT_MULTIPLIER = 1.0
+NO_MOAT_MULTIPLIER = 0.7
+NARROW_MOAT_MULTIPLIER_OPTIONS = (0.80, 0.82, 0.85, 0.87, 0.90)
+DEFAULT_NARROW_MOAT_MULTIPLIER = 0.85
 
 MOAT_LABELS = {"no_moat": "No Moat", "narrow_moat": "Narrow Moat", "wide_moat": "Wide Moat"}
 
-# Overall verdict for a ticker with NO Moat rating whose four automated steps
-# would otherwise read Pass / Pass with caution / Strong Pass: Moat is
-# non-negotiable, so an unrated ticker cannot pass. A stable internal key
-# (stored in TickerScore.overall_verdict, compared by the frontend), not display
-# text -- the frontend maps it to "Moat not rated". Verdict only: the numeric
-# score is still the steps-only blend (see compute_overall_assessment). Mirrors
-# frontend/lib/overallScore.ts::MOAT_NOT_RATED_VERDICT / MOAT_NOT_RATED_REASON.
-MOAT_NOT_RATED_VERDICT = "moat_not_rated"
-MOAT_NOT_RATED_REASON = "Moat not rated: rate the moat to enable a Pass"
+# Shown beside the verdict (Analysis card, header chip tooltip) when Moat is unset. Mirrors frontend/lib/overallScore.ts.
+MOAT_NOT_RATED_NOTE = "Moat not rated, scored as No moat"
+
+
+def moat_multiplier(moat: str | None, narrow_multiplier: float = DEFAULT_NARROW_MOAT_MULTIPLIER) -> float:
+    """The multiplier for a Moat state (None = unset = No moat). `narrow_multiplier` is the saved Narrow setting."""
+    if moat == "wide_moat":
+        return WIDE_MOAT_MULTIPLIER
+    if moat == "narrow_moat":
+        return narrow_multiplier
+    return NO_MOAT_MULTIPLIER
 
 
 class StepSnapshot(NamedTuple):
@@ -60,20 +54,12 @@ class StepSnapshot(NamedTuple):
     verdict: str | None
 
 
-class MoatSnapshot(NamedTuple):
-    moat: str  # "no_moat" | "narrow_moat" | "wide_moat"
-    # Resolved point value (0-100) from MoatScoreConfig for this moat state
-    # -- callers resolve this before calling compute_overall_assessment
-    # (see moat.py::resolve_moat_score), since this module has no DB access.
-    score: float
-
-
 class StepBreakdownEntry(NamedTuple):
     key: str
     label: str
     base_weight: float
-    # The weight actually used, renormalized across applicable steps --
-    # None when the step was excluded (exempt) or unavailable (incomplete).
+    # The weight actually used, renormalized across applicable steps (the entries add up to 1) -- None when the step was
+    # excluded (exempt) or unavailable (incomplete).
     effective_weight: float | None
     score: float | None
     verdict: str | None
@@ -82,24 +68,27 @@ class StepBreakdownEntry(NamedTuple):
 
 class OverallAssessment(NamedTuple):
     status: str  # "complete" | "incomplete"
-    score: int | None
-    # "Strong Pass" | "Pass" | "Pass with caution" | "Fail" | "moat_not_rated" | None
+    score: int | None  # Overall: round(steps_score x moat_multiplier)
+    # "Strong Pass" | "Pass" | "Pass with caution" | "Fail" | None
     verdict: str | None
     breakdown: list[StepBreakdownEntry]
     incomplete_steps: list[str]
     failing_steps: list[str]
     assessed_count: int
     total_methodology_steps: int
-    # Short explanation shown beside a "moat_not_rated" verdict; None otherwise.
-    verdict_reason: str | None = None
+    # The weighted blend of the steps, UNROUNDED (display it to one decimal). None when incomplete.
+    steps_score: float | None = None
+    # The multiplier applied (1.0 / the saved Narrow value / 0.7). None when incomplete.
+    moat_multiplier: float | None = None
+    # MOAT_NOT_RATED_NOTE when Moat is unset (complete rows only); None otherwise.
+    moat_note: str | None = None
 
 
 def _status_for(snapshot: StepSnapshot) -> str:
     if snapshot.has_error:
         return "error"
     if snapshot.score is None:
-        # "not_supported" (currently only Step 5, for Banks -- CET1 data
-        # isn't available from FMP) is a legitimate structural exemption.
+        # "not_supported" (Step 5 for Banks without CET1, and Insurance) is a legitimate structural exemption.
         # Any other null-score verdict (e.g. "insufficient_data") means the
         # figures this ticker needed just weren't available -- missing
         # data, not "doesn't apply", so it's treated the same as an error.
@@ -116,26 +105,20 @@ def _verdict_for(score: int) -> str:
 
 
 def compute_overall_assessment(
-    steps: list[StepSnapshot], moat: MoatSnapshot | None = None, weights: OverallWeights = DEFAULT_WEIGHTS.overall
+    steps: list[StepSnapshot],
+    moat: str | None = None,
+    weights: OverallWeights = DEFAULT_WEIGHTS.overall,
+    narrow_multiplier: float = DEFAULT_NARROW_MOAT_MULTIPLIER,
 ) -> OverallAssessment:
-    """Pure port of frontend/lib/overallScore.ts::computeOverallAssessment,
-    minus the "loading" status -- there's no async/loading concept here,
-    since the backend calls each step's data function synchronously and
-    already has (or doesn't have) a result by the time this runs. Every
-    other rule (renormalization across non-exempt steps, no hard-fail
-    override, verdict bands) is identical.
+    """Pure port of frontend/lib/overallScore.ts::computeOverallAssessment, minus the "loading" status -- there's no
+    async/loading concept here. Every rule is identical.
 
-    `moat` is None for the (default) "not set" state -- in that case the
-    score is byte-identical to the pre-Moat behavior below (the verdict is
-    the one thing that differs: a would-be Pass-family verdict reads
-    "moat_not_rated", see MOAT_NOT_RATED_VERDICT). When set, Moat
-    is applied as a SECOND stage on top of the Steps 1/2/4/5 blend
-    (`0.69 * steps_score + 0.31 * moat.score`), not folded into a single
-    flat weight table alongside the step weights -- a flat renormalization does
-    not reduce to that formula once a step is also exempt/missing (traced
-    through the arithmetic; see CLAUDE.md's Economic Moat deviation note).
-    A missing/incomplete steps blend is never rescued by a present moat --
-    Moat is not a substitute for missing step data."""
+    Steps score = the weighted average of the steps that apply (an exempt "not_supported" step is excluded and the rest
+    reweighted; any step with missing data makes the whole assessment incomplete, which no Moat rating can rescue), kept
+    unrounded. Overall = round(steps_score x multiplier), rounded once. `moat` is "no_moat" | "narrow_moat" | "wide_moat" or
+    None (unset, scored as No moat); `narrow_multiplier` is the saved Narrow setting. No cap, no hard-fail override: the verdict
+    is read from the Overall score (bands 0-69 Fail, 70-90 Pass, 91+ Strong Pass), and a step's "Pass with caution" still
+    carries up beside an otherwise-passing score."""
     step_weights = overall_fractions(weights)
     with_status = [(s, _status_for(s)) for s in steps]
 
@@ -147,70 +130,32 @@ def compute_overall_assessment(
     # a weighted average built on missing data would be misleading, so this
     # short-circuits to an explicit incomplete state instead.
     can_compute = len(incomplete) == 0 and total_weight > 0
-    steps_score = round(sum(step_weights[s.key] * s.score for s, _ in ok) / total_weight) if can_compute else None
+    steps_score = sum(step_weights[s.key] * s.score for s, _ in ok) / total_weight if can_compute else None
+    multiplier = moat_multiplier(moat, narrow_multiplier) if can_compute else None
+    score = round(steps_score * multiplier) if steps_score is not None else None
 
     failing_steps = [s.label for s, _ in ok if s.verdict == "Fail"]
     caution_steps = [s.label for s, _ in ok if s.verdict == "Pass with caution"]
-
-    if moat is None:
-        score = steps_score
-        display_scale = 1.0
-    elif steps_score is None:
-        score = None
-        display_scale = 1.0 - MOAT_WEIGHT
-    else:
-        score = round((1.0 - MOAT_WEIGHT) * steps_score + MOAT_WEIGHT * moat.score)
-        display_scale = 1.0 - MOAT_WEIGHT
 
     breakdown = [
         StepBreakdownEntry(
             key=s.key,
             label=s.label,
             base_weight=step_weights[s.key],
-            effective_weight=(step_weights[s.key] / total_weight * display_scale) if can_compute and st == "ok" else None,
+            effective_weight=(step_weights[s.key] / total_weight) if can_compute and st == "ok" else None,
             score=s.score,
             verdict=s.verdict,
             status=st,
         )
         for s, st in with_status
     ]
-    if moat is not None:
-        breakdown.append(
-            StepBreakdownEntry(
-                key="moat",
-                label="Economic Moat",
-                base_weight=MOAT_WEIGHT,
-                effective_weight=MOAT_WEIGHT if score is not None else None,
-                score=moat.score,
-                # Deliberately not "Pass"/"Fail" text -- keeps Moat out of
-                # failing_steps below, which filters on verdict == "Fail".
-                verdict=MOAT_LABELS[moat.moat],
-                status="ok",
-            )
-        )
 
-    # No hard-fail override among the 4 computed steps themselves --
-    # deliberately a pure weighted average there. Moat is the one
-    # deliberate exception (see CLAUDE.md): since it's user-asserted,
-    # not computed, a No Moat score of 0 combined with the 69/31 split
-    # can cap the overall score below the 70 Pass threshold regardless
-    # of how the 4 steps blend -- that's intended, not a bug. The
-    # verdict BAND itself must match the shared 0-69/70-90/91-100 bands
-    # used everywhere else in the app (see CLAUDE.md).
     score_verdict = _verdict_for(score) if score is not None else None
     # A step-level "Pass with caution" flag must win over the blended
     # score's own band -- Fail stays Fail (already the strongest signal),
     # but an otherwise-green Pass/Strong Pass displays as caution instead.
     # This changes only the DISPLAYED verdict; `score` above is untouched.
     verdict = "Pass with caution" if score_verdict not in (None, "Fail") and caution_steps else score_verdict
-    # Moat unset can never pass: a would-be Pass-family verdict on a complete
-    # steps-only score becomes "moat_not_rated". Fail stays Fail, incomplete
-    # stays incomplete (verdict None), and `score` is untouched -- Screener
-    # sorting/filtering read the number, not this verdict.
-    verdict_reason = None
-    if moat is None and can_compute and verdict not in (None, "Fail"):
-        verdict = MOAT_NOT_RATED_VERDICT
-        verdict_reason = MOAT_NOT_RATED_REASON
 
     return OverallAssessment(
         status="complete" if can_compute else "incomplete",
@@ -221,5 +166,7 @@ def compute_overall_assessment(
         failing_steps=failing_steps,
         assessed_count=IMPLEMENTED_STEPS,
         total_methodology_steps=TOTAL_METHODOLOGY_STEPS,
-        verdict_reason=verdict_reason,
+        steps_score=steps_score,
+        moat_multiplier=multiplier,
+        moat_note=MOAT_NOT_RATED_NOTE if moat is None and can_compute else None,
     )

@@ -6,7 +6,7 @@ hard fail are untouched)."""
 
 import pytest
 
-from scoring.overall import MoatSnapshot, StepSnapshot, compute_overall_assessment
+from scoring.overall import StepSnapshot, compute_overall_assessment
 from scoring.step1 import score_step1
 from scoring.step2 import score_step2
 from scoring.step4 import ARResult, RatioResult, score_step4
@@ -29,13 +29,13 @@ from scoring.weights import (
 
 
 def test_defaults_are_todays_weights():
-    assert DEFAULT_WEIGHTS.overall == OverallWeights(24, 10, 20, 15)
+    assert DEFAULT_WEIGHTS.overall == OverallWeights(30, 20, 20, 30)  # Financials, Growth, Profitability, Debt (2026-10-07)
     assert DEFAULT_WEIGHTS.step1 == Step1Weights(35, 20, 30, 10, 5)
     assert DEFAULT_WEIGHTS.step2 == Step2Weights(70, 30)
     assert DEFAULT_WEIGHTS.step4 == Step4Weights(25, 35, 20, 20)
     assert DEFAULT_WEIGHTS.step5 == Step5Weights(33, 33, 34)  # whole numbers: the third ratio carries the odd point
     assert sum(vars(DEFAULT_WEIGHTS.step5).values()) == 100
-    assert sum(vars(DEFAULT_WEIGHTS.overall).values()) == 69
+    assert sum(vars(DEFAULT_WEIGHTS.overall).values()) == 100
     assert sum(vars(DEFAULT_WEIGHTS.step1).values()) == 100
     assert sum(vars(DEFAULT_WEIGHTS.step2).values()) == 100
     assert sum(vars(DEFAULT_WEIGHTS.step4).values()) == 100
@@ -56,9 +56,32 @@ def test_normalize_returns_none_when_nothing_applicable_has_weight():
     assert normalize({"a": 5}, []) is None
 
 
-def test_overall_fractions_are_shares_of_69():
-    fractions = overall_fractions(OverallWeights(17, 17, 17, 18))
-    assert fractions == {"step1": 17 / 69, "step2": 17 / 69, "step4": 17 / 69, "step5": 18 / 69}
+def test_overall_fractions_are_shares_of_100():
+    fractions = overall_fractions(OverallWeights(25, 25, 25, 25))
+    assert fractions == {"step1": 0.25, "step2": 0.25, "step4": 0.25, "step5": 0.25}
+    assert overall_fractions(OverallWeights(40, 10, 20, 30)) == {"step1": 0.4, "step2": 0.1, "step4": 0.2, "step5": 0.3}
+
+
+def test_old_overall_defaults_and_the_proportional_rescale_used_by_the_migration():
+    from scoring.weights import OLD_DEFAULT_OVERALL, rescale_overall_to_100
+
+    assert OLD_DEFAULT_OVERALL == {"financials": 24, "growth": 10, "profitability": 20, "debt": 15}
+    assert sum(OLD_DEFAULT_OVERALL.values()) == 69
+    # 24/10/20/15 of 69 scaled to 100 is 34.78 / 14.49 / 28.99 / 21.74 -> largest remainder: 35 / 14 / 29 / 22
+    assert rescale_overall_to_100(OLD_DEFAULT_OVERALL) == {"financials": 35, "growth": 14, "profitability": 29, "debt": 22}
+    custom = {"financials": 17, "growth": 30, "profitability": 11, "debt": 11}
+    scaled = rescale_overall_to_100(custom)
+    assert sum(scaled.values()) == 100 and all(abs(scaled[k] - custom[k] * 100 / 69) < 1 for k in custom)
+
+
+def test_overall_bounds_no_longer_tie_a_step_to_the_moat_weight():
+    from scoring.weights import BOUNDS
+
+    assert BOUNDS["overall"] == {"financials": (10, 50), "growth": (5, 50), "profitability": (5, 50), "debt": (10, 50)}
+    # The defaults sit inside the bounds, and the minimums add up to well under 100.
+    for field, value in vars(DEFAULT_WEIGHTS.overall).items():
+        assert BOUNDS["overall"][field][0] <= value <= BOUNDS["overall"][field][1]
+    assert sum(low for low, _ in BOUNDS["overall"].values()) == 30
 
 
 # --- Step 1 tables --------------------------------------------------------------------------------------------------
@@ -310,39 +333,41 @@ def _snap(key, score, verdict="Pass"):
 STEPS = [_snap("step1", 90), _snap("step2", 80), _snap("step4", 70), _snap("step5", 60)]
 
 
-def test_overall_default_weights_are_the_old_blend():
-    assert compute_overall_assessment(STEPS).score == round((90 * 24 + 80 * 10 + 70 * 20 + 60 * 15) / 69) == 76
-    assert compute_overall_assessment(STEPS, weights=DEFAULT_WEIGHTS.overall).score == 76
+def test_overall_default_weights_blend():
+    # 90*0.30 + 80*0.20 + 70*0.20 + 60*0.30 = 75 (Wide, multiplier 1.0)
+    assert compute_overall_assessment(STEPS, moat="wide_moat").score == 75
+    assert compute_overall_assessment(STEPS, moat="wide_moat", weights=DEFAULT_WEIGHTS.overall).score == 75
 
 
 def test_overall_custom_weights():
-    weights = OverallWeights(10, 5, 5, 49 - 0)  # sums to 69: Debt-heavy
-    assert sum(vars(weights).values()) == 69
-    result = compute_overall_assessment(STEPS, weights=weights)
-    assert result.score == round((90 * 10 + 80 * 5 + 70 * 5 + 60 * 49) / 69)
-    assert result.breakdown[3].base_weight == 49 / 69
+    weights = OverallWeights(10, 5, 5, 80)  # sums to 100: Debt-heavy
+    assert sum(vars(weights).values()) == 100
+    result = compute_overall_assessment(STEPS, moat="wide_moat", weights=weights)
+    assert result.score == round((90 * 10 + 80 * 5 + 70 * 5 + 60 * 80) / 100)
+    assert result.breakdown[3].base_weight == 80 / 100
 
 
 def test_overall_custom_weights_renormalize_across_the_steps_that_apply():
-    weights = OverallWeights(15, 8, 16, 30)
+    weights = OverallWeights(15, 8, 16, 61)
     steps = [_snap("step1", 90), _snap("step2", 80), _snap("step4", 70), StepSnapshot("step5", "step5", False, None, "not_supported")]
-    result = compute_overall_assessment(steps, weights=weights)
+    result = compute_overall_assessment(steps, moat="wide_moat", weights=weights)
     assert result.score == round((90 * 15 + 80 * 8 + 70 * 16) / (15 + 8 + 16))
     assert result.breakdown[3].effective_weight is None
     assert sum(entry.effective_weight for entry in result.breakdown[:3]) == pytest.approx(1.0)
 
 
-def test_overall_moat_stage_is_unchanged_by_the_step_weights():
-    # Whatever the split of the four, No Moat (0 points) caps Overall at 69: the steps get 0.69 of it whatever their split.
+def test_the_moat_multiplier_is_independent_of_the_step_weights():
+    # Whatever the split of the four, a perfect Steps score is 100 and a No moat multiplier scales it to exactly 70.
     perfect = [_snap("step1", 100, "Strong Pass"), _snap("step2", 100, "Strong Pass"), _snap("step4", 100, "Strong Pass"), _snap("step5", 100, "Strong Pass")]
-    for weights in (OverallWeights(30, 5, 5, 29), OverallWeights(10, 30, 19, 10), OverallWeights(17, 17, 17, 18)):
-        result = compute_overall_assessment(perfect, moat=MoatSnapshot("no_moat", 0.0), weights=weights)
-        assert result.score == 69 and result.verdict == "Fail"
+    for weights in (OverallWeights(50, 5, 5, 40), OverallWeights(10, 50, 30, 10), OverallWeights(25, 25, 25, 25)):
+        assert compute_overall_assessment(perfect, moat="no_moat", weights=weights).score == 70
+        assert compute_overall_assessment(perfect, moat="narrow_moat", weights=weights).score == 85
+        assert compute_overall_assessment(perfect, moat="wide_moat", weights=weights).score == 100
 
 
 def test_a_whole_score_weights_object_can_be_built_and_shared():
     weights = ScoreWeights(
-        overall=OverallWeights(17, 17, 17, 18),
+        overall=OverallWeights(25, 25, 25, 25),
         step1=Step1Weights(20, 20, 20, 20, 20),
         step2=Step2Weights(50, 50),
         step4=Step4Weights(25, 25, 25, 25),

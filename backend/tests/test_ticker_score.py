@@ -157,10 +157,14 @@ def test_computes_and_upserts_a_full_row(monkeypatch):
     assert result.step2_score == 80
     assert result.step4_score == 70
     assert result.step5_score == 60
-    # 90*(24/69) + 80*(10/69) + 70*(20/69) + 60*(15/69) = 5260/69 = 76.23 -> 76
-    assert result.overall_score == 76
-    # No Moat rating is stored for AAPL here, so the Pass-band blend reads "moat_not_rated" (verdict only).
-    assert result.overall_verdict == "moat_not_rated"
+    # Steps score 90*0.30 + 80*0.20 + 70*0.20 + 60*0.30 = 75.0. No Moat rating is stored for AAPL here, so it is scored as No moat:
+    # 75.0 x 0.70 = 52.5 -> 52 (half to even), a Fail; the multiplier and the unrounded Steps score are stored beside it.
+    assert result.overall_score == 52
+    assert result.overall_verdict == "Fail"
+    assert (result.steps_score, result.moat_multiplier, result.moat) == (pytest.approx(75.0), 0.70, None)
+    from scoring.overall import SCORE_FORMULA_VERSION
+
+    assert result.formula_version == SCORE_FORMULA_VERSION
     assert result.market_cap == 3_000_000_000_000.0
     assert result.quote_currency == "USD"
     # Lifted verbatim from summary.pe_ratio (the trailing P/E, data/ticker_summary.py) -- no basis
@@ -181,7 +185,7 @@ def test_computes_and_upserts_a_full_row(monkeypatch):
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
     assert row is not None
-    assert row.overall_score == 76
+    assert row.overall_score == 52
     assert row.speculative_growth_qualifies is True
 
 
@@ -294,7 +298,7 @@ def test_speculative_growth_error_leaves_the_field_none_without_aborting_the_row
 
     assert result is not None
     assert result.speculative_growth_qualifies is None
-    assert result.overall_score == 76  # unaffected -- not an Overall Assessment input
+    assert result.overall_score == 52  # unaffected -- not an Overall Assessment input
 
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
@@ -359,7 +363,7 @@ def test_weinstein_stage_is_none_when_no_trend_analysis_row_exists(monkeypatch):
     assert result.weinstein_stage_since_is_lower_bound is None
     assert result.weinstein_ma_slope_pct is None
     assert result.weinstein_vs_ma_pct is None
-    assert result.overall_score == 76  # unaffected -- not an Overall Assessment input
+    assert result.overall_score == 52  # unaffected -- not an Overall Assessment input
 
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
@@ -437,7 +441,7 @@ def test_bb_rsi_entry_signal_is_none_when_ticker_is_not_in_the_watchlist(monkeyp
 
     assert result is not None
     assert result.bb_rsi_entry_signal is None
-    assert result.overall_score == 76  # unaffected -- not an Overall Assessment input
+    assert result.overall_score == 52  # unaffected -- not an Overall Assessment input
 
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).first()
@@ -506,7 +510,7 @@ def test_warren_active_signal_kind_is_none_when_ticker_is_not_in_the_watchlist(m
     assert result is not None
     assert result.warren_active_signal_kind is None
     assert result.warren_last_buy_fired_at is None
-    assert result.overall_score == 76  # unaffected -- not an Overall Assessment input
+    assert result.overall_score == 52  # unaffected -- not an Overall Assessment input
 
 
 def test_warren_last_buy_fired_at_is_max_across_up_kinds_regardless_of_active_state(monkeypatch):
@@ -560,7 +564,7 @@ def test_upsert_updates_an_existing_row_rather_than_erroring(monkeypatch):
     result = asyncio.run(compute_ticker_score("AAPL"))
 
     assert result.company_name == "Apple Inc."
-    assert result.overall_score == 76
+    assert result.overall_score == 52
 
     with Session(engine) as session:
         rows = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).all()
@@ -619,11 +623,11 @@ def test_recompute_preserves_delisted_at(monkeypatch):
 
     result = asyncio.run(compute_ticker_score("AAPL"))
 
-    assert result is not None and result.overall_score == 76
+    assert result is not None and result.overall_score == 52
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).one()
     assert row.delisted_at == flagged_at
-    assert row.overall_score == 76  # the rest of the row did update
+    assert row.overall_score == 52  # the rest of the row did update
 
 
 def test_a_null_trailing_pe_is_stored_as_null(monkeypatch):
@@ -694,7 +698,7 @@ def test_a_gated_step1_stores_the_review_columns_and_leaves_the_verdict_alone(mo
 
     result = asyncio.run(compute_ticker_score("AAPL"))
 
-    # (40*24 + 90*10 + 90*20 + 90*15)/69 = 78.7 -> 79; moat 0.31 * wide -> a Pass-family verdict, untouched by the status.
+    # Steps (40*30 + 90*20 + 90*20 + 90*30)/100 = 75.0 x Wide 1.0 -> a Pass-family verdict, untouched by the status.
     assert result.overall_verdict in ("Pass", "Strong Pass")
     assert result.review_status == "review_unclear"
     assert result.conviction == "high"
@@ -723,7 +727,7 @@ def test_every_score_computation_rewrites_the_review_columns_so_a_stale_status_n
     row = _stored(engine)
     assert (row.review_status, row.review_reasons, row.conviction) == (None, None, "high")
 
-    # The Moat is cleared (a Moat PUT): the verdict becomes moat_not_rated and every review column is null.
+    # The Moat is cleared (a Moat PUT): the ticker is scored as No moat (75 x 0.7 = 52, a Fail), so every review column is null.
     _patch_all(monkeypatch, step1=_step1(score=40, verdict="Fail"), step2=_step2(90), step4=_step4(90), step5=_step5(90))
     asyncio.run(compute_ticker_score("AAPL"))
     assert _stored(engine).review_status == "review_unclear"
@@ -734,7 +738,7 @@ def test_every_score_computation_rewrites_the_review_columns_so_a_stale_status_n
         session.commit()
     asyncio.run(compute_ticker_score("AAPL"))
     row = _stored(engine)
-    assert row.overall_verdict == "moat_not_rated"
+    assert (row.overall_verdict, row.overall_score) == ("Fail", 52)
     assert (row.review_status, row.review_reasons, row.conviction) == (None, None, None)
 
 

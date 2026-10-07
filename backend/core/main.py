@@ -38,6 +38,7 @@ from data.score_weights import (
     build_out as score_weights_out,
     get_score_weights_row,
     load_score_weights,
+    bump_weights_version,
     reset_score_weights,
     save_score_weights,
 )
@@ -174,6 +175,7 @@ from data.step3_data import get_active_valuation, get_step3_data
 from data.step4_data import get_step4_data
 from data.step5_data import get_step5_data
 from data.ticker_score import compute_ticker_score
+from scoring.overall import SCORE_FORMULA_VERSION
 from data.chart_data import get_chart_data
 from data.entry_signal_data import get_entry_signal_data
 from data.warren_signal_data import get_warren_signal_data
@@ -340,23 +342,43 @@ def discount_rate_configs() -> list[DiscountRateConfigOut]:
     return [DiscountRateConfigOut(**row.model_dump()) for row in rows]
 
 
+def _moat_config_out(row) -> MoatScoreConfigOut:
+    from scoring.overall import (
+        NARROW_MOAT_MULTIPLIER_OPTIONS,
+        NO_MOAT_MULTIPLIER,
+        WIDE_MOAT_MULTIPLIER,
+    )
+
+    from data.moat import resolve_moat_multiplier
+
+    return MoatScoreConfigOut(
+        wide_moat_multiplier=WIDE_MOAT_MULTIPLIER,
+        narrow_moat_multiplier=resolve_moat_multiplier(row, "narrow_moat"),
+        no_moat_multiplier=NO_MOAT_MULTIPLIER,
+        narrow_moat_multiplier_options=list(NARROW_MOAT_MULTIPLIER_OPTIONS),
+        updated_at=row.updated_at,
+    )
+
+
 @app.get("/api/config/moat", response_model=MoatScoreConfigOut)
 def moat_score_config() -> MoatScoreConfigOut:
     with Session(engine) as session:
         row = get_moat_score_config(session)
-    return MoatScoreConfigOut(**row.model_dump())
+        return _moat_config_out(row)
 
 
 @app.put("/api/config/moat", response_model=MoatScoreConfigOut)
 def update_moat_score(body: MoatScoreConfigIn) -> MoatScoreConfigOut:
-    # The points feed every stored Overall score, so a save starts the same full background recompute as a weights save (it used
-    # to leave the stored rows on the old points until the nightly run). 409, nothing saved, when one is already running.
+    # The Narrow multiplier feeds every stored Overall score, so a save starts the same full background recompute as a weights save
+    # and advances weights_version (so the Screener's "N scores are still on the previous weights" note and the header's re-score
+    # see it). 409, nothing saved, when a recompute is already running.
     saved: list[MoatScoreConfigOut] = []
 
     def save() -> None:
         with Session(engine) as session:
-            row = update_moat_score_config(session, body.wide_moat_score, body.narrow_moat_score, body.no_moat_score)
-            saved.append(MoatScoreConfigOut(**row.model_dump()))
+            row = update_moat_score_config(session, body.narrow_moat_multiplier)
+            bump_weights_version(session)
+            saved.append(_moat_config_out(row))
 
     _save_then_recompute(save, "moat")
     return saved[0]
@@ -952,14 +974,18 @@ async def ticker_score_out(ticker: str) -> TickerScoreOut | None:
         and row.delisted_at is None
         and row.computed_at < datetime.now() - SCORE_STALE_AFTER
     )
-    # A row scored with older weights than the saved ones is stale too (weights were changed since): re-score it, cache only
-    # (no FMP call). An unversioned row (computed before weights were adjustable) was scored with the defaults: not stale.
+    # A row scored with older weights than the saved ones is stale too (weights or the Narrow moat multiplier were changed since):
+    # re-score it, cache only (no FMP call). An unversioned row (computed before weights were adjustable) was scored with the
+    # defaults: not stale. A row scored under another FORMULA version (weights_version cannot see that; None = computed before the
+    # Moat multiplier formula) is stale whatever its weights version.
     reweighted = (
         row is not None
         and not row.is_etf
         and row.delisted_at is None
-        and row.weights_version is not None
-        and row.weights_version < load_score_weights(engine).version
+        and (
+            (row.weights_version is not None and row.weights_version < load_score_weights(engine).version)
+            or row.formula_version != SCORE_FORMULA_VERSION
+        )
     )
     if row is None or row.overall_score is None or frozen or reweighted:
         # persist_etf=False: an ETF's TickerScore row is frozen since the 2026-10-03 cutover (the header shows no chip for

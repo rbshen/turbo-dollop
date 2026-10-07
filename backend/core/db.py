@@ -60,6 +60,13 @@ _OBSOLETE_COLUMNS: list[tuple[str, str]] = [
     # Screener Reversal/Pullback filters removed with the same engine.
     ("tickerscore", "reversal_status"),
     ("tickerscore", "pullback_status"),
+    # Economic Moat became a multiplier on the Steps score (2026-10-07): the per-tier points are gone. The three config columns
+    # were NOT NULL, so they must really be dropped (a re-created config row could not insert without them); the stored points
+    # on each TickerScore row meant nothing under the new formula (steps_score / moat_multiplier replace them).
+    ("moatscoreconfig", "wide_moat_score"),
+    ("moatscoreconfig", "narrow_moat_score"),
+    ("moatscoreconfig", "no_moat_score"),
+    ("tickerscore", "moat_score"),
 ]
 
 
@@ -203,10 +210,66 @@ def _log_journal_mode() -> str | None:
     return mode
 
 
+def _migrate_moat_and_overall_weights() -> dict:
+    """One-time data migration for the Moat multiplier redesign (2026-10-07), run after _add_missing_columns and idempotent.
+
+    1. The Moat config row gained `narrow_moat_multiplier` as a plain nullable column, so an existing row reads NULL: set the
+       default 0.85.
+    2. The four Overall weights used to add up to 69 (Moat was the other 31); they now add up to 100. A saved set that still
+       adds up to 69 is converted: the old defaults (24/10/20/15) become the new defaults (30/20/20/30); a customised set is
+       rescaled proportionally to 100 (scoring/weights.py::rescale_overall_to_100) and logged as a WARNING so it is not silent.
+       Either way weights_version goes up by one. A set already adding up to 100 (a fresh seed, or this ran before) is left
+       alone. Returns what it did, for the log and the report: {"moat_default_set", "weights": None | "defaults" | "rescaled", ...}.
+    """
+    from scoring.weights import DEFAULT_WEIGHTS, OLD_DEFAULT_OVERALL, as_dict, rescale_overall_to_100
+
+    result: dict = {"moat_default_set": False, "weights": None}
+    inspector = inspect(engine)
+    # Inspected up front, not inside the transaction: on a single shared connection (the tests' StaticPool engine) the inspector's
+    # own checkout would roll the open transaction back.
+    has_moat_config, has_weights = inspector.has_table("moatscoreconfig"), inspector.has_table("scoreweightsettings")
+    with engine.begin() as conn:
+        if has_moat_config:
+            # Read first, write only when needed: an already-migrated database (every start after the first, and every test that
+            # boots the app against the real engine) must issue no write at all.
+            if conn.execute(text("SELECT 1 FROM moatscoreconfig WHERE narrow_moat_multiplier IS NULL LIMIT 1")).first():
+                conn.execute(text("UPDATE moatscoreconfig SET narrow_moat_multiplier = 0.85 WHERE narrow_moat_multiplier IS NULL"))
+                result["moat_default_set"] = True
+        if not has_weights:
+            return result
+        row = conn.execute(
+            text(
+                "SELECT overall_financials, overall_growth, overall_profitability, overall_debt FROM scoreweightsettings "
+                "WHERE key = 'default'"
+            )
+        ).first()
+        if row is None or sum(row) != 69:
+            return result
+        old = {"financials": row[0], "growth": row[1], "profitability": row[2], "debt": row[3]}
+        if old == OLD_DEFAULT_OVERALL:
+            new, kind = as_dict(DEFAULT_WEIGHTS.overall), "defaults"
+        else:
+            new, kind = rescale_overall_to_100(old), "rescaled"
+        conn.execute(
+            text(
+                "UPDATE scoreweightsettings SET overall_financials = :f, overall_growth = :g, overall_profitability = :p, "
+                "overall_debt = :d, weights_version = weights_version + 1, updated_at = :now WHERE key = 'default'"
+            ).bindparams(bindparam("now", type_=DateTime())),
+            {"f": new["financials"], "g": new["growth"], "p": new["profitability"], "d": new["debt"], "now": datetime.now()},
+        )
+        result.update(weights=kind, old=old, new=new)
+    if kind == "rescaled":
+        logger.warning("Overall weights were CUSTOM (%s, adding up to 69): rescaled proportionally to 100 -> %s.", old, new)
+    else:
+        logger.info("Overall weights were the old defaults %s: replaced with the new defaults %s.", old, new)
+    return result
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _migrate_saved_filter_kind()
     _add_missing_columns()
+    _migrate_moat_and_overall_weights()
     _ensure_unique_indexes()
     _drop_obsolete_columns()
     _seed_ticker_views()

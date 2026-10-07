@@ -1,12 +1,16 @@
 import pytest
 
 from scoring.overall import (
-    MOAT_NOT_RATED_REASON,
-    MOAT_NOT_RATED_VERDICT,
+    DEFAULT_NARROW_MOAT_MULTIPLIER,
+    MOAT_NOT_RATED_NOTE,
+    NARROW_MOAT_MULTIPLIER_OPTIONS,
+    NO_MOAT_MULTIPLIER,
+    SCORE_FORMULA_VERSION,
     STEP_WEIGHTS,
-    MoatSnapshot,
+    WIDE_MOAT_MULTIPLIER,
     StepSnapshot,
     compute_overall_assessment,
+    moat_multiplier,
 )
 
 
@@ -29,21 +33,20 @@ def test_computes_a_standard_weighted_average_when_every_step_has_a_real_score()
         snapshot("step4", "Step 4", 70, "Pass"),
         snapshot("step5", "Step 5", 60, "Pass"),
     ]
-    # 90*(24/69) + 80*(10/69) + 70*(20/69) + 60*(15/69) = 5260/69 = 76.23 -> 76
-    result = compute_overall_assessment(steps)
-    assert result.status == "complete"
-    assert result.score == 76
-    assert result.verdict == MOAT_NOT_RATED_VERDICT  # steps-only Pass, Moat unset
-    # The same steps with a Moat set read the plain band verdict.
-    rated = compute_overall_assessment(steps, moat=MoatSnapshot("narrow_moat", 65.0))
-    assert rated.verdict == "Pass"
+    # Default weights 30/20/20/30: 90*0.30 + 80*0.20 + 70*0.20 + 60*0.30 = 75.0 (the Steps score, unrounded).
+    wide = compute_overall_assessment(steps, moat="wide_moat")
+    assert wide.status == "complete"
+    assert wide.steps_score == pytest.approx(75.0)
+    assert (wide.score, wide.verdict) == (75, "Pass")
+    # The same steps with Narrow 0.85: 75.0 x 0.85 = 63.75 -> 64, below the line.
+    narrow = compute_overall_assessment(steps, moat="narrow_moat")
+    assert (narrow.score, narrow.verdict) == (64, "Fail")
 
 
-def test_all_steps_at_100_scores_exactly_100_strong_pass():
-    result = compute_overall_assessment(BASE)
+def test_all_steps_at_100_scores_exactly_100_strong_pass_for_a_wide_moat():
+    result = compute_overall_assessment(BASE, moat="wide_moat")
     assert result.score == 100
-    assert result.verdict == MOAT_NOT_RATED_VERDICT  # steps-only Strong Pass, Moat unset
-    assert compute_overall_assessment(BASE, moat=MoatSnapshot("wide_moat", 100.0)).verdict == "Strong Pass"
+    assert result.verdict == "Strong Pass"
 
 
 def test_renormalizes_weights_when_a_step_is_structurally_exempt():
@@ -57,7 +60,7 @@ def test_renormalizes_weights_when_a_step_is_structurally_exempt():
     # sum to 1 -- since all 3 remaining scores are equal (90), the
     # renormalized weighted average is still exactly 90 regardless of the
     # individual renormalized weights.
-    result = compute_overall_assessment(steps)
+    result = compute_overall_assessment(steps, moat="wide_moat")
     assert result.status == "complete"
     assert result.score == 90
     step5_entry = next(b for b in result.breakdown if b.key == "step5")
@@ -75,10 +78,9 @@ def test_renormalization_actually_shifts_the_score_when_remaining_scores_differ(
         snapshot("step4", "Step 4", 100, "Strong Pass"),
         snapshot("step5", "Step 5", None, "not_supported"),
     ]
-    # Without step5: (100*24/69 + 0*10/69 + 100*20/69) / (24/69+10/69+20/69)
-    # = 4400/69 / (54/69) = 4400/54 = 81.48 -> 81
-    result = compute_overall_assessment(steps)
-    assert result.score == 81
+    # Without step5: (100*30 + 0*20 + 100*20) / (30+20+20) = 5000/70 = 71.43 -> 71 (Wide, multiplier 1.0)
+    result = compute_overall_assessment(steps, moat="wide_moat")
+    assert result.score == 71
 
 
 def test_shows_incomplete_instead_of_a_partial_score_when_a_step_errors():
@@ -115,14 +117,15 @@ def test_flags_a_fail_warning_when_any_implemented_steps_verdict_is_fail():
         snapshot("step4", "Step 4", 90, "Pass"),
         snapshot("step5", "Step 5", 0, "Fail"),
     ]
-    result = compute_overall_assessment(steps)
+    result = compute_overall_assessment(steps, moat="wide_moat")
     # No hard-fail override -- the score is still a plain weighted average.
     assert result.score == round(90 * STEP_WEIGHTS["step1"] + 90 * STEP_WEIGHTS["step2"] + 90 * STEP_WEIGHTS["step4"] + 0 * STEP_WEIGHTS["step5"])
+    assert result.score == 63
     assert result.failing_steps == ["Step 5"]
 
 
 def test_stays_silent_no_failing_steps_when_nothing_failed():
-    result = compute_overall_assessment(BASE)
+    result = compute_overall_assessment(BASE, moat="wide_moat")
     assert result.failing_steps == []
 
 
@@ -137,7 +140,7 @@ def test_score_under_70_shows_fail_not_pass():
         snapshot("step4", "Step 4", 20, "Fail"),
         snapshot("step5", "Step 5", 28, "Fail"),
     ]
-    result = compute_overall_assessment(steps)
+    result = compute_overall_assessment(steps, moat="wide_moat")
     assert result.score < 70
     assert result.verdict == "Fail"
 
@@ -149,9 +152,9 @@ def test_score_of_exactly_70_is_pass_not_fail():
         snapshot("step4", "Step 4", 70, "Pass"),
         snapshot("step5", "Step 5", 70, "Pass"),
     ]
-    result = compute_overall_assessment(steps)
+    result = compute_overall_assessment(steps, moat="wide_moat")
     assert result.score == 70
-    assert result.verdict == MOAT_NOT_RATED_VERDICT  # a 70 steps-only blend is Pass-band; Moat unset
+    assert result.verdict == "Pass"
 
 
 def test_score_of_69_is_fail():
@@ -161,7 +164,7 @@ def test_score_of_69_is_fail():
         snapshot("step4", "Step 4", 69, "Pass"),
         snapshot("step5", "Step 5", 69, "Pass"),
     ]
-    result = compute_overall_assessment(steps)
+    result = compute_overall_assessment(steps, moat="wide_moat")
     assert result.score == 69
     assert result.verdict == "Fail"
 
@@ -180,12 +183,12 @@ def test_caution_step_forces_caution_verdict_even_when_blend_is_strong_pass():
         snapshot("step4", "Step 4", 100, "Strong Pass"),
         snapshot("step5", "Step 5", 74, "Pass with caution"),
     ]
-    # 100*(54/69) + 74*(15/69) = (5400+1110)/69 = 94.3 -> 94
-    result = compute_overall_assessment(steps)
-    assert result.score == 94  # the underlying blend is untouched
-    assert result.verdict == MOAT_NOT_RATED_VERDICT  # Moat unset outranks the caution flag
-    rated = compute_overall_assessment(steps, moat=MoatSnapshot("wide_moat", 100.0))
-    assert rated.verdict == "Pass with caution"  # a rated ticker keeps the caution verdict
+    # 100*0.70 + 74*0.30 = 92.2 -> 92 (Wide)
+    result = compute_overall_assessment(steps, moat="wide_moat")
+    assert result.score == 92  # the underlying blend is untouched
+    assert result.verdict == "Pass with caution"
+    # Unrated is scored as No moat: 92.2 x 0.7 = 64.5 -> 64, a Fail (the caution never softens it).
+    assert compute_overall_assessment(steps, moat=None).verdict == "Fail"
 
 
 def test_caution_propagation_does_not_override_a_fail_blend():
@@ -197,7 +200,7 @@ def test_caution_propagation_does_not_override_a_fail_blend():
         snapshot("step4", "Step 4", 30, "Fail"),
         snapshot("step5", "Step 5", 74, "Pass with caution"),
     ]
-    result = compute_overall_assessment(steps)
+    result = compute_overall_assessment(steps, moat="wide_moat")
     assert result.score < 70
     assert result.verdict == "Fail"
 
@@ -209,12 +212,11 @@ def test_lists_every_failing_step_by_name_when_more_than_one_fails():
         snapshot("step4", "Step 4", 90, "Pass"),
         snapshot("step5", "Step 5", 0, "Fail"),
     ]
-    result = compute_overall_assessment(steps)
+    result = compute_overall_assessment(steps, moat="wide_moat")
     assert result.failing_steps == ["Step 1", "Step 5"]
 
 
-# --- Economic Moat (worked examples from the plan, ticker blending to 90
-# across Steps 1/2/4/5 with all four present) ---
+# --- Economic Moat: Overall = Steps score x Moat multiplier (worked examples, a ticker whose four steps all score 90) ---
 
 STEPS_BLENDING_TO_90 = [
     snapshot("step1", "Step 1", 90, "Pass"),
@@ -224,74 +226,125 @@ STEPS_BLENDING_TO_90 = [
 ]
 
 
-def test_moat_not_set_is_byte_identical_to_no_moat_behavior():
-    result = compute_overall_assessment(STEPS_BLENDING_TO_90, moat=None)
-    assert result.score == 90  # the score is the steps-only blend, unchanged by the verdict rule
-    # 90 is the Pass band, but Moat unset can never pass (see tests below).
-    assert result.verdict == MOAT_NOT_RATED_VERDICT
-    assert all(b.key != "moat" for b in result.breakdown)
+def test_multiplier_constants():
+    assert (WIDE_MOAT_MULTIPLIER, NO_MOAT_MULTIPLIER) == (1.0, 0.70)
+    assert NARROW_MOAT_MULTIPLIER_OPTIONS == (0.80, 0.82, 0.85, 0.87, 0.90)
+    assert DEFAULT_NARROW_MOAT_MULTIPLIER == 0.85 and DEFAULT_NARROW_MOAT_MULTIPLIER in NARROW_MOAT_MULTIPLIER_OPTIONS
+    assert SCORE_FORMULA_VERSION == 2
+
+
+def test_moat_multiplier_resolution():
+    assert moat_multiplier("wide_moat") == 1.0
+    assert moat_multiplier("narrow_moat") == 0.85
+    assert moat_multiplier("narrow_moat", 0.9) == 0.9
+    assert moat_multiplier("no_moat") == 0.70
+    assert moat_multiplier(None) == 0.70  # unset is scored as No moat
+    assert moat_multiplier(None, 0.9) == 0.70  # and never reads the Narrow setting
 
 
 def test_wide_moat_worked_example():
-    # 0.69*90 + 0.31*100 = 62.1 + 31 = 93.1 -> 93
-    result = compute_overall_assessment(STEPS_BLENDING_TO_90, moat=MoatSnapshot("wide_moat", 100.0))
-    assert result.score == 93
-    assert result.verdict == "Strong Pass"
+    result = compute_overall_assessment(STEPS_BLENDING_TO_90, moat="wide_moat")
+    assert (result.score, result.verdict, result.moat_multiplier) == (90, "Pass", 1.0)
+    assert result.steps_score == pytest.approx(90.0)
 
 
 def test_narrow_moat_worked_example():
-    # 0.69*90 + 0.31*65 = 62.1 + 20.15 = 82.25 -> 82
-    result = compute_overall_assessment(STEPS_BLENDING_TO_90, moat=MoatSnapshot("narrow_moat", 65.0))
-    assert result.score == 82
-    assert result.verdict == "Pass"
+    # 90 x 0.85 = 76.5 -> 76 (half to even)
+    result = compute_overall_assessment(STEPS_BLENDING_TO_90, moat="narrow_moat")
+    assert (result.score, result.verdict, result.moat_multiplier) == (76, "Pass", 0.85)
 
 
-def test_no_moat_worked_example_caps_below_pass_threshold():
-    # 0.69*90 + 0.31*0 = 62.1 -> 62 -- a hard-fail-via-arithmetic by design,
-    # confirmed and documented (see CLAUDE.md's Economic Moat deviation note).
-    result = compute_overall_assessment(STEPS_BLENDING_TO_90, moat=MoatSnapshot("no_moat", 0.0))
-    assert result.score == 62
+def test_the_analysis_card_example_steps_83_8_times_narrow_0_85_is_71():
+    steps = [
+        snapshot("step1", "Step 1", 84, "Pass"),
+        snapshot("step2", "Step 2", 84, "Pass"),
+        snapshot("step4", "Step 4", 83, "Pass"),
+        snapshot("step5", "Step 5", 84, "Pass"),
+    ]
+    result = compute_overall_assessment(steps, moat="narrow_moat")
+    assert round(result.steps_score, 1) == 83.8
+    assert result.score == 71  # 83.8 x 0.85 = 71.23
+
+
+def test_the_steps_score_is_kept_unrounded_and_rounded_once_after_the_multiplier():
+    # Steps 81.6 x 0.85 = 69.36 -> 69, while rounding the Steps score first (82 x 0.85 = 69.7) would give 70, a Pass.
+    steps = [
+        snapshot("step1", "Step 1", 81, "Pass"),
+        snapshot("step2", "Step 2", 83, "Pass"),
+        snapshot("step4", "Step 4", 82, "Pass"),
+        snapshot("step5", "Step 5", 81, "Pass"),
+    ]
+    result = compute_overall_assessment(steps, moat="narrow_moat")
+    assert result.steps_score == pytest.approx(81.6)
+    assert result.score == 69  # not 70: the Steps score was not rounded before the multiplier
     assert result.verdict == "Fail"
 
 
-def test_no_moat_caps_a_perfect_steps_score_at_69_fail():
-    result = compute_overall_assessment(BASE, moat=MoatSnapshot("no_moat", 0.0))
-    assert result.score == 69
-    assert result.verdict == "Fail"
+def test_no_moat_worked_example():
+    # 90 x 0.70 = 63
+    result = compute_overall_assessment(STEPS_BLENDING_TO_90, moat="no_moat")
+    assert (result.score, result.verdict, result.moat_multiplier) == (63, "Fail", 0.70)
+    assert result.moat_note is None  # rated No moat: no "not rated" note
+
+
+def test_a_perfect_steps_score_with_no_moat_reaches_exactly_70():
+    # The one way a No moat / unrated ticker can read 70: all four steps at 100 (unreachable in practice, see the simulation).
+    result = compute_overall_assessment(BASE, moat="no_moat")
+    assert (result.score, result.verdict) == (70, "Pass")
+
+
+def test_unrated_is_scored_exactly_as_no_moat_with_the_note():
+    unrated = compute_overall_assessment(STEPS_BLENDING_TO_90, moat=None)
+    rated = compute_overall_assessment(STEPS_BLENDING_TO_90, moat="no_moat")
+    assert (unrated.score, unrated.verdict, unrated.moat_multiplier, unrated.steps_score) == (
+        rated.score,
+        rated.verdict,
+        rated.moat_multiplier,
+        rated.steps_score,
+    )
+    assert unrated.moat_note == MOAT_NOT_RATED_NOTE == "Moat not rated, scored as No moat"
+
+
+def test_the_not_rated_verdict_state_is_retired():
+    # A Pass-range steps score no longer reads "moat_not_rated": an unrated ticker's verdict comes from its (x0.7) score.
+    assert compute_overall_assessment(_steps(95, "Strong Pass"), moat=None).verdict == "Fail"  # 95 x 0.7 = 66.5 -> 66
+    assert compute_overall_assessment(_steps(95, "Strong Pass"), moat="wide_moat").verdict == "Strong Pass"
+
+
+@pytest.mark.parametrize("narrow", NARROW_MOAT_MULTIPLIER_OPTIONS)
+def test_every_allowed_narrow_multiplier_is_applied(narrow):
+    result = compute_overall_assessment(STEPS_BLENDING_TO_90, moat="narrow_moat", narrow_multiplier=narrow)
+    assert result.moat_multiplier == narrow
+    assert result.score == round(90 * narrow)
 
 
 def test_moat_does_not_rescue_an_incomplete_steps_blend():
     steps = [*BASE[:3], snapshot("step5", "Step 5", None, "n/a", has_error=True)]
-    result = compute_overall_assessment(steps, moat=MoatSnapshot("wide_moat", 100.0))
+    result = compute_overall_assessment(steps, moat="wide_moat")
     assert result.status == "incomplete"
-    assert result.score is None
+    assert (result.score, result.steps_score, result.moat_multiplier) == (None, None, None)
+    # An incomplete unrated row has no score, hence no "scored as No moat" note either.
+    assert compute_overall_assessment(steps, moat=None).moat_note is None
 
 
-def test_moat_applies_on_top_of_a_renormalized_steps_blend_with_an_exempt_step():
+def test_the_multiplier_applies_on_top_of_a_renormalized_steps_blend_with_an_exempt_step():
     steps = [
         snapshot("step1", "Step 1", 90, "Pass"),
         snapshot("step2", "Step 2", 90, "Pass"),
         snapshot("step4", "Step 4", 90, "Pass"),
         snapshot("step5", "Step 5", None, "not_supported"),
     ]
-    # Steps-only blend renormalizes to 90 (all remaining scores equal, see
-    # test_renormalizes_weights_when_a_step_is_structurally_exempt) --
-    # applying moat on top must still be 0.69*90 + 0.31*100 = 93.1 -> 93,
-    # the same as the all-4-present case, not a different number produced by
-    # a flat single-stage renormalization across steps+moat together.
-    result = compute_overall_assessment(steps, moat=MoatSnapshot("wide_moat", 100.0))
-    assert result.score == 93
+    # The Steps score renormalizes to 90 (all remaining scores are equal); Narrow then gives 90 x 0.85 = 76.5 -> 76, the same as
+    # the all-four-present case.
+    result = compute_overall_assessment(steps, moat="narrow_moat")
+    assert (result.status, result.score) == ("complete", 76)
 
 
-def test_moat_breakdown_entry_never_appears_in_failing_steps():
-    result = compute_overall_assessment(STEPS_BLENDING_TO_90, moat=MoatSnapshot("no_moat", 0.0))
-    assert result.failing_steps == []
-    moat_entry = next(b for b in result.breakdown if b.key == "moat")
-    assert moat_entry.verdict == "No Moat"
-    assert moat_entry.score == 0.0
-
-
-# --- "Moat not rated cannot pass" (verdict only; the score is untouched) ---
+def test_the_breakdown_lists_only_the_steps_and_their_effective_weights_add_up_to_one():
+    result = compute_overall_assessment(STEPS_BLENDING_TO_90, moat="wide_moat")
+    assert [b.key for b in result.breakdown] == ["step1", "step2", "step4", "step5"]  # Moat is no longer a row
+    assert sum(b.effective_weight for b in result.breakdown) == pytest.approx(1.0)
+    assert [b.effective_weight for b in result.breakdown] == pytest.approx([0.30, 0.20, 0.20, 0.30])
 
 
 def _steps(score: int, verdict: str, step5_verdict: str | None = None) -> list[StepSnapshot]:
@@ -303,55 +356,34 @@ def _steps(score: int, verdict: str, step5_verdict: str | None = None) -> list[S
     ]
 
 
-def test_unrated_pass_reads_moat_not_rated_with_the_steps_only_score():
-    result = compute_overall_assessment(_steps(80, "Pass"), moat=None)
-    assert (result.status, result.score, result.verdict) == ("complete", 80, MOAT_NOT_RATED_VERDICT)
-    assert result.verdict_reason == MOAT_NOT_RATED_REASON
-
-
-def test_unrated_pass_with_caution_reads_moat_not_rated():
-    result = compute_overall_assessment(_steps(80, "Pass", step5_verdict="Pass with caution"), moat=None)
-    assert (result.score, result.verdict) == (80, MOAT_NOT_RATED_VERDICT)
-
-
-def test_unrated_strong_pass_reads_moat_not_rated():
-    result = compute_overall_assessment(_steps(95, "Strong Pass"), moat=None)
-    assert (result.score, result.verdict) == (95, MOAT_NOT_RATED_VERDICT)
-
-
-def test_unrated_boundaries_70_is_moat_not_rated_69_stays_fail():
-    assert compute_overall_assessment(_steps(70, "Pass"), moat=None).verdict == MOAT_NOT_RATED_VERDICT
-    below = compute_overall_assessment(_steps(69, "Pass"), moat=None)
-    assert (below.score, below.verdict, below.verdict_reason) == (69, "Fail", None)
-
-
-def test_unrated_fail_stays_fail():
-    result = compute_overall_assessment(_steps(40, "Fail"), moat=None)
-    assert (result.score, result.verdict, result.verdict_reason) == (40, "Fail", None)
+def test_unrated_pass_with_caution_carries_up_only_when_the_score_passes():
+    # Wide: 80 x 1.0 passes, so the caution step still shows; unrated: 80 x 0.7 = 56 is a Fail, which stays Fail.
+    steps = _steps(80, "Pass", step5_verdict="Pass with caution")
+    assert compute_overall_assessment(steps, moat="wide_moat").verdict == "Pass with caution"
+    assert compute_overall_assessment(steps, moat=None).verdict == "Fail"
 
 
 def test_unrated_incomplete_stays_incomplete():
     steps = [*_steps(90, "Pass")[:3], snapshot("step5", "Step 5", None, "insufficient_data")]
     result = compute_overall_assessment(steps, moat=None)
-    assert (result.status, result.score, result.verdict, result.verdict_reason) == ("incomplete", None, None, None)
+    assert (result.status, result.score, result.verdict, result.moat_note) == ("incomplete", None, None, None)
 
 
-def test_unrated_with_an_exempt_step_is_still_moat_not_rated():
+def test_unrated_with_an_exempt_step_is_scored_as_no_moat():
     steps = [*_steps(90, "Pass")[:3], snapshot("step5", "Step 5", None, "not_supported")]
     result = compute_overall_assessment(steps, moat=None)
-    assert (result.status, result.score, result.verdict) == ("complete", 90, MOAT_NOT_RATED_VERDICT)
+    assert (result.status, result.score, result.verdict) == ("complete", 63, "Fail")
 
 
-@pytest.mark.parametrize(
-    ("moat", "points", "expected_score", "expected_verdict"),
-    [("wide_moat", 100.0, 93, "Strong Pass"), ("narrow_moat", 65.0, 82, "Pass"), ("no_moat", 0.0, 62, "Fail")],
-)
-def test_rated_tickers_are_unchanged(moat, points, expected_score, expected_verdict):
-    result = compute_overall_assessment(STEPS_BLENDING_TO_90, moat=MoatSnapshot(moat, points))
-    assert (result.score, result.verdict, result.verdict_reason) == (expected_score, expected_verdict, None)
+def test_a_non_default_weight_set_changes_the_steps_score_not_the_multiplier():
+    from scoring.weights import OverallWeights
 
-
-def test_the_score_is_identical_with_and_without_the_verdict_rule_for_an_unrated_ticker():
-    # The numeric score must stay the steps-only blend (Screener sort/filter/saved views).
-    steps = _steps(88, "Pass")
-    assert compute_overall_assessment(steps, moat=None).score == 88
+    steps = [
+        snapshot("step1", "Step 1", 90, "Pass"),
+        snapshot("step2", "Step 2", 80, "Pass"),
+        snapshot("step4", "Step 4", 70, "Pass"),
+        snapshot("step5", "Step 5", 60, "Pass"),
+    ]
+    result = compute_overall_assessment(steps, moat="wide_moat", weights=OverallWeights(10, 5, 5, 80))
+    assert result.steps_score == pytest.approx(0.10 * 90 + 0.05 * 80 + 0.05 * 70 + 0.80 * 60)
+    assert result.moat_multiplier == 1.0

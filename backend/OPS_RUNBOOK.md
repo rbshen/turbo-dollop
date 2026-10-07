@@ -686,7 +686,7 @@ restored with `UPDATE tickerscore SET delisted_at = datetime('now') WHERE ticker
 
 ## Score recompute job (2026-10-06)
 
-Saving or resetting the score weights, saving the Moat points and Settings/Screener "Recompute all scores" all start one
+Saving or resetting the score weights, saving the Narrow moat multiplier and Settings/Screener "Recompute all scores" all start one
 **background full recompute**: `python -m pipeline.score_recompute_job <run_id>`, a subprocess the API launches (own session, so a
 `uvicorn --reload` does not kill it), cache only, zero FMP calls, ~40 s for the ~580 tracked tickers (about 4 s of it for 30). It
 re-scores every ticker through `compute_ticker_score` at the saved weights and stamps `TickerScore.weights_version`.
@@ -992,7 +992,7 @@ that draft is why; it was never committed.
 
 Doc-drift sweep (CLAUDE.md, this file, `docs/*.md`) as of the 2026-08-15
 draft found no other discrepancies: no lingering Alpha Vantage/
-News-Sentiment references, `STEP_WEIGHTS`/`MOAT_WEIGHT` match byte-for-byte
+News-Sentiment references, `STEP_WEIGHTS` (and, since 2026-10-07, the Moat multipliers) match byte-for-byte
 between `backend/scoring/overall.py` and `frontend/lib/overallScore.ts`,
 and the FMP pause mechanism (superseded 2026-09-24 by per-group data toggles) was all in place as CLAUDE.md describes -- not
 re-run for this pass, carried forward as still current.

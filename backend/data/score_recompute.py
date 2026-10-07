@@ -1,6 +1,6 @@
 """The full score recompute as a background job (docs/specs/overview.md, "Adjustable weights").
 
-Saving the weights, resetting them, saving the Moat points and the Screener's "Recompute all scores" all start the same job: a
+Saving the weights, resetting them, saving the Narrow moat multiplier and the Screener's "Recompute all scores" all start the same job: a
 cache-only `compute_ticker_score` for every tracked ticker (no FMP call). It runs in a **subprocess**
 (`python -m pipeline.score_recompute_job <run_id>`), not a thread: a ~40 s CPU-bound job in a thread shares the GIL with the API's
 event loop (latency spikes, a slower API), a `uvicorn --reload` restart would kill it mid-run, and a crash would take the API with

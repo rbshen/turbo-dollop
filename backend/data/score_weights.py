@@ -85,6 +85,20 @@ def get_score_weights_row(session: Session) -> ScoreWeightSettings:
     return row
 
 
+def bump_weights_version(session: Session) -> ScoreWeightSettings:
+    """Goes up by one without touching the weights: the Narrow moat multiplier changes every stored Overall score just as a weight
+    change does, so saving it advances the same version (the Screener's "N scores are still on the previous weights" note, the
+    ticker header's re-score of an older row, and the recompute job's own stamp all read it)."""
+    row = get_score_weights_row(session)
+    row.weights_version += 1
+    row.updated_at = datetime.now()
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    invalidate_cache()
+    return row
+
+
 def save_score_weights(session: Session, weights: ScoreWeights) -> ScoreWeightSettings:
     """Writes the set (already validated by the caller) and bumps weights_version by one."""
     row = get_score_weights_row(session)
@@ -111,13 +125,12 @@ def snapshot_of(row: ScoreWeightSettings) -> WeightsSnapshot:
 def build_out(row: ScoreWeightSettings, recompute=None):
     """The GET /api/config/score-weights payload for a saved row (`recompute` is the latest RecomputeRunOut or None)."""
     from core.schemas import ScoreWeightsOut, WeightBoundsOut
-    from scoring.overall import MOAT_WEIGHT
+    from scoring.overall import SCORE_FORMULA_VERSION
     from scoring.weights import BOUNDS, OVERALL_TOTAL, SUMS, weights_to_dict
 
     return ScoreWeightsOut(
         weights=weights_to_dict(snapshot_of(row).weights),
         defaults=weights_to_dict(DEFAULT_WEIGHTS),
-        moat_weight=round(MOAT_WEIGHT * 100),
         overall_total=OVERALL_TOTAL,
         bounds={
             group: {field: WeightBoundsOut(min=low, max=high) for field, (low, high) in fields.items()}
@@ -125,6 +138,7 @@ def build_out(row: ScoreWeightSettings, recompute=None):
         },
         sums=dict(SUMS),
         weights_version=row.weights_version,
+        formula_version=SCORE_FORMULA_VERSION,
         updated_at=row.updated_at,
         recompute=recompute,
     )

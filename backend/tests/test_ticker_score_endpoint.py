@@ -8,6 +8,7 @@ import core.main as main
 import data.ticker_score as ticker_score
 from core.models import TickerScore
 from core.schemas import Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
+from scoring.overall import SCORE_FORMULA_VERSION
 
 
 def _fresh_shared_engine(monkeypatch):
@@ -91,6 +92,7 @@ def test_returns_an_existing_row_unchanged_without_recomputing(monkeypatch):
                 company_name="Apple Inc.",
                 overall_score=85,
                 overall_verdict="Pass",
+                formula_version=SCORE_FORMULA_VERSION,  # scored under the current formula (a row without one is stale)
                 computed_at=datetime.now() - timedelta(hours=2),
             )
         )
@@ -176,7 +178,9 @@ def test_returns_null_when_even_the_fallback_has_no_cached_profile(monkeypatch):
 
 
 def _row(**kwargs):
-    defaults = dict(ticker="AAPL", company_name="Apple Inc.", overall_score=85, overall_verdict="Pass")
+    defaults = dict(
+        ticker="AAPL", company_name="Apple Inc.", overall_score=85, overall_verdict="Pass", formula_version=SCORE_FORMULA_VERSION
+    )
     return TickerScore(**{**defaults, **kwargs})
 
 
