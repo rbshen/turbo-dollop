@@ -84,7 +84,7 @@ function MultiplierDescription({ result, multipliers }: { result: OverallAssessm
   return (
     <div className="space-y-2 text-xs text-text-tertiary" data-testid="weighting-note">
       <p>
-        The Steps score is the weighted blend of the checks ({weights}), using your saved weights. The Overall score is the Steps
+        The Fundamentals score is the weighted blend of the checks ({weights}), using your saved weights. The Overall score is the Fundamentals
         score times a Moat multiplier: Wide moat × {fmtMultiplier(multipliers.wide)}, Narrow moat × {fmtMultiplier(multipliers.narrow)},
         No moat × {fmtMultiplier(multipliers.noMoat)}. A ticker with no Moat rated is scored as No moat.{" "}
         <Link href="/settings?section=score-weighting" className="underline underline-offset-2 hover:text-text-secondary">
@@ -100,18 +100,18 @@ function MultiplierDescription({ result, multipliers }: { result: OverallAssessm
   );
 }
 
-// The result line: Steps score x multiplier = Overall.
+// The result line: Fundamentals score x multiplier = Overall.
 function ScoreEquation({ result }: { result: OverallAssessment }) {
   if (result.stepsScore == null || result.moatMultiplier == null || result.score == null) return null;
   const moatName = result.moat ? pillLabel(MOAT_LABELS[result.moat]) : "No moat";
   return (
     <p className="text-sm text-text-primary" data-testid="score-equation">
-      Steps {result.stepsScore.toFixed(1)} × {moatName} {fmtMultiplier(result.moatMultiplier)} = <span className="font-semibold">{result.score}</span>
+      Fundamentals {result.stepsScore.toFixed(1)} × {moatName} {fmtMultiplier(result.moatMultiplier)} = <span className="font-semibold">{result.score}</span>
     </p>
   );
 }
 
-// The arithmetic behind the score: each step with its score, weight and points, then the Steps score.
+// The arithmetic behind the score: each step with its score, weight and points, then the Fundamentals score.
 function ArithmeticTable({ result }: { result: OverallAssessment }) {
   if (result.stepsScore == null) return null;
   return (
@@ -119,7 +119,7 @@ function ArithmeticTable({ result }: { result: OverallAssessment }) {
       <table className="w-full max-w-md text-sm">
         <thead>
           <tr className="text-left text-xs text-text-tertiary">
-            <th className="pb-1 font-normal">Step</th>
+            <th className="pb-1 font-normal">Fundamental</th>
             <th className="pb-1 text-right font-normal">Score</th>
             <th className="pb-1 text-right font-normal">Weight</th>
             <th className="pb-1 text-right font-normal">Points</th>
@@ -130,7 +130,7 @@ function ArithmeticTable({ result }: { result: OverallAssessment }) {
             entry.effectiveWeight != null && entry.score != null ? (
               <tr key={entry.key}>
                 <td className="py-0.5 font-sans">{entry.label}</td>
-                {/* The score takes the tone the breakdown pills used to carry; weight, points and the Steps score stay plain. */}
+                {/* The score takes the tone the breakdown pills used to carry; weight, points and the Fundamentals score stay plain. */}
                 <td className={`py-0.5 text-right ${TONE_TEXT_CLASS[toneForNullable(entry.score, entry.verdict)]}`} data-testid={`score-${entry.key}`}>
                   {entry.score}
                 </td>
@@ -147,7 +147,7 @@ function ArithmeticTable({ result }: { result: OverallAssessment }) {
             ),
           )}
           <tr className="border-t border-border-subtle text-text-primary">
-            <td className="pt-1 font-sans font-semibold">Steps score</td>
+            <td className="pt-1 font-sans font-semibold">Fundamentals score</td>
             <td />
             <td />
             <td className="pt-1 text-right font-semibold">{result.stepsScore.toFixed(1)}</td>

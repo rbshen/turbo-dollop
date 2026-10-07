@@ -55,7 +55,7 @@ figure that might show up on the next data refresh.
 
 ## Overall Assessment's own rules
 
-Overall Assessment is the **Steps score** (the weighted blend of the four automated checks, default weights Financials 30, Debt 30, Growth
+Overall Assessment is the **Fundamentals score** (the weighted blend of the four automated checks, default weights Financials 30, Debt 30, Growth
 Rate 20, Profitability 20) times a **Moat multiplier** (Wide 1.0, Narrow 0.85 by default, No moat or not rated 0.70). It uses these same
 verdict labels, read from the Overall score (the weights each check carries are adjustable: see [Overview](overview.md), "Adjustable
 weights"; a hard fail still reads Fail on its own check):
@@ -74,6 +74,13 @@ weights"; a hard fail still reads Fail on its own check):
   any more (retired 2026-10-07).
 
 See [Overview](overview.md) for how Overall Assessment is built.
+
+## Fundamentals score (formerly Steps score)
+
+The weighted blend of the four automated checks (Financials, Growth Rate, Profitability, Debt), kept unrounded and shown to one decimal. The
+Economic Moat multiplier then scales it to give the Overall score (Overall = round(Fundamentals score x Moat multiplier)). Renamed from "Steps
+score" on 2026-10-07 in all user-facing text and docs; the code identifiers (`steps_score`, `stepsScore`) keep the old name. The individual
+"Step 1" to "Step 5" labels are unchanged.
 
 ## Review status
 

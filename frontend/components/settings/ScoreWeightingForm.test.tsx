@@ -120,7 +120,7 @@ describe("ScoreWeightingForm: layout", () => {
     expect(screen.queryByText("Economic moat", { selector: "label" })).toBeNull();
     const text = document.body.textContent ?? "";
     expect(text).not.toMatch(/31%|69%/);
-    expect(text).toContain("The four automated checks add up to 100% and give the Steps score");
+    expect(text).toContain("The four automated checks add up to 100% and give the Fundamentals score");
   });
 
   it("carries the help text and the applies-to-all note", () => {

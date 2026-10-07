@@ -65,7 +65,7 @@ describe("MoatSettingsForm: layout", () => {
   it("renders with the Settings kit: sentence-case title, plain intro, three rows, footer", () => {
     render(<MoatSettingsForm />);
     expect(screen.getByRole("heading", { name: "Economic moat multipliers" })).toBeInTheDocument();
-    expect(screen.getByText(/Overall score is its Steps score/)).toHaveClass("max-w-xl");
+    expect(screen.getByText(/Overall score is its Fundamentals score/)).toHaveClass("max-w-xl");
     for (const label of ["Wide moat", "Narrow moat", "No moat / not rated"]) {
       const row = screen.getByText(label, { selector: "label" }).closest("div.grid");
       expect(row).toHaveClass("sm:grid-cols-[minmax(0,1fr)_16rem]");
@@ -94,7 +94,7 @@ describe("MoatSettingsForm: layout", () => {
   it("explains the model in plain words, with no points, no 31% and no 'No moat <= 1' rule", () => {
     render(<MoatSettingsForm />);
     const text = document.body.textContent ?? "";
-    expect(text).toContain("Steps score");
+    expect(text).toContain("Fundamentals score");
     expect(text).toContain("A ticker with no moat rated is scored as No moat");
     expect(text).toContain("Saving the Narrow multiplier recomputes all scores.");
     expect(text).not.toMatch(/31%|points|capped at 1|Capped at 1|CLAUDE\.md|\.md/);

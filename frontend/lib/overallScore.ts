@@ -1,6 +1,6 @@
 import { pySum, roundHalfEven } from "@/lib/pyNumeric";
 
-// Overall Assessment = Steps score x Moat multiplier: a TypeScript mirror of backend/scoring/overall.py::compute_overall_assessment. The Steps
+// Overall Assessment = Fundamentals score x Moat multiplier: a TypeScript mirror of backend/scoring/overall.py::compute_overall_assessment. The Fundamentals
 // score is the weighted blend of the four automated steps (Financials, Growth Rate, Profitability, Debt), kept unrounded; Economic Moat is not
 // a blend component, it scales that score, and Overall is rounded once, after the multiplication. The step weights are the saved set
 // (GET /api/config/score-weights, hook useScoreWeights), whole numbers adding up to `overallTotal` (100), passed in by the caller so the
@@ -142,9 +142,9 @@ function statusFor(snapshot: StepSnapshot): StepStatus {
  * `moat`: omitted/`undefined` or `null` both mean confirmed "not set" (scored as No moat, with the note). `moatLoading` is a SEPARATE
  * flag the caller sets while its Moat reads (the ticker's rating, and the Narrow setting when it is Narrow) haven't settled yet --
  * kept distinct from `moat` itself so "not set" and "still loading" can't be confused. `narrowMultiplier` is the saved Narrow setting
- * (only read for a Narrow rating). Steps score = the weighted average of the steps that apply (an exempt "not_supported" step is
+ * (only read for a Narrow rating). Fundamentals score = the weighted average of the steps that apply (an exempt "not_supported" step is
  * excluded and the rest reweighted; any step with missing data makes the whole assessment incomplete, which no Moat rating can
- * rescue), unrounded; Overall = round(steps score x multiplier). No cap and no hard-fail override: the verdict is read from the Overall
+ * rescue), unrounded; Overall = round(fundamentals score x multiplier). No cap and no hard-fail override: the verdict is read from the Overall
  * score, and a step's "Pass with caution" still carries up beside an otherwise-passing score. Mirrors
  * backend/scoring/overall.py::compute_overall_assessment exactly. */
 export function computeOverallAssessment(

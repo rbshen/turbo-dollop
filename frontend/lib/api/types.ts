@@ -621,7 +621,7 @@ export interface TickerBankCapitalMetricsIn {
   npl_as_of: string | null;
 }
 
-/** The Economic Moat multipliers (GET/PUT /api/config/moat): Overall = Steps score x the ticker's multiplier. Wide and No moat / not
+/** The Economic Moat multipliers (GET/PUT /api/config/moat): Overall = Fundamentals score x the ticker's multiplier. Wide and No moat / not
  * rated are fixed; Narrow is the one saved setting, one of `narrow_moat_multiplier_options`. */
 export interface MoatScoreConfigOut {
   wide_moat_multiplier: number;

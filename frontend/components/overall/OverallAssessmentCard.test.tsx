@@ -67,7 +67,7 @@ const STEP_ROWS: OverallAssessment["breakdown"] = [
 ];
 
 describe("OverallAssessmentView: the arithmetic block", () => {
-  it("lists each step's score, weight and points, then the Steps score, then Steps x multiplier = Overall", () => {
+  it("lists each step's score, weight and points, then the Fundamentals score, then Fundamentals x multiplier = Overall", () => {
     render(
       <OverallAssessmentView
         result={result({ score: 71, stepsScore: 83.8, moatMultiplier: 0.85, moat: "narrow_moat", breakdown: STEP_ROWS })}
@@ -76,18 +76,18 @@ describe("OverallAssessmentView: the arithmetic block", () => {
     expand();
     const block = screen.getByTestId("score-arithmetic");
     const rows = within(block).getAllByRole("row").map((row) => row.textContent);
-    expect(rows[0]).toBe("StepScoreWeightPoints");
+    expect(rows[0]).toBe("FundamentalScoreWeightPoints");
     expect(rows[1]).toBe("Financials8430%25.2");
     expect(rows[2]).toBe("Growth Rate8420%16.8");
     expect(rows[3]).toBe("Profitability8320%16.6");
     expect(rows[4]).toBe("Debt8430%25.2");
-    expect(rows[5]).toBe("Steps score83.8");
-    expect(screen.getByTestId("score-equation")).toHaveTextContent("Steps 83.8 × Narrow moat 0.85 = 71");
+    expect(rows[5]).toBe("Fundamentals score83.8");
+    expect(screen.getByTestId("score-equation")).toHaveTextContent("Fundamentals 83.8 × Narrow moat 0.85 = 71");
   });
 
-  it("shows the Steps score to one decimal even when it is whole", () => {
+  it("shows the Fundamentals score to one decimal even when it is whole", () => {
     render(<OverallAssessmentView result={result({ score: 90, stepsScore: 90, moatMultiplier: 1, breakdown: STEP_ROWS })} />);
-    expect(screen.getByTestId("score-equation")).toHaveTextContent("Steps 90.0 × Wide moat 1.0 = 90");
+    expect(screen.getByTestId("score-equation")).toHaveTextContent("Fundamentals 90.0 × Wide moat 1.0 = 90");
   });
 
   it("marks an exempt step as not scored and shows the renormalized weights of the others", () => {
@@ -153,7 +153,7 @@ describe("OverallAssessmentView: Moat not rated", () => {
     expect(screen.getByTestId("moat-not-rated-note")).toHaveTextContent("Moat not rated, scored as No moat");
     expect(screen.getByText("Fail", { selector: "span" })).toBeInTheDocument(); // the verdict is read from the score; no neutral pill
     expect(screen.queryByText("Moat not rated", { exact: true })).not.toBeInTheDocument();
-    expect(screen.getByTestId("score-equation")).toHaveTextContent("Steps 80.0 × No moat 0.70 = 56");
+    expect(screen.getByTestId("score-equation")).toHaveTextContent("Fundamentals 80.0 × No moat 0.70 = 56");
   });
 
   it("shows no note for a rated ticker", () => {
@@ -246,7 +246,7 @@ describe("OverallAssessmentView: the collapsible calculation", () => {
     render(<OverallAssessmentView result={result(props)} />);
     const toggle = screen.getByRole("button", { name: /Show calculation/ });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByTestId("score-equation")).toHaveTextContent("Steps 83.8 × Narrow moat 0.85 = 71");
+    expect(screen.getByTestId("score-equation")).toHaveTextContent("Fundamentals 83.8 × Narrow moat 0.85 = 71");
     expect(screen.queryByTestId("score-arithmetic")).not.toBeInTheDocument();
     expect(screen.queryByTestId("weighting-note")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Adjust the weights" })).not.toBeInTheDocument();
@@ -301,13 +301,13 @@ describe("OverallAssessmentView: score colouring in the table", () => {
     expect(screen.getByTestId("score-step1")).toHaveClass("text-caution");
   });
 
-  it("does not colour the weight, points or Steps score cells", () => {
+  it("does not colour the weight, points or Fundamentals score cells", () => {
     render(<OverallAssessmentView result={result({ stepsScore: 77, breakdown: rows4([[60, "Fail"], [72, "Pass"], [80, "Pass"], [95, "Strong Pass"]]) })} />);
     expand();
     const row = within(screen.getByTestId("score-step1").closest("tr") as HTMLElement).getAllByRole("cell");
     expect(row[2].className).not.toMatch(/text-(negative|warn|positive|caution)/);
     expect(row[3].className).not.toMatch(/text-(negative|warn|positive|caution)/);
-    const stepsRow = within(screen.getByText("Steps score").closest("tr") as HTMLElement).getAllByRole("cell");
+    const stepsRow = within(screen.getByText("Fundamentals score").closest("tr") as HTMLElement).getAllByRole("cell");
     for (const cell of stepsRow) expect(cell.className).not.toMatch(/text-(negative|warn|positive|caution)/);
   });
 });

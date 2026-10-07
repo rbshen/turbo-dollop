@@ -8,10 +8,10 @@ calculated completely separately.
 
 ## The Analysis tab: Overall Assessment
 
-The Analysis tab blends four automated checks into a **Steps score**, then applies the manual **Economic Moat** rating as a
+The Analysis tab blends four automated checks into a **Fundamentals score**, then applies the manual **Economic Moat** rating as a
 **multiplier** to give the **Overall Assessment** (redesign of 2026-10-07; docs/decisions.md):
 
-**Overall = Steps score x Moat multiplier**
+**Overall = Fundamentals score x Moat multiplier**
 
 | Card | What it checks |
 |---|---|
@@ -26,7 +26,7 @@ Strong Pass, or occasionally "Pass with caution" — see the [Glossary](glossary
 (below) can sit beside a Pass-family Overall verdict, but it is never a verdict: it does not
 change the number or the verdict.
 
-**The Steps score** is the weighted average of the four checks, rescaled to 100 over the checks that apply to the company. These are
+**The Fundamentals score** is the weighted average of the four checks, rescaled to 100 over the checks that apply to the company. These are
 the **default** weights; all four are adjustable in Settings > Score weighting (see "Adjustable weights" below) and must add up to 100:
 
 | Component | Default weight |
@@ -36,7 +36,7 @@ the **default** weights; all four are adjustable in Settings > Score weighting (
 | Growth Rate | 20% |
 | Profitability | 20% |
 
-**The Moat multiplier** scales the finished Steps score:
+**The Moat multiplier** scales the finished Fundamentals score:
 
 | Moat rating | Multiplier |
 |---|---|
@@ -46,32 +46,32 @@ the **default** weights; all four are adjustable in Settings > Score weighting (
 
 A ticker with no Moat rating is **scored as No moat**: there is no separate "Moat not rated" verdict (retired 2026-10-07). Its verdict is
 read from its Overall score like any other, and the Analysis card and the ticker header show the note "Moat not rated, scored as No
-moat". Because 0.70 x a perfect Steps score of 100 is exactly 70, a No moat or unrated ticker can reach the Pass line only with four
+moat". Because 0.70 x a perfect Fundamentals score of 100 is exactly 70, a No moat or unrated ticker can reach the Pass line only with four
 perfect check scores, which does not happen in practice (the verification after the 2026-10-07 recompute is in docs/decisions.md).
 
-**Worked example.** Financials 84, Growth Rate 84, Profitability 83 and Debt 84 give a Steps score of
+**Worked example.** Financials 84, Growth Rate 84, Profitability 83 and Debt 84 give a Fundamentals score of
 0.30 x 84 + 0.20 x 84 + 0.20 x 83 + 0.30 x 84 = 83.8; for a Narrow Moat ticker at 0.85 that is 83.8 x 0.85 = 71.23, an Overall score of
-**71**. The Analysis card shows exactly this arithmetic, **collapsed by default** (state not persisted) to the one line "Steps 83.8 x Narrow moat 0.85 = 71" with a
-"Show calculation" toggle; expanded it shows a table of each step with its score, weight and points, then the Steps score (one decimal), the result line, and the
+**71**. The Analysis card shows exactly this arithmetic, **collapsed by default** (state not persisted) to the one line "Fundamentals 83.8 x Narrow moat 0.85 = 71" with a
+"Show calculation" toggle; expanded it shows a table of each step with its score, weight and points, then the Fundamentals score (one decimal), the result line, and the
 explanatory paragraph with its links. The Score cells in the table are coloured with the same green / amber / red tones the step pills used (the pills under
-the header were removed 2026-10-07); weights, points and the Steps score are not. The score circle, the verdict, the "N of 4 weighted components" line and the
+the header were removed 2026-10-07); weights, points and the Fundamentals score are not. The score circle, the verdict, the "N of 4 weighted components" line and the
 failing / caution / Review warning lines stay outside the collapsible and are always visible.
 
-**Rounding (decision 2026-10-07).** The Steps score is computed unrounded, multiplied, and the Overall score is rounded **once**, with
-Python `round` (half to even; the app's convention). The Steps score is stored unrounded and shown to one decimal. Rounding the Steps
-score first would sometimes change a verdict (Steps 81.6 x 0.85 = 69.36 reads 69, a Fail; 82 x 0.85 = 69.7 would read 70, a Pass).
+**Rounding (decision 2026-10-07).** The Fundamentals score is computed unrounded, multiplied, and the Overall score is rounded **once**, with
+Python `round` (half to even; the app's convention). The Fundamentals score is stored unrounded and shown to one decimal. Rounding the Fundamentals
+score first would sometimes change a verdict (Fundamentals 81.6 x 0.85 = 69.36 reads 69, a Fail; 82 x 0.85 = 69.7 would read 70, a Pass).
 
 The Overall verdict bands are the shared ones used app-wide: Fail below 70, Pass 70-90, Strong Pass above 90. There is **no cap and no
 hard-fail override**: a hard fail inside a check (Step 2 negative growth, Step 4 negative average ROE or ROIC, a Step 5 limit) still
 reads Fail on that check's own card and still enters the blend only through its score. The Economic Moat is no longer the one
-exception that can pull Overall below 70 by itself: the multiplier is the whole mechanism (a No moat or unrated ticker needs Steps of 100
+exception that can pull Overall below 70 by itself: the multiplier is the whole mechanism (a No moat or unrated ticker needs Fundamentals of 100
 to reach 70). The **Review status** (below) is not an override either.
 
 The defaults reflect two deliberate design choices. Financials and Debt carry the most weight: Financials is the most foundational
 read on the business, and Debt is weighted equally with it (originally lifted above Growth Rate in the 2026-07-31 rebalance, so that a genuine
 debt problem can't be fully diluted away by strength elsewhere; see [Debt](debt.md), and
 docs/archive/claude-md-history-scoring.md for that investigation). And a durable competitive advantage still matters at least as much as
-any single financial metric, but it now acts on the whole result rather than as one 31% slice: a Narrow Moat costs 15% of the Steps
+any single financial metric, but it now acts on the whole result rather than as one 31% slice: a Narrow Moat costs 15% of the Fundamentals
 score by default, a missing or No Moat costs 30%.
 
 **Saved Screener views and the weights.** A saved view stores filters (including Overall score ranges) and a sort, never results. Changing
@@ -103,7 +103,7 @@ the set; its multipliers are `scoring/overall.py` constants plus the one saved N
 
 Whole numbers only. The four Overall weights add up to **100** and each step's own set to 100. Bounds, inclusive: Overall Financials
 10-50, Growth 5-50, Profitability 5-50, Debt 10-50 (a floor of 10 keeps the foundation and the bankruptcy filter from being diluted away; no
-step may exceed half of the Steps score; before 2026-10-07 the cap was 30 so that Moat's 31 stayed the largest weight, a tie that no longer
+step may exceed half of the Fundamentals score; before 2026-10-07 the cap was 30 so that Moat's 31 stayed the largest weight, a tie that no longer
 exists); Step 1 Revenue 20-50, Net Income 10-40, CFO 10-40, Margins 0-25, FCF 0-15; Step 2
 Magnitude 50-100, Agreement 0-50; Step 4 ROE 15-60, ROIC 15-60, AR 0-30, CCC 0-30; Step 5 each 15-60 (default 33/33/34).
 
@@ -120,7 +120,7 @@ and a hard fail still reads Fail. Saving does not rescore anything by itself; th
 recompute (`compute_ticker_score`) re-scores them, and a ticker-header read of a row on an older version re-scores it (cache only).
 
 **Formula version.** `weights_version` cannot see a change of *formula*, so every stored row also carries `TickerScore.formula_version`
-(`scoring/overall.py::SCORE_FORMULA_VERSION`; 1 = the old 69/31 blend, which rows never stored, so NULL; 2 = Steps x multiplier). A row
+(`scoring/overall.py::SCORE_FORMULA_VERSION`; 1 = the old 69/31 blend, which rows never stored, so NULL; 2 = Fundamentals x multiplier). A row
 whose formula version is not the current one is stale: the ticker header re-scores it (cache only, whatever its weights version), and the
 Screener's "N scores are still on the previous weights" note counts it. Bump the constant whenever the Overall arithmetic changes.
 
@@ -167,7 +167,7 @@ to "Pass" text (see [Growth Rate](growth-rate.md)).
 Economic Moat is the one manual, opt-in input. If you haven't set a Moat rating for a ticker yet, it is **scored as No moat**: the
 multiplier is 0.70, exactly as if you had rated it No Moat.
 
-- The Overall score is the Steps score x 0.70, and the verdict is read from that score like any other (there is no separate verdict
+- The Overall score is the Fundamentals score x 0.70, and the verdict is read from that score like any other (there is no separate verdict
   for it). In practice an unrated ticker reads Fail.
 - The Analysis card and the ticker header show the note **"Moat not rated, scored as No moat"** (the header also puts it in the chip's
   tooltip; the Watchlist Analysis pill carries it as its tooltip). The note shows only on a complete assessment.
@@ -194,7 +194,7 @@ only when the stored verdict is Pass, Pass with caution or Strong Pass; a Fail, 
 
 **Gate.** Step 1 (Financials) or Step 5 (Debt) has verdict Fail **and** a score below
 `REVIEW_GATE_SCORE = 50`. A step that is not supported, exempt, insufficient data or errored never gates;
-Steps 2 and 4 never gate.
+Fundamentals 2 and 4 never gate.
 
 **Statuses.** `review_structural` "Review (structural)" (informational, not a Fail); `data_uncertain` "Data
 uncertain"; `review_unclear` "Review (unclear)"; `review_by_design` "Review (by design)". The label is
@@ -217,7 +217,7 @@ guard never hides a structural reading.
 **Two gated steps.** Any unguarded structural gives `review_structural`; else any guarded step gives
 `data_uncertain`; else any unclear gives `review_unclear`; else all by design gives `review_by_design`.
 
-**Conviction** (Pass-family rows, never changes the status): high if Steps 2 and 4 are both Pass or better;
+**Conviction** (Pass-family rows, never changes the status): high if Fundamentals 2 and 4 are both Pass or better;
 low if both fail; otherwise medium.
 
 **Display.** The ticker header chip shows the status label (the verdict word is replaced; the tooltip carries
@@ -252,8 +252,8 @@ depending on why:
   since a partial average built on missing data would be misleading.
 - If a check comes back **not supported** — a structural exemption, such as a Bank ticker
   before its CET1 ratio has been entered, or Insurance for Debt — that one check is simply
-  excluded from the Steps score and the remaining checks are reweighted to add up to 100% again. It does **not** block the
-  rest of Overall Assessment from being computed, and the Moat multiplier is applied to the reweighted Steps score as usual.
+  excluded from the Fundamentals score and the remaining checks are reweighted to add up to 100% again. It does **not** block the
+  rest of Overall Assessment from being computed, and the Moat multiplier is applied to the reweighted Fundamentals score as usual.
 
 See the [Glossary](glossary.md) for how both differ from a genuine Fail, and for the additional
 rule that a **Pass with caution** on any one check carries up into Overall Assessment's own

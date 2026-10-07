@@ -40,12 +40,12 @@ const LABEL_SETS: Record<"full" | "screener", Record<MoatValue, string>> = {
   screener: LABELS_SCREENER,
 };
 
-// Hover text: what the rating does to the Overall score (Overall = Steps score x multiplier). Narrow's factor is a setting, so it is
+// Hover text: what the rating does to the Overall score (Overall = Fundamentals score x multiplier). Narrow's factor is a setting, so it is
 // named rather than quoted.
 const MOAT_TITLE: Record<MoatValue, string> = {
-  wide_moat: "Wide moat: Overall = Steps score × 1.0",
-  narrow_moat: "Narrow moat: Overall = Steps score × the Narrow multiplier (Settings > Economic moat)",
-  no_moat: "No moat: Overall = Steps score × 0.70",
+  wide_moat: "Wide moat: Overall = Fundamentals score × 1.0",
+  narrow_moat: "Narrow moat: Overall = Fundamentals score × the Narrow multiplier (Settings > Economic moat)",
+  no_moat: "No moat: Overall = Fundamentals score × 0.70",
 };
 
 interface Props {

@@ -524,7 +524,7 @@ export function PillReference() {
 
       <Group
         title="Overall Assessment — ring, headline pill and collapsible calculation"
-        note="The ring stroke carries the tone (no fill) and the number stays neutral. Beside it the headline verdict pill. Below, the calculation is collapsed to one line (\u201cSteps 90.6 × Wide moat 1.0 = 91\u201d) with a Show calculation toggle; expanded it shows the table, whose Score cells take the tone of the old breakdown pills (an exempt step reads \u201cnot scored\u201d)."
+        note="The ring stroke carries the tone (no fill) and the number stays neutral. Beside it the headline verdict pill. Below, the calculation is collapsed to one line (\u201cFundamentals 90.6 × Wide moat 1.0 = 91\u201d) with a Show calculation toggle; expanded it shows the table, whose Score cells take the tone of the old breakdown pills (an exempt step reads \u201cnot scored\u201d)."
       >
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center gap-4">

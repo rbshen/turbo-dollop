@@ -181,7 +181,7 @@ function WeightsForm({ data, saver }: { data: ScoreWeightsOut; saver: SettingsSa
   return (
     <SettingsSection
       title="Score weighting"
-      intro="Sets how much each check counts in a ticker's Overall Assessment, and how much each part counts inside each check. The weights are whole numbers and apply to all tickers. The four automated checks add up to 100% and give the Steps score; the Economic moat multiplier (Settings > Economic moat) is then applied to it."
+      intro="Sets how much each check counts in a ticker's Overall Assessment, and how much each part counts inside each check. The weights are whole numbers and apply to all tickers. The four automated checks add up to 100% and give the Fundamentals score; the Economic moat multiplier (Settings > Economic moat) is then applied to it."
     >
       <RecomputeStatusLine />
 

@@ -109,7 +109,7 @@ describe("useOverallAssessment reads the saved weights", () => {
     expect(result.current.score).toBeNull();
   });
 
-  it("blends with the saved set: the defaults give a Steps score of 75 (unrated: x0.70 = 52), a debt-heavy set 68.8 (48)", () => {
+  it("blends with the saved set: the defaults give a Fundamentals score of 75 (unrated: x0.70 = 52), a debt-heavy set 68.8 (48)", () => {
     h.weights = payload(DEFAULT_OVERALL);
     const defaults = renderHook(() => useOverallAssessment("AAPL")).result.current;
     expect([defaults.stepsScore, defaults.score, defaults.moatNote]).toEqual([75, 52, "Moat not rated, scored as No moat"]);

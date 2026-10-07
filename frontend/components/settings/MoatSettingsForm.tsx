@@ -67,20 +67,20 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
   return (
     <SettingsSection
       title="Economic moat multipliers"
-      intro="A ticker's Overall score is its Steps score (the weighted blend of the four checks, set under Score weighting) times a multiplier for its moat rating. Wide moat keeps the Steps score as it is, Narrow moat scales it down by the factor you choose, and No moat scales it to 70%. A ticker with no moat rated is scored as No moat. Saving the Narrow multiplier recomputes all scores."
+      intro="A ticker's Overall score is its Fundamentals score (the weighted blend of the four checks, set under Score weighting) times a multiplier for its moat rating. Wide moat keeps the Fundamentals score as it is, Narrow moat scales it down by the factor you choose, and No moat scales it to 70%. A ticker with no moat rated is scored as No moat. Saving the Narrow multiplier recomputes all scores."
     >
       <RecomputeStatusLine />
       <SettingsGroup>
         <SettingsRow
           label="Wide moat"
-          hint="Fixed at 1.0: a Wide moat leaves the Steps score unchanged."
+          hint="Fixed at 1.0: a Wide moat leaves the Fundamentals score unchanged."
           htmlFor="wide-moat-multiplier"
         >
           <NumberField id="wide-moat-multiplier" value="1.0" onChange={() => {}} size="short" readOnly disabled />
         </SettingsRow>
         <SettingsRow
           label="Narrow moat"
-          hint="Multiplies the Steps score of a Narrow moat ticker. The default is 0.85."
+          hint="Multiplies the Fundamentals score of a Narrow moat ticker. The default is 0.85."
           htmlFor="narrow-moat-multiplier"
         >
           <Select size="short" value={narrow} onChange={(e) => setNarrow(e.target.value)}>
@@ -93,7 +93,7 @@ function MoatScoreForm({ data, saver }: { data: MoatScoreConfigOut; saver: Setti
         </SettingsRow>
         <SettingsRow
           label="No moat / not rated"
-          hint="Fixed at 0.70: a No moat rating, or a ticker with no moat rated, scales the Steps score to 70%. It cannot be changed."
+          hint="Fixed at 0.70: a No moat rating, or a ticker with no moat rated, scales the Fundamentals score to 70%. It cannot be changed."
           htmlFor="no-moat-multiplier"
         >
           <NumberField id="no-moat-multiplier" value={fmt(data.no_moat_multiplier)} onChange={() => {}} size="short" readOnly disabled />

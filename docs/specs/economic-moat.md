@@ -23,7 +23,7 @@ pick. It's entirely your own qualitative assessment of the business.
 ## Why it matters this much
 
 Economic Moat is a **multiplier on the Overall score**, not a component of the blend (redesign of 2026-10-07; docs/decisions.md).
-The four automated checks combine into a Steps score; the Overall Assessment is that Steps score times the Moat multiplier:
+The four automated checks combine into a Fundamentals score; the Overall Assessment is that Fundamentals score times the Moat multiplier:
 
 | Rating | Multiplier |
 |---|---|
@@ -32,8 +32,8 @@ The four automated checks combine into a Steps score; the Overall Assessment is 
 | No Moat, or not rated | 0.70 (fixed) |
 
 This is a deliberate design choice: a durable competitive advantage is treated as at least as important to a company's long-term
-investment case as any one quarter's worth of financial performance, so it acts on the whole result. A Wide Moat leaves the Steps
-score as it is, a Narrow Moat takes 15% off by default, and a missing or No Moat takes 30% off. For example, Steps 83.8 x Narrow 0.85 =
+investment case as any one quarter's worth of financial performance, so it acts on the whole result. A Wide Moat leaves the Fundamentals
+score as it is, a Narrow Moat takes 15% off by default, and a missing or No Moat takes 30% off. For example, Fundamentals 83.8 x Narrow 0.85 =
 71 (the Analysis card shows this arithmetic in a collapsible "Show calculation" section).
 
 **Not rated is not neutral.** A ticker with no rating is **scored as No moat** (multiplier 0.70) and the Analysis card and the ticker
@@ -72,20 +72,20 @@ job has re-scored the rows.
 
 ### How it enters the Overall Assessment
 
-Overall = round(Steps score x multiplier), the Steps score being the unrounded weighted average of the four checks (see [Overview](overview.md)).
-The ticker's stored row keeps the Steps score (`TickerScore.steps_score`, unrounded) and the multiplier applied
+Overall = round(Fundamentals score x multiplier), the Fundamentals score being the unrounded weighted average of the four checks (see [Overview](overview.md)).
+The ticker's stored row keeps the Fundamentals score (`TickerScore.steps_score`, unrounded) and the multiplier applied
 (`TickerScore.moat_multiplier`) beside `overall_score`. Moat has no row in the Analysis card's breakdown any more; the arithmetic block shows the
 multiplication instead.
 
-A missing/incomplete four-check blend is never rescued by a present Moat rating — if the four checks can't produce a confident Steps
+A missing/incomplete four-check blend is never rescued by a present Moat rating — if the four checks can't produce a confident Fundamentals
 score, the whole Overall Assessment stays incomplete (no score, no verdict, no "not rated" note); Moat is not a substitute for missing
-step data. A check that is "not supported" (Banks without CET1, Insurance for Debt) is excluded from the Steps score and the others
+step data. A check that is "not supported" (Banks without CET1, Insurance for Debt) is excluded from the Fundamentals score and the others
 reweighted; the multiplier then applies to that reweighted score.
 
 ### Why a No moat ticker cannot pass in practice
 
 0.70 x 100 = 70. A No moat or unrated ticker therefore reaches the Pass line (70) only when all four checks score a perfect 100, which no
-ticker does (in the 2026-10-07 investigation the best Steps score among No moat tickers was 91, giving 64, and every unrated ticker was at 69 or below). Unlike the old
+ticker does (in the 2026-10-07 investigation the best Fundamentals score among No moat tickers was 91, giving 64, and every unrated ticker was at 69 or below). Unlike the old
 points model, there is no points setting to raise: the 0.70 is fixed so that this holds by construction.
 
 ### Unset vs. explicit "No Moat"

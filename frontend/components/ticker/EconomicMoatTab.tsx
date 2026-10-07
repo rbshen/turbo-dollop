@@ -85,7 +85,7 @@ function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut })
       <div>
         <h2 className="font-heading text-sm font-semibold text-text-primary">Economic moat</h2>
         <p className="mt-1 text-sm text-text-secondary">
-          A manually-set classification, not computed from data. It is not a part of the score: it multiplies the Steps score
+          A manually-set classification, not computed from data. It is not a part of the score: it multiplies the Fundamentals score
           (the weighted blend of Financials / Growth Rate / Profitability / Debt) to give the Overall score. {multiplierSentence}{" "}
           A ticker with no moat rated is scored as No moat. The weights are adjustable in{" "}
           <Link href="/settings?section=score-weighting" className="underline underline-offset-2 hover:text-text-primary">

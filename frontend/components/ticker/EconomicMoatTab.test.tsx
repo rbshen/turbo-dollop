@@ -44,10 +44,10 @@ describe("EconomicMoatTab: the headings", () => {
 });
 
 describe("EconomicMoatTab: the multiplier copy", () => {
-  it("says Moat is a multiplier on the Steps score, quotes the saved multipliers, and links to both Settings sections", () => {
+  it("says Moat is a multiplier on the Fundamentals score, quotes the saved multipliers, and links to both Settings sections", () => {
     render(<EconomicMoatTab ticker="AAPL" />);
     const text = document.body.textContent ?? "";
-    expect(text).toContain("It is not a part of the score: it multiplies the Steps score");
+    expect(text).toContain("It is not a part of the score: it multiplies the Fundamentals score");
     expect(text).toContain("Wide moat × 1.0, Narrow moat × 0.87, No moat × 0.70.");
     expect(text).toContain("A ticker with no moat rated is scored as No moat.");
     expect(text).not.toMatch(/31%|69%/);
