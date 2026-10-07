@@ -27,7 +27,7 @@ TODAY_YEAR = date.today().year
 
 PROFILE_STANDARD = [{"companyName": "Acme Corp", "sector": "Technology", "industry": "Software - Application"}]
 PROFILE_BANK = [{"companyName": "Acme Bank", "sector": "Financial Services", "industry": "Banks - Regional"}]
-PROFILE_COMMODITY = [{"companyName": "Acme Materials", "sector": "Energy", "industry": "Oil & Gas E&P"}]
+PROFILE_COMMODITY = [{"companyName": "Acme Materials", "sector": "Energy", "industry": "Oil & Gas Exploration & Production"}]
 
 INCOME_ANNUAL = [
     {
@@ -247,6 +247,21 @@ def test_standard_ticker_with_weak_growth_does_not_qualify(monkeypatch):
     assert result.qualifies is False
     assert result.moat == "wide_moat"
     assert result.growth_rate_pct is not None and result.growth_rate_pct <= 15.0
+
+
+PROFILE_ENERGY_NOT_COMMODITY = [{"companyName": "Acme Pipelines", "sector": "Energy", "industry": "Oil & Gas Midstream"}]
+
+
+def test_energy_company_outside_the_producer_allowlist_is_not_exempt_from_the_speculative_growth_gate(monkeypatch):
+    # Midstream is Standard in Step 1 since the 2026-10-07 industry allowlist, so Speculative Growth no longer short-circuits on the
+    # exemption: the gate runs (and company_type is the Standard path's, not "Commodity Company").
+    engine = _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch, PROFILE_ENERGY_NOT_COMMODITY, estimates=ESTIMATES_STRONG_GROWTH)
+    _set_moat(engine, "TEST", "narrow_moat")
+
+    result = asyncio.run(get_speculative_growth_data("TEST"))
+
+    assert result.company_type != "Commodity Company"
 
 
 def test_commodity_company_excluded_even_though_shared_classifier_says_standard(monkeypatch):

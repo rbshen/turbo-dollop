@@ -37,13 +37,50 @@ from helpers.ttm import sum_last_four_quarters
 # deviations for the full investigation.
 MARGINS_EXEMPT_TYPES = {"Bank"}
 
-# Commodity Company is detected by profile sector text alone (Basic Materials/Energy), so a ticker FMP files under the wrong sector
-# gets the CFO/FCF exemption it should not have. Same pattern as scoring/classification.py::NON_LENDER_TICKER_OVERRIDES: a small,
-# hand-verified, ticker-keyed set (it does not depend on the cached profile, so a profile refresh cannot undo it, and it does not
-# change the displayed sector). JCI (Johnson Controls) and MAS (Masco) are industrials (S&P 500 sector Industrials) but FMP labels
-# both "Basic Materials / Construction Materials" (2026-10-07). Listed ones are scored as Standard in Step 1: CFO and FCF scored,
-# standard weights. See docs/specs/company-type-variations.md and docs/decisions.md 2026-10-07.
+# Commodity Company (CFO and FCF skipped) is a price-taking producer or extractor: the profile sector is Basic Materials or Energy AND
+# the FMP industry is one of these. The rule is deliberately narrow: a company that merely sits in one of the two sectors (specialty
+# and industrial chemicals, construction materials, oilfield services, midstream pipelines, solar) sells at contract or list prices and
+# is scored as Standard, CFO and FCF included. The list includes producer labels FMP uses that no scored ticker has today (aluminum,
+# silver, other metals, coal) so a future ticker is handled. Matched exactly (after stripping), FMP's own spelling. A ticker in the two
+# sectors with NO industry on its cached profile stays Commodity (the pre-2026-10-07 behaviour), so nothing changes silently.
+# See docs/specs/company-type-variations.md and docs/decisions.md 2026-10-07 (Commodity exemption: industry allowlist).
+COMMODITY_SECTORS = frozenset({"Basic Materials", "Energy"})
+COMMODITY_PRODUCER_INDUSTRIES = frozenset(
+    {
+        "Oil & Gas Exploration & Production",
+        "Oil & Gas Integrated",
+        "Oil & Gas Refining & Marketing",
+        "Agricultural Inputs",
+        "Uranium",
+        "Copper",
+        "Gold",
+        "Steel",
+        "Paper, Lumber & Forest Products",
+        "Aluminum",
+        "Silver",
+        "Other Industrial Metals & Mining",
+        "Other Precious Metals & Mining",
+        "Coal",
+        "Thermal Coal",
+        "Coking Coal",
+    }
+)
+
+# A ticker FMP files under the wrong sector (JCI, MAS: "Basic Materials / Construction Materials", both S&P 500 Industrials) is scored
+# as Standard whatever the industry rule says. Same pattern as scoring/classification.py::NON_LENDER_TICKER_OVERRIDES: a small,
+# hand-verified, ticker-keyed set that does not depend on the cached profile. Since the industry allowlist above, Construction
+# Materials is no longer Commodity, so these two are redundant; kept so a relabel by FMP into a producer industry cannot flip them.
 COMMODITY_EXEMPTION_TICKER_OVERRIDES = {"JCI", "MAS"}
+
+
+def _is_commodity_company(sector: str, industry: str | None, ticker: str | None) -> bool:
+    """The Step 1 Commodity Company rule: sector Basic Materials/Energy, industry on the producer allowlist (or missing)."""
+    if sector not in COMMODITY_SECTORS:
+        return False
+    if ticker and ticker.upper() in COMMODITY_EXEMPTION_TICKER_OVERRIDES:
+        return False
+    industry = (industry or "").strip()
+    return not industry or industry in COMMODITY_PRODUCER_INDUSTRIES
 
 
 def _detect_exemption(
@@ -72,7 +109,7 @@ def _detect_exemption(
         return shared_type
     if shared_type == "REIT/Property Developer":
         return "Property Developer"
-    if sector in {"Basic Materials", "Energy"} and not (ticker and ticker.upper() in COMMODITY_EXEMPTION_TICKER_OVERRIDES):
+    if _is_commodity_company(sector, industry, ticker):
         return "Commodity Company"
     return None
 

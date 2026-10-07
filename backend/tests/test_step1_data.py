@@ -259,7 +259,7 @@ def test_property_developer_and_commodity_company_also_keep_margins_scored(monke
     # Banks' universal one and wasn't in scope for this fix).
     for sector, industry, expected_reason in [
         ("Real Estate", "REIT - Residential", "Property Developer"),
-        ("Basic Materials", "Chemicals - Specialty", "Commodity Company"),
+        ("Basic Materials", "Copper", "Commodity Company"),
     ]:
         test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
         SQLModel.metadata.create_all(test_engine)
@@ -286,12 +286,13 @@ def test_property_developer_and_commodity_company_also_keep_margins_scored(monke
 def test_commodity_override_scores_jci_and_mas_as_standard_while_real_commodity_names_stay_exempt(monkeypatch):
     # FMP files JCI (Johnson Controls) and MAS (Masco) under "Basic Materials / Construction Materials"; they are industrials, so
     # COMMODITY_EXEMPTION_TICKER_OVERRIDES keeps them off the CFO/FCF exemption. LIN and XOM carry the same kind of sector text and are
-    # genuine commodity companies: still exempt.
+    # carry a Basic Materials/Energy sector; since the industry allowlist (2026-10-07) LIN (industrial gases) is Standard on its own and
+    # only XOM (a producer) is still exempt.
     assert step1_data.COMMODITY_EXEMPTION_TICKER_OVERRIDES == {"JCI", "MAS"}
     cases = [
         ("JCI", "Basic Materials", "Construction Materials", None),
         ("MAS", "Basic Materials", "Construction Materials", None),
-        ("LIN", "Basic Materials", "Chemicals - Specialty", "Commodity Company"),
+        ("LIN", "Basic Materials", "Chemicals - Specialty", None),
         ("XOM", "Energy", "Oil & Gas Integrated", "Commodity Company"),
     ]
     for ticker, sector, industry, expected_reason in cases:
@@ -309,6 +310,98 @@ def test_commodity_override_scores_jci_and_mas_as_standard_while_real_commodity_
             assert result.weights["cfo"] == pytest.approx(0.30)
             assert result.weights["fcf"] == pytest.approx(0.05)
             assert result.weights["revenue"] == pytest.approx(0.35)
+        else:
+            assert result.components["cfo"] is None
+            assert result.components["fcf"] is None
+            assert result.weights["cfo"] == 0
+
+
+@pytest.mark.parametrize(
+    "sector, industry",
+    [
+        ("Energy", "Oil & Gas Exploration & Production"),
+        ("Energy", "Oil & Gas Integrated"),
+        ("Energy", "Oil & Gas Refining & Marketing"),
+        ("Basic Materials", "Agricultural Inputs"),
+        ("Energy", "Uranium"),
+        ("Basic Materials", "Copper"),
+        ("Basic Materials", "Gold"),
+        ("Basic Materials", "Steel"),
+        ("Basic Materials", "Paper, Lumber & Forest Products"),
+        # Producer labels FMP uses that no scored ticker has today.
+        ("Basic Materials", "Aluminum"),
+        ("Basic Materials", "Silver"),
+        ("Basic Materials", "Other Industrial Metals & Mining"),
+        ("Basic Materials", "Other Precious Metals & Mining"),
+        ("Energy", "Coal"),
+        ("Energy", "Thermal Coal"),
+        ("Energy", "Coking Coal"),
+    ],
+)
+def test_every_commodity_allowlist_industry_is_a_commodity_company(sector, industry):
+    assert industry in step1_data.COMMODITY_PRODUCER_INDUSTRIES
+    assert step1_data._detect_exemption(sector, industry, "TEST") == "Commodity Company"
+
+
+@pytest.mark.parametrize(
+    "sector, industry",
+    [
+        ("Basic Materials", "Chemicals"),
+        ("Basic Materials", "Chemicals - Specialty"),
+        ("Basic Materials", "Construction Materials"),
+        ("Energy", "Oil & Gas Equipment & Services"),
+        ("Energy", "Oil & Gas Midstream"),
+        ("Energy", "Solar"),
+        # An industry the allowlist has never heard of is Standard, not Commodity.
+        ("Basic Materials", "Some Future Industry"),
+        ("Energy", "Oil & Gas E&P"),
+    ],
+)
+def test_basic_materials_and_energy_tickers_outside_the_allowlist_are_standard(sector, industry):
+    assert step1_data._detect_exemption(sector, industry, "TEST") is None
+
+
+def test_allowlist_needs_the_sector_too_and_only_exact_labels_match():
+    # The industry alone is not enough: the sector gate comes first.
+    assert step1_data._detect_exemption("Industrials", "Steel", "TEST") is None
+    assert step1_data._detect_exemption("Consumer Defensive", "Agricultural Farm Products", "TEST") is None
+    # Whitespace around FMP's label is tolerated; a different spelling is not a match.
+    assert step1_data._detect_exemption("Basic Materials", "  Gold ", "TEST") == "Commodity Company"
+    assert step1_data._detect_exemption("Basic Materials", "Gold Mining", "TEST") is None
+
+
+@pytest.mark.parametrize("industry", [None, "", "   "])
+def test_missing_industry_in_the_two_sectors_stays_commodity_as_before(industry):
+    for sector in ("Basic Materials", "Energy"):
+        assert step1_data._detect_exemption(sector, industry, "TEST") == "Commodity Company"
+    # A missing industry outside the two sectors is nothing special.
+    assert step1_data._detect_exemption("Technology", industry, "TEST") is None
+
+
+def test_jci_and_mas_stay_standard_whatever_the_industry_rule_says():
+    for ticker in ("JCI", "MAS", "jci"):
+        for industry in ("Construction Materials", "Steel", None):
+            assert step1_data._detect_exemption("Basic Materials", industry, ticker) is None, (ticker, industry)
+
+
+def test_unlisted_industry_is_scored_with_the_standard_weights_and_missing_industry_with_the_exempt_ones(monkeypatch):
+    cases = [
+        ("Basic Materials", "Chemicals - Specialty", None),
+        ("Energy", "Oil & Gas Midstream", None),
+        ("Basic Materials", None, "Commodity Company"),
+    ]
+    for sector, industry, expected_reason in cases:
+        _fresh_engine(monkeypatch)
+        call_count = {"profile": 0, "income_annual": 0, "income_quarter": 0, "cash_flow_annual": 0, "cash_flow_quarter": 0}
+        _patch_fmp(monkeypatch, call_count, sector=sector, industry=industry)
+
+        result = asyncio.run(get_step1_data("TEST"))
+
+        assert result.cfo_exempt_reason == expected_reason, (sector, industry)
+        if expected_reason is None:
+            assert result.components["cfo"] is not None
+            assert result.components["fcf"] is not None
+            assert result.weights["cfo"] > 0
         else:
             assert result.components["cfo"] is None
             assert result.components["fcf"] is None
