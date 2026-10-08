@@ -1,7 +1,6 @@
 "use client";
 
 import { TrendCardsGrid, type TrendCard } from "@/components/charts/TrendCardsGrid";
-import { useStep1 } from "@/lib/hooks/useStep1";
 import { useStep4 } from "@/lib/hooks/useStep4";
 import { useStep5 } from "@/lib/hooks/useStep5";
 import { useFinancials } from "@/lib/hooks/useFinancials";
@@ -42,16 +41,14 @@ function shortYearLabel(period: string): string {
 }
 
 export function HistoricalTrendsGrid({ ticker }: Props) {
-  const step1 = useStep1(ticker);
   const step4 = useStep4(ticker);
   const step5 = useStep5(ticker);
   const financials = useFinancials(ticker);
 
-  if (!step1.data || !step4.data || !step5.data || !financials.data) {
+  if (!step4.data || !step5.data || !financials.data) {
     return <div className="h-24 animate-pulse rounded-lg border border-border-card bg-surface-2" />;
   }
 
-  const s1 = step1.data;
   const s4 = step4.data;
   const s5 = step5.data;
   const fin = financials.data;
@@ -135,13 +132,10 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
     },
     {
       key: "revenue",
-      // Value comes from the data-fetching pipeline; the Bank-aware
-      // "Net Interest Income" vs "Revenue" label choice stays Step1's own
-      // (see s1.revenue_label's own docs) -- FinancialsOut has no notion
-      // of company-type-driven relabeling, it's a Step1-scoring concept.
-      label: s1.revenue_label,
+      // Real revenue for every company type (Banks included; the Net Interest Income substitution was removed 2026-10-08).
+      label: "Revenue",
       years: incYears,
-      values: financialsValues(fin.income_statement.annual, s1.revenue_label === "Revenue" ? "Revenue" : "Net Interest Income"),
+      values: financialsValues(fin.income_statement.annual, "Revenue"),
       format: fmtTableMoney,
       tooltipFormat: tooltipMoney,
     },

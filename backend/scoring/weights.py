@@ -123,15 +123,18 @@ def overall_fractions(weights: OverallWeights) -> dict[str, float]:
 def step1_tables(
     weights: Step1Weights,
 ) -> tuple[dict[str, float] | None, dict[str, float] | None, dict[str, float] | None]:
-    """(standard, CFO/FCF-exempt, Bank) weight tables for Step 1, derived from one base set by the same procedures the
-    scorer always used. Each is None when it cannot be built (a zero total), which the scorer reads as insufficient data.
+    """(standard, CFO/FCF-exempt, Revenue/Net-Income-only) weight tables for Step 1, derived from one base set by the same
+    procedures the scorer always used. Each is None when it cannot be built (a zero total), which the scorer reads as insufficient data.
 
-    - standard: the base set as shares of its total.
-    - CFO/FCF-exempt (Bank, Insurance, REIT/Property Developer, Commodity Company): CFO's and FCF's combined weight is
-      split EQUALLY across Revenue, Net Income and Margins. A target whose own weight is 0 is not counted in the blend and
-      gets no share (Margins at 0 stays 0).
-    - Bank: Margins is also dropped; its weight is spread PROPORTIONALLY over Revenue and Net Income (28/47 and 19/47 at the
-      defaults), not split equally and not returned to the standard ratio."""
+    - standard (Standard, Utility): the base set as shares of its total.
+    - CFO/FCF-exempt: CFO's and FCF's combined weight is split EQUALLY across Revenue, Net Income and Margins. A target whose
+      own weight is 0 is not counted in the blend and gets no share (Margins at 0 stays 0). Since 2026-10-08 no company type uses
+      this table (every exempt type also skips Margins); it is the intermediate step of the third table and stays for a caller
+      that exempts CFO alone.
+    - Revenue/Net-Income-only (the third value, named `bank` below; used by Bank, Insurance, REIT/Property Developer and Commodity
+      Company since 2026-10-08): Margins is also dropped; its weight is spread PROPORTIONALLY over Revenue and Net Income
+      (28/47 and 19/47 at the defaults), not split equally and not returned to the standard ratio. It is always derived from
+      whatever base set is passed, so saved weights get it too."""
     base = as_dict(weights)
     standard = normalize(base, base)
     if standard is None:

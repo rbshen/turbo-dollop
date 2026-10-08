@@ -470,12 +470,15 @@ def score_debt_servicing(value_pct: float, icr_is_safe: bool) -> RatioResult:
 
 
 def score_gearing(value_pct: float) -> RatioResult:
+    """REIT / Property Developer gearing tiers. Under 45% passes: the 40-45% band scores 70, the lowest passing score (it was 60,
+    which the shared 70 floor read as a Fail, so a REIT at 42% failed despite being under the limit; changed 2026-10-08,
+    docs/decisions.md). Above 45% is the hard fail; 45.0 itself stays in the 40-45% tier."""
     if value_pct < 30.0:
         return RatioResult("excellent", 100, False)
     if value_pct <= 40.0:
         return RatioResult("good", 85, False)
     if value_pct <= 45.0:
-        return RatioResult("approaching_limit", 60, False)
+        return RatioResult("approaching_limit", 70, False)
     return RatioResult("fail", 0, True)
 
 

@@ -56,8 +56,7 @@ function tierClass(score: number): string {
   return "text-text-primary";
 }
 
-function metricLabel(key: string, data: Step1Out): string {
-  if (key === "revenue") return data.revenue_label;
+function metricLabel(key: string): string {
   return STATIC_METRIC_LABELS[key] ?? key;
 }
 
@@ -89,10 +88,9 @@ function verdictSentence(componentRows: { label: string; score: number }[], verd
 
 // Built from whichever of {cfo, fcf, margins} actually come back null in
 // `data.components`, rather than a fixed "Cash Flow and Free Cash Flow"
-// string -- Banks (2026-09-10) exclude Margins too, on top of CFO/FCF, so
-// this needs to read correctly for 2 items (every other exempt type:
-// Insurance, Property Developer, Commodity Company) and 3 (Banks) alike,
-// including the isn't/aren't agreement.
+// string -- every exempt type (Bank, Insurance, Property Developer, Commodity Company) excludes
+// CFO, FCF and Margins since 2026-10-08, but the list stays derived so it reads correctly for any
+// count, including the isn't/aren't agreement.
 export function exemptionNote(data: Step1Out): string | null {
   if (!data.cfo_exempt_reason) return null;
   const excluded = METRIC_ORDER.filter((key) => key in EXEMPTION_NOTE_METRIC_LABELS)
@@ -156,7 +154,7 @@ export function Step1Card({ ticker }: Props) {
     if (!component) return null;
     return {
       key,
-      label: metricLabel(key, data),
+      label: metricLabel(key),
       tierLabel: TIER_LABELS[component.pattern] ?? component.pattern,
       score: component.score,
     };

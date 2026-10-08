@@ -11,7 +11,6 @@ function makeStep1Out(overrides: Partial<Step1Out>): Step1Out {
     ticker: "TEST",
     years: ["2025", "TTM"],
     revenue: [100, 110],
-    revenue_label: "Revenue",
     net_income: [10, 11],
     operating_income: [10, 11],
     cfo: null,

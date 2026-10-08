@@ -13,13 +13,12 @@ from scoring.weights import DEFAULT_WEIGHTS, Step1Weights, step1_tables
 # the Net Income Operating Income backup, the Margins combination and carve-out, the CFO/FCF and Margins exemptions, the blend and the
 # thin-history cap.
 #
-# The weight tables are not constants: score_step1 takes a Step1Weights (scoring/weights.py, default DEFAULT_WEIGHTS) and derives the
-# three tables below from it with scoring/weights.py::step1_tables (CFO-exempt: CFO+FCF split equally over Revenue/Net Income/Margins;
-# Bank: Margins also dropped and its weight spread proportionally over Revenue/Net Income, 28/47 and 19/47 at the defaults). The three
-# names below are the DEFAULT tables, kept for readers and tests.
-# Banks (2026-09-10): Margins is excluded on top of CFO/FCF -- `grossProfit`/`revenue` isn't a coherent concept for a lending
-# institution (an FMP data-methodology break confirmed across all 28 Bank tickers with margin data); Insurance/Property
-# Developer/Commodity Company stay on the CFO-exempt table. See docs/specs/financials.md.
+# The weight tables are not constants: score_step1 takes a Step1Weights (scoring/weights.py, default DEFAULT_WEIGHTS.step1) and derives the
+# three tables below from it with scoring/weights.py::step1_tables. Since 2026-10-08 (docs/decisions.md) every exempt type (Bank,
+# Insurance, REIT/Property Developer, Commodity Company) skips CFO, FCF AND Margins and is blended on the third table alone: CFO/FCF/
+# Margins weight spread proportionally over Revenue and Net Income (the "Bank" table, 59.57 / 40.43 at the defaults). The middle table
+# (CFO-exempt, Margins kept) is no longer reached by any company type; it stays only for a direct caller that exempts CFO alone.
+# The three names below are the DEFAULT tables, kept for readers and tests.
 WEIGHTS_STANDARD, WEIGHTS_CFO_EXEMPT, WEIGHTS_CFO_MARGINS_EXEMPT = step1_tables(DEFAULT_WEIGHTS.step1)
 
 # --- Net Income Operating Income backup (a wrapper, unchanged except that it reads completed fiscal years, not TTM) ---------------
@@ -49,7 +48,7 @@ NOT_YET_POSITIVE_SCORE = 0  # kept as the fallback when no revenue scale is avai
 # A currently-non-positive value used to score a flat 0 regardless of depth -- a company one dollar from breakeven scored identically
 # to one deep in genuine structural loss. Points graduate from NOT_YET_POSITIVE_CEILING_SCORE (15) at 0% margin down to 0 at
 # NOT_YET_POSITIVE_FLOOR_MARGIN (-20%, chosen from the real distribution of hits, not guessed). Margin is measured against REAL
-# revenue (the same `margin_context_revenue` the margins use, not the Bank Net-Interest-Income "revenue") -- passed in by the caller.
+# revenue (the Revenue series itself, real revenue for every company type since the Net-Interest-Income substitution was removed).
 # Revenue's own not_yet_positive case (vanishingly rare) has nothing to normalize against and stays a flat 0.
 NOT_YET_POSITIVE_CEILING_SCORE = 15
 NOT_YET_POSITIVE_FLOOR_MARGIN = -20.0
@@ -75,10 +74,10 @@ def _classify_positive_trend(values: list[float], revenue_for_scale: list[float]
 
 
 # --- Margins: min(G, max(N, O)) ----------------------------------------------------------------------------------------------------
-# Insurance / REIT-Property-Developer / Utility: a margin series labelled `decline` / `decline_dips` is never scored below this
-# (applied per series, after the engine's positivity ceiling and before the combination). Their margins carry structurally noisier
-# severity than a typical company's.
-MARGINS_SEVERITY_CARVEOUT_TYPES = {"Insurance", "REIT/Property Developer", "Utility"}
+# Utility: a margin series labelled `decline` / `decline_dips` is never scored below this (applied per series, after the engine's
+# positivity ceiling and before the combination). Its margins carry structurally noisier severity than a typical company's. Insurance
+# and REIT/Property Developer had it too until 2026-10-08, when they stopped scoring Margins at all.
+MARGINS_SEVERITY_CARVEOUT_TYPES = {"Utility"}
 MARGINS_CARVEOUT_FLOOR = 60
 
 VERDICT_BANDS = [
@@ -187,7 +186,6 @@ def score_step1(
     net_margin: list[float],
     cfo_exempt: bool,
     fcf: list[float] | None = None,
-    margin_context_revenue: list[float] | None = None,
     margins_exempt: bool = False,
     margins_severity_carveout: bool = False,
     latest_revenue: float | None | object = _LATEST_FROM_SERIES,
@@ -198,26 +196,22 @@ def score_step1(
     """Pure scoring function per docs/specs/financials.md: takes parsed metric series (chronological, oldest -> latest COMPLETED
     fiscal year; no TTM point, no missing values) and returns {score, verdict, components}. No I/O, no FMP/DB dependency.
 
-    `margin_context_revenue` is real revenue for Bank tickers, where `revenue` is actually Net Interest Income (see
-    step1_data.py): it scales the `not_yet_positive` graduation and is the revenue of the Operating Income backup's margin gate.
-    Defaults to `revenue` itself for every other company type.
-
     `operating_margin` is the operating-income-over-revenue series (percent); None or too short is a missing input of the Margins
     combination (it drops out).
 
-    `margins_exempt` (Banks only -- see MARGINS_EXEMPT_TYPES in step1_data.py) skips Margins entirely, same mechanism as
-    `cfo_exempt` skipping CFO/FCF -- `components["margins"]` comes back `None` and the Bank weight table is used.
+    `margins_exempt` (Bank / Insurance / Property Developer / Commodity Company -- see MARGINS_EXEMPT_TYPES in step1_data.py) skips
+    Margins entirely, same mechanism as `cfo_exempt` skipping CFO/FCF -- `components["margins"]` comes back `None` and the
+    Revenue / Net Income table is used.
 
-    `margins_severity_carveout` (Insurance / REIT-Property-Developer / Utility -- see MARGINS_SEVERITY_CARVEOUT_TYPES) keeps a
-    declining margin series at 60 or above.
+    `margins_severity_carveout` (Utility -- see MARGINS_SEVERITY_CARVEOUT_TYPES) keeps a declining margin series at 60 or above.
 
     `weights` is the Step 1 weight set (default DEFAULT_WEIGHTS.step1); a component weighted 0 is not counted in the blend, but
     its data-gap check below still runs (a missing input can still null the step).
 
     `latest_revenue` / `latest_operating_income` feed the Operating-Income backup's gates: the last completed fiscal year's REAL
-    revenue (even for Banks) and Operating Income. `None` means "missing" (the gate fails, no lift); omitted, they default to the
+    revenue and Operating Income. `None` means "missing" (the gate fails, no lift); omitted, they default to the
     last point of the (cleaned) series passed in -- a convenience for direct scoring-function callers."""
-    growth_reference = margin_context_revenue if margin_context_revenue is not None else revenue
+    growth_reference = revenue  # real revenue for every company type: scales the not_yet_positive graduation and the OI backup's margin gate
 
     revenue_result = _classify_positive_trend(revenue)
     net_income_pos_result = _classify_positive_trend(net_income, growth_reference)
@@ -286,7 +280,7 @@ def score_step1(
     cfo_fcf_applicable = not (cfo_exempt or cfo is None)
     cfo_insufficient = cfo_fcf_applicable and cfo_result.pattern == INSUFFICIENT
     fcf_insufficient = cfo_fcf_applicable and fcf_result is not None and fcf_result.pattern == INSUFFICIENT
-    # Same "an exemption is not a gap" reasoning -- margins_exempt Banks have no Margins result to check.
+    # Same "an exemption is not a gap" reasoning -- margins_exempt types have no Margins result to check.
     margins_insufficient = not margins_exempt and margin_result.pattern == INSUFFICIENT
 
     if (

@@ -235,12 +235,6 @@ class Step1Out(BaseModel):
     ticker: str
     years: list[str]
     revenue: list[float | None]
-    # "Revenue" for every company type except Bank, where it's "Net Interest
-    # Income" (revenue's own field mixes interest and non-interest income in
-    # a way that obscures the core lending-spread trend for banks). Never
-    # silently substituted under the old label -- always shown alongside
-    # this field.
-    revenue_label: str = "Revenue"
     net_income: list[float | None]
     operating_income: list[float | None]
     # Real values always populate here, even for a CFO-exempt ticker (bank /
@@ -268,8 +262,8 @@ class Step1Out(BaseModel):
     # when required figures are missing.
     verdict: str
     components: dict = {}
-    # Weight each component contributed to `score` -- WEIGHTS_STANDARD or
-    # WEIGHTS_CFO_EXEMPT from scoring/step1.py, keyed the same as `components`.
+    # Weight each component contributed to `score` -- the Standard table or, for the exempt types (Bank / Insurance / Property
+    # Developer / Commodity Company), the Revenue / Net Income table from scoring/step1.py, keyed the same as `components`.
     weights: dict[str, float]
     # Same convention as Step5Out/TickerSummaryOut below -- informational
     # only, never changes revenue/net_income/cfo/fcf or the score/verdict

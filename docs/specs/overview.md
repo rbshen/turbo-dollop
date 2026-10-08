@@ -15,7 +15,7 @@ The Analysis tab blends four automated checks into a **Fundamentals score**, the
 
 | Card | What it checks |
 |---|---|
-| **Financials** | Revenue, Net Income, Cash From Operations, Margins, and Free Cash Flow — see [Financials](financials.md) |
+| **Financials** | Revenue, Net Income, Cash From Operations, Margins, and Free Cash Flow (Banks, Insurance, REITs and Commodity companies: Revenue and Net Income only) — see [Financials](financials.md) |
 | **Growth Rate** | Forward analyst growth expectations — see [Growth Rate](growth-rate.md) |
 | **Profitability** | Return on Equity, Return on Invested Capital, Accounts Receivable trend, and Cash Conversion Cycle — see [Profitability](profitability.md) |
 | **Debt** | Short-term liquidity, leverage, and debt service burden — see [Debt](debt.md) |
@@ -35,6 +35,10 @@ the **default** weights; all four are adjustable in Settings > Score weighting (
 | Debt | 30% |
 | Growth Rate | 20% |
 | Profitability | 20% |
+
+These are the defaults in the code (`scoring/weights.py::DEFAULT_WEIGHTS`). The weights actually in force are the **saved** set, which can differ: on
+2026-10-08 the live database held Financials 35 / Growth 20 / Profitability 20 / Debt 25 (Step 1 30/20/25/10/15, Step 2 80/20). Settings > Score weighting shows what
+is in force; every percentage derived from a weight in these specs (for example the exempt-type tables) is quoted at the defaults.
 
 **The Moat multiplier** scales the finished Fundamentals score:
 
@@ -263,8 +267,9 @@ depending on why:
   blend. Instead, the whole Overall Assessment is marked **incomplete** rather than computed,
   since a partial average built on missing data would be misleading.
 - If a check comes back **not supported** — a structural exemption, such as a Bank ticker
-  before its CET1 ratio has been entered, or Insurance for Debt — that one check is simply
-  excluded from the Fundamentals score and the remaining checks are reweighted to add up to 100% again. It does **not** block the
+  before its CET1 ratio has been entered, or Insurance for Debt (Debt is not applied to Insurance at all) — that one check is simply
+  excluded from the Fundamentals score and the remaining checks are reweighted to add up to 100% again (Insurance: Financials, Growth Rate and
+  Profitability share the whole, e.g. 42.9 / 28.6 / 28.6 at the default weights). It does **not** block the
   rest of Overall Assessment from being computed, and the Moat multiplier is applied to the reweighted Fundamentals score as usual.
 
 See the [Glossary](glossary.md) for how both differ from a genuine Fail, and for the additional

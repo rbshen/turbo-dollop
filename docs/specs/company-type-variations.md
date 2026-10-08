@@ -21,11 +21,11 @@ auto-generalize to a newly-listed ticker in the same sector).
 | Company type | Financials | Growth Rate | Profitability | Debt | Valuation |
 |---|---|---|---|---|---|
 | **Standard** (typical operating company) | All 5 metrics checked | EPS preferred, revenue fallback | All 4 metrics checked | Standard 3-ratio check | Cash-flow or profit-based method |
-| **Bank** | Cash-flow checks skipped (Revenue substituted with Net Interest Income) | EPS preferred, revenue fallback | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped) | Judged on capital adequacy (CET1, manual entry) + loan quality (NPL) | Price-to-Book |
-| **Insurance** | Cash-flow checks skipped | EPS preferred, revenue fallback | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped) | Not supported — no reliable substitute available | Profit-based method (cash flow skipped) |
-| **REIT / Property Developer** | Cash-flow checks skipped | Always revenue (rental income); EPS never used | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped) | Judged on a Gearing ratio (debt vs. total assets) instead of the standard 3 ratios | Price-to-Book |
-| **Utility** | All 5 metrics checked (not exempted here) | EPS preferred, revenue fallback | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped — extended 2026-09-04) | Standard 3-ratio check (not exempted here) | Cash-flow or profit-based method |
-| **Commodity company** (price-taking producers and extractors only — Financials-local classification: sector `Basic Materials`/`Energy` **and** an industry on the producer allowlist, below) | Cash-flow checks skipped | EPS preferred, revenue fallback | All 4 metrics checked (not exempted here) | Standard 3-ratio check (not exempted here) | Cash-flow or profit-based method |
+| **Bank** | Revenue and Net Income only (CFO, FCF and Margins skipped; Revenue is the real revenue line) | EPS preferred, revenue fallback | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped) | Judged on capital adequacy (CET1, manual entry) + loan quality (NPL) | Price-to-Book |
+| **Insurance** | Revenue and Net Income only (CFO, FCF and Margins skipped) | EPS preferred, revenue fallback | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped) | Not supported — no reliable substitute available | Profit-based method (cash flow skipped) |
+| **REIT / Property Developer** | Revenue and Net Income only (CFO, FCF and Margins skipped) | Always revenue (rental income); EPS never used | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped) | Judged on a Gearing ratio (debt vs. total assets) instead of the standard 3 ratios; under 45% passes | Price-to-Book |
+| **Utility** | All 5 metrics checked (not exempted here; its margin severity carve-out stays) | EPS preferred, revenue fallback | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped — extended 2026-09-04) | Standard 3-ratio check (not exempted here) | Cash-flow or profit-based method |
+| **Commodity company** (price-taking producers and extractors only — Financials-local classification: sector `Basic Materials`/`Energy` **and** an industry on the producer allowlist, below) | Revenue and Net Income only (CFO, FCF and Margins skipped) | EPS preferred, revenue fallback | All 4 metrics checked (not exempted here) | Standard 3-ratio check (not exempted here) | Cash-flow or profit-based method |
 
 Growth Rate reads the same way for every company type except REITs, which are scored on revenue
 (rental income) growth instead of EPS — EPS is heavily distorted by non-cash real-estate
@@ -50,7 +50,7 @@ Commodity Company only if its profile sector is `Basic Materials` or `Energy` **
 | Oil and gas | Oil & Gas Exploration & Production, Oil & Gas Integrated, Oil & Gas Refining & Marketing |
 | Metals and mining | Copper, Gold, Steel, Aluminum, Silver, Other Industrial Metals & Mining, Other Precious Metals & Mining |
 | Coal and uranium | Uranium, Coal, Thermal Coal, Coking Coal |
-| Agriculture and forest | Agricultural Inputs, Paper, Lumber & Forest Products |
+| Agriculture and forest | Agricultural Inputs, Paper, Lumber & Forest Products (the last is one FMP label, spelled exactly so in `COMMODITY_PRODUCER_INDUSTRIES`; IP carries it) |
 
 (Aluminum, Silver, the two "Other ... Mining" labels and the three coal labels have no scored ticker today; they are listed so a future
 ticker is handled.) Everything else in the two sectors is **Standard** in Step 1: Chemicals, Chemicals - Specialty, Construction
@@ -88,11 +88,11 @@ Banks and Insurance companies report "cash from operations" very differently fro
 business — for a bank it's tangled up with customer deposits and loan originations, and for an
 insurer it moves with claim timing, reserve changes, and investment portfolio swings rather than
 the operating business itself. Property Developers and Commodity companies (price-taking producers) have their own
-version of this problem tied to how their industries recognize revenue and capital spending. In
-all of these cases, Financials leans more heavily on Revenue, Net Income, and Margins instead —
-and for a Bank specifically, the series scored and displayed as "Revenue" is actually Net
-Interest Income, not total revenue (Margins are still computed from real Revenue/Gross Profit
-for every company type, Banks included). See [Financials](financials.md) for detail.
+version of this problem tied to how their industries recognize revenue and capital spending. Since 2026-10-08 all four types are
+judged on the same two series, Revenue and Net Income (with Operating Income as the Net Income backup), and Margins is skipped for
+all of them too (it used to be skipped for Banks only: gross profit over revenue is not a coherent concept for a lender, and the owner
+extended the same treatment to the other three). **Revenue is the real FMP revenue line for every type, Banks included**; the earlier
+Net Interest Income substitution for Banks was removed. See [Financials](financials.md) for detail.
 
 ## Why some Profitability metrics get skipped
 
@@ -159,11 +159,10 @@ report "Financial - Credit Services". Only a ticker-level check — of `netInter
 percentage of revenue, and (below) of genuine deposit-liability reporting — tells them apart.
 Each ticker below was verified once, by hand, against real data; it is not derived from any rule.
 
-**Why it matters.** Applying Bank's treatment (Financials' CFO/FCF de-emphasis in favour of Net
-Interest Income, Profitability's ROIC exemption, Valuation's forced Price-to-Book method) to a
-genuine non-lender produces nonsensical output — confirmed regression: V/MA/BLK's Financials
-scores dropped 30-50+ points purely from a near-zero/negative NII series standing in for real
-revenue, not from the intended CFO-de-emphasis effect.
+**Why it matters.** Applying Bank's treatment (Financials' CFO/FCF/Margins exemption, Profitability's ROIC exemption, Valuation's
+forced Price-to-Book method) to a genuine non-lender produces nonsensical output. The confirmed regression that motivated this list
+was from the time Net Interest Income stood in for revenue (removed 2026-10-08): V/MA/BLK's Financials scores dropped 30-50+ points
+purely from a near-zero/negative NII series standing in for real revenue, not from the intended CFO-de-emphasis effect.
 
 NII/revenue below is each ticker's most recent annual FMP figure at the time of the 2026-07-28
 investigation (`netInterestIncome / revenue`); it drifts year to year and is not re-verified
@@ -225,7 +224,7 @@ banking regulation — a genuine deposit-taking institution. Lending *shape* (ma
 credit-card loans, BNPL installment credit) is irrelevant to that question; regulatory reporting
 shape is what matters. So NII-as-%-of-revenue answers "does this company lend?", not "does it
 report under banking regulation?" — and the latter is the test for Bank. A company classified
-`"Bank"` that doesn't report CET1/NPL shouldn't get Bank treatment *anywhere* (Step 1's NII swap,
+`"Bank"` that doesn't report CET1/NPL shouldn't get Bank treatment *anywhere* (Step 1's CFO/FCF/Margins exemption,
 Step 4's ROIC exemption, Step 3's forced Price-to-Book), not just skip the CET1/NPL check while
 everything else stays Bank-shaped. (HOOD was originally listed as a confirmed lender at 33.9% NII
 and was moved to the override list on this basis.)

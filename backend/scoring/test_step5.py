@@ -411,7 +411,7 @@ def test_gearing_good():
 
 
 def test_gearing_approaching_limit():
-    assert score_gearing(42.0) == ("approaching_limit", 60, False, False, (), None, False)
+    assert score_gearing(42.0) == ("approaching_limit", 70, False, False, (), None, False)
 
 
 def test_gearing_fail_above_45():
@@ -421,7 +421,7 @@ def test_gearing_fail_above_45():
 
 def test_gearing_boundary_at_45_is_approaching_limit_not_fail():
     result = score_gearing(45.0)
-    assert result == ("approaching_limit", 60, False, False, (), None, False)
+    assert result == ("approaching_limit", 70, False, False, (), None, False)
 
 
 # --- score_step5_standard: end-to-end, real-ticker-shaped cases ---
@@ -792,18 +792,15 @@ def test_reit_healthy_passes():
     assert result["verdict"] == "Strong Pass"
 
 
-def test_reit_approaching_limit_now_reads_fail_not_pass():
-    # Residual gap found during the 2026-07-31 investigation, fixed by the
-    # SAME hoisted _verdict_for floor as the Standard-path fallback (not a
-    # second, separate fix): gearing 42% is "approaching_limit" (60pts,
-    # hard_fail=False, no tiebreaker involved at all -- REIT gearing has no
-    # rescue mechanism). Previously this read "Pass" at score 60 (AVB, EQR,
-    # HST, KIM, O, REG's real shape) despite being well under the shared 70
-    # Pass floor.
+def test_reit_approaching_limit_band_passes_at_70():
+    # 2026-10-08: gearing under 45% passes. The 40-45% band used to score 60, which the shared 70 floor read as a Fail (AVB, EQR,
+    # HST, KIM, O, REG's real shape, 2026-07-31); it now scores 70, the lowest passing score. Above 45% is still the hard fail.
     result = score_step5_reit(gearing_pct=42.0)
-    assert result["score"] == 60
+    assert result["score"] == 70
     assert result["hard_fail"] is False
-    assert result["verdict"] == "Fail"
+    assert result["verdict"] == "Pass"
+    assert score_step5_reit(gearing_pct=45.0)["verdict"] == "Pass"
+    assert score_step5_reit(gearing_pct=45.01)["verdict"] == "Fail"
 
 
 # --- Breach-context framework: shared gate math (_evaluate_breach_context) ---

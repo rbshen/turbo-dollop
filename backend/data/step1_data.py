@@ -16,26 +16,14 @@ from helpers.statement_view import load_statement_view
 from helpers.ttm import sum_last_four_quarters
 
 
-# Banks (2026-09-10): Margins is excluded from scoring entirely, on top of
-# the existing CFO/FCF exemption -- mirrors the AR_EXEMPT_TYPES/
-# ROIC_EXEMPT_TYPES company-type-set pattern (data/step4_data.py), just
-# scoped to Step 1's own Margins component. Confirmed via a full-universe
-# scan that grossProfit/revenue -- the raw GAAP line Margins is computed
-# from, unchanged by the Bank Net-Interest-Income substitution below --
-# shows the identical structural break for all 28 Bank-classified tickers
-# with margin data: at or above 100% (a mathematically impossible "gross
-# margin") around FY2021, then a permanent drop to a 42-77% plateau from
-# FY2022 on. An FMP data-methodology break specific to financial-services
-# reporting, not a real margin trend -- the same "this GAAP line doesn't
-# map onto this business model" reasoning that already justifies the CFO
-# exemption for Banks, just discovered later. Insurance/Property Developer/
-# Commodity Company are deliberately NOT included here -- the same
-# investigation found their margins are mostly a working signal (Insurance,
-# Commodity Company) or a real-but-differently-shaped, separately-scoped
-# data issue (REIT's own terminal-period collapse, not yet investigated)
-# rather than sharing Banks' universal root cause. See CLAUDE.md's Step 1
-# deviations for the full investigation.
-MARGINS_EXEMPT_TYPES = {"Bank"}
+# CFO, FCF and Margins are all skipped for the four exempt types (2026-10-08, docs/decisions.md): Bank, Insurance, Property Developer
+# (REIT) and Commodity Company are scored on Revenue (the real FMP revenue line, for Banks too: the old Net Interest Income
+# substitution is gone) and Net Income, with Operating Income as the Net Income backup only. The score_step1 weight table for them is
+# the one scoring/weights.py::step1_tables calls the "Bank" table (CFO/FCF/Margins weight spread proportionally over Revenue and Net
+# Income), applied to the saved weights as well as the defaults. Standard and Utility keep all five components; Utility keeps its
+# margin severity carve-out (scoring/step1.py). Before 2026-10-08 only Banks skipped Margins (an FMP gross-profit break across all 28
+# Bank tickers with margin data around FY2021); Insurance, Property Developer and Commodity Company kept it.
+MARGINS_EXEMPT_TYPES = {"Bank", "Insurance", "Property Developer", "Commodity Company"}
 
 # Commodity Company (CFO and FCF skipped) is a price-taking producer or extractor: the profile sector is Basic Materials or Energy AND
 # the FMP industry is one of these. The rule is deliberately narrow: a company that merely sits in one of the two sectors (specialty
@@ -86,7 +74,7 @@ def _is_commodity_company(sector: str, industry: str | None, ticker: str | None)
 def _detect_exemption(
     sector: str | None, industry: str | None, ticker: str | None = None, is_fund: bool = False
 ) -> str | None:
-    """Heuristic sector/industry match for the Step 1 CFO exemption (Bank /
+    """Heuristic sector/industry match for the Step 1 exemption from CFO, FCF and Margins (Bank /
     Insurance / Property Developer / Commodity Company) — not exhaustive
     industry-code matching, a reasonable approximation for this phase.
 
@@ -168,7 +156,6 @@ async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWe
     cash_flow_quarterly = view.cash_flow_quarterly
 
     years, revenue = _annual_series(income_annual, "revenue")
-    _, net_interest_income = _annual_series(income_annual, "netInterestIncome")
     _, gross_profit = _annual_series(income_annual, "grossProfit")
     _, operating_income = _annual_series(income_annual, "operatingIncome")
     _, net_income = _annual_series(income_annual, "netIncome")
@@ -183,7 +170,6 @@ async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWe
     # Scoring reads the completed fiscal years only (docs/specs/financials.md); the TTM point appended below is display-only.
     annual = {
         "revenue": revenue,
-        "net_interest_income": net_interest_income,
         "gross_profit": gross_profit,
         "operating_income": operating_income,
         "net_income": net_income,
@@ -193,7 +179,6 @@ async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWe
 
     years = years + ["TTM"]
     revenue_result = sum_last_four_quarters(income_quarterly, "revenue", income_annual)
-    net_interest_income_result = sum_last_four_quarters(income_quarterly, "netInterestIncome", income_annual)
     gross_profit_result = sum_last_four_quarters(income_quarterly, "grossProfit", income_annual)
     operating_income_result = sum_last_four_quarters(income_quarterly, "operatingIncome", income_annual)
     net_income_result = sum_last_four_quarters(income_quarterly, "netIncome", income_annual)
@@ -201,7 +186,6 @@ async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWe
     capex_result = sum_last_four_quarters(cash_flow_quarterly, "capitalExpenditure", cash_flow_annual)
 
     revenue = revenue + [revenue_result.total]
-    net_interest_income = net_interest_income + [net_interest_income_result.total]
     gross_profit = gross_profit + [gross_profit_result.total]
     operating_income = operating_income + [operating_income_result.total]
     net_income = net_income + [net_income_result.total]
@@ -216,7 +200,6 @@ async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWe
         OutlierWarning(metric=metric, date=fq.date, value=fq.value, trailing_median=fq.trailing_median)
         for metric, result in [
             ("revenue", revenue_result),
-            ("net_interest_income", net_interest_income_result),
             ("gross_profit", gross_profit_result),
             ("operating_income", operating_income_result),
             ("net_income", net_income_result),
@@ -228,8 +211,7 @@ async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWe
 
     fcf = [c + x if c is not None and x is not None else None for c, x in zip(cfo, capex)]
 
-    # Margins are always computed from real Revenue, regardless of company
-    # type -- deliberately untouched by the Bank substitution below.
+    # Margin series are display-only for the exempt types and scored for Standard/Utility; always computed from real Revenue.
     def _margins(numerator: list[float | None], denominator: list[float | None]) -> list[float | None]:
         return [(n / d * 100) if n is not None and d else None for n, d in zip(numerator, denominator)]
 
@@ -239,24 +221,11 @@ async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWe
     is_fund = bool(profile.get("isEtf") or profile.get("isFund"))
     exemption = _detect_exemption(profile.get("sector"), profile.get("industry"), ticker, is_fund=is_fund)
     cfo_exempt = exemption is not None
-    is_bank = exemption == "Bank"
     margins_exempt = exemption in MARGINS_EXEMPT_TYPES
-    # Uses classify_company_type's own raw return value, not _detect_
-    # exemption's remapped one -- _detect_exemption never surfaces "Utility"
-    # at all (Step 1 doesn't CFO-exempt utilities), and renames "REIT/
-    # Property Developer" to "Property Developer" for Step 1's own display
-    # purposes, neither of which matches MARGINS_SEVERITY_CARVEOUT_TYPES's
-    # naming (which mirrors AR_EXEMPT_TYPES/ROIC_EXEMPT_TYPES exactly).
+    # The margin severity carve-out is Utility only now (the exempt types no longer score Margins), and _detect_exemption never
+    # surfaces "Utility", so the shared classifier's own return value is read here.
     company_type = classify_company_type(profile.get("sector"), profile.get("industry"), ticker, is_fund=is_fund)
     margins_severity_carveout = company_type in MARGINS_SEVERITY_CARVEOUT_TYPES
-
-    # Banks: the Revenue check (score + Financials Trend chart) uses Net
-    # Interest Income instead of Revenue -- FMP's netInterestIncome is a
-    # clean standard-schema field, unlike Revenue which mixes interest and
-    # non-interest income in a way that obscures the core lending-spread
-    # trend.
-    display_revenue = net_interest_income if is_bank else revenue
-    revenue_label = "Net Interest Income" if is_bank else "Revenue"
 
     # The engine needs a clean, gap-free chronological series of COMPLETED fiscal years -- the raw (with-gaps, TTM-ended) arrays above
     # are what the UI renders, the annual-only filtered copies below are only for scoring. FCF mirrors CFO's exemption exactly (it is
@@ -269,13 +238,12 @@ async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWe
     revenue_fy = annual["revenue"]
     cfo_fy = annual["cfo"]
     fcf_fy = [c + x if c is not None and x is not None else None for c, x in zip(cfo_fy, annual["capex"])]
-    display_revenue_fy = annual["net_interest_income"] if is_bank else revenue_fy
     gross_margin_fy = _margins(annual["gross_profit"], revenue_fy)
     operating_margin_fy = _margins(annual["operating_income"], revenue_fy)
     net_margin_fy = _margins(annual["net_income"], revenue_fy)
 
     result = score_step1(
-        revenue=_present(display_revenue_fy),
+        revenue=_present(revenue_fy),
         net_income=_present(annual["net_income"]),
         operating_income=_present(annual["operating_income"]),
         cfo=_present(cfo_fy),
@@ -284,12 +252,10 @@ async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWe
         net_margin=_present(net_margin_fy),
         cfo_exempt=cfo_exempt,
         fcf=_present(fcf_fy),
-        margin_context_revenue=_present(revenue_fy),
         margins_exempt=margins_exempt,
         margins_severity_carveout=margins_severity_carveout,
-        # Real revenue (not the Bank Net-Interest-Income substitution) and Operating Income of the last completed fiscal year (None
-        # when missing) for the Operating Income backup's quality gates -- the filtered series above can't tell a missing latest year
-        # from a present one.
+        # Real revenue and Operating Income of the last completed fiscal year (None when missing) for the Operating Income backup's
+        # quality gates -- the filtered series above can't tell a missing latest year from a present one.
         latest_revenue=revenue_fy[-1] if revenue_fy else None,
         latest_operating_income=annual["operating_income"][-1] if annual["operating_income"] else None,
         weights=weights.step1,
@@ -298,8 +264,7 @@ async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWe
     return Step1Out(
         ticker=ticker,
         years=years,
-        revenue=display_revenue,
-        revenue_label=revenue_label,
+        revenue=revenue,
         net_income=net_income,
         operating_income=operating_income,
         # Real values now pass through unconditionally -- display is

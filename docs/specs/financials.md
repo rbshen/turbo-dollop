@@ -33,9 +33,10 @@ actually positive. A company whose losses are merely getting smaller, but still 
 profit, is not treated the same as one that has genuinely turned the corner into profitability.
 
 Cash From Operations and Free Cash Flow don't mean the same thing for every kind of business.
-For **Banks, Insurance companies, Property Developers, and Commodity companies**, these two
-checks are skipped, and the company is judged on Revenue, Net Income, and Margins instead (with
-those three carrying proportionally more weight to make up for it). See
+For **Banks, Insurance companies, Property Developers (REITs), and Commodity companies**, these two
+checks are skipped, and so are Margins (since 2026-10-08): the company is judged on Revenue (the real
+FMP revenue line, for Banks too) and Net Income alone, with Operating Income as the Net Income backup
+(those two carrying proportionally more weight to make up for the three that are skipped). See
 [Company type variations](company-type-variations.md) for the full picture, and the technical
 reference below for exact weights and thresholds.
 
@@ -62,29 +63,34 @@ revenue × 100, all on real revenue (percent, 18.4 for 18.4%). A missing year is
 
 ## Weights
 
-These are the **defaults**. The five base weights are adjustable (Settings > Score weighting; Revenue 20-50, Net Income 10-40, CFO 10-40,
-Margins 0-25, FCF 0-15, adding up to 100) and the CFO-exempt and Bank tables below are always derived from whatever base is saved, by the
-same two rules (CFO's and FCF's weight split equally over Revenue, Net Income and Margins, a component weighted 0 getting no share; for
-Banks, Margins' weight spread proportionally over Revenue and Net Income). A weight of 0 leaves a component out of the blend only: its
+These are the **defaults in the code** (`scoring/weights.py::DEFAULT_WEIGHTS.step1` = 35 / 20 / 30 / 10 / 5). The five base weights are
+adjustable (Settings > Score weighting; Revenue 20-50, Net Income 10-40, CFO 10-40, Margins 0-25, FCF 0-15, adding up to 100) and **the
+saved set can differ from the defaults**: scoring always uses the saved set, and the exempt tables below are derived from whatever base is
+saved, so the percentages in this section move with it (on 2026-10-08 the live database held 30 / 20 / 25 / 10 / 15, which gives
+56.52 / 43.48 for the exempt types; the Settings page is the authority for what is in force). The tables are derived by the same two rules
+as always (CFO's and FCF's weight split equally over Revenue, Net Income and Margins, a component weighted 0 getting no share; then
+Margins' weight spread proportionally over Revenue and Net Income). A weight of 0 leaves a component out of the blend only: its
 data-gap check (a missing series still makes the step insufficient data) is unchanged.
 
-| Metric | Standard weight | CFO-exempt weight |
+| Metric | Standard / Utility weight | Exempt types (Bank, Insurance, REIT / Property Developer, Commodity Company) |
 |---|---|---|
-| Revenue | 35% | 46.67% |
-| Net Income | 20% | 31.67% |
+| Revenue | 35% | 59.57% (28/47) |
+| Net Income | 20% | 40.43% (19/47) |
 | CFO | 30% | 0% |
-| Margins | 10% | 21.67% |
+| Margins | 10% | 0% |
 | FCF | 5% | 0% |
 
-When a company is CFO-exempt, CFO's and FCF's combined 35% weight is redistributed in equal
-thirds (+11.67 points each) across Revenue, Net Income, and Margins, rather than being dropped
-from the denominator.
+For an exempt company CFO's, FCF's and Margins' combined 45% weight is redistributed over Revenue and Net Income in proportion to their
+own base weights (35 : 20), reached in two steps that give the same answer (CFO's and FCF's 35% split in equal thirds over Revenue, Net
+Income and Margins, then Margins' resulting 21.67% spread proportionally over the other two), rather than being dropped from the
+denominator. Before 2026-10-08 only Banks used this two-component table; Insurance, REITs and Commodity companies kept Margins
+(46.67 / 31.67 / 21.67 at the defaults). `scoring/weights.py::step1_tables` still builds that middle table, but no company type reaches it.
 
-Final score = weighted sum of the 5 (or 3) component scores, rounded and clamped to [0, 100].
+Final score = weighted sum of the 5 (or 2) component scores, rounded and clamped to [0, 100].
 
-## Company-type exemption (CFO / FCF)
+## Company-type exemption (CFO / FCF / Margins)
 
-Cash From Operations and Free Cash Flow are skipped for:
+Cash From Operations, Free Cash Flow and Margins are skipped for (since 2026-10-08; before it Margins was skipped for Banks only):
 
 - **Bank**
 - **Insurance**
@@ -100,11 +106,13 @@ Bank/Insurance/Property Developer are detected via the same shared sector/indust
 the other checks use. Commodity Company is detected locally by sector plus industry text. A small hand-verified list of tickers FMP files under the wrong sector (JCI, MAS) is excluded from the Commodity branch and scored as Standard
 (`COMMODITY_EXEMPTION_TICKER_OVERRIDES`; redundant since the allowlist, kept as a guard, [Company type variations](company-type-variations.md)).
 
-**Bank-only substitution:** the series scored and displayed as "Revenue" for a Bank is actually
-**Net Interest Income** (FMP's `netInterestIncome` field), not total revenue — FMP's raw Revenue
-field for banks mixes interest and non-interest income in a way that obscures the core
-lending-spread trend. This substitution affects only the Revenue metric. Margins are always
-computed from real Revenue and Gross Profit, regardless of company type, including for Banks.
+These four types are scored on **Revenue and Net Income only**, with Operating Income as the Net Income backup (below, unchanged).
+**Revenue is the real FMP revenue line for every company type, Banks included.** Until 2026-10-08 a Bank's "Revenue" was FMP's
+`netInterestIncome` (scored, labelled "Net Interest Income" on the Step 1 card and the Historical Trends grid, and drawn in the Watchlist
+Trend column); that substitution is removed everywhere (scoring, `Step1Out.revenue`, the card and grid labels, the Watchlist trend and the
+Review evidence, which divides Operating Income by the same revenue the scoring gate uses). The Financials *tab* still lists Net Interest
+Income as its own row. The margin series (gross, operating, net) are still computed from real revenue and shown, they are just not scored
+for these four types.
 
 
 ## The engine
@@ -210,7 +218,7 @@ CFO each require the **latest completed fiscal year to be positive**:
 
 - If the engine returned `insufficient_data`, this gate is skipped.
 - Otherwise, if the last annual value is **≤ 0**, the result is `not_yet_positive`, whatever the shape. **The score is
-  graduated (2026-08-13)**: measured as a margin (`value ÷ real revenue × 100`, using real revenue even for Banks), scaled
+  graduated (2026-08-13)**: measured as a margin (`value ÷ revenue × 100`), scaled
   linearly from **15** points (at 0% margin) down to **0** (at **-20%** margin or worse); a flat 0 if no revenue figure is available.
 - Otherwise the engine's own score is used. An earlier negative year is just a dip.
 
@@ -235,8 +243,7 @@ consulted as a backup signal, but only when the disqualifying dip is recent enou
 keeps its own score:
 
 1. **Operating Income of the latest completed fiscal year > 0.**
-2. That Operating Income is **≥ 5%** of that year's real revenue (`NET_INCOME_BACKUP_MIN_OI_MARGIN`; exactly 5% passes). Real
-   revenue even for Banks.
+2. That Operating Income is **≥ 5%** of that year's real revenue (`NET_INCOME_BACKUP_MIN_OI_MARGIN`; exactly 5% passes).
 3. Operating Income is **positive in at least 4 of the last 5 completed fiscal years** (`NET_INCOME_BACKUP_OI_WINDOW` = 5,
    `NET_INCOME_BACKUP_MIN_POSITIVE_PERIODS` = 4; a missing year is skipped; a shorter series is judged on what it has).
 
@@ -269,13 +276,15 @@ years is missing and drops out:** no gross margin gives `max(N, O)`; no operatin
 deciding input's (a tie between N and O goes to net margin; G wins a tie with `max(N, O)`); the component also carries the three
 input scores (`inputs`) and which one decides (`binding`) as additive display fields.
 
-**Bank exemption.** Banks skip Margins entirely (`MARGINS_EXEMPT_TYPES = {"Bank"}`): nothing is computed in its place, and Step 1
-scores no ROE or ROIC (ROE is checked for Banks in Step 4 only). Insurance and Property Developer skip CFO/FCF but keep Margins.
+**Exemption.** Bank, Insurance, Property Developer and Commodity Company skip Margins entirely (`MARGINS_EXEMPT_TYPES` in
+`data/step1_data.py`, extended from `{"Bank"}` on 2026-10-08): nothing is computed in its place, and Step 1 scores no ROE or ROIC (ROE is
+checked for Banks in Step 4 only). Standard and Utility score Margins as described here.
 
-**Severity carve-out (Insurance, REIT/Property Developer, Utility).** A margin series (each of G, O and N) labelled `decline` /
+**Severity carve-out (Utility only).** A margin series (each of G, O and N) labelled `decline` /
 `decline_dips` is never scored below **60**, per series, **after** the positivity ceiling and before the combination. The carve-out can
-therefore lift a loss-making declining series from under its ceiling to 60 (three cases: ARE net margin, CSGP operating margin, VTR
-gross margin); the wrappers are unchanged and this is accepted.
+therefore lift a loss-making declining series from under its ceiling to 60; the wrappers are unchanged and this is accepted. Insurance and
+REIT / Property Developer had the carve-out until 2026-10-08 and lost it when they stopped scoring Margins (`MARGINS_SEVERITY_CARVEOUT_TYPES`
+is `{"Utility"}`; the ARE, CSGP and VTR cases the old text cited no longer arise).
 
 ## Free Cash Flow
 
@@ -295,7 +304,7 @@ CFO and FCF are skipped for the company types in "Company-type exemption" above.
 points**: when the count is below `THIN_HISTORY_MIN_POINTS` (8, `scoring/trend.py`) the blended score
 is capped at `THIN_HISTORY_SCORE_CAP` (90, the line below the Strong Pass band), so the verdict reads
 Pass. For Financials the count is the length of the cleaned Revenue series handed to `score_step1`,
-completed fiscal years only (Net Interest Income for a Bank). The cap sits where the score is finalized, so the stored score, the verdict
+completed fiscal years only. The cap sits where the score is finalized, so the stored score, the verdict
 and the card agree; no caution flag is added. A score already at or below 90 is untouched. Profitability
 has its own count (see [Profitability](profitability.md)).
 
@@ -314,7 +323,7 @@ so color can't be chosen from verdict text alone.
 
 The whole check returns `score: null, verdict: "insufficient_data"` (not a fabricated Fail) if
 any of the following read `insufficient_data`: Revenue, Margins (net **and** operating margin both missing; a missing gross
-margin alone is not a gap), CFO (when not exempt), FCF (when not exempt), or **both** Net Income and its Operating Income backup. Net Income alone
+margin alone is not a gap; not checked for the exempt types), CFO (when not exempt), FCF (when not exempt), or **both** Net Income and its Operating Income backup. Net Income alone
 reading `insufficient_data` is not a gap as long as Operating Income has real data.
 
 A prior version folded these gaps into the weighted sum as ordinary scored zeros, so a single
@@ -322,7 +331,7 @@ failed upstream fetch (e.g. the cash-flow statement) on an otherwise-strong tick
 score into Fail. `cache.py::safe_fetch` swallows `httpx.HTTPError` to `{}`, which is
 indistinguishable downstream from a genuinely thin response, so a fetch failure also reads as
 `insufficient_data`. CFO-exempt companies are unaffected (CFO/FCF simply aren't required for
-them), and Net Income's Operating-Income backup only counts as a genuine gap when Operating
+them, and neither are Margins), and Net Income's Operating-Income backup only counts as a genuine gap when Operating
 Income's own classification also reads `insufficient_data`.
 
 If the underlying figures simply aren't available for a company — a data gap, not a real
@@ -379,8 +388,15 @@ Pass / Strong Pass 288 / 221 / 70 (50% / 38% / 12%) -> 228 / 222 / 129 (39% / 38
 CFO 52 -> 85, FCF 38 -> 74, Financials 68 -> 89. The Strong Pass share nearly doubled, so "Strong Pass" now means a clearly growing series with
 a long recovered history, not a clean record. Rationale and rejected options: docs/decisions.md 2026-10-07 (age decay).
 
-- **`not_yet_positive` floor at -20% margin (`NOT_YET_POSITIVE_FLOOR_MARGIN`).** 45 hits, margin (value ÷ real revenue) from about
+- **`not_yet_positive` floor at -20% margin (`NOT_YET_POSITIVE_FLOOR_MARGIN`).** 45 hits, margin (value ÷ revenue) from about
   -149% (a real structural loss) to -0.1% (effectively breakeven); -20% covers 34/45 (76%) of hits.
-- **Bank Margins artifact.** All 28 Bank-classified tickers with margin data showed `grossProfit/revenue` at or above 100% around
+**Calibration shift from the exempt-type change (2026-10-08; 582 tracked tickers, saved weights 30/20/25/10/15, read-only simulation then the
+real recompute):** 0 of the 499 Standard and Utility tickers move. Of the 109 exempt tickers (29 Bank, 24 Insurance, 30 REIT, 26 Commodity) the
+Step 1 score changes for 99; Step 1 verdict flips Fail to Pass for SYF, TMP (Banks), EG (Insurance), CCJ, COP, DVN, EQT, FANG (Commodity), FRT, UDR
+(REIT) and Pass to Fail for SPG (73 to 69). Overall verdict: WFC, CINF and HSBC Fail to Pass, AXP Strong Pass to Pass, no Pass to Fail
+(Debt's REIT change, [Debt](debt.md), moves five REITs to a Step 5 Pass without changing any REIT's Overall verdict). The two-component
+blend is more sensitive to a single weak series: a Net Income score of 0 now costs 43% (saved weights) of the whole step.
+
+- **Bank Margins artifact (historical).** All 28 Bank-classified tickers with margin data showed `grossProfit/revenue` at or above 100% around
   FY2021 followed by a permanent drop to a 42-77% plateau from FY2022: an FMP data-methodology break specific to financial-services
   reporting, universal across the Bank population.

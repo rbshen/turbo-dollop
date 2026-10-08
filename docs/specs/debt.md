@@ -333,11 +333,16 @@ using the provider's broader `totalDebt` aggregate.
 |---|---|---|
 | < 30% | excellent | 100 |
 | 30% – 40% | good | 85 |
-| 40% – 45% | approaching_limit | 60 |
+| 40% – 45% | approaching_limit | 70 |
 | > 45% | fail | 0 (hard fail) |
 
+**Gearing under 45% passes (2026-10-08).** The 40–45% band used to score 60, which the shared 70 floor read as a Fail, so a REIT at
+42% failed although it was under the stated 45% limit (HST, KIM, O, REG and VMRK were in this band). It now scores 70, the lowest passing
+score, and reads Pass; the boundary is unchanged (45.0 exactly is still in the 40–45% tier, anything above is the hard fail). Under 30%
+and 30–40% keep 100 and 85.
+
 Single-ratio blend. **Unchanged by the 2026-10-07 hard-fail removal**: a hard-failing ratio forces
-`Fail` whatever the score, and a blend below 70 (the 60-point `approaching_limit` tier) fails too;
+`Fail` whatever the score, and a blend below 70 fails too (no tier does since 2026-10-08);
 `hard_fail` is still reported. No rescue mechanism exists for REIT gearing. Missing Total Debt or Total Assets → `insufficient_data`.
 
 ### Bank path
@@ -379,7 +384,8 @@ behavior generically.
 ### Insurance path
 
 Always `not_supported`, with no ratios computed or attempted at all — not even a partial signal
-the way Bank has NPL as a fallback.
+the way Bank has NPL as a fallback. Debt is therefore not applied to Insurance: Overall excludes the step and renormalizes the other three
+([Overview](overview.md), "What happens if a check can't be completed"); unchanged by the 2026-10-08 company-type rules.
 
 ---
 

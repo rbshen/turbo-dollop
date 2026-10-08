@@ -197,7 +197,7 @@ def _step1_evidence(step1: Any, gate: int) -> str:
         if component and component.get("score") is not None and component["score"] < gate:
             weak.append(f"{name} {component.get('pattern')} {component['score']}")
     operating_income = _completed_years(step1, step1.operating_income)
-    revenue = _completed_years(step1, step1.revenue)
+    revenue = _completed_years(step1, step1.revenue)  # real revenue for every company type, the same series the scoring gate reads
     latest_oi = operating_income[-1] if operating_income else None
     latest_revenue = revenue[-1] if revenue else None
     margin = f"{latest_oi / latest_revenue * 100:.1f}%" if latest_oi is not None and latest_revenue else "n/a"

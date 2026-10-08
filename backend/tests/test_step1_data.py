@@ -70,7 +70,6 @@ def test_get_step1_data_builds_series_and_ttm_and_caches(monkeypatch):
     assert result.ticker == "AAPL"
     assert result.years == ["2023", "2024", "2025", "TTM"]
     assert result.revenue == [200, 250, 300, 320]
-    assert result.revenue_label == "Revenue"
     assert result.net_income == [40, 60, 80, 84]
     assert result.cfo == [50, 70, 90, 96]
     # capitalExpenditure is already negative (FMP convention) -- FCF = CFO +
@@ -194,93 +193,50 @@ def test_bank_is_cfo_exempt(monkeypatch):
     assert result.fcf == [40, 55, 70, 76]
     assert result.components["fcf"] is None
 
-    # Change 1: Banks show Net Interest Income in place of Revenue, clearly
-    # labeled -- not silently substituted under the old "Revenue" label.
-    assert result.revenue_label == "Net Interest Income"
-    assert result.revenue == [90, 110, 130, 140]
+    # 2026-10-08: a Bank's Revenue is the real FMP revenue line, no Net Interest Income substitution (the fixture's netInterestIncome
+    # 90/110/130/140 must appear nowhere in the Step 1 payload).
+    assert result.revenue == [200, 250, 300, 320]
 
-    # Margins must stay tied to real Revenue, not NII -- gross margin here
-    # should read against the 200/250/300/320 revenue series, not NII.
+    # Margin series still read against real Revenue (display only; Margins is not scored for a Bank).
     assert result.gross_margin[0] == 50.0  # grossProfit 100 / revenue 200 * 100
-
-    # Margins (2026-09-10): excluded from SCORING for Banks specifically --
-    # same mechanism as CFO/FCF above -- but the raw gross_margin/net_margin
-    # series above are still populated for display (a scoping decision, not
-    # an oversight: only the score, not the raw chart data, is suppressed).
     assert result.components["margins"] is None
-    # Weight redistributes proportionally across Revenue/Net Income only
-    # (28/47, 19/47 -- see WEIGHTS_CFO_MARGINS_EXEMPT's own comment).
+    # Weight is spread proportionally across Revenue/Net Income only (28/47, 19/47 at the default weights).
     assert result.weights["margins"] == 0.0
     assert result.weights["revenue"] == pytest.approx(28 / 47, abs=1e-5)
     assert result.weights["net_income"] == pytest.approx(19 / 47, abs=1e-5)
 
 
-def test_insurance_is_cfo_exempt_but_keeps_revenue_label(monkeypatch):
-    # MET/PGR-shaped: sector "Financial Services", industry "Insurance -
-    # Life" -- Insurance now gets the same CFO/FCF de-emphasis Bank already
-    # had (claim timing/reserve movements/investment portfolio fluctuations
-    # make OCF noisy for insurers too), but must NOT get Bank's Net Interest
-    # Income revenue-label swap -- that's Bank-only.
+@pytest.mark.parametrize(
+    "sector, industry, expected_reason",
+    [
+        ("Financial Services", "Insurance - Life", "Insurance"),
+        ("Real Estate", "REIT - Residential", "Property Developer"),
+        ("Basic Materials", "Copper", "Commodity Company"),
+    ],
+)
+def test_insurance_reit_and_commodity_score_like_a_bank_revenue_and_net_income_only(monkeypatch, sector, industry, expected_reason):
+    # 2026-10-08: Insurance, Property Developer and Commodity Company are exempt from CFO, FCF AND Margins, the same as a Bank, and use
+    # the same Revenue / Net Income weight table (28/47, 19/47 at the default weights). Before this only Banks skipped Margins.
     test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(test_engine)
     monkeypatch.setattr(step1_data, "engine", test_engine)
 
     call_count = {"profile": 0, "income_annual": 0, "income_quarter": 0, "cash_flow_annual": 0, "cash_flow_quarter": 0}
-    _patch_fmp(monkeypatch, call_count, sector="Financial Services", industry="Insurance - Life")
+    _patch_fmp(monkeypatch, call_count, sector=sector, industry=industry)
 
-    result = asyncio.run(get_step1_data("met"))
+    result = asyncio.run(get_step1_data("test"))
 
-    assert result.cfo_exempt_reason == "Insurance"
-    # Display decoupled from scoring, same as Bank above -- real values
-    # still populate, only the score-facing components read None.
+    assert result.cfo_exempt_reason == expected_reason
+    # Display is decoupled from scoring: real CFO/FCF values still populate for the UI.
     assert result.cfo == [50, 70, 90, 96]
-    assert result.components["cfo"] is None
     assert result.fcf == [40, 55, 70, 76]
-    assert result.components["fcf"] is None
-
-    # Unlike Bank, Insurance keeps the plain Revenue label/series -- no NII
-    # swap.
-    assert result.revenue_label == "Revenue"
     assert result.revenue == [200, 250, 300, 320]
-
-    # Unlike Bank (2026-09-10), Insurance is NOT in MARGINS_EXEMPT_TYPES --
-    # margins stays scored normally, still on WEIGHTS_CFO_EXEMPT's 3-way
-    # (Revenue/Net Income/Margins) split, not the 2-way Bank-only one.
-    assert result.components["margins"] is not None
-    assert result.weights["margins"] == pytest.approx(13 / 60, abs=1e-5)
-
-
-def test_property_developer_and_commodity_company_also_keep_margins_scored(monkeypatch):
-    # Rounds out the MARGINS_EXEMPT_TYPES={"Bank"} confirmation -- Property
-    # Developer/REIT and Commodity Company are CFO-exempt but, like
-    # Insurance above, are deliberately NOT margins-exempt (see
-    # MARGINS_EXEMPT_TYPES's own comment in step1_data.py: their margins
-    # noise, where it exists at all, has a different root cause than
-    # Banks' universal one and wasn't in scope for this fix).
-    for sector, industry, expected_reason in [
-        ("Real Estate", "REIT - Residential", "Property Developer"),
-        ("Basic Materials", "Copper", "Commodity Company"),
-    ]:
-        test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
-        SQLModel.metadata.create_all(test_engine)
-        monkeypatch.setattr(step1_data, "engine", test_engine)
-
-        call_count = {"profile": 0, "income_annual": 0, "income_quarter": 0, "cash_flow_annual": 0, "cash_flow_quarter": 0}
-        _patch_fmp(monkeypatch, call_count, sector=sector, industry=industry)
-
-        result = asyncio.run(get_step1_data("test"))
-
-        assert result.cfo_exempt_reason == expected_reason
-        # Display decoupled from scoring (2026-09-11) -- real CFO/FCF still
-        # populate for these two exempt types too, not just Bank/Insurance
-        # above (this is the LIN/APD/ECL-shaped bug fix: Commodity Company's
-        # own real cash-flow numbers should render on the Financials tab
-        # even though CFO/FCF are excluded from the Step 1 score).
-        assert result.cfo == [50, 70, 90, 96]
-        assert result.fcf == [40, 55, 70, 76]
-        assert result.components["cfo"] is None
-        assert result.components["margins"] is not None
-        assert result.weights["margins"] == pytest.approx(13 / 60, abs=1e-5)
+    assert result.components["cfo"] is None
+    assert result.components["fcf"] is None
+    assert result.components["margins"] is None
+    assert result.weights["margins"] == 0.0
+    assert result.weights["revenue"] == pytest.approx(28 / 47, abs=1e-5)
+    assert result.weights["net_income"] == pytest.approx(19 / 47, abs=1e-5)
 
 
 def test_commodity_override_scores_jci_and_mas_as_standard_while_real_commodity_names_stay_exempt(monkeypatch):
@@ -442,11 +398,8 @@ def test_margins_severity_carveout_wiring_by_company_type(monkeypatch):
     # step1_data.py computes `margins_severity_carveout` correctly per
     # company type and threads it through to score_step1, by intercepting
     # the actual kwarg score_step1 is called with rather than re-deriving
-    # the score. Insurance/REIT-Property-Developer/Utility -> True; Bank
-    # never even reaches this decision in practice (margins_exempt short-
-    # circuits it first) but is included as a defensive check that the
-    # carveout set and the exempt set don't silently overlap in a way that
-    # would matter; Commodity Company and a plain Standard company -> False.
+    # the score. Utility is the only type with the carve-out since 2026-10-08 (Insurance and REIT-Property-Developer stopped scoring
+    # Margins); every exempt type reaches score_step1 with margins_exempt=True, and Standard and Utility with False.
     captured: dict = {}
     real_score_step1 = step1_data.score_step1
 
@@ -458,9 +411,10 @@ def test_margins_severity_carveout_wiring_by_company_type(monkeypatch):
     monkeypatch.setattr(step1_data, "score_step1", capturing_score_step1)
 
     cases = [
-        ("Financial Services", "Banks - Diversified", False, True),  # Bank: exempt short-circuits carveout
-        ("Financial Services", "Insurance - Life", True, False),
-        ("Real Estate", "REIT - Residential", True, False),
+        ("Financial Services", "Banks - Diversified", False, True),
+        ("Financial Services", "Insurance - Life", False, True),
+        ("Real Estate", "REIT - Residential", False, True),
+        ("Basic Materials", "Copper", False, True),  # Commodity Company
         ("Utilities", "Utilities - Regulated Electric", True, False),
         ("Basic Materials", "Chemicals - Specialty", False, False),
         ("Technology", "Consumer Electronics", False, False),
