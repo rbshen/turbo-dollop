@@ -66,7 +66,7 @@ Python `round` (half to even; the app's convention). The Fundamentals score is s
 score first would sometimes change a verdict (Fundamentals 81.6 x 0.85 = 69.36 reads 69, a Fail; 82 x 0.85 = 69.7 would read 70, a Pass).
 
 The Overall verdict bands are the shared ones used app-wide: Fail below 70, Pass 70-90, Strong Pass above 90. There is **no cap and no
-hard-fail override**: a hard fail inside a check (Step 2 negative growth, Step 4 negative average ROE or ROIC, a Bank or REIT Step 5
+hard-fail override**: a hard fail inside a check (Step 4 negative average ROE or ROIC, a Bank or REIT Step 5
 limit) still reads Fail on that check's own card and still enters the blend only through its score. Step 5 for Standard and Utility
 companies has no hard fail since 2026-10-07: its three ratios are a pure weighted blend and 70 or more passes ([Debt](debt.md)).
 Since 2026-10-08 the stored verdict `Fail` is displayed as **"May not pass"** on every surface, every step and the Overall verdict
@@ -131,7 +131,7 @@ recompute subprocess can never score with weights that would let a breach pass.
 `GET /api/config/score-weights` returns the weights, the defaults, the bounds and sums, `weights_version` and `formula_version`;
 `PUT` saves a full set (422 with a plain-English reason naming the set and the rule); `POST /api/config/score-weights/reset`
 restores the defaults. A weight of 0 removes a component from the blend only: a missing input can still make the step insufficient,
-and a hard fail (Step 2, Step 4, Bank or REIT Debt) still reads Fail. Saving does not rescore anything by itself; the stored rows stay on the older version until a full
+and a hard fail (Step 4, Bank or REIT Debt) still reads Fail. Step 2 has none (its verdict follows its score). Saving does not rescore anything by itself; the stored rows stay on the older version until a full
 recompute (`compute_ticker_score`) re-scores them, and a ticker-header read of a row on an older version re-scores it (cache only).
 
 **Formula version.** `weights_version` cannot see a change of *formula*, so every stored row also carries `TickerScore.formula_version`
@@ -174,7 +174,7 @@ Re-weighting cannot fix the masked half — sensitivity testing showed even rais
 flipped only 4 of 111 complete-data FICO-type tickers to Fail. The masked half was later
 addressed inside the steps themselves rather than by weights: Debt and Profitability now fail
 any blended score below 70 (see [Debt](debt.md) and [Profitability](profitability.md), "Verdict"),
-and Growth Rate floors a non-negative-growth score at 70 so a Fail-range number never sits next
+and Growth Rate floors a non-negative-growth score at 70 (and has no hard fail of its own since 2026-10-08) so a Fail-range number never sits next
 to "Pass" text (see [Growth Rate](growth-rate.md)).
 
 ## What happens if Economic Moat isn't set

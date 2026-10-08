@@ -310,8 +310,7 @@ has its own count (see [Profitability](profitability.md)).
 
 The verdict is purely these bands applied to the final blended score (`_verdict_for` over
 `VERDICT_BANDS`) — no per-component gate on any individual pattern or score exists, so graduated
-component scores cannot interact with a hidden floor (the one exception is the thin-history cap above, which only ever holds a score at 90). Growth Rate uses the same bands, but its
-Fail is gated on the sign of projected growth instead (see [Growth Rate](growth-rate.md)).
+component scores cannot interact with a hidden floor (the one exception is the thin-history cap above, which only ever holds a score at 90). Growth Rate uses the same bands (its former negative-growth hard fail was removed on 2026-10-08; see [Growth Rate](growth-rate.md)).
 
 **Badge shading.** The score badge draws the 70–90 "Pass" band in one green (`positive`; the 70–74 band was amber until
 2026-10-08); 91+ is a deeper green (`positive-strong`), and Fail (displayed "May not pass", slate

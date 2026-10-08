@@ -29,12 +29,16 @@ The app labels this explicitly wherever it's shown.
 
 ## What the verdict means
 
-Growth Rate has one deliberate difference from every other check in Fathom: **a company is only
-marked Fail if its projected growth rate is negative.** A modest-but-positive growth projection,
-even a fairly weak one, is never scored as an outright Fail — scattered, disagreeing estimates
-lower the score, but they don't flip a positive growth projection into a Fail by themselves.
+Growth Rate's verdict follows its score, like every other check: Fail below 70, Pass from 70,
+Strong Pass above 90. It has no automatic fail of its own (the negative-growth hard fail was
+removed on 2026-10-08). Two properties of the scoring keep the old behaviour without an override:
+a negative projected growth rate cannot score 70 (its Magnitude points top out at 35), and a
+projection that is zero or positive is never scored under 70, however scattered the estimates
+(the score floor below).
 
-- **Fail** — analysts project the company will actually shrink (negative growth).
+- **Fail** (displayed "May not pass") — the score is under 70. In practice that is analysts
+  projecting the company will actually shrink (negative growth): every negative rate scores under
+  70. A zero-or-positive projection never lands here.
 - **Pass** — analysts project positive growth, with the actual score reflecting both how strong
   that growth is and how much analysts agree on it.
 - **Strong Pass** — a high score requires both a strong projected growth rate and
@@ -139,11 +143,18 @@ projection statistically indistinguishable from flat (-0.03%) scored identically
 collapse (-60%). At the time of the change, 27 tickers hit this branch: 20 sat at or above -9.0%
 ("mildly negative") and only 7 were genuinely severe (the tail from -10.8% to -60%).
 
-This graduated score is display/blend-only — it does **not** change the Verdict section below.
-Fail is gated on `growth_rate_pct`'s sign directly, and the Score floor is likewise gated on
-`growth_rate_pct ≥ 0` directly — both deliberately decoupled from the magnitude score's value, so
-a mildly-negative ticker's now-nonzero magnitude score can never accidentally trip either
-mechanism into a false Pass.
+**Why a negative rate can never pass (2026-10-08).** The best Magnitude a negative rate can score
+is **35** (the ceiling of the graduated scale, approached as the rate nears 0%), below the `weak`
+tier's 40. With Agreement at its best (100) the blend is `35×0.70 + 100×0.30 = 54.5` at the
+70/30 defaults, and `35×0.50 + 100×0.50 = 67.5` (reads 68) at the loosest allowed weights
+(Magnitude 50 / Agreement 50, the bounds in `scoring/weights.py::BOUNDS["step2"]`). Both are under 70,
+so no override is needed. That guarantee rests on exactly two things: the 35 ceiling and the
+weight bounds (Magnitude at least 50, Agreement at most 50). It is guarded by
+`scoring/test_step2.py::test_negative_growth_ceiling_stays_below_pass_line_at_loosest_weights`,
+which sweeps every allowed weight split and a spread of negative rates and fails if any reaches 70.
+Raise the ceiling, loosen the bounds or change the blend and that test (not a runtime rule) is
+what catches it. The Score floor is gated on `growth_rate_pct ≥ 0` directly, never on the
+magnitude score's value, so a mildly-negative ticker's nonzero magnitude score cannot trip it.
 
 **Agreement tiers** (on `spread_pct`):
 
@@ -155,15 +166,16 @@ mechanism into a false Pass.
 
 **Blend**: `score = round(magnitude_points × w_m + agreement_points × w_a)`, clamped to
 [0, 100], where the weights default to **70 / 30** and are adjustable (Settings > Score weighting; Magnitude 50-100, Agreement 0-50,
-adding up to 100). A weight of 0 leaves that component out of the blend only: the Fail gate (negative growth) and the 70 floor below read
-no weights.
+adding up to 100). A weight of 0 leaves that component out of the blend only; the 70 floor below reads no weights.
 
 **Score floor** (`PASS_SCORE_FLOOR`): whenever `growth_rate_pct ≥ 0`, the blended score is floored
 at **70** if it would otherwise land lower. This raises only the displayed score for an
 already-passing result — it never touches `magnitude_score`/`agreement_score` (the UI's breakdown
 still shows the raw component tiers), and it can never push a score into Strong Pass range
-(floor 70 < the >90 threshold). A negative-growth (Fail) result is never floored and still
-displays its real sub-70 score.
+(floor 70 < the >90 threshold). A negative-growth result is never floored and displays its real
+sub-70 score. The floor applies at **every** growth rate from exactly 0% up (the test is
+`growth_rate_pct >= 0`), not above some higher rate: +0.1% growth is lifted to 70 while -0.1%
+keeps its real score (54 with perfect Agreement), a deliberate step at 0%.
 
 Why the floor exists: because the verdict is not gated on the blended score, a weak-but-positive
 projection (a "weak" 40-point magnitude tier with a "tight" 100-point agreement tier blends to
@@ -173,11 +185,15 @@ into Growth Rate's different verdict semantics.
 
 ### Verdict
 
-Deliberately **not** gated on the blended score:
+Follows the blended score alone (`step2.py::_verdict_for`), the same bands as every other step:
 
-- **Fail** if and only if `growth_rate_pct < 0` — regardless of the blended score.
 - **Strong Pass** if the blended score is **> 90**.
-- **Pass** otherwise.
+- **Pass** if it is **70–90**.
+- **Fail** (stored key; displayed "May not pass") below **70**.
+
+There is no negative-growth override (removed 2026-10-08, docs/decisions.md). It never changed a
+score, and every negative rate already scores under 70 (see above), so no score or verdict moved
+when it went. Because the floor lifts every non-negative rate to 70, only a negative rate can read Fail.
 
 ### Insufficient data
 

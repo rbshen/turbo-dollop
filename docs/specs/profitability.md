@@ -470,7 +470,7 @@ hard_fail = ROE hard-failed, OR (ROIC applicable AND ROIC hard-failed)
 ```
 
 - **Fail** if `hard_fail` is true — regardless of the blended score. `hard_fail` comes only from
-  ROE and ROIC (mirroring Growth Rate's and Debt's hard-fail pattern: a hard rule is never
+  ROE and ROIC (mirroring the Bank and REIT Debt hard-fail pattern: a hard rule is never
   diluted by averaging). Revenue-vs-AR and CCC landing in their own worst tier (0 points) drag
   the blended score down but **never** force a Fail on their own — a receivables/CCC red flag is
   worth investigating, not an automatic disqualifier the way persistently poor ROE/ROIC is. (The

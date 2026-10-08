@@ -11,15 +11,16 @@ Fathom stores this verdict as `Fail` but **displays it as "May not pass"** on ev
 
 The check found a genuine, meaningful weakness — not just "not the best," but falling short of
 what the check considers a healthy result. Most checks treat certain conditions as an automatic
-Fail regardless of how strong everything else looks (for example, Growth Rate fails on negative
-projected growth, and a Bank's Debt check fails if a capital ratio breaches its hard limit) — the idea
+Fail regardless of how strong everything else looks (for example, a Bank's Debt check fails if a
+capital ratio breaches its hard limit) — the idea
 being that a single serious red flag shouldn't get averaged away by strength elsewhere. Debt for
 ordinary companies has no automatic fail since 2026-10-07: a breach scores near zero and the
 weights, which put the most weight on Debt/EBITDA, keep it below 70. Debt shows that result as
 "May not pass" like every other check; see [Debt](debt.md).
 
-Growth Rate is a deliberate exception: it only fails when analysts project the company will
-actually shrink. See [Growth Rate](growth-rate.md) for why.
+Growth Rate has no automatic fail since 2026-10-08: its verdict follows its score (Fail below 70),
+and a negative projected growth rate cannot score 70, so a company analysts expect to shrink still
+reads Fail. See [Growth Rate](growth-rate.md).
 
 ## Pass
 
