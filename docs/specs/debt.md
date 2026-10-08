@@ -74,8 +74,8 @@ pattern.
 
 ## What the verdict means
 
-- **May not pass** (stored as `Fail`) — the blend is below 70 (or, for Banks/REITs, a hard limit is
-  breached).
+- **May not pass** (stored as `Fail`) — the score is below 70. A Bank or REIT whose limit is breached
+  always lands there (see "Bank path"); no Debt path has a hard fail any more.
 - **Pass with caution** — the blend is 70 or more, but it contains a real breach: one a legitimate
   offsetting factor resolved, or one nothing excused that the other ratios outweighed. The card
   names the breached ratio. Treat this as "barely passing" (capped at 74), not equivalent to a clean Pass.
@@ -273,8 +273,8 @@ caution ticker reads as barely passing.
 3. `score > 90` → Strong Pass.
 4. Otherwise → Pass.
 
-`hard_fail` is always `False` on the Standard path (the field stays on the payload for Bank and REIT).
-`unrescued_breaches` lists the breached ratio keys.
+No Debt path has a `hard_fail` flag any more (the payload field was removed 2026-10-08, with the Bank and REIT hard fail).
+`unrescued_breaches` lists the breached ratio keys (Bank: `cet1_ratio` / `npl_ratio`; REIT: `gearing_ratio`).
 
 Missing Current Ratio outright, or missing Total Debt/EBITDA data outright (not merely EBITDA
 being non-positive) → `insufficient_data`.
@@ -335,16 +335,17 @@ using the provider's broader `totalDebt` aggregate.
 | < 30% | excellent | 100 |
 | 30% – 40% | good | 85 |
 | 40% – 45% | approaching_limit | 70 |
-| > 45% | fail | 0 (hard fail) |
+| > 45% | fail | 0 (a breach) |
 
 **Gearing under 45% passes (2026-10-08).** The 40–45% band used to score 60, which the shared 70 floor read as a Fail, so a REIT at
 42% failed although it was under the stated 45% limit (HST, KIM, O, REG and VMRK were in this band). It now scores 70, the lowest passing
-score, and reads Pass; the boundary is unchanged (45.0 exactly is still in the 40–45% tier, anything above is the hard fail). Under 30%
+score, and reads Pass; the boundary is unchanged (45.0 exactly is still in the 40–45% tier, anything above is a breach). Under 30%
 and 30–40% keep 100 and 85.
 
-Single-ratio blend. **Unchanged by the 2026-10-07 hard-fail removal**: a hard-failing ratio forces
-`Fail` whatever the score, and a blend below 70 fails too (no tier does since 2026-10-08);
-`hard_fail` is still reported. No rescue mechanism exists for REIT gearing. Missing Total Debt or Total Assets → `insufficient_data`.
+Single-ratio score, **no hard fail (2026-10-08)**: the verdict is the Standard rule applied to the score (under 70 `Fail`, over 90
+Strong Pass, otherwise Pass). Gearing past 45% scores 0, so it always lands under 70, and every passing tier scores 70 or more, so verdict
+and score cannot disagree. A breach is listed in `unrescued_breaches` (`gearing_ratio`) so the card can name it. No rescue mechanism
+exists for REIT gearing. Missing Total Debt or Total Assets → `insufficient_data`.
 
 ### Bank path
 
@@ -352,7 +353,7 @@ Blends two ratios 50/50, **only once both are available**:
 
 | CET1 | Tier | Points | | NPL | Tier | Points |
 |---|---|---|---|---|---|---|
-| < 10% | fail | 0 (hard fail) | | ≥ 5% | fail | 0 (hard fail) |
+| < 10% | fail | 0 (a breach) | | ≥ 5% | fail | 0 (a breach) |
 | 10% – 12% | acceptable | 70 | | 3% – 5% | acceptable | 70 |
 | 12% – 14% | good | 85 | | 1% – 3% | good | 85 |
 | ≥ 14% | excellent | 100 | | < 1% | excellent | 100 |
@@ -362,7 +363,14 @@ dump, never a pre-computed ratio. Falls back to the latest annual filing if the 
 nonaccrual-loan tag is specifically absent. Discarded as unreliable if the resulting total-loan
 figure is under **10%** of total assets. Manually overridable.
 
-Same verdict rule as the REIT path (hard limits unchanged). No rescue mechanism for either Bank ratio.
+**No hard fail (2026-10-08).** The verdict is the Standard rule applied to the score (under 70 `Fail`, over 90 Strong Pass, otherwise
+Pass); a breached ratio scores 0 and is listed in `unrescued_breaches`. Weights alone keep verdict and score in agreement, with no cap:
+with a CET1 weight w and an NPL weight 1 − w, a breach beside a perfect other ratio scores at most 100 × (1 − w) (CET1 breached) or
+100 × w (NPL breached), and two ratios exactly at their limits score 70, so the blend is under 70 for a breach and 70 or more
+otherwise for every w **strictly between 0.30 and 0.70**. The weights are the code constant `WEIGHTS_BANK` (50/50, not in Settings);
+**if they are ever made adjustable they must stay within 0.31–0.69** (at 0.30 a CET1 breach beside a perfect NPL scores exactly 70
+and passes; at 0.70 the same holds for NPL). `test_step5.py` checks the full CET1 × NPL grid, the gearing range and that band. A Bank
+with no CET1 entered, or no resolvable NPL, is still `not_supported` (no score). No rescue mechanism for either Bank ratio.
 
 **CET1 is manual-entry only, never fabricated or estimated.** Investigated against the provider:
 no CET1 field and no raw components to compute one exist (ratios, ratios-ttm, key-metrics, the

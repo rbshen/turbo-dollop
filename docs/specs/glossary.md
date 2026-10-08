@@ -11,10 +11,9 @@ Fathom stores this verdict as `Fail` but **displays it as "May not pass"** on ev
 
 The check found a genuine, meaningful weakness — not just "not the best," but falling short of
 what the check considers a healthy result. Most checks treat certain conditions as an automatic
-Fail regardless of how strong everything else looks (for example, a Bank's Debt check fails if a
-capital ratio breaches its hard limit) — the idea
+Fail regardless of how strong everything else looks (for example, Profitability's negative average ROE or ROIC) — the idea
 being that a single serious red flag shouldn't get averaged away by strength elsewhere. Debt for
-ordinary companies has no automatic fail since 2026-10-07: a breach scores near zero and the
+ordinary companies has no automatic fail since 2026-10-07, and neither do Banks and REITs since 2026-10-08: a breach scores near zero (0 for a Bank or REIT limit) and the
 weights, which put the most weight on Debt/EBITDA, keep it below 70. Debt shows that result as
 "May not pass" like every other check; see [Debt](debt.md).
 
@@ -72,7 +71,7 @@ figure that might show up on the next data refresh.
 Overall Assessment is the **Fundamentals score** (the weighted blend of the four automated checks, default weights Financials 30, Debt 30, Growth
 Rate 20, Profitability 20) times a **Moat multiplier** (Wide 1.0, Narrow 0.85 by default, No moat or not rated 0.70). It uses these same
 verdict labels, read from the Overall score (the weights each check carries are adjustable: see [Overview](overview.md), "Adjustable
-weights"; a hard fail still reads Fail on its own check):
+weights"; Step 4's hard fail still reads Fail on its own check):
 
 - If any of the four automated checks comes back **insufficient data** (or hits an internal
   error), Overall Assessment doesn't attempt a partial average — the whole Overall Assessment is

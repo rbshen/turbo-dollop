@@ -76,9 +76,9 @@ adds an amber line naming the weak steps ("Passed with caution: ...", beside the
 slate "X may not pass" failing-steps line is hidden, since the amber line already names those steps (it still shows on "May not pass"). Step lists read "A, B and C".
 The Watchlist Analysis tooltip names both kinds.
 There is **no cap and no
-hard-fail override**: a hard fail inside a check (Step 4 negative average ROE or ROIC, a Bank or REIT Step 5
-limit) still reads Fail on that check's own card and still enters the blend only through its score. Step 5 for Standard and Utility
-companies has no hard fail since 2026-10-07: its three ratios are a pure weighted blend and 70 or more passes ([Debt](debt.md)).
+hard-fail override**: a hard fail inside a check (Step 4 negative average ROE or ROIC) still reads Fail on that check's own card and
+still enters the blend only through its score. Step 5 has no hard fail on any path (Standard and Utility since 2026-10-07, Bank and REIT
+since 2026-10-08): the verdict follows the score and 70 or more passes ([Debt](debt.md)).
 Since 2026-10-08 the stored verdict `Fail` is displayed as **"May not pass"** on every surface, every step and the Overall verdict
 (display only: the stored key, the API and every comparison are unchanged; a slate blue tone, not red, and a plain 70-74 Pass is green, no longer amber;
 docs/design-system.md, "Pills"). The Economic Moat is no longer the one
@@ -141,7 +141,7 @@ recompute subprocess can never score with weights that would let a breach pass.
 `GET /api/config/score-weights` returns the weights, the defaults, the bounds and sums, `weights_version` and `formula_version`;
 `PUT` saves a full set (422 with a plain-English reason naming the set and the rule); `POST /api/config/score-weights/reset`
 restores the defaults. A weight of 0 removes a component from the blend only: a missing input can still make the step insufficient,
-and a hard fail (Step 4, Bank or REIT Debt) still reads Fail. Step 2 has none (its verdict follows its score). Saving does not rescore anything by itself; the stored rows stay on the older version until a full
+and a hard fail (Step 4) still reads Fail. Step 2 has none (its verdict follows its score). Saving does not rescore anything by itself; the stored rows stay on the older version until a full
 recompute (`compute_ticker_score`) re-scores them, and a ticker-header read of a row on an older version re-scores it (cache only).
 
 **Formula version.** `weights_version` cannot see a change of *formula*, so every stored row also carries `TickerScore.formula_version`
