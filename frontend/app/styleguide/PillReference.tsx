@@ -32,7 +32,7 @@ import type {
   WatchlistRowOut,
 } from "@/lib/api/types";
 import type { OverallAssessment } from "@/lib/overallScore";
-import { pillLabel, toneFor } from "@/lib/tierColor";
+import { toneFor, verdictDisplay } from "@/lib/tierColor";
 
 // ---------------------------------------------------------------------------
 // Layout helpers
@@ -65,10 +65,10 @@ function Row({ label, children }: { label?: string; children: ReactNode }) {
 const TONES: { tone: StatusTone; label: string }[] = [
   { tone: "strong", label: "Strong pass" },
   { tone: "positive", label: "Pass" },
-  { tone: "warn", label: "Pass" },
   { tone: "warn", label: "Needs review" },
   { tone: "caution", label: "Pass with caution" },
-  { tone: "negative", label: "Fail" },
+  { tone: "negative-soft", label: "May not pass" },
+  { tone: "negative", label: "No moat" },
   { tone: "speculative", label: "Speculative growth" },
   { tone: "neutral", label: "Not scored" },
 ];
@@ -76,9 +76,10 @@ const TONES: { tone: StatusTone; label: string }[] = [
 const BADGE_TONES: { tone: BadgeTone; label: string }[] = [
   { tone: "strong", label: "92" },
   { tone: "positive", label: "83" },
-  { tone: "warn", label: "72" },
+  { tone: "warn", label: "Review" },
   { tone: "caution", label: "74 ⚠" },
-  { tone: "negative", label: "48" },
+  { tone: "negative-soft", label: "48" },
+  { tone: "negative", label: "Overvalued" },
   { tone: "speculative", label: "Spec" },
   { tone: "neutral", label: "Bank" },
 ];
@@ -373,7 +374,7 @@ export function PillReference() {
     <div className="flex flex-col gap-10">
       <Group
         title="Tones — regular and compact"
-        note="Soft tinted fill (tone at 16%), tone-coloured text, no border. Regular is the default; compact is for dense tables only (Watchlist, Momentum). The amber tone appears twice: the 70–74 score band shows the backend's word “Pass”, and “Needs review” is the tone's name."
+        note="Soft tinted fill (tone at 16%; the quieter red, “May not pass”, uses 10% so its text clears 4.5:1 on its own tint), tone-coloured text, no border. Regular is the default; compact is for dense tables only (Watchlist, Momentum). Amber carries only “Needs review” and “Pass with caution”; a plain Pass is green at every score from 70 up. “May not pass” (the stored Fail) is the quieter red; the full red stays for No moat, Overvalued and the direction glyph."
       >
         <div className="flex flex-col gap-3">
           <Row label="Regular">
@@ -465,7 +466,7 @@ export function PillReference() {
             {SCORE_SAMPLES.map(({ score, verdict }) => (
               <span key={`${score}-${verdict}`} className="flex items-center gap-2 pr-4">
                 <span className="font-mono text-sm tabular-nums text-text-primary">{score}</span>
-                <Verdict tone={toneFor(score, verdict)}>{pillLabel(verdict)}</Verdict>
+                <Verdict tone={toneFor(score, verdict)}>{verdictDisplay(verdict)}</Verdict>
               </span>
             ))}
           </Row>
@@ -516,7 +517,7 @@ export function PillReference() {
         note="The status chip at the top right of each Technical-tab card takes a tone, not a class string."
       >
         <div className="grid gap-3 md:grid-cols-2">
-          {TONES.filter((t, i) => !(t.tone === "warn" && i === 3)).map(({ tone, label }, i) => (
+          {TONES.map(({ tone, label }, i) => (
             <ChecklistCard key={i} title="Example checklist" statusLabel={label} statusTone={tone} blurb={`A card whose chip is the ${tone} tone.`} items={[]} disclaimer="Informational only." />
           ))}
         </div>
@@ -572,7 +573,7 @@ export function PillReference() {
 
       <Group
         title="In context — Watchlist rows (compact pills; Rating stays coloured text)"
-        note="Real WatchlistTable, mock rows: all three pills; Pass with caution (⚠) with Hold; a Fail with No moat and Sell; and an unscored ticker with a missing score and N/A rating. Up to three compact pills per row (Moat, Value, Analysis)."
+        note="Real WatchlistTable, mock rows: all three pills; Pass with caution (⚠) with Hold; a May not pass with No moat and Sell; and an unscored ticker with a missing score and N/A rating. Up to three compact pills per row (Moat, Value, Analysis)."
       >
         <WatchlistTable watchlist={WATCHLIST} rows={WATCHLIST_ROWS} sortRules={[]} onSortRulesChange={() => {}} />
       </Group>

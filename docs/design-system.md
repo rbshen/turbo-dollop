@@ -312,7 +312,7 @@ A section that saves several independent panels (Discount Rate has one per regio
 
 One family, two components, two sizes. `Status` (a labelled state, with an optional ▲/▼ direction glyph) and `Badge` (a short value or label, with a `missing` state) render the same pill; `Verdict` is `Status` for a verdict word. They never differ in look, only in what they are for. Nothing in the app hand-rolls a pill, a dot or an inline status colour — a new status goes through these. That includes the Screener's `PullbackPill` and `ReversalPill`, which were the reference style and now render through `Status` themselves (2026-09-29), and the Technical tab's `ChecklistCard` status chip.
 
-**Anatomy.** `radius-md` (8px). Fill is the tone colour at 16% opacity, text is the tone colour at full strength, and there is no border. This is the look of the Weinstein stage pill ("Stage 2 · Advance" and so on; the Screener card shows the same wording as the ticker header), which is the reference style (it was originally set by the Pullback/Reversal pills, since removed with the trend-structure feature). No new colours: every tone reuses an existing token.
+**Anatomy.** `radius-md` (8px). Fill is the tone colour at 16% opacity (10% for the one tone `negative-soft`, below), text is the tone colour at full strength, and there is no border. This is the look of the Weinstein stage pill ("Stage 2 · Advance" and so on; the Screener card shows the same wording as the ticker header), which is the reference style (it was originally set by the Pullback/Reversal pills, since removed with the trend-structure feature). No new colours except the quiet red `negative-soft` (2026-10-08, below): every other tone reuses an existing token.
 
 | Size | Type | Padding | Height | Where |
 | --- | --- | --- | --- | --- |
@@ -326,12 +326,24 @@ The choice of size is the only difference between a Watchlist Moat cell and the 
 | Tone | Token | Label / where it shows up |
 | --- | --- | --- |
 | `strong` | `positive-strong` | Strong pass (score above 90), Wide moat, Undervalued, 5Y vs SPY outperform |
-| `positive` | `positive` (muted green) | Pass (score 75 to 90), Narrow moat, Fairvalued, Stage 2 (Advance) |
-| `warn` | `warn` | Needs review: the amber borderline read. In the app the 70 to 74 score band carries the backend's own verdict word "Pass" in this tone; "Needs review" is the tone's name and its styleguide label. Also Stage 3 (Top) |
+| `positive` | `positive` (muted green) | Pass (score 70 to 90, the whole plain-Pass band, 2026-10-08), Narrow moat, Fairvalued, Stage 2 (Advance) |
+| `warn` | `warn` | Needs review: the amber borderline read (the Review statuses). Since 2026-10-08 a plain 70 to 74 Pass is no longer amber (it is `positive`); amber now carries only Needs review, the Review statuses and Pass with caution. Also Stage 3 (Top) |
 | `caution` | `caution` | Pass with caution (checked before score tiers) |
-| `negative` | `negative` | Fail, No moat, Overvalued, Stage 4 (Decline), Trend invalidated |
+| `negative-soft` | `negative-soft` (quiet red) | May not pass: the display word for a stored verdict "Fail" (see below), at every score below 70 and on every step and Overall surface |
+| `negative` | `negative` | No moat, Overvalued, Stage 4 (Decline), Trend invalidated, direction-glyph negatives, errors and other semantic red |
 | `speculative` | `chart-purple` | Speculative growth only |
 | `neutral` | `surface-2` fill, `text-secondary` | No read to colour: Not scored, N/A, Stage 1 (Base), index membership (S&P 500, Nasdaq, Dow 30), company kind (Badge), Skipped and Unknown in the jobs tables, a stale Reversal, and any value with no Pass/Fail meaning |
+
+**"May not pass" and the quiet red (2026-10-08).** The word "Fail" is retired as a display word: every verdict surface (Overall pill, header chip, Screener `ScoreBadge`, all step pills, tooltips, the free-text prose on the step cards, the Overall card's failing-steps line, the Review tooltip) draws a stored `"Fail"` as **May not pass**, through the one `verdictDisplay()` in `lib/tierColor.ts` (`verdictLabel` and the `AnalysisSectionCard` default call it). It is display only: the stored key stays `"Fail"`, and `toneFor` and every comparison keep running on the raw value (never pass the relabelled word to them). Because "May not pass" is a softer message than a verdict of failure, it has its own quieter red, token `--fathom-negative-soft` (Tailwind `negative-soft`, pill tone `negative-soft`), kept apart from `negative` (66% 0.19 25) so No moat, Overvalued and the other red reads are not recoloured:
+
+| | `negative` | `negative-soft` |
+| --- | --- | --- |
+| Value | `oklch(66% 0.19 25)` | `oklch(78% 0.12 18)` |
+| Pill fill | 16% | **10%** |
+| Text on `surface` / `surface-2` / page | 5.33 / 4.84 / 5.79 : 1 | 8.60 / 7.81 / 9.34 : 1 |
+| Text on its own pill fill (on `surface`) | 3.15 : 1 (at 16%) | **4.89 : 1** (at 10%; 4.65 on `surface-2`, 5.09 on the page) |
+
+The soft red's chroma is about a third lower and its hue a touch toward rose (18 vs 25), so it stays clearly red and clearly apart from both ambers (hue 80). The one exception to the 16% pill fill is this tone's 10%: a clearly red text colour cannot reach 4.5:1 on a 16% tint of itself (the tint lightens as the text does; 78% lightness gives 3.88:1 there, and passing needs a near-white pink), so the fill is lowered instead of the colour washed out. Use `negative-soft` only for a stored Fail shown as May not pass (the pills, the Overall ring, the Overall calculation table's Score cell, the Debt tiers whose label reads "May not pass" and the Debt note under them); never for a new red read. Amber (`warn`, `caution`) is then used only for Pass with caution and the Review statuses (plus Stage 3 and similar non-score reads).
 
 `Badge` and `Status` share this tone set. "Pass with caution" is `caution` everywhere, Watchlist included.
 
