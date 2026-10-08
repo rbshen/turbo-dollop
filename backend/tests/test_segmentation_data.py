@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+
 from sqlmodel import SQLModel, create_engine
 
 import data.segmentation_data as segmentation_data
@@ -92,6 +94,47 @@ def test_seven_segments_exactly_at_cap_has_no_other_bucket():
     _, segments, _ = _build_segment_series(seven_segment_row)
     assert len(segments) == 7
     assert OTHER_LABEL not in segments
+
+
+def _other_rows(other_name: str) -> list[dict]:
+    # Newest-first. Six large segments plus the provider's own "Other" fill the
+    # seven kept slots; Tiny A / Tiny B rank below and overflow.
+    big = {f"Big {i}": float(1000 - i * 100) for i in range(6)}
+    return [
+        {"fiscalYear": "2025", "date": "2025-12-31", "data": {**big, other_name: 300.0, "Tiny A": 5.0, "Tiny B": 2.0}},
+        {"fiscalYear": "2024", "date": "2024-12-31", "data": {**big, other_name: 280.0, "Tiny A": 4.0}},
+        {"fiscalYear": "2023", "date": "2023-12-31", "data": {**big, "Tiny B": 3.0}},  # overflow only
+        {"fiscalYear": "2022", "date": "2022-12-31", "data": {**big, other_name: 250.0}},  # real Other only
+        {"fiscalYear": "2021", "date": "2021-12-31", "data": dict(big)},  # neither
+    ]
+
+
+EXPECTED_MERGED_OTHER = [None, 250.0, 3.0, 284.0, 307.0]  # 2021..2025
+
+
+def test_real_other_in_top_segments_absorbs_overflow_into_single_series():
+    years, segments, values = _build_segment_series(_other_rows("Other"))
+    assert years == ["2021", "2022", "2023", "2024", "2025"]
+    assert segments.count("Other") == 1
+    assert len(segments) == len(set(segments)) == MAX_SEGMENTS
+    assert values["Other"] == EXPECTED_MERGED_OTHER
+
+
+def test_no_real_other_keeps_synthetic_bucket_unchanged():
+    _, segments, values = _build_segment_series(EIGHT_SEGMENT_ROW)
+    assert segments.count(OTHER_LABEL) == 1
+    assert segments[-1] == OTHER_LABEL
+    assert len(segments) == MAX_SEGMENTS + 1
+    assert values[OTHER_LABEL] == [10.0]
+
+
+@pytest.mark.parametrize("name", ["Others", " other ", "OTHER"])
+def test_other_name_variants_merge_and_keep_provider_label(name):
+    _, segments, values = _build_segment_series(_other_rows(name))
+    assert len(segments) == len(set(segments)) == MAX_SEGMENTS
+    assert name in segments
+    assert OTHER_LABEL not in segments
+    assert values[name] == EXPECTED_MERGED_OTHER
 
 
 def test_get_segmentation_data_maps_product_and_geographic(monkeypatch):

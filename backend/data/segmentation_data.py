@@ -18,6 +18,11 @@ ANNUAL_WINDOW = 10
 # directly -- only busier breakdowns fold the remainder into "Other".
 MAX_SEGMENTS = 7
 OTHER_LABEL = "Other"
+_OTHER_NAMES = {"other", "others"}
+
+
+def _is_other_name(name: str) -> bool:
+    return name.strip().lower() in _OTHER_NAMES
 
 
 def _annual_year(row: dict) -> str:
@@ -49,7 +54,11 @@ def _build_segment_series(
     Segments are ranked by total $ contribution across the window
     (descending) so the most prominent segment always lands in the same
     chart slot; only the top `max_segments` are kept individually, the rest
-    are summed per-year into an "Other" bucket (added only if non-empty).
+    are summed per-year into an "Other" bucket (added only if non-empty). If a
+    kept segment is already an "Other"-type name the provider itself reports
+    (case/whitespace-insensitive: "Other", "Others", " other "), the overflow
+    is added into that series, under the provider's label, rather than
+    creating a second "Other" series that would collide on the chart key.
     A segment not broken out in a given year is None there, never 0 -- 0
     would misreport "not disclosed that year" as "no revenue"."""
     if not rows:
@@ -84,8 +93,16 @@ def _build_segment_series(
 
     segments = list(kept)
     if overflow:
-        values[OTHER_LABEL] = other_values
-        segments.append(OTHER_LABEL)
+        existing_other = next((name for name in kept if _is_other_name(name)), None)
+        if existing_other is not None:
+            # None only when neither the provider's own value nor the overflow has one.
+            values[existing_other] = [
+                None if real is None and extra is None else (real or 0.0) + (extra or 0.0)
+                for real, extra in zip(values[existing_other], other_values)
+            ]
+        else:
+            values[OTHER_LABEL] = other_values
+            segments.append(OTHER_LABEL)
 
     return years, segments, values
 
