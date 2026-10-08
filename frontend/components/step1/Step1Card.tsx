@@ -6,7 +6,7 @@ import type { Step1Out } from "@/lib/api/types";
 
 const METHODOLOGY =
   "A weighted blend of Revenue, Net Income, Cash Flow from Operations, Margins, and Free Cash Flow scores " +
-  "(Revenue, Net Income, and Margins alone when CFO/FCF don't apply), banded 0–69 Fail / 70–90 Pass / " +
+  "(Revenue, Net Income, and Margins alone when CFO/FCF don't apply), banded 0–69 May not pass / 70–90 Pass / " +
   "91–100 Strong Pass. Each is scored from its last 5–10 completed fiscal years (never the trailing twelve months) on one " +
   "neutral trend assessment: long-term direction, a graduated penalty for dips (more, longer or unrecovered dips cost more), " +
   "and a cut for a fresh fall in the last fiscal year. Margins is the lower of gross margin and the better of net and " +
@@ -81,7 +81,7 @@ function verdictSentence(componentRows: { label: string; score: number }[], verd
     return `All components (${joinWithAnd(componentRows.map((row) => row.label))}) cleared the Pass threshold — none pulled the blend down.`;
   }
   if (verdict === "Fail") {
-    return `${joinWithAnd(weak)} scored below the Pass threshold, pulling the blend down to a Fail.`;
+    return `${joinWithAnd(weak)} scored below the Pass threshold, pulling the blend down to May not pass.`;
   }
   return `${joinWithAnd(weak)} scored below the Pass threshold, but the rest of the blend was strong enough to still reach a ${verdict}.`;
 }

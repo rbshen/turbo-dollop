@@ -10,8 +10,8 @@ interface Props {
 
 const METHODOLOGY =
   "A weighted blend of Return on Equity, Return on Invested Capital, Revenue vs. Accounts Receivable, and Cash " +
-  "Conversion Cycle (ROIC/CCC/Revenue-vs-AR excluded and reweighted for Bank/Insurance/Utility/REIT); a Fail-tier " +
-  "ROE or ROIC forces a Fail regardless of the blended score.";
+  "Conversion Cycle (ROIC/CCC/Revenue-vs-AR excluded and reweighted for Bank/Insurance/Utility/REIT); an ROE or " +
+  "ROIC in its lowest tier (a hard limit) forces May not pass regardless of the blended score.";
 
 function joinWithAnd(items: string[]): string {
   if (items.length <= 1) return items.join("");
@@ -31,7 +31,7 @@ const TIER_LABELS: Record<string, string> = {
   good: "Good",
   marginal: "Marginal",
   weak_but_positive: "Weak (never negative)",
-  fail: "Fail",
+  fail: "May not pass",
   positive_despite_negative_equity: "Positive (negative equity exception)",
   negative_equity_inconsistent_income: "Inconsistent (negative equity)",
   insufficient_data: "Insufficient data",
@@ -117,10 +117,10 @@ export function Step4Card({ ticker }: Props) {
   // breached its Fail tier" next to a Fail badge) avoids that contradiction.
   const weakComponents = componentRows.filter((row) => row.points < 70).map((row) => METRIC_LABELS[row.key] ?? row.key);
   const blurb = data.hard_fail
-    ? "ROE or ROIC landed in its Fail tier, so this fails regardless of the blended score."
+    ? "ROE or ROIC landed in its lowest tier (a hard limit), so this may not pass regardless of the blended score."
     : data.verdict === "Fail"
-      ? `Neither ROE nor ROIC breached its Fail tier outright, but ${joinWithAnd(weakComponents)} still pulled the blended score below the Pass threshold.`
-      : "Neither ROE nor ROIC breached its Fail tier.";
+      ? `Neither ROE nor ROIC landed in its lowest tier outright, but ${joinWithAnd(weakComponents)} still pulled the blended score below the Pass threshold.`
+      : "Neither ROE nor ROIC landed in its lowest tier.";
 
   const notes = (
     <>

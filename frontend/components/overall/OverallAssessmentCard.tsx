@@ -43,13 +43,9 @@ function rollupSummary(breakdown: StepBreakdownEntry[]): string {
   return `${passing} of ${counted.length} weighted components at Pass level or better.`;
 }
 
-// "Financials failed" / "Debt may not pass" (Debt's stored "Fail" reads "May not pass", display only; the other steps keep "failed").
+// "Financials, Debt may not pass": every step whose stored verdict is "Fail" reads "May not pass" (display only).
 function failingStepsText(labels: string[]): string {
-  const failed = labels.filter((label) => label !== "Debt");
-  const parts: string[] = [];
-  if (failed.length > 0) parts.push(`${failed.join(", ")} failed`);
-  if (failed.length < labels.length) parts.push(`Debt ${FAIL_DISPLAY_LABEL.toLowerCase()}`);
-  return parts.join("; ");
+  return `${labels.join(", ")} ${FAIL_DISPLAY_LABEL.toLowerCase()}`;
 }
 
 // The three multipliers the description quotes: Wide and No moat are fixed, Narrow is the saved setting.
@@ -204,7 +200,7 @@ function ReviewStatusBlock({ review }: { review: DisplayedReview }) {
         <span className="sr-only">Warning: </span>
         <span className="font-semibold">{REVIEW_STATUS_LABEL[review.status]}</span>
         {review.conviction && <span> · Conviction: {review.conviction}</span>}
-        <span> — the numeric score and verdict above are unchanged; this flags a step that failed badly.</span>
+        <span> — the numeric score and verdict above are unchanged; this flags a step that scored very low.</span>
       </p>
       <ul className="list-disc space-y-1 pl-6">
         {review.reasons.map((reason) => (
@@ -270,7 +266,7 @@ export function OverallAssessmentView({
           <CalculationSection result={result} multipliers={multipliers} />
 
           {result.failingSteps.length > 0 && (
-            <p className="text-sm text-warn">
+            <p className="text-sm text-negative-soft">
               <Warning size={16} weight="bold" aria-hidden="true" className="-mt-0.5 mr-1.5 inline" />
               <span className="sr-only">Warning: </span>
               {failingStepsText(result.failingSteps)} — reflected in the weighted score above, but worth reviewing

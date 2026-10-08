@@ -34,8 +34,8 @@ describe("OverallAssessmentView: the failing and caution notes", () => {
 
   it("names the failing steps in a warn-toned note", () => {
     render(<OverallAssessmentView result={result({ failingSteps: ["Debt", "Growth Rate"] })} />);
-    const note = screen.getByText(/Growth Rate failed; Debt may not pass — reflected in the weighted score above/);
-    expect(note).toHaveClass("text-warn");
+    const note = screen.getByText(/Debt, Growth Rate may not pass — reflected in the weighted score above/);
+    expect(note).toHaveClass("text-negative-soft");
   });
 
   it("names the pass-with-caution steps in a caution-toned note", () => {
@@ -54,7 +54,7 @@ describe("OverallAssessmentView: the failing and caution notes", () => {
       expect(note.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
       expect(note.querySelector(".sr-only")).toHaveTextContent("Warning:");
     }
-    expect(notes[0]).toHaveClass("text-warn");
+    expect(notes[0]).toHaveClass("text-negative-soft");
     expect(notes[1]).toHaveClass("text-caution");
   });
 });

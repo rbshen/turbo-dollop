@@ -4,7 +4,7 @@ import { AnalysisSectionCard, type ReasoningBullet, weightScoreSuffix } from "@/
 import { useStep2 } from "@/lib/hooks/useStep2";
 import { fmtPct } from "@/lib/format";
 
-const NEGATIVE_GROWTH_NOTE = "negative growth always fails regardless of the blended score.";
+const NEGATIVE_GROWTH_NOTE = "negative growth always reads May not pass regardless of the blended score.";
 
 /** The one-line "how this is calculated" note, built from the saved weights the step payload carries (so it follows Settings > Score
  * weighting). A component weighted 0 is not counted in the blend, and the note says so rather than quoting 0%. */
