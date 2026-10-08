@@ -71,7 +71,7 @@ def test_an_unrated_incomplete_stock_keeps_a_null_verdict_and_no_multiplier(monk
 
 @pytest.mark.parametrize(
     ("moat", "expected_score", "expected_verdict", "multiplier"),
-    [("wide_moat", 75, "Pass", 1.0), ("narrow_moat", 64, "Fail", 0.85), ("no_moat", 52, "Fail", 0.70)],
+    [("wide_moat", 75, "Pass with caution", 1.0), ("narrow_moat", 64, "Fail", 0.85), ("no_moat", 52, "Fail", 0.70)],
 )
 def test_rated_rows_store_the_steps_score_and_the_multiplier_beside_overall(monkeypatch, moat, expected_score, expected_verdict, multiplier):
     engine = _engine(monkeypatch)
@@ -120,7 +120,7 @@ def test_rating_a_ticker_through_the_moat_endpoint_rescores_its_stored_row(monke
         assert client.put("/api/tickers/AAPL/moat", json={"moat": "wide_moat"}).status_code == 200
         with Session(engine) as session:
             wide = session.get(TickerScore, "AAPL")
-            assert (wide.moat, wide.overall_score, wide.overall_verdict, wide.moat_multiplier) == ("wide_moat", 75, "Pass", 1.0)
+            assert (wide.moat, wide.overall_score, wide.overall_verdict, wide.moat_multiplier) == ("wide_moat", 75, "Pass with caution", 1.0)
         assert client.put("/api/tickers/AAPL/moat", json={"moat": "no_moat"}).status_code == 200
         with Session(engine) as session:
             none_ = session.get(TickerScore, "AAPL")
@@ -170,13 +170,26 @@ def _run_case(case):
 def test_backend_matches_the_shared_overall_verdict_cases(case):
     result = _run_case(case)
     expected = case["expected"]
-    assert (result.status, result.score, result.verdict, result.steps_score, result.moat_multiplier, result.moat_note) == (
+    assert (
+        result.status,
+        result.score,
+        result.verdict,
+        result.steps_score,
+        result.moat_multiplier,
+        result.moat_note,
+        result.caution_steps,
+        result.weak_steps,
+        result.caution_reasons,
+    ) == (
         expected["status"],
         expected["score"],
         expected["verdict"],
         expected["steps_score"],
         expected["moat_multiplier"],
         expected["moat_note"],
+        expected["caution_steps"],
+        expected["weak_steps"],
+        expected["caution_reasons"],
     )
 
 

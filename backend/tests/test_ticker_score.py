@@ -698,8 +698,9 @@ def test_a_gated_step1_stores_the_review_columns_and_leaves_the_verdict_alone(mo
 
     result = asyncio.run(compute_ticker_score("AAPL"))
 
-    # Steps (40*30 + 90*20 + 90*20 + 90*30)/100 = 75.0 x Wide 1.0 -> a Pass-family verdict, untouched by the status.
-    assert result.overall_verdict in ("Pass", "Strong Pass")
+    # Steps (40*30 + 90*20 + 90*20 + 90*30)/100 = 75.0 x Wide 1.0 -> 75, a passing score; Financials 40 is a weak step, so the label reads
+    # "Pass with caution" (2026-10-08) and the Review status sits beside it, neither changing the other.
+    assert result.overall_score == 75 and result.overall_verdict == "Pass with caution"
     assert result.review_status == "review_unclear"
     assert result.conviction == "high"
     row = _stored(engine)

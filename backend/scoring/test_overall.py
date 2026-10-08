@@ -37,7 +37,8 @@ def test_computes_a_standard_weighted_average_when_every_step_has_a_real_score()
     wide = compute_overall_assessment(steps, moat="wide_moat")
     assert wide.status == "complete"
     assert wide.steps_score == pytest.approx(75.0)
-    assert (wide.score, wide.verdict) == (75, "Pass")
+    # Debt 60 is below the pass line, so the passing 75 reads "Pass with caution" (2026-10-08) and names it.
+    assert (wide.score, wide.verdict, wide.weak_steps) == (75, "Pass with caution", ["Step 5"])
     # The same steps with Narrow 0.85: 75.0 x 0.85 = 63.75 -> 64, below the line.
     narrow = compute_overall_assessment(steps, moat="narrow_moat")
     assert (narrow.score, narrow.verdict) == (64, "Fail")
@@ -189,6 +190,41 @@ def test_caution_step_forces_caution_verdict_even_when_blend_is_strong_pass():
     assert result.verdict == "Pass with caution"
     # Unrated is scored as No moat: 92.2 x 0.7 = 64.5 -> 64, a Fail (the caution never softens it).
     assert compute_overall_assessment(steps, moat=None).verdict == "Fail"
+
+
+def test_a_weak_step_beside_a_passing_overall_reads_pass_with_caution_and_is_named():
+    steps = [
+        snapshot("step1", "Step 1", 90, "Pass"),
+        snapshot("step2", "Step 2", 90, "Pass"),
+        snapshot("step4", "Step 4", 60, "Fail"),
+        snapshot("step5", "Step 5", 90, "Pass"),
+    ]
+    result = compute_overall_assessment(steps, moat="wide_moat")
+    assert (result.score, result.verdict) == (84, "Pass with caution")  # the number is untouched
+    assert (result.weak_steps, result.caution_steps, result.caution_reasons) == (["Step 4"], [], ["weak_step"])
+    # Unrated (No moat): 84 x 0.7 is a Fail, which stays Fail with no caution reasons.
+    failing = compute_overall_assessment(steps, moat=None)
+    assert (failing.verdict, failing.caution_reasons, failing.weak_steps) == ("Fail", [], ["Step 4"])
+
+
+def test_a_weak_step_on_a_strong_pass_and_the_two_triggers_together():
+    strong = [snapshot("step1", "Step 1", 100, "Strong Pass"), snapshot("step2", "Step 2", 100, "Strong Pass"), snapshot("step4", "Step 4", 69, "Fail"), snapshot("step5", "Step 5", 100, "Strong Pass")]
+    assert compute_overall_assessment(strong, moat="wide_moat").verdict == "Pass with caution"
+    both = [snapshot("step1", "Step 1", 95, "Strong Pass"), snapshot("step2", "Step 2", 95, "Strong Pass"), snapshot("step4", "Step 4", 60, "Fail"), snapshot("step5", "Step 5", 74, "Pass with caution")]
+    result = compute_overall_assessment(both, moat="wide_moat")
+    assert result.caution_reasons == ["step_caution", "weak_step"]
+    assert (result.caution_steps, result.weak_steps) == (["Step 5"], ["Step 4"])
+
+
+def test_a_step_at_70_is_not_weak_and_an_exempt_step_is_ignored():
+    at_line = [snapshot("step1", "Step 1", 70, "Pass"), snapshot("step2", "Step 2", 90, "Pass"), snapshot("step4", "Step 4", 90, "Pass"), snapshot("step5", "Step 5", 90, "Pass")]
+    assert compute_overall_assessment(at_line, moat="wide_moat").weak_steps == []
+    exempt = [*BASE[:3], snapshot("step5", "Step 5", None, "not_supported")]
+    result = compute_overall_assessment(exempt, moat="wide_moat")
+    assert (result.weak_steps, result.verdict) == ([], "Strong Pass")
+    # An incomplete row has no verdict at all, weak step or not.
+    incomplete = [snapshot("step1", "Step 1", 50, "Fail"), *BASE[1:3], snapshot("step5", "Step 5", None, "insufficient_data")]
+    assert compute_overall_assessment(incomplete, moat="wide_moat").verdict is None
 
 
 def test_caution_propagation_does_not_override_a_fail_blend():

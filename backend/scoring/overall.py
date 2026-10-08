@@ -75,7 +75,7 @@ class StepBreakdownEntry(NamedTuple):
 class OverallAssessment(NamedTuple):
     status: str  # "complete" | "incomplete"
     score: int | None  # Overall: round(steps_score x moat_multiplier)
-    # "Strong Pass" | "Pass" | "Pass with caution" | "Fail" | None
+    # "Strong Pass" | "Pass" | "Pass with caution" (a step caution and/or a weak step, see caution_reasons) | "Fail" | None
     verdict: str | None
     breakdown: list[StepBreakdownEntry]
     incomplete_steps: list[str]
@@ -88,6 +88,14 @@ class OverallAssessment(NamedTuple):
     moat_multiplier: float | None = None
     # MOAT_NOT_RATED_NOTE when Moat is unset (complete rows only); None otherwise.
     moat_note: str | None = None
+    # Labels of the steps whose verdict is "Pass with caution" (only Step 5 produces one).
+    caution_steps: list[str] = []
+    # Labels of the steps below the pass line (score under 70, or a stored "Fail" verdict: a hard fail can read Fail at any score).
+    # Exempt steps are never in it. Listed whatever the Overall verdict; it only drives the caution when the Overall passes.
+    weak_steps: list[str] = []
+    # Why the verdict reads "Pass with caution" (empty for every other verdict): "step_caution" (a step's own Pass with caution) and/or
+    # "weak_step" (a step below the pass line beside an Overall of 70 or more). Both can apply.
+    caution_reasons: list[str] = []
 
 
 def _status_for(snapshot: StepSnapshot) -> str:
@@ -123,8 +131,8 @@ def compute_overall_assessment(
     reweighted; any step with missing data makes the whole assessment incomplete, which no Moat rating can rescue), kept
     unrounded. Overall = round(steps_score x multiplier), rounded once. `moat` is "no_moat" | "narrow_moat" | "wide_moat" or
     None (unset, scored as No moat); `narrow_multiplier` is the saved Narrow setting. No cap, no hard-fail override: the verdict
-    is read from the Overall score (bands 0-69 Fail, 70-90 Pass, 91+ Strong Pass), and a step's "Pass with caution" still
-    carries up beside an otherwise-passing score."""
+    is read from the Overall score (bands 0-69 Fail, 70-90 Pass, 91+ Strong Pass); a Pass or Strong Pass reads "Pass with caution"
+    when a step carries its own "Pass with caution" or any step is below the pass line (weak). Review is separate and untouched."""
     step_weights = overall_fractions(weights)
     with_status = [(s, _status_for(s)) for s in steps]
 
@@ -142,6 +150,7 @@ def compute_overall_assessment(
 
     failing_steps = [s.label for s, _ in ok if s.verdict == "Fail"]
     caution_steps = [s.label for s, _ in ok if s.verdict == "Pass with caution"]
+    weak_steps = [s.label for s, _ in ok if s.verdict == "Fail" or s.score < PASS_THRESHOLD]
 
     breakdown = [
         StepBreakdownEntry(
@@ -157,11 +166,12 @@ def compute_overall_assessment(
     ]
 
     score_verdict = _verdict_for(score) if score is not None else None
-    # A step-level "Pass with caution" flag must win over the blended
-    # score's own band -- Fail stays Fail (already the strongest signal),
-    # but an otherwise-green Pass/Strong Pass displays as caution instead.
+    # Two triggers turn an otherwise-green Pass/Strong Pass into "Pass with caution": a step's own "Pass with caution" flag, and (since
+    # 2026-10-08) a step below the pass line that the other steps outweighed. Fail stays Fail (already the strongest signal).
     # This changes only the DISPLAYED verdict; `score` above is untouched.
-    verdict = "Pass with caution" if score_verdict not in (None, "Fail") and caution_steps else score_verdict
+    passing = score_verdict not in (None, "Fail")
+    caution_reasons = (["step_caution"] if caution_steps else []) + (["weak_step"] if weak_steps else []) if passing else []
+    verdict = "Pass with caution" if caution_reasons else score_verdict
 
     return OverallAssessment(
         status="complete" if can_compute else "incomplete",
@@ -175,4 +185,7 @@ def compute_overall_assessment(
         steps_score=steps_score,
         moat_multiplier=multiplier,
         moat_note=MOAT_NOT_RATED_NOTE if moat is None and can_compute else None,
+        caution_steps=caution_steps,
+        weak_steps=weak_steps,
+        caution_reasons=caution_reasons,
     )

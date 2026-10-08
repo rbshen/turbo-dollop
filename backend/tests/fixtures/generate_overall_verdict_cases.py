@@ -55,6 +55,9 @@ def expected(case: dict) -> dict:
         "steps_score": result.steps_score,
         "moat_multiplier": result.moat_multiplier,
         "moat_note": result.moat_note,
+        "caution_steps": result.caution_steps,
+        "weak_steps": result.weak_steps,
+        "caution_reasons": result.caution_reasons,
     }
 
 
@@ -86,6 +89,18 @@ def curated() -> list[dict]:
         case("Debt Fail (stored key, shown as May not pass) blends by its score; no hard-fail override", [step("step1", 95), step("step2", 95), step("step4", 95), step("step5", 55, "Fail")], "wide_moat"),
         case("Debt caution from an unrescued breach (74) carries up like any caution step", [step("step1", 90), step("step2", 90), step("step4", 90), step("step5", 74, "Pass with caution")], "wide_moat"),
         case("Fail stays Fail beside a caution step", [step("step1", 40), step("step2", 40), step("step4", 40), step("step5", 74, "Pass with caution")], "wide_moat"),
+        case("Weak step on a Pass: Profitability 60 beside a Wide Pass reads Pass with caution", steps_of(90, 90, 60, 90), "wide_moat"),
+        case("Weak step on a Strong Pass: Growth 65 beside 100s still reads Pass with caution", steps_of(100, 65, 100, 100), "wide_moat", weights=w(30, 5, 30, 35)),
+        case("Several weak steps: Financials 60 and Debt 55 are both named", steps_of(60, 100, 100, 55), "wide_moat", weights=w(25, 25, 25, 25)),
+        case("A step at exactly 70 is not weak", steps_of(70, 90, 90, 90), "wide_moat"),
+        case("A step at 69 is weak", steps_of(69, 95, 95, 95), "wide_moat"),
+        case("Step 5 exempt (Insurance): the exempt step is not weak, the rest are clean", [step("step1", 90), step("step2", 90), step("step4", 90), step("step5", None, "not_supported")], "wide_moat"),
+        case("Step 5 exempt, another step weak: Pass with caution from the weak step only", [step("step1", 90), step("step2", 90), step("step4", 60), step("step5", None, "not_supported")], "wide_moat"),
+        case("Step 5 caution plus a weak step: both reasons", [step("step1", 95), step("step2", 95), step("step4", 60), step("step5", 74, "Pass with caution")], "wide_moat"),
+        case("Review-gated shape (Financials 45, Debt strong) is still just a weak step to the verdict", [step("step1", 45), step("step2", 100), step("step4", 100), step("step5", 100)], "wide_moat", weights=w(10, 30, 30, 30)),
+        case("Weak step but a Fail overall stays Fail with no caution reasons", steps_of(40, 90, 60, 80), "narrow_moat"),
+        case("Weak step, unrated: Fail stays Fail", steps_of(60, 100, 100, 100), None),
+        case("A hard-fail verdict at a score of 70 or more is weak by its verdict", [step("step1", 90), step("step2", 90), step("step4", 72, "Fail"), step("step5", 90)], "wide_moat"),
         case("A step with insufficient data: incomplete (Wide cannot rescue it)", [step("step1", 90), step("step2", 90), step("step4", 90), step("step5", None)], "wide_moat"),
         case("A step with insufficient data, unrated: incomplete, no note", [step("step1", 90), step("step2", 90), step("step4", 90), step("step5", None)], None),
         case("Step 5 exempt (not_supported): the other three renormalize", [step("step1", 100), step("step2", 0, "Fail"), step("step4", 100), step("step5", None, "not_supported")], "wide_moat"),
