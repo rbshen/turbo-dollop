@@ -23,9 +23,7 @@ The Analysis tab blends four automated checks into a **Fundamentals score**, the
 
 Each of the four automated cards produces its own score (0–100) and verdict (Fail, displayed "May not pass" / Pass /
 Strong Pass, or occasionally "Pass with caution" — see the [Glossary](glossary.md)). The **Overall** verdict has the same four words
-(Strong Pass, Pass, Pass with caution, May not pass) under the rule in "The Overall verdict" below. A separate **Review status**
-(below) can sit beside a Pass-family Overall verdict, but it is never a verdict: it does not
-change the number or the verdict.
+(Strong Pass, Pass, Pass with caution, May not pass) under the rule in "The Overall verdict" below.
 
 **The Fundamentals score** is the weighted average of the four checks, rescaled to 100 over the checks that apply to the company. These are
 the **default** weights; all four are adjustable in Settings > Score weighting (see "Adjustable weights" below) and must add up to 100:
@@ -60,7 +58,7 @@ perfect check scores, which does not happen in practice (the verification after 
 "Show calculation" toggle; expanded it shows a table of each step with its score, weight and points, then the Fundamentals score (one decimal), the result line, and the
 explanatory paragraph with its links. The Score cells in the table are coloured with the same green / amber / slate (May not pass) tones the step pills used (the pills under
 the header were removed 2026-10-07); weights, points and the Fundamentals score are not. The score circle, the verdict, the "N of 4 weighted components" line and the
-failing / caution / Review warning lines stay outside the collapsible and are always visible.
+failing / caution warning lines stay outside the collapsible and are always visible.
 
 **Rounding (decision 2026-10-07).** The Fundamentals score is computed unrounded, multiplied, and the Overall score is rounded **once**, with
 Python `round` (half to even; the app's convention). The Fundamentals score is stored unrounded and shown to one decimal. Rounding the Fundamentals
@@ -73,8 +71,7 @@ a Pass or Strong Pass reads "Pass with caution" when **either** a check carries 
 verdict: "May not pass"). The two reasons combine (`caution_reasons` lists `step_caution` and/or `weak_step`; `caution_steps` and `weak_steps` name
 the steps). An exempt check (`not_supported`, such as Insurance Debt) is never weak, an incomplete row has no verdict, an Overall under 70 stays
 "May not pass" (stored `Fail`), and Moat plays no part. It changes only the label: the Overall score, `steps_score`, the sort, the range
-filters and `SCORE_FORMULA_VERSION` are untouched (stored rows were refreshed by a full recompute instead of a version bump). The Review status is
-independent and unchanged: a Pass with a weak Financials or Debt below 50 shows the Review marker beside the "Pass with caution" label. The Analysis card
+filters and `SCORE_FORMULA_VERSION` are untouched (stored rows were refreshed by a full recompute instead of a version bump). The Analysis card
 adds an amber line naming the weak steps ("Passed with caution: ...", beside the Debt tiebreaker line, which starts the same way); on a Pass with caution the
 slate "X may not pass" failing-steps line is hidden, since the amber line already names those steps (it still shows on "May not pass"). Step lists read "A, B and C".
 The Watchlist Analysis tooltip names both kinds.
@@ -83,10 +80,10 @@ hard-fail override**: a hard fail inside a check (Step 4 negative average ROE or
 limit) still reads Fail on that check's own card and still enters the blend only through its score. Step 5 for Standard and Utility
 companies has no hard fail since 2026-10-07: its three ratios are a pure weighted blend and 70 or more passes ([Debt](debt.md)).
 Since 2026-10-08 the stored verdict `Fail` is displayed as **"May not pass"** on every surface, every step and the Overall verdict
-(display only: the stored key, the API, the Review gate and every comparison are unchanged; a slate blue tone, not red, and a plain 70-74 Pass is green, no longer amber;
+(display only: the stored key, the API and every comparison are unchanged; a slate blue tone, not red, and a plain 70-74 Pass is green, no longer amber;
 docs/design-system.md, "Pills"). The Economic Moat is no longer the one
 exception that can pull Overall below 70 by itself: the multiplier is the whole mechanism (a No moat or unrated ticker needs Fundamentals of 100
-to reach 70). The **Review status** (below) is not an override either.
+to reach 70).
 
 The defaults reflect two deliberate design choices. Financials and Debt carry the most weight: Financials is the most foundational
 read on the business, and Debt is weighted equally with it (originally lifted above Growth Rate in the 2026-07-31 rebalance, so that a genuine
@@ -156,8 +153,8 @@ Screener's "N scores are still on the previous weights" note counts it. Bump the
 
 Every change that moves stored scores (saving or resetting the weights, **saving the Narrow moat multiplier**, the Screener's "Recompute all scores")
 goes through the full `compute_ticker_score` path as one **background job** (`data/score_recompute.py`,
-`pipeline/score_recompute_job.py`), never a SQL re-blend: the Review status, conviction and the Overall verdict all depend on
-the Overall verdict. It runs in a subprocess so it cannot block the API, one run at a time (a second request is a 409 and is not
+`pipeline/score_recompute_job.py`), never a SQL re-blend: the Overall verdict and every step score depend on
+the weights. It runs in a subprocess so it cannot block the API, one run at a time (a second request is a 409 and is not
 queued), with a status row (`ScoreRecomputeRun`) the Settings page polls. The change is saved first, then the job starts, so it always
 scores with the new values. Until the job reaches a ticker its stored row keeps the old `weights_version`. Operations: OPS_RUNBOOK,
 "Score recompute job".
@@ -167,8 +164,7 @@ scores with the new values. Until the job reaches a ticker its stored row keeps 
 In code the four automated steps are stored as fractions of their total:
 `STEP_WEIGHTS = {"step1": 30/100, "step2": 20/100, "step4": 20/100, "step5": 30/100}` (Financials,
 Growth Rate, Profitability, Debt) at the defaults. The blend is a plain weighted average with **no hard-fail override among the four
-automated steps**. The **Review status** (below) is not an override: it flags a badly failing Financials or
-Debt step on a ticker that still passes, and leaves the score and the verdict as computed.
+automated steps**.
 
 History: the 2026-07-31 rebalance moved the weights from Financials 24%, Growth Rate 15%,
 Debt 10%, Profitability ~19%, Moat 31% to Growth Rate 10%, Debt 15%,
@@ -208,68 +204,8 @@ multiplier is 0.70, exactly as if you had rated it No Moat.
 The rule lives in two places that must agree: `backend/scoring/overall.py::compute_overall_assessment`
 and `frontend/lib/overallScore.ts::computeOverallAssessment`. Both are tested against one shared case
 file, `backend/tests/fixtures/overall_verdict_cases.json`. Display: the note in the ticker header chip, the Analysis card and the Watchlist
-Analysis pill. Sorts, the range filters and the Momentum badge read `overall_score` only and never see the verdict. The one filter that
-reads the Review status is the Screener's Review status multi-select (below); the Screener card and the Watchlist pill still draw
-`overall_verdict`, with the Review status shown beside it (below).
-
-## Review status (phases 1 and 2)
-
-A second, **demote-only** read stored beside the Overall verdict (`TickerScore.review_status`,
-`review_reasons`, `conviction`, `data_quality_flags`; `backend/scoring/review.py`). It never changes
-`overall_score` or `overall_verdict`, so Screener sorting and saved views are unaffected (the one filter that
-reads it is the Review status filter, see Display). It applies
-only when the stored verdict is Pass, Pass with caution or Strong Pass; a Fail, an incomplete row and an ETF always have a null status.
-
-**Gate.** Step 1 (Financials) or Step 5 (Debt) has verdict Fail **and** a score below
-`REVIEW_GATE_SCORE = 50`. (Debt's stored `Fail` is displayed "May not pass"; the gate reads the stored key and the score, unchanged. With no Standard
-hard fail, a Debt `Fail` is always a blend below 70, so one below 50 still needs a breach beside weak ratios; a "Pass with caution" Debt is a Pass-family
-verdict and never gates.) A step that is not supported, exempt, insufficient data or errored never gates;
-Fundamentals 2 and 4 never gate.
-
-**Statuses.** `review_structural` "Review (structural)" (informational, not a Fail); `data_uncertain` "Data
-uncertain"; `review_unclear` "Review (unclear)"; `review_by_design` "Review (by design)". The label is
-"Review" because "Watch" collides with the Watchlist and "Reject" with Fail.
-
-**Step 5 hint** (Step 1 gets none: a gated Step 1 reads unclear, with an evidence string). *Structural:* debt
-servicing ratio at or above 60%. *By design:* every failing ratio is covered: a failing Current Ratio is
-covered if below 1.0 in at least 4 of the last 5 fiscal years or at least 6 of the last 8 cleaned quarters; a
-failing Debt/EBITDA is covered if the last 5 fiscal years plus TTM stay within +/-20% of their median, interest
-coverage is at least 5 and debt servicing is below 30%; a failing debt servicing ratio, REIT gearing and the
-Bank path are never covered. *Otherwise unclear.* There is no "temporary" hint in phase 1 (it produced false
-positives such as HCA, CSX and DIS).
-
-**Data-quality guard.** A gated step is guarded by `placeholder_cf` or `scale_break` (Step 1),
-`partial_balance_sheet`, `scale_break` or a balance-sheet fallback (Step 5), or `not_landed` (either). An
-annual flag always counts; a quarterly one only if it is in the TTM window or the newest row; `not_landed`
-always counts. A guarded step reads `data_uncertain` and records the hint it would have had (`raw_hint`), so a
-guard never hides a structural reading.
-
-**Two gated steps.** Any unguarded structural gives `review_structural`; else any guarded step gives
-`data_uncertain`; else any unclear gives `review_unclear`; else all by design gives `review_by_design`.
-
-**Conviction** (Pass-family rows, never changes the status): high if Fundamentals 2 and 4 are both Pass or better;
-low if both fail; otherwise medium.
-
-**Display.** The ticker header chip shows the status label (the verdict word is replaced; the tooltip carries
-the Overall score, the gated step, the evidence and the conviction) and the Analysis card lists each reason.
-Phase 2 (2026-10-06) adds, always beside the unchanged score and verdict and only for a row whose stored
-`review_status` is non-null, all through the one set of helpers in `frontend/lib/reviewStatus.ts`:
-
-- **Screener card:** a compact status pill under the score and verdict badge; the same tooltip.
-- **Screener filter:** a "Review status" multi-select in the Fundamental section (after Valuation) with the four
-  statuses, OR semantics, empty = no filtering, state key `reviewStatuses`. Rows with no status never match once
-  it is active. Sorting is still `overall_score` only; a saved view that predates the key loads with it empty.
-- **Watchlist (stock lists):** an icon-only flag marker after the score pill in the Analysis column; the same
-  tooltip; sort stays on `overall_score`. The ETF table and ETF rows never show it.
-- **Momentum (stocks):** the same icon marker left of the neutral score badge; the status is joined from the same
-  `TickerScore` row as `overall_score` and never touches the ranking.
-
-Where each surface gets its status: the Screener returns the stored row (`TickerScoreOut`); the Watchlist reads
-it from the same live `compute_ticker_score` result as its verdict; Momentum joins it from the same stored row as
-`overall_score`. Verdict and status are therefore always from one computation and cannot disagree. The Analysis
-card, which computes its verdict live, still shows nothing when the stored verdict differs (phase 1). Deferred: a
-temporary hint, a Step 1 structural hint, sorting by status, and the ETF surfaces. Decision record:
-docs/decisions.md, 2026-10-06 (phases 1 and 2).
+Analysis pill. Sorts, the range filters and the Momentum badge read `overall_score` only and never see the verdict. The Screener card and the Watchlist pill draw
+`overall_verdict`.
 
 ## What happens if a check can't be completed
 

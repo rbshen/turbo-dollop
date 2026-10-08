@@ -109,8 +109,8 @@ the other checks use. Commodity Company is detected locally by sector plus indus
 These four types are scored on **Revenue and Net Income only**, with Operating Income as the Net Income backup (below, unchanged).
 **Revenue is the real FMP revenue line for every company type, Banks included.** Until 2026-10-08 a Bank's "Revenue" was FMP's
 `netInterestIncome` (scored, labelled "Net Interest Income" on the Step 1 card and the Historical Trends grid, and drawn in the Watchlist
-Trend column); that substitution is removed everywhere (scoring, `Step1Out.revenue`, the card and grid labels, the Watchlist trend and the
-Review evidence, which divides Operating Income by the same revenue the scoring gate uses). The Financials *tab* still lists Net Interest
+Trend column); that substitution is removed everywhere (scoring, `Step1Out.revenue`, the card and grid labels, the Watchlist trend and, at the time,
+the Review evidence, since retired). The Financials *tab* still lists Net Interest
 Income as its own row. The margin series (gross, operating, net) are still computed from real revenue and shown, they are just not scored
 for these four types.
 

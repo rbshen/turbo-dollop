@@ -113,10 +113,12 @@ anchored mid-September, instead of 2026-08-31.)
   displayed.
 - **Hooks and types.** `lib/hooks/useMomentum.ts`: `useMomentum` (unchanged) and `useEtfMomentum` (`GET /api/momentum/etf?period=`).
   `lib/api/types.ts`: `EtfMomentumRowOut`, `EtfMomentumOut` (with `total_ranked`); the stock types are unchanged.
-- **`MomentumTable`.** Rows are `MomentumTableRow` (an ETF row plus optional `moat`, `overall_score`, `quote_currency`, so a stock
+- **`MomentumTable`.** Rows are `MomentumTableRow` (an ETF row plus optional `moat`, `overall_score`, `overall_verdict`, `quote_currency`, so a stock
   row or an ETF row both fit). Prop `showMoatAndScore` (default `true`): `false` hides the Moat and Score columns (9 columns instead
   of 11). Rank, Ticker (company name below it), Last, 1 w, 1 mo, 3 mo, 6 mo, 12 mo and Composite are identical for both; a missing
   quote currency (always the case for an ETF) formats as USD. The ETF section passes `false`.
+- **Score badge.** The Score cell is a compact badge toned like the Watchlist's (`toneForNullable(overall_score, overall_verdict)`); a
+  "Pass with caution" adds the ⚠ suffix and the tooltip "Passed with caution". Context only: the ranking never reads the score or the verdict.
 - **Footnotes.** Stock section: the Moat point-in-time caveat only (today's Moat classification is the filter). ETF section:
   price-only basis (split-adjusted, no dividends), leveraged funds included, and the previous-month ranking uses today's ETF
   universe, not point-in-time (see Caveats). Neither footnote appears in the other section.

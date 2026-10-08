@@ -25,7 +25,7 @@ good they are. The bounds and the strict order Debt/EBITDA > Debt Servicing > Cu
 Settings exist to guarantee exactly that (see "Weights and bounds" below).
 
 **70 or more passes; below 70 reads "May not pass"** on every Debt surface. That wording is display
-only: the stored verdict key is still `Fail` (Overall, the Review gate, the Screener and the Watchlist
+only: the stored verdict key is still `Fail` (Overall, the Screener and the Watchlist
 read it unchanged). Since 2026-10-08 every other step and the Overall verdict display their stored `Fail` as "May not pass" too
 (`verdictDisplay` in `frontend/lib/tierColor.ts`).
 

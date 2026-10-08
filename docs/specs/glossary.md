@@ -47,7 +47,7 @@ or more **and** either (a) a check carries its own "Pass with caution", or (b) a
 Debt is below the pass line ("May not pass", a score under 70): the other checks carried the average, but one check did not pass. Both
 reasons can apply at once. A check that is not applied to the company (not supported, such as Debt for an Insurance company) is ignored,
 the Economic Moat plays no part, and an Overall under 70 stays "May not pass". The Overall score itself never changes. The Analysis card
-and the Watchlist tooltip name the steps. The separate Review status is not affected and can sit beside this verdict.
+and the Watchlist tooltip name the steps.
 
 ## Insufficient data
 
@@ -96,25 +96,6 @@ The weighted blend of the four automated checks (Financials, Growth Rate, Profit
 Economic Moat multiplier then scales it to give the Overall score (Overall = round(Fundamentals score x Moat multiplier)). Renamed from "Steps
 score" on 2026-10-07 in all user-facing text and docs; the code identifiers (`steps_score`, `stepsScore`) keep the old name. The individual
 "Step 1" to "Step 5" labels are unchanged.
-
-## Review status
-
-Not a verdict. A flag stored beside a Pass, Pass with caution or Strong Pass Overall verdict when Financials or
-Debt failed with a score below 50; the Overall number and verdict stay as computed.
-
-- **Review (structural)** — the debt servicing ratio is at or above 60%. Informational, not a Fail.
-- **Review (by design)** — every failing Debt ratio is a long-standing feature of the business (a Current
-  Ratio below 1.0 for years, or a Debt/EBITDA that has stayed in a narrow band with strong interest coverage).
-- **Review (unclear)** — a gated step the rules cannot explain (every gated Financials step reads this way).
-- **Data uncertain** — a data-quality problem on the statements (a placeholder or scale-broken cash flow, a
-  partial balance sheet, or a quarter that has not landed) touches the gated step, so its reading is not
-  trusted yet; the tooltip says what it would read if the data is confirmed.
-- **Conviction** — high, medium or low, from Growth Rate and Profitability: high when both are Pass or better,
-  low when both fail, otherwise medium.
-
-Where it shows: the ticker header chip and Analysis card, a pill on the Screener card (and a "Review status"
-filter in the Fundamental sidebar), and an icon marker in the Watchlist Analysis column and the Momentum Score
-cell. The tooltip carries the reason in every place. See [Overview](overview.md), "Review status".
 
 # Glossary: P/E
 

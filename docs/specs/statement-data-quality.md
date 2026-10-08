@@ -56,7 +56,7 @@ incomplete / used quarter dates; not landed: `reported_on`; every row flag: `in_
 four newest raw quarters the Financials TTM column sums, or, for the balance sheet, the row its TTM column reads). It reuses
 `is_placeholder_cash_flow_row`, `ttm.scale_break_evidence` (the same decision as `is_scale_broken_row`, plus the line count and
 magnitude), `select_complete_balance_sheet` and the recheck's `not_landed_flag`. It is pure: nothing is persisted, there is no UI
-wording, and a healed row simply stops producing its flag. Watch and a stored per-ticker flag can reuse it as it is.
+wording, and a healed row simply stops producing its flag. A future feature can reuse it as it is (the `TickerScore.data_quality_flags` column that once stored it was retired 2026-10-08).
 
 ## 1. Newest-quarter completeness gate (Step 5 only)
 
@@ -91,8 +91,7 @@ is used: every leading quarter ending more than 10 days after it is dropped, so 
 (EBITDA, EBIT, interest, CFO, FCF) cover the four quarters ending on the same date as the balance
 sheet. One step back only; the prior quarter is not itself re-checked. The fact is recorded on
 `Step5Out.balance_sheet_fallback` (`reason`, `incomplete_quarter_date`, `used_quarter_date`,
-`detail`) for the Review status (docs/specs/overview.md, "Review status"), which reads it through the stored
-`TickerScore.review_reasons`; the header chip and the Analysis card draw it.
+`detail`) for the Debt tab (the Step 5 payload draws it). The Review status that once read it was retired 2026-10-08.
 
 **Other readers of the same rows.** Every consumer that does arithmetic on the balance sheet reads it through the shared
 loader (see "The shared loader"), so the gate applies to the ticker header's debt tiles, Speculative Growth's cash, Valuation and Step 4's
