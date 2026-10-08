@@ -22,6 +22,7 @@ const CURRENT: MomentumOut = {
       composite_score: 10.083,
       rank: 1,
       overall_score: 47,
+      overall_verdict: "Fail",
       return_1w: 0.0123,
       return_1mo: -0.0456,
       last_price: 1234.5,
@@ -112,14 +113,16 @@ describe("MomentumPage", () => {
     expect(etf().getByText(/As of/)).toBeInTheDocument();
   });
 
-  it("the ETF table has no Moat or Score columns; the Stock table keeps them", async () => {
+  it("the ETF table has no Overall verdict or Moat columns; the Stock table has them and no Score", async () => {
     renderPage();
     await waitFor(() => expect(etf().getByText("SOXL")).toBeInTheDocument());
     await waitFor(() => expect(stock().getByText("SNDK")).toBeInTheDocument());
     expect(stock().getByText("Moat")).toBeInTheDocument();
-    expect(stock().getByText("Score")).toBeInTheDocument();
+    expect(stock().getByText("Overall verdict")).toBeInTheDocument();
+    expect(stock().getByText("May not pass")).toBeInTheDocument();
+    expect(stock().queryByText("Score")).not.toBeInTheDocument();
     expect(etf().queryByText("Moat")).not.toBeInTheDocument();
-    expect(etf().queryByText("Score")).not.toBeInTheDocument();
+    expect(etf().queryByText("Overall verdict")).not.toBeInTheDocument();
     // Every other column is there, including Last and the return columns.
     for (const name of ["Rank", "Ticker", "Last", "1 w", "1 mo", "3 mo", "6 mo", "12 mo", "Composite"]) {
       expect(etf().getByText(name)).toBeInTheDocument();

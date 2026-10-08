@@ -5,11 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { EtfMomentumRowOut, MomentumSnapshotRowOut } from "@/lib/api/types";
 import { fmtMoney, fmtPct, pnlClass } from "@/lib/format";
-import { toneForNullable } from "@/lib/tierColor";
+import { toneForNullable, verdictLabel } from "@/lib/tierColor";
 
 const HEAD_CLASS = "text-xs font-medium text-text-tertiary";
 
-// A stock row, or an ETF row (which has no moat, overall score or currency).
+// A stock row, or an ETF row (which has no moat, overall verdict or currency).
 export type MomentumTableRow = EtfMomentumRowOut &
   Partial<
     Pick<MomentumSnapshotRowOut, "moat" | "overall_score" | "quote_currency" | "overall_verdict">
@@ -17,7 +17,7 @@ export type MomentumTableRow = EtfMomentumRowOut &
 
 interface Props {
   rows: MomentumTableRow[];
-  // false for the ETF table: hides the Moat and Score columns.
+  // false for the ETF table: hides the Overall verdict and Moat columns.
   showMoatAndScore?: boolean;
 }
 
@@ -50,6 +50,7 @@ export function MomentumTable({ rows, showMoatAndScore = true }: Props) {
           <TableHead className={`${HEAD_CLASS} w-12 text-center`}>Rank</TableHead>
           <TableHead className={`${HEAD_CLASS} w-[280px]`}>Ticker</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>Last</TableHead>
+          {showMoatAndScore && <TableHead className={`${HEAD_CLASS} text-center`}>Overall verdict</TableHead>}
           {showMoatAndScore && <TableHead className={`${HEAD_CLASS} w-16 text-center`}>Moat</TableHead>}
           <TableHead className={`${HEAD_CLASS} text-right`}>1 w</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>1 mo</TableHead>
@@ -57,7 +58,6 @@ export function MomentumTable({ rows, showMoatAndScore = true }: Props) {
           <TableHead className={`${HEAD_CLASS} text-right`}>6 mo</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>12 mo</TableHead>
           <TableHead className={`${HEAD_CLASS} text-right`}>Composite</TableHead>
-          {showMoatAndScore && <TableHead className={`${HEAD_CLASS} text-right`}>Score</TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -80,6 +80,18 @@ export function MomentumTable({ rows, showMoatAndScore = true }: Props) {
             <TableCell className="text-right font-mono text-text-secondary">
               {row.last_price != null ? fmtMoney(row.last_price, row.quote_currency ?? "USD") : "—"}
             </TableCell>
+            {/* Context only: the rank never reads the verdict. Live from TickerScore, not the monthly snapshot. */}
+            {showMoatAndScore && (
+              <TableCell className="whitespace-nowrap text-center">
+                {row.overall_verdict ? (
+                  <Badge size="compact" tone={toneForNullable(row.overall_score ?? null, row.overall_verdict)}>
+                    {verdictLabel(row.overall_verdict)}
+                  </Badge>
+                ) : (
+                  <Badge size="compact" missing />
+                )}
+              </TableCell>
+            )}
             {showMoatAndScore && (
               <TableCell className="text-center">
                 {row.moat ? (
@@ -100,23 +112,6 @@ export function MomentumTable({ rows, showMoatAndScore = true }: Props) {
             <TableCell className={`text-right font-mono font-bold ${pnlClass(row.composite_score)}`}>
               {fmtPct(row.composite_score * 100)}
             </TableCell>
-            {/* Context only: the rank above never reads the score or verdict. A Pass with caution reads as in the Watchlist. */}
-            {showMoatAndScore && (
-              <TableCell className="text-right">
-                {row.overall_score != null ? (
-                  <Badge
-                    size="compact"
-                    tone={toneForNullable(row.overall_score, row.overall_verdict ?? null)}
-                    title={row.overall_verdict === "Pass with caution" ? "Passed with caution" : undefined}
-                  >
-                    {row.overall_score}
-                    {row.overall_verdict === "Pass with caution" && " ⚠"}
-                  </Badge>
-                ) : (
-                  <Badge size="compact" missing />
-                )}
-              </TableCell>
-            )}
           </TableRow>
         ))}
       </TableBody>

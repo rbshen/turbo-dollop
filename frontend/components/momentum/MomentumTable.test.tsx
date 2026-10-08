@@ -66,17 +66,22 @@ describe("MomentumTable", () => {
     expect(screen.getByText("+146.58%")).toHaveClass("text-positive");
   });
 
-  it("renders a null overall_score as an em dash, not a fabricated 0", () => {
+  it("renders a null overall_verdict as the missing placeholder, not a fabricated verdict", () => {
     render(<MomentumTable rows={[{ ...ROWS[1], last_price: 10 }]} />);
     expect(screen.getByText("—")).toBeInTheDocument();
   });
 
-  it("tones the Score badge by score and verdict like the Watchlist (never sign-colored)", () => {
+  it("no longer draws the Overall score number anywhere", () => {
     render(<MomentumTable rows={ROWS} />);
-    const overallCell = screen.getAllByText("47")[0];
-    expect(overallCell).toHaveClass("text-not-pass"); // under 70 with no stored verdict
-    const compositeCell = screen.getByText("+1008.30%");
-    expect(compositeCell.className).not.toContain("text-text-secondary");
+    expect(screen.queryByText("47")).not.toBeInTheDocument();
+    expect(screen.queryByText("Score")).not.toBeInTheDocument();
+  });
+
+  it("orders the stock columns Rank, Ticker, Last, Overall verdict, Moat, 1 w ... Composite (no Score)", () => {
+    render(<MomentumTable rows={ROWS} />);
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+      "Rank", "Ticker", "Last", "Overall verdict", "Moat", "1 w", "1 mo", "3 mo", "6 mo", "12 mo", "Composite",
+    ]);
   });
 
   it("renders an empty-snapshot caption instead of an empty table", () => {
@@ -87,6 +92,7 @@ describe("MomentumTable", () => {
 });
 
 describe("MomentumTable showMoatAndScore={false}", () => {
+  const withVerdictRows: MomentumSnapshotRowOut[] = [{ ...ROWS[0], overall_verdict: "Pass with caution" }];
   const ETF_ROWS: EtfMomentumRowOut[] = [
     {
       ticker: "SOXL",
@@ -102,12 +108,12 @@ describe("MomentumTable showMoatAndScore={false}", () => {
     },
   ];
 
-  it("hides the Moat and Score columns but keeps every other column", () => {
-    render(<MomentumTable rows={ROWS} showMoatAndScore={false} />);
+  it("hides the Overall verdict and Moat columns but keeps every other column", () => {
+    render(<MomentumTable rows={withVerdictRows} showMoatAndScore={false} />);
     expect(screen.queryByText("Moat")).not.toBeInTheDocument();
-    expect(screen.queryByText("Score")).not.toBeInTheDocument();
+    expect(screen.queryByText("Overall verdict")).not.toBeInTheDocument();
     expect(screen.queryByText("None")).not.toBeInTheDocument();
-    expect(screen.queryByText("47")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pass with caution")).not.toBeInTheDocument();
     for (const name of ["Rank", "Ticker", "Last", "1 w", "1 mo", "3 mo", "6 mo", "12 mo", "Composite"]) {
       expect(screen.getByText(name)).toBeInTheDocument();
     }
@@ -115,7 +121,7 @@ describe("MomentumTable showMoatAndScore={false}", () => {
     expect(screen.getByText("SNDK").closest("tr")!.querySelectorAll("td")).toHaveLength(9);
   });
 
-  it("renders ETF rows (no moat/score/currency fields) with USD formatting and a dash for a missing 1 mo", () => {
+  it("renders ETF rows (no moat/verdict/currency fields) with USD formatting and a dash for a missing 1 mo", () => {
     render(<MomentumTable rows={ETF_ROWS} showMoatAndScore={false} />);
     const row = screen.getByText("SOXL").closest("tr")!;
     expect(screen.getByText("Direxion Daily Semiconductor Bull 3X")).toBeInTheDocument();
@@ -130,7 +136,7 @@ describe("MomentumTable showMoatAndScore={false}", () => {
   it("shows both columns by default", () => {
     render(<MomentumTable rows={ROWS} />);
     expect(screen.getByText("Moat")).toBeInTheDocument();
-    expect(screen.getByText("Score")).toBeInTheDocument();
+    expect(screen.getByText("Overall verdict")).toBeInTheDocument();
     expect(screen.getAllByRole("columnheader")).toHaveLength(11);
   });
 });
@@ -162,8 +168,8 @@ describe("MomentumTable whole-row click", () => {
     expect(sndk).toHaveTextContent("1.23%");
     expect(sndk).toHaveTextContent("-4.56%");
     const mrvl = screen.getByText("MRVL").closest("tr")!;
-    expect(mrvl.querySelectorAll("td")[4]).toHaveTextContent("—");
     expect(mrvl.querySelectorAll("td")[5]).toHaveTextContent("—");
+    expect(mrvl.querySelectorAll("td")[6]).toHaveTextContent("—");
   });
 
   it("shows the last price after the ticker, and a dash when uncached", () => {
@@ -176,36 +182,36 @@ describe("MomentumTable whole-row click", () => {
   });
 });
 
-describe("MomentumTable score badge", () => {
-  const withVerdict = (row: MomentumSnapshotRowOut, overall_score: number, overall_verdict: string | null): MomentumSnapshotRowOut => ({
+describe("MomentumTable Overall verdict badge", () => {
+  const withVerdict = (row: MomentumSnapshotRowOut, overall_score: number | null, overall_verdict: string | null): MomentumSnapshotRowOut => ({
     ...row,
     overall_score,
     overall_verdict,
   });
-  const scoreCell = (ticker: string) => {
-    const cells = (screen.getByText(ticker).closest("tr") as HTMLElement).querySelectorAll("td");
-    return cells[cells.length - 1] as HTMLElement;
-  };
+  // Overall verdict is the cell right after Last.
+  const verdictCell = (ticker: string) => (screen.getByText(ticker).closest("tr") as HTMLElement).querySelectorAll("td")[3] as HTMLElement;
 
-  it("draws a Pass with caution score in the caution tone with the warning suffix and a plain tooltip", () => {
-    render(<MomentumTable rows={[withVerdict(ROWS[0], 73, "Pass with caution")]} />);
-    const badge = scoreCell("SNDK").querySelector("span[title]") as HTMLElement;
-    expect(badge).toHaveTextContent("73 ⚠");
-    expect(badge).toHaveClass("text-caution");
-    expect(badge).toHaveAttribute("title", "Passed with caution");
+  it.each([
+    ["Strong Pass", 95, "Strong pass", "text-positive-strong"],
+    ["Pass", 79, "Pass", "text-positive"],
+    ["Pass with caution", 73, "Pass with caution", "text-caution"],
+    ["Fail", 40, "May not pass", "text-not-pass"],
+  ])("draws the stored %s verdict as %s in the shared tone", (verdict, score, label, toneClass) => {
+    render(<MomentumTable rows={[withVerdict(ROWS[0], score, verdict)]} />);
+    const badge = screen.getByText(label);
+    expect(verdictCell("SNDK")).toContainElement(badge);
+    expect(badge).toHaveClass(toneClass);
   });
 
-  it("tones a plain Pass green, with no suffix and no tooltip", () => {
-    render(<MomentumTable rows={[withVerdict(ROWS[0], 79, "Pass")]} />);
-    expect(screen.getByText("79")).toHaveClass("text-positive");
-    expect(scoreCell("SNDK").querySelector("span[title]")).toBeNull();
-    expect(scoreCell("SNDK")).not.toHaveTextContent("⚠");
+  it("shows the missing placeholder when the ticker has no verdict", () => {
+    render(<MomentumTable rows={[withVerdict(ROWS[0], null, null)]} />);
+    expect(verdictCell("SNDK")).toHaveTextContent("—");
   });
 
   it("keeps the snapshot's own order (rank), whatever the scores and verdicts", () => {
     const rows = [
       withVerdict({ ...ROWS[0], ticker: "ONE", rank: 1 }, 40, "Fail"),
-      withVerdict({ ...ROWS[1], ticker: "TWO", rank: 2 }, 90, "Strong Pass"),
+      withVerdict({ ...ROWS[1], ticker: "TWO", rank: 2 }, 95, "Strong Pass"),
       withVerdict({ ...ROWS[1], ticker: "THREE", rank: 3 }, 73, "Pass with caution"),
     ];
     render(<MomentumTable rows={rows} />);
@@ -213,8 +219,8 @@ describe("MomentumTable score badge", () => {
     expect(order).toEqual(["1", "2", "3"]);
   });
 
-  it("the ETF table (no Moat/Score columns) shows no score badge", () => {
+  it("the ETF table (no Overall verdict column) shows no verdict badge", () => {
     render(<MomentumTable rows={[withVerdict(ROWS[0], 73, "Pass with caution")]} showMoatAndScore={false} />);
-    expect(screen.queryByText(/73/)).toBeNull();
+    expect(screen.queryByText("Pass with caution")).toBeNull();
   });
 });
