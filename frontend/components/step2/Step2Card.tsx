@@ -4,8 +4,6 @@ import { AnalysisSectionCard, type ReasoningBullet, weightScoreSuffix } from "@/
 import { useStep2 } from "@/lib/hooks/useStep2";
 import { fmtPct } from "@/lib/format";
 
-const NEGATIVE_GROWTH_NOTE = "negative growth always reads May not pass regardless of the blended score.";
-
 /** The one-line "how this is calculated" note, built from the saved weights the step payload carries (so it follows Settings > Score
  * weighting). A component weighted 0 is not counted in the blend, and the note says so rather than quoting 0%. */
 export function step2Methodology(weights: Record<string, number>): string {
@@ -13,12 +11,12 @@ export function step2Methodology(weights: Record<string, number>): string {
   const agreement = Math.round((weights.agreement ?? 0) * 100);
   const spread = "analyst estimate agreement (spread as a % of the average estimate)";
   if (agreement === 0) {
-    return `${magnitude}% projected growth magnitude (${spread} is shown but not counted); ${NEGATIVE_GROWTH_NOTE}`;
+    return `${magnitude}% projected growth magnitude (${spread} is shown but not counted)`;
   }
   if (magnitude === 0) {
-    return `${agreement}% ${spread} (projected growth magnitude is shown but not counted); ${NEGATIVE_GROWTH_NOTE}`;
+    return `${agreement}% ${spread} (projected growth magnitude is shown but not counted)`;
   }
-  return `${magnitude}% projected growth magnitude, ${agreement}% ${spread}; ${NEGATIVE_GROWTH_NOTE}`;
+  return `${magnitude}% projected growth magnitude, ${agreement}% ${spread}`;
 }
 
 interface Props {

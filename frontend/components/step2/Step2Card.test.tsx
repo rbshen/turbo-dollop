@@ -39,8 +39,7 @@ afterEach(() => {
 describe("step2Methodology", () => {
   it("is today's sentence at the default 70/30", () => {
     expect(step2Methodology({ magnitude: 0.7, agreement: 0.3 })).toBe(
-      "70% projected growth magnitude, 30% analyst estimate agreement (spread as a % of the average estimate); " +
-        "negative growth always reads May not pass regardless of the blended score.",
+      "70% projected growth magnitude, 30% analyst estimate agreement (spread as a % of the average estimate)",
     );
   });
 
