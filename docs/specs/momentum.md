@@ -67,7 +67,7 @@ Manual / backfill flags (`--force-anchor YYYY-MM-DD` bypasses the first-trading-
 
 ## Endpoints
 
-- `GET /api/momentum?period=current|previous` — the full stock ranking (`MomentumOut`, with `moat`, `overall_score`).
+- `GET /api/momentum?period=current|previous` — the full stock ranking (`MomentumOut`, with `moat`, `overall_verdict` and `overall_score`; the page draws the verdict, not the score).
 - `GET /api/momentum/etf?period=current|previous` — the **top 5** ETFs only (`EtfMomentumOut`; rows are
   `EtfMomentumRowOut`: no moat, no overall score, no currency), plus `total_ranked`, the size of the stored ranking.
   The full ranking stays in the table.
@@ -114,11 +114,15 @@ anchored mid-September, instead of 2026-08-31.)
 - **Hooks and types.** `lib/hooks/useMomentum.ts`: `useMomentum` (unchanged) and `useEtfMomentum` (`GET /api/momentum/etf?period=`).
   `lib/api/types.ts`: `EtfMomentumRowOut`, `EtfMomentumOut` (with `total_ranked`); the stock types are unchanged.
 - **`MomentumTable`.** Rows are `MomentumTableRow` (an ETF row plus optional `moat`, `overall_score`, `overall_verdict`, `quote_currency`, so a stock
-  row or an ETF row both fit). Prop `showMoatAndScore` (default `true`): `false` hides the Moat and Score columns (9 columns instead
-  of 11). Rank, Ticker (company name below it), Last, 1 w, 1 mo, 3 mo, 6 mo, 12 mo and Composite are identical for both; a missing
+  row or an ETF row both fit). Prop `showMoatAndScore` (default `true`): `false` hides the Overall verdict and Moat columns (9 columns instead
+  of 11). Stock column order: Rank, Ticker, Last, **Overall verdict**, Moat, 1 w, 1 mo, 3 mo, 6 mo, 12 mo, Composite (the Overall Score column was
+  removed 2026-10-08; `overall_score` is still in the payload but unused here). Rank, Ticker (company name below it), Last, 1 w, 1 mo, 3 mo, 6 mo, 12 mo and Composite are identical for both; a missing
   quote currency (always the case for an ETF) formats as USD. The ETF section passes `false`.
-- **Score badge.** The Score cell is a compact badge toned like the Watchlist's (`toneForNullable(overall_score, overall_verdict)`); a
-  "Pass with caution" adds the ⚠ suffix and the tooltip "Passed with caution". Context only: the ranking never reads the score or the verdict.
+- **Overall verdict badge.** The cell right before Moat is a compact pill of the stored Overall verdict, read live at request time from
+  `TickerScore` (`overall_verdict`, the same row the Screener card and header chip read), not from the frozen monthly snapshot. Wording is
+  `verdictLabel(overall_verdict)`: Strong pass, Pass, Pass with caution, May not pass (stored "Fail"); tone is `toneForNullable(overall_score,
+  overall_verdict)`, so it matches the Watchlist and header. A ticker with no verdict shows the `missing` Badge ("—"). No ⚠ suffix or tooltip
+  (the label itself says it). Context only: the ranking never reads the verdict. The prop name `showMoatAndScore` predates the change.
 - **Footnotes.** Stock section: the Moat point-in-time caveat only (today's Moat classification is the filter). ETF section:
   price-only basis (split-adjusted, no dividends), leveraged funds included, and the previous-month ranking uses today's ETF
   universe, not point-in-time (see Caveats). Neither footnote appears in the other section.

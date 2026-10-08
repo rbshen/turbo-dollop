@@ -204,7 +204,7 @@ multiplier is 0.70, exactly as if you had rated it No Moat.
 The rule lives in two places that must agree: `backend/scoring/overall.py::compute_overall_assessment`
 and `frontend/lib/overallScore.ts::computeOverallAssessment`. Both are tested against one shared case
 file, `backend/tests/fixtures/overall_verdict_cases.json`. Display: the note in the ticker header chip, the Analysis card and the Watchlist
-Analysis pill. Sorts, the range filters and the Momentum badge read `overall_score` only and never see the verdict. The Screener card and the Watchlist pill draw
+Analysis pill. Sorts and the range filters read `overall_score` only and never see the verdict. The Screener card, the Watchlist pill and the Momentum stock table's Overall verdict column draw
 `overall_verdict`.
 
 ## What happens if a check can't be completed
