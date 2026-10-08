@@ -222,6 +222,19 @@ export const TECHNICAL_FILTER_KEYS: readonly FilterKey[] = [
 
 const ALL_FILTER_KEYS = Object.keys(DEFAULT_FILTER_STATE) as FilterKey[];
 
+/** The filter state a saved view loads into: the defaults, overlaid with ONLY the keys the state has today. A key the state no longer has
+ * (the retired `overallScore` range, `reviewStatuses`, `country`) is dropped, so it is neither applied nor carried into state, and so is
+ * never written back the next time the view is saved. A key a view saved before it existed lacks keeps its default. */
+export function filtersFromSaved(saved: unknown): ScreenerFilterState {
+  const next: ScreenerFilterState = { ...DEFAULT_FILTER_STATE };
+  if (saved == null || typeof saved !== "object") return next;
+  const source = saved as Record<string, unknown>;
+  for (const key of ALL_FILTER_KEYS) {
+    if (source[key] !== undefined) (next as unknown as Record<string, unknown>)[key] = source[key];
+  }
+  return next;
+}
+
 /** How many filters are applied right now: ranges with a min or a max, multi-
  * selects with at least one option, checked chips, plus one for a watchlist
  * filter that is actually in effect (`watchlistActive`). Counts the keys of

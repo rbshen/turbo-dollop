@@ -21,6 +21,7 @@ import { useWatchlists } from "@/lib/hooks/useWatchlists";
 import { listsForAudience } from "@/lib/monitoredWatchlists";
 import {
   DEFAULT_FILTER_STATE,
+  filtersFromSaved,
   excludeEtfs,
   extractCompanyTypes,
   extractSectors,
@@ -151,9 +152,11 @@ export default function ScreenerPage() {
   function handleLoadSavedFilter(saved: SavedScreenerFilter) {
     // saved.filters_json is stored verbatim and its shape grows over time
     // (see SavedScreenerFilter's docstring) -- a filter saved before a new
-    // field (e.g. vsSpy, speculativeGrowth) existed won't have that key, so
-    // merge onto the defaults rather than trusting the saved object's shape.
-    setFilters({ ...DEFAULT_FILTER_STATE, ...saved.filters });
+    // field (e.g. vsSpy, speculativeGrowth) existed won't have that key, and
+    // one saved before a field was retired (overallScore, reviewStatuses,
+    // country) still carries it. filtersFromSaved keeps defaults for the
+    // former and drops the latter, so no dead key reaches state or is saved back.
+    setFilters(filtersFromSaved(saved.filters));
     setSortField(saved.sort_field);
     setSortDirection(saved.sort_direction);
     // A saved watchlist scoping only applies if that watchlist still

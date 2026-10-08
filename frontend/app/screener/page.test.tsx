@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ScreenerPage from "@/app/screener/page";
+import { saveScreenerFilter } from "@/lib/hooks/useSavedFilters";
 import type { SavedScreenerFilter, TickerScoreOut, WatchlistOut } from "@/lib/api/types";
 import { DEFAULT_FILTER_STATE } from "@/lib/screenerFilters";
 
@@ -427,6 +428,31 @@ describe("a saved view from before the Review status filter was retired", () => 
     loadSavedView("Old");
     expect(cards().sort()).toEqual(["AAA", "BBB"]);
     expect(screen.queryByRole("button", { name: /^Review status/ })).toBeNull();
+  });
+});
+
+describe("a saved view from before the Overall verdict filter", () => {
+  it("loads with the old overallScore key ignored: no Overall selection, nothing filtered by it", () => {
+    h.saved = [savedView({ name: "OldOverall", filters: { ...DEFAULT_FILTER_STATE, overallScore: { min: 85, max: null }, reviewStatuses: [] } as never })];
+    render(<ScreenerPage />);
+    loadSavedView("OldOverall");
+    expect(screen.getByRole("button", { name: "Overall: none selected" })).toBeInTheDocument();
+    expect(cards().sort()).toEqual(["AAA", "BBB", "CCC", "DDD"]);
+  });
+
+  it("does not write the dead keys back when the loaded view is saved again", () => {
+    h.saved = [savedView({ name: "OldOverall", filters: { ...DEFAULT_FILTER_STATE, overallScore: { min: 85, max: null }, reviewStatuses: [] } as never })];
+    render(<ScreenerPage />);
+    loadSavedView("OldOverall");
+    fireEvent.click(screen.getByRole("button", { name: "Save current view" }));
+    fireEvent.change(screen.getByLabelText("View name"), { target: { value: "Again" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const call = vi.mocked(saveScreenerFilter).mock.calls.at(-1);
+    expect(call?.[0]).toBe("Again");
+    const written = (call?.[1] as unknown as { filters: Record<string, unknown> }).filters;
+    expect("overallScore" in written).toBe(false);
+    expect("reviewStatuses" in written).toBe(false);
+    expect(written.overallVerdicts).toEqual([]);
   });
 });
 

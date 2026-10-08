@@ -15,6 +15,7 @@ import {
   extractCompanyTypes,
   extractSectors,
   filterTickerScores,
+  filtersFromSaved,
   MARKET_CAP_SUFFIXES,
   formatMarketCapInput,
   isEtfRow,
@@ -607,9 +608,9 @@ describe.each(RANGE_FILTERS)("range filter $key (reads $field)", ({ key, field }
   });
 });
 
-describe("saved-view shallow merge onto the defaults", () => {
-  // Same expression the Screener page uses on load: { ...DEFAULT_FILTER_STATE, ...saved.filters }.
-  const merge = (saved: unknown) => ({ ...DEFAULT_FILTER_STATE, ...(saved as Partial<ScreenerFilterState>) });
+describe("saved-view loading (filtersFromSaved) onto the defaults", () => {
+  // The Screener page's loader.
+  const merge = (saved: unknown) => filtersFromSaved(saved);
 
   it("a view saved before newer keys existed loads with those keys at their defaults", () => {
     const old = { overallVerdicts: ["Pass"], sectors: ["Technology"] };
@@ -682,7 +683,7 @@ describe("sentence-case option labels (display only)", () => {
 
 describe("a saved view that still carries the retired reviewStatuses key", () => {
   it("merges onto the defaults without error, filters nothing and adds nothing to the active count", () => {
-    const merged = { ...DEFAULT_FILTER_STATE, ...({ reviewStatuses: ["review_unclear"], moat: ["wide_moat"] } as unknown as Partial<ScreenerFilterState>) };
+    const merged = filtersFromSaved({ reviewStatuses: ["review_unclear"], moat: ["wide_moat"] });
     expect(filterTickerScores([row({ ticker: "A", moat: "wide_moat" }), row({ ticker: "B", moat: "wide_moat" })], merged).map((r) => r.ticker)).toEqual(["A", "B"]);
     expect(countActiveFilters(merged, false)).toBe(1);
     expect("reviewStatuses" in DEFAULT_FILTER_STATE).toBe(false);
@@ -759,5 +760,31 @@ describe("Overall verdict filter", () => {
 
   it("the old Overall score range no longer exists in the state", () => {
     expect("overallScore" in DEFAULT_FILTER_STATE).toBe(false);
+  });
+});
+
+describe("filtersFromSaved: retired keys are dropped, not carried into state", () => {
+  it("ignores the old Overall score range: it neither filters nor stays in state to be saved back", () => {
+    const loaded = filtersFromSaved({ overallScore: { min: 70, max: null }, step1Score: { min: 60, max: null }, moat: ["wide_moat"] });
+    expect("overallScore" in loaded).toBe(false);
+    expect(loaded.overallVerdicts).toEqual([]);
+    expect(loaded.step1Score).toEqual({ min: 60, max: null });
+    expect(loaded.moat).toEqual(["wide_moat"]);
+    expect(Object.keys(JSON.parse(JSON.stringify(loaded))).sort()).toEqual(Object.keys(DEFAULT_FILTER_STATE).sort());
+    const rows = [row({ ticker: "LOW", overall_score: 10, overall_verdict: "Fail", step1_score: 70, moat: "wide_moat" })];
+    expect(filterTickerScores(rows, loaded)).toHaveLength(1);
+  });
+
+  it("drops reviewStatuses and country too, and keeps a loaded verdict set", () => {
+    const loaded = filtersFromSaved({ reviewStatuses: ["review_unclear"], country: ["US"], overallVerdicts: ["Strong Pass", "Pass"] });
+    expect("reviewStatuses" in loaded).toBe(false);
+    expect("country" in loaded).toBe(false);
+    expect(loaded.overallVerdicts).toEqual(["Strong Pass", "Pass"]);
+  });
+
+  it("a view that lacks keys gets their defaults, and a missing or non-object value loads the defaults", () => {
+    expect(filtersFromSaved({ sectors: ["Energy"] })).toEqual({ ...DEFAULT_FILTER_STATE, sectors: ["Energy"] });
+    expect(filtersFromSaved(null)).toEqual(DEFAULT_FILTER_STATE);
+    expect(filtersFromSaved("x")).toEqual(DEFAULT_FILTER_STATE);
   });
 });
