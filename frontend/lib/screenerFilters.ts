@@ -2,7 +2,7 @@ import type { MultiSelectOption } from "@/components/screener/MultiSelectDropdow
 import { PERF_VS_SPY_LABELS } from "@/components/ticker/PerfVsSpyPill";
 import { VALUATION_LABELS } from "@/components/screener/ValuationBadge";
 import { MOAT_LABELS } from "@/lib/overallScore";
-import { pillLabel } from "@/lib/tierColor";
+import { pillLabel, verdictDisplay } from "@/lib/tierColor";
 import { WEINSTEIN_STAGE_LABEL } from "@/lib/weinsteinStage";
 import type { TickerScoreOut } from "@/lib/api/types";
 import { formatNumberInput } from "@/lib/numberInput";
@@ -46,6 +46,20 @@ export const MOAT_FILTER_OPTIONS: MultiSelectOption[] = [
   { value: "narrow_moat", label: pillLabel(MOAT_LABELS.narrow_moat) },
   { value: "no_moat", label: pillLabel(MOAT_LABELS.no_moat) },
   { value: MOAT_NOT_SET, label: "Not set" },
+];
+
+// Sentinel for "no Overall verdict" (overall_verdict null: a step has no data, so the row is Incomplete) -- not a stored verdict key.
+export const OVERALL_INCOMPLETE = "incomplete";
+
+// The Overall verdict filter. Option values are the raw STORED keys (a stored "Fail" stays "Fail"); labels go through verdictDisplay, so
+// "Fail" reads "May not pass". "Pass with caution" is its own option (the Overall verdict is stored as such, not as Pass), and Incomplete
+// matches overall_verdict === null.
+export const OVERALL_VERDICT_FILTER_OPTIONS: MultiSelectOption[] = [
+  { value: "Strong Pass", label: verdictDisplay("Strong Pass") },
+  { value: "Pass", label: verdictDisplay("Pass") },
+  { value: "Pass with caution", label: verdictDisplay("Pass with caution") },
+  { value: "Fail", label: verdictDisplay("Fail") },
+  { value: OVERALL_INCOMPLETE, label: "Incomplete" },
 ];
 
 // No "not set" option here, unlike Moat -- Valuation status only has the 3
@@ -117,7 +131,9 @@ export const WARREN_SIGNAL_KIND_FILTER_OPTIONS: MultiSelectOption[] = [
 ];
 
 export interface ScreenerFilterState {
-  overallScore: RangeFilter;
+  // Multi-select over the stored Overall verdict (OVERALL_VERDICT_FILTER_OPTIONS), OR semantics, empty = no filter. The Financials / Growth /
+  // Profitability / Debt rows below stay score ranges.
+  overallVerdicts: string[];
   step1Score: RangeFilter;
   step2Score: RangeFilter;
   step4Score: RangeFilter;
@@ -153,7 +169,7 @@ export interface ScreenerFilterState {
 }
 
 export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
-  overallScore: EMPTY_RANGE,
+  overallVerdicts: [],
   step1Score: EMPTY_RANGE,
   step2Score: EMPTY_RANGE,
   step4Score: EMPTY_RANGE,
@@ -181,7 +197,7 @@ export type FilterKey = keyof ScreenerFilterState;
 // that, so a filter added later must be given a section), and the Watchlist
 // section's one filter is the page-level scope, not a state key.
 export const FUNDAMENTAL_FILTER_KEYS: readonly FilterKey[] = [
-  "overallScore",
+  "overallVerdicts",
   "step1Score",
   "step2Score",
   "step4Score",
@@ -240,7 +256,7 @@ export function countActiveIn<S extends object>(filters: S, watchlistActive: boo
 
 // A range filter is only "active" if min or max is actually set -- an
 // active filter can never be satisfied by a null value (e.g. filtering
-// "Overall score > 70" must exclude an Incomplete ticker with no Overall
+// "Debt score > 70" must exclude an Incomplete ticker with no Overall
 // score at all, not treat the missing value as passing).
 export function inRange(value: number | null | undefined, range: RangeFilter): boolean {
   if (range.min == null && range.max == null) return true;
@@ -285,7 +301,7 @@ export function filterTickerScores(
 ): TickerScoreOut[] {
   return rows.filter((row) => {
     if (watchlistTickers && !watchlistTickers.has(row.ticker)) return false;
-    if (!inRange(row.overall_score, filters.overallScore)) return false;
+    if (filters.overallVerdicts.length > 0 && !filters.overallVerdicts.includes(row.overall_verdict ?? OVERALL_INCOMPLETE)) return false;
     if (!inRange(row.step1_score, filters.step1Score)) return false;
     if (!inRange(row.step2_score, filters.step2Score)) return false;
     if (!inRange(row.step4_score, filters.step4Score)) return false;

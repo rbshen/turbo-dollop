@@ -57,10 +57,10 @@ function scoreRow(ticker: string, overrides: Partial<TickerScoreOut> = {}): Tick
 }
 
 const ALL_ROWS = [
-  scoreRow("AAA", { overall_score: 90, market_cap: 5e12, sector: "Technology" }),
-  scoreRow("BBB", { overall_score: 80, market_cap: 2e9, sector: "Healthcare" }),
-  scoreRow("CCC", { overall_score: 40, market_cap: 8e8, sector: "Energy" }),
-  scoreRow("DDD", { overall_score: null, market_cap: 3e9, sector: "Energy" }),
+  scoreRow("AAA", { overall_score: 90, overall_verdict: "Pass", step1_score: 90, market_cap: 5e12, sector: "Technology" }),
+  scoreRow("BBB", { overall_score: 80, overall_verdict: "Pass", step1_score: 80, market_cap: 2e9, sector: "Healthcare" }),
+  scoreRow("CCC", { overall_score: 40, overall_verdict: "Fail", step1_score: 40, market_cap: 8e8, sector: "Energy" }),
+  scoreRow("DDD", { overall_score: null, overall_verdict: null, step1_score: null, market_cap: 3e9, sector: "Energy" }),
 ];
 
 function watchlist(id: number, name: string, tickers: string[]): WatchlistOut {
@@ -146,7 +146,7 @@ describe("loading a saved view", () => {
         universe: "sp500",
         sort_field: "market_cap",
         sort_direction: "asc",
-        filters: { ...DEFAULT_FILTER_STATE, overallScore: { min: 50, max: null } },
+        filters: { ...DEFAULT_FILTER_STATE, overallVerdicts: ["Strong Pass", "Pass"] },
       }),
     ];
     render(<ScreenerPage />);
@@ -155,16 +155,16 @@ describe("loading a saved view", () => {
     expect(lastUniverse()).toBe("sp500");
     expect(sortSelect().value).toBe("market_cap");
     expect(isAscending()).toBe(true);
-    // overall >= 50 leaves AAA and BBB, ascending by market cap
+    // the Pass and Strong Pass verdicts leave AAA and BBB, ascending by market cap
     expect(cards()).toEqual(["BBB", "AAA"]);
     expect(screen.getByRole("button", { name: /^Big/ })).toBeInTheDocument();
   });
 
   it("loads a view saved before newer filter keys existed, with those keys at their defaults", () => {
-    h.saved = [savedView({ name: "Old", filters: { overallScore: { min: 85, max: null } } as never })];
+    h.saved = [savedView({ name: "Old", filters: { overallVerdicts: ["Pass"] } as never })];
     render(<ScreenerPage />);
     loadSavedView("Old");
-    expect(cards()).toEqual(["AAA"]);
+    expect(cards().sort()).toEqual(["AAA", "BBB"]);
   });
 
   it("loads a view carrying the removed 'country' key without complaint", () => {
@@ -203,7 +203,7 @@ describe("Reset", () => {
         universe: "sp500",
         sort_field: "market_cap",
         sort_direction: "asc",
-        filters: { ...DEFAULT_FILTER_STATE, overallScore: { min: 50, max: null } },
+        filters: { ...DEFAULT_FILTER_STATE, overallVerdicts: ["Strong Pass", "Pass"] },
       }),
     ];
     render(<ScreenerPage />);
@@ -260,9 +260,9 @@ const typeInto = (input: HTMLInputElement, text: string) => {
 describe("range boxes on the real page", () => {
   it("filter the cards as you type", () => {
     render(<ScreenerPage />);
-    typeInto(box("Overall", "Minimum"), "85");
+    typeInto(box("Financials", "Minimum"), "85");
     expect(cards()).toEqual(["AAA"]);
-    typeInto(box("Overall", "Minimum"), "1x"); // invalid: that side becomes inactive
+    typeInto(box("Financials", "Minimum"), "1x"); // invalid: that side becomes inactive
     expect(cards()).toEqual(["AAA", "BBB", "CCC", "DDD"]);
     typeInto(box("Mkt cap", "Minimum"), "1B");
     expect(cards()).toEqual(["AAA", "BBB", "DDD"]);
@@ -271,11 +271,11 @@ describe("range boxes on the real page", () => {
   it("Reset clears a box holding invalid text and every typed box", () => {
     render(<ScreenerPage />);
     typeInto(box("Growth", "Minimum"), "1x");
-    typeInto(box("Overall", "Minimum"), "70");
+    typeInto(box("Financials", "Minimum"), "70");
     typeInto(box("Mkt cap", "Maximum"), "5T");
     fireEvent.click(screen.getByRole("button", { name: "Reset" }));
     expect(box("Growth", "Minimum").value).toBe("");
-    expect(box("Overall", "Minimum").value).toBe("");
+    expect(box("Financials", "Minimum").value).toBe("");
     expect(box("Mkt cap", "Maximum").value).toBe("");
     expect(screen.queryAllByRole("alert")).toHaveLength(0);
     expect(cards()).toHaveLength(4);
@@ -285,13 +285,13 @@ describe("range boxes on the real page", () => {
     h.saved = [
       savedView({
         name: "Big",
-        filters: { ...DEFAULT_FILTER_STATE, overallScore: { min: 70, max: null }, marketCap: { min: 1e9, max: 5e12 } },
+        filters: { ...DEFAULT_FILTER_STATE, overallVerdicts: ["Strong Pass", "Pass"], marketCap: { min: 1e9, max: 5e12 } },
       }),
     ];
     render(<ScreenerPage />);
     typeInto(box("Growth", "Minimum"), "1x");
     loadSavedView("Big");
-    expect(box("Overall", "Minimum").value).toBe("70");
+    expect(screen.getByRole("button", { name: "Overall (2): 2 selected" })).toHaveClass("text-filter-active");
     expect(box("Mkt cap", "Minimum").value).toBe("1B");
     expect(box("Mkt cap", "Maximum").value).toBe("5T");
     expect(box("Growth", "Minimum").value).toBe("");
@@ -300,17 +300,18 @@ describe("range boxes on the real page", () => {
 
   it("loads a view saved before newer keys existed, and one with the stale 'country' key, into the boxes", () => {
     h.saved = [
-      savedView({ id: 1, name: "Old", filters: { overallScore: { min: 85, max: null } } as never }),
+      savedView({ id: 1, name: "Old", filters: { peRatio: { min: 15, max: null } } as never }),
       savedView({ id: 2, name: "Legacy", filters: { ...DEFAULT_FILTER_STATE, country: ["US"], beta: { min: 0.5, max: 2 } } as never }),
     ];
     render(<ScreenerPage />);
     loadSavedView("Old");
-    expect(box("Overall", "Minimum").value).toBe("85");
+    expect(box("P/E", "Minimum").value).toBe("15");
+    expect(screen.getByRole("button", { name: "Overall: none selected" })).toBeInTheDocument();
     expect(box("Beta", "Minimum").value).toBe("");
     loadSavedView("Legacy");
     expect(box("Beta", "Minimum").value).toBe("0.5");
     expect(box("Beta", "Maximum").value).toBe("2");
-    expect(box("Overall", "Minimum").value).toBe("");
+    expect(box("Financials", "Minimum").value).toBe("");
   });
 });
 
@@ -328,7 +329,7 @@ describe("the sidebar across a universe switch", () => {
     loadSavedView("Big"); // active view name
     fireEvent.click(technicalTrigger()); // collapse Technical
     typeInto(groupBox("Growth", "Minimum"), "1x"); // a range draft the numeric state cannot hold
-    typeInto(groupBox("Overall", "Maximum"), "60"); // a valid draft
+    typeInto(groupBox("Financials", "Maximum"), "60"); // a valid draft
     fireEvent.click(screen.getByRole("button", { name: "Save current view" }));
     fireEvent.change(screen.getByLabelText("View name"), { target: { value: "half typed" } });
     return utils;
@@ -351,7 +352,7 @@ describe("the sidebar across a universe switch", () => {
     expect(screen.getByRole("button", { name: /^Big/ })).toBeInTheDocument();
     expect((screen.getByLabelText("View name") as HTMLInputElement).value).toBe("half typed");
     expect(groupBox("Growth", "Minimum").value).toBe("1x");
-    expect(groupBox("Overall", "Maximum").value).toBe("60");
+    expect(groupBox("Financials", "Maximum").value).toBe("60");
     expect(within(screen.getByRole("group", { name: "Growth" })).getByRole("alert")).toHaveTextContent("Enter a number.");
   });
 
@@ -361,22 +362,22 @@ describe("the sidebar across a universe switch", () => {
     h.rows.sp500 = ALL_ROWS.slice(0, 3);
     rerender(<ScreenerPage />);
     expect(screen.queryByText("Loading Stocks Screener…")).toBeNull();
-    // Overall max 60 leaves CCC (40); DDD's null score is excluded from sp500's three rows anyway
+    // Financials max 60 leaves CCC (40); DDD's null score is excluded from sp500's three rows anyway
     expect(cards()).toEqual(["CCC"]);
     expect(screen.queryByRole("group", { name: "Beta" })).toBeNull();
     expect((screen.getByLabelText("View name") as HTMLInputElement).value).toBe("half typed");
     expect(groupBox("Growth", "Minimum").value).toBe("1x");
-    expect(groupBox("Overall", "Maximum").value).toBe("60");
+    expect(groupBox("Financials", "Maximum").value).toBe("60");
   });
 
   it("shows a load error in the results area only, with the sidebar in place", () => {
     h.errors.sp500 = new Error("boom");
     h.rows.sp500 = undefined;
     render(<ScreenerPage />);
-    typeInto(groupBox("Overall", "Minimum"), "70");
+    typeInto(groupBox("Financials", "Minimum"), "70");
     fireEvent.click(screen.getByRole("button", { name: "S&P 500" }));
     expect(screen.getByText("Failed to load the Stocks Screener.")).toBeInTheDocument();
-    expect(groupBox("Overall", "Minimum").value).toBe("70");
+    expect(groupBox("Financials", "Minimum").value).toBe("70");
     expect(screen.getByRole("button", { name: /^Reset/ })).toBeInTheDocument();
     expect(screen.queryByText("Loading Stocks Screener…")).toBeNull();
   });
@@ -426,5 +427,43 @@ describe("a saved view from before the Review status filter was retired", () => 
     loadSavedView("Old");
     expect(cards().sort()).toEqual(["AAA", "BBB"]);
     expect(screen.queryByRole("button", { name: /^Review status/ })).toBeNull();
+  });
+});
+
+describe("the Overall verdict filter on the page", () => {
+  const pick = (option: string) => {
+    // The panel stays open after a pick, so only open it when it is closed.
+    if (!screen.queryByRole("listbox", { name: "Overall" })) fireEvent.click(screen.getByRole("button", { name: /^Overall/ }));
+    fireEvent.click(within(screen.getByRole("listbox", { name: "Overall" })).getByRole("option", { name: option }).querySelector("input") as HTMLInputElement);
+  };
+
+  it("has no Overall score range any more, and filters the cards by the stored verdict", () => {
+    render(<ScreenerPage />);
+    expect(screen.queryByRole("group", { name: "Overall" })).toBeNull();
+    expect(cards()).toEqual(["AAA", "BBB", "CCC", "DDD"]);
+    pick("May not pass");
+    expect(cards()).toEqual(["CCC"]);
+  });
+
+  it("ORs several verdicts, and Incomplete picks the row with no Overall verdict", () => {
+    render(<ScreenerPage />);
+    pick("Pass");
+    expect(cards().sort()).toEqual(["AAA", "BBB"]);
+    pick("Incomplete");
+    expect(cards().sort()).toEqual(["AAA", "BBB", "DDD"]);
+  });
+
+  it("combines with a step score range: both must hold", () => {
+    h.rows.all = ALL_ROWS.map((r) => ({ ...r, step1_score: r.ticker === "AAA" ? 95 : 60 }));
+    render(<ScreenerPage />);
+    pick("Pass");
+    expect(cards().sort()).toEqual(["AAA", "BBB"]);
+    typeInto(box("Financials", "Minimum"), "70");
+    expect(cards()).toEqual(["AAA"]);
+  });
+
+  it("keeps the Overall score as a sort option and the default sort", () => {
+    render(<ScreenerPage />);
+    expect(sortSelect().value).toBe("overall_score");
   });
 });

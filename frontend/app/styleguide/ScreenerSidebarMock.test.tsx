@@ -34,7 +34,6 @@ describe("ScreenerSidebarMock", () => {
   it("has every real filter pair as a labelled group, with its unit in the label row", () => {
     render(<ScreenerSidebarMock />);
     const units: Record<string, string | null> = {
-      Overall: null,
       Financials: null,
       "Growth rate": null,
       Profitability: null,
@@ -88,14 +87,15 @@ describe("ScreenerSidebarMock", () => {
     const fundamental = within(root).getByText("Fundamental").closest("div") as HTMLElement;
     expect(within(fundamental).queryByTitle(/applied/)).toBeNull();
     fireEvent.click(within(root).getByRole("button", { name: "Load sample view (mock)" }));
-    expect(minIn(root, "Overall").value).toBe("70");
+    // The Overall filter is a verdict multi-select: three verdicts are selected by the sample view, and it reads orange (active).
+    const overall = within(root).getByRole("button", { name: "Overall (3): 3 selected" });
+    expect(overall).toHaveClass("text-filter-active");
     expect(minIn(root, "Mkt cap").value).toBe("1B");
     expect(maxIn(root, "Mkt cap").value).toBe("5T");
     expect(within(fundamental).getByTitle("5 applied")).toBeInTheDocument();
-    expect(within(group(root, "Overall")).getByText("Overall")).toHaveClass("text-filter-active");
     type(minIn(root, "Growth"), "1x");
     fireEvent.click(within(root).getByRole("button", { name: "Reset" }));
-    expect(minIn(root, "Overall").value).toBe("");
+    expect(within(root).getByRole("button", { name: "Overall: none selected" })).not.toHaveClass("text-filter-active");
     expect(minIn(root, "Growth").value).toBe("");
     expect(within(root).queryByRole("alert")).toBeNull();
   });
@@ -141,7 +141,7 @@ describe("ScreenerSidebarMock", () => {
     render(<ScreenerSidebarMock />);
     await waitFor(() => expect(readoutOf(presets(), "P/E")).toBe("min: null, max: null"));
     const root = presets();
-    expect(within(root).getByText("Overall")).toHaveClass("text-filter-active");
+    expect(within(root).getByText("Financials")).toHaveClass("text-filter-active");
     expect(within(group(root, "Growth")).getByRole("alert")).toHaveTextContent("Enter a number.");
     expect(minIn(root, "Growth").value).toBe("1x");
     expect(minIn(root, "Quote").value).toBe("-");
@@ -162,10 +162,10 @@ describe("ScreenerSidebarMock", () => {
     expect(screen.getByText(/Default FormField/)).toBeInTheDocument();
     expect(screen.getByText(/Compact: text-xs/)).toBeInTheDocument();
     const note = screen.getByTestId("height-note");
-    expect(note).toHaveTextContent("591px");
-    expect(note).toHaveTextContent("610px");
+    expect(note).toHaveTextContent("524px");
+    expect(note).toHaveTextContent("543px");
+    expect(note).toHaveTextContent("864px");
     expect(note).toHaveTextContent("883px");
-    expect(note).toHaveTextContent("902px");
     expect(note).toHaveTextContent("not measured in a browser");
     expect(screen.getByRole("button", { name: "Outline" })).toHaveClass("border-border-input", "hover:border-brand");
     expect(screen.queryByText(/old market-cap parser/)).toBeNull();

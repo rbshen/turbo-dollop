@@ -9,6 +9,7 @@ import {
   FUNDAMENTAL_FILTER_KEYS,
   MARKET_CAP_SUFFIXES,
   MOAT_FILTER_OPTIONS,
+  OVERALL_VERDICT_FILTER_OPTIONS,
   VALUATION_FILTER_OPTIONS,
   type ScreenerFilterState,
 } from "@/lib/screenerFilters";
@@ -31,18 +32,19 @@ export function FundamentalFilters({ filters, onFiltersChange, sectors, companyT
   return (
     <CollapsibleFilterSection title="Fundamental" count={countActiveFilters(filters, false, FUNDAMENTAL_FILTER_KEYS)}>
       <div className="space-y-4">
-        {/* 9 Min/Max range filters in the design handoff's original order minus
-            Beta (moved to Technical, 2026-09 follow-up -- a price-covariance
-            statistic, not an accounting metric, same reasoning that already put
-            5Y vs SPY under Technical), plus Quote (2026-09-15, a raw price figure
-            in the same family as Market Cap, so placed just before it): Overall,
-            Financials, Growth rate, Profitability, Debt, Quote, Mkt cap, P/E,
-            Growth -- one flat column, in a ~256px sidebar. Units sit in each
-            label row: every Quote and Mkt cap is USD (every ticker quotes in
-            USD), P/E is a multiple ("x"), Growth is a percent; the score fields
-            have none. */}
+        {/* The Overall verdict multi-select (2026-10-08, replaced the Overall score range) sits first, then 8 Min/Max range filters in the
+            design handoff's original order minus Beta (moved to Technical, 2026-09 follow-up -- a price-covariance statistic, not an
+            accounting metric, same reasoning that already put 5Y vs SPY under Technical), plus Quote (2026-09-15, a raw price figure in the
+            same family as Market Cap, so placed just before it): Financials, Growth rate, Profitability, Debt, Quote, Mkt cap, P/E, Growth
+            -- one flat column, in a ~256px sidebar. Units sit in each label row: every Quote and Mkt cap is USD (every ticker quotes in
+            USD), P/E is a multiple ("x"), Growth is a percent; the score fields have none. */}
+        <MultiSelectDropdown
+          label="Overall"
+          options={OVERALL_VERDICT_FILTER_OPTIONS}
+          selected={filters.overallVerdicts}
+          onChange={(s) => patch({ overallVerdicts: s })}
+        />
         <div className="grid grid-cols-1 gap-y-3">
-          <RangeField label="Overall" value={filters.overallScore} onChange={(r) => patch({ overallScore: r })} />
           <RangeField label="Financials" value={filters.step1Score} onChange={(r) => patch({ step1Score: r })} />
           <RangeField label="Growth rate" value={filters.step2Score} onChange={(r) => patch({ step2Score: r })} />
           <RangeField label="Profitability" value={filters.step4Score} onChange={(r) => patch({ step4Score: r })} />

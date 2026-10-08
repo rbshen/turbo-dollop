@@ -6,6 +6,8 @@ import {
   DEFAULT_FILTER_STATE,
   FUNDAMENTAL_FILTER_KEYS,
   MOAT_FILTER_OPTIONS,
+  OVERALL_INCOMPLETE,
+  OVERALL_VERDICT_FILTER_OPTIONS,
   TECHNICAL_FILTER_KEYS,
   WARREN_SIGNAL_KIND_FILTER_OPTIONS,
   countActiveFilters,
@@ -86,42 +88,17 @@ describe("filterTickerScores", () => {
 
   it("combines watchlist membership with an ordinary field filter, both must pass", () => {
     const rows = [
-      row({ ticker: "IN_LIST_HIGH", overall_score: 90 }),
-      row({ ticker: "IN_LIST_LOW", overall_score: 20 }),
-      row({ ticker: "NOT_IN_LIST", overall_score: 90 }),
+      row({ ticker: "IN_LIST_HIGH", overall_score: 90, overall_verdict: "Pass" }),
+      row({ ticker: "IN_LIST_LOW", overall_score: 20, overall_verdict: "Fail" }),
+      row({ ticker: "NOT_IN_LIST", overall_score: 90, overall_verdict: "Pass" }),
     ];
-    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, overallScore: { min: 70, max: null } };
+    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, overallVerdicts: ["Pass"] };
     const result = filterTickerScores(rows, filters, new Set(["IN_LIST_HIGH", "IN_LIST_LOW"]));
     expect(result.map((r) => r.ticker)).toEqual(["IN_LIST_HIGH"]);
   });
 
-  it("filters by an Overall score range", () => {
-    const rows = [row({ ticker: "HIGH", overall_score: 90 }), row({ ticker: "LOW", overall_score: 20 })];
-    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, overallScore: { min: 70, max: null } };
-    const result = filterTickerScores(rows, filters);
-    expect(result.map((r) => r.ticker)).toEqual(["HIGH"]);
-  });
-
-  it("an Overall range filter reads the stored Overall score of an unrated ticker (scored as No moat), like any other score", () => {
-    const rows = [
-      row({ ticker: "UNRATED_HIGH", overall_score: 71, overall_verdict: "Pass" }),
-      row({ ticker: "UNRATED_LOW", overall_score: 55, overall_verdict: "Fail" }),
-    ];
-    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, overallScore: { min: 70, max: null } };
-    expect(filterTickerScores(rows, filters).map((r) => r.ticker)).toEqual(["UNRATED_HIGH"]);
-  });
-
-  it("excludes an Incomplete ticker (null overall_score) when an Overall range filter is active", () => {
-    // The exact case the spec calls out: filtering "Overall score > 70"
-    // must never treat a missing score as passing.
-    const rows = [row({ ticker: "SCORED", overall_score: 90 }), row({ ticker: "INCOMPLETE", overall_score: null })];
-    const filters: ScreenerFilterState = { ...DEFAULT_FILTER_STATE, overallScore: { min: 70, max: null } };
-    const result = filterTickerScores(rows, filters);
-    expect(result.map((r) => r.ticker)).toEqual(["SCORED"]);
-  });
-
   it("does not exclude an Incomplete ticker when no filter is active on its missing field", () => {
-    const rows = [row({ ticker: "INCOMPLETE", overall_score: null })];
+    const rows = [row({ ticker: "INCOMPLETE", overall_score: null, overall_verdict: null })];
     expect(filterTickerScores(rows, DEFAULT_FILTER_STATE)).toHaveLength(1);
   });
 
@@ -518,7 +495,7 @@ describe("countActiveFilters", () => {
   it("adds everything together", () => {
     const state = {
       ...DEFAULT_FILTER_STATE,
-      overallScore: { min: 70, max: null },
+      overallVerdicts: ["Strong Pass", "Pass"],
       marketCap: { min: 1e9, max: 5e12 },
       sectors: ["Technology"],
       speculativeGrowth: true,
@@ -581,7 +558,6 @@ describe("excludeEtfs", () => {
 // range, an inactive side is open, and a reversed range (min above max) applies
 // literally so nothing matches -- so the sidebar migration cannot change it.
 const RANGE_FILTERS: { key: keyof ScreenerFilterState; field: keyof TickerScoreOut }[] = [
-  { key: "overallScore", field: "overall_score" },
   { key: "step1Score", field: "step1_score" },
   { key: "step2Score", field: "step2_score" },
   { key: "step4Score", field: "step4_score" },
@@ -636,21 +612,21 @@ describe("saved-view shallow merge onto the defaults", () => {
   const merge = (saved: unknown) => ({ ...DEFAULT_FILTER_STATE, ...(saved as Partial<ScreenerFilterState>) });
 
   it("a view saved before newer keys existed loads with those keys at their defaults", () => {
-    const old = { overallScore: { min: 70, max: null }, sectors: ["Technology"] };
+    const old = { overallVerdicts: ["Pass"], sectors: ["Technology"] };
     const merged = merge(old);
-    expect(merged.overallScore).toEqual({ min: 70, max: null });
+    expect(merged.overallVerdicts).toEqual(["Pass"]);
     expect(merged.beta).toEqual({ min: null, max: null });
     expect(merged.vsSpy).toEqual([]);
     expect(merged.speculativeGrowth).toBe(false);
     expect(merged.bbRsiEntrySignal).toBe(false);
     expect(merged.warrenSignalKinds).toEqual([]);
-    expect(filterTickerScores([row({ ticker: "A", overall_score: 80 })], merged)).toHaveLength(1);
+    expect(filterTickerScores([row({ ticker: "A", overall_verdict: "Pass" })], merged)).toHaveLength(1);
   });
 
   it("a view carrying the removed 'country' key still filters cleanly (the key is ignored)", () => {
-    const stale = { ...DEFAULT_FILTER_STATE, country: ["US"], overallScore: { min: 70, max: null } };
+    const stale = { ...DEFAULT_FILTER_STATE, country: ["US"], overallVerdicts: ["Pass"] };
     const merged = merge(stale);
-    const result = filterTickerScores([row({ ticker: "A", overall_score: 80 }), row({ ticker: "B", overall_score: 10 })], merged);
+    const result = filterTickerScores([row({ ticker: "A", overall_verdict: "Pass" }), row({ ticker: "B", overall_verdict: "Fail" })], merged);
     expect(result.map((r) => r.ticker)).toEqual(["A"]);
   });
 });
@@ -666,7 +642,7 @@ describe("countActiveFilters per section", () => {
   it("counts only the section's own keys", () => {
     const state: ScreenerFilterState = {
       ...DEFAULT_FILTER_STATE,
-      overallScore: { min: 70, max: null },
+      overallVerdicts: ["Pass"],
       sectors: ["Energy"],
       beta: { min: null, max: 2 },
       bbRsiEntrySignal: true,
@@ -710,5 +686,78 @@ describe("a saved view that still carries the retired reviewStatuses key", () =>
     expect(filterTickerScores([row({ ticker: "A", moat: "wide_moat" }), row({ ticker: "B", moat: "wide_moat" })], merged).map((r) => r.ticker)).toEqual(["A", "B"]);
     expect(countActiveFilters(merged, false)).toBe(1);
     expect("reviewStatuses" in DEFAULT_FILTER_STATE).toBe(false);
+  });
+});
+
+describe("Overall verdict filter", () => {
+  const rows = [
+    row({ ticker: "SP", overall_score: 95, overall_verdict: "Strong Pass" }),
+    row({ ticker: "P", overall_score: 80, overall_verdict: "Pass" }),
+    row({ ticker: "PWC", overall_score: 74, overall_verdict: "Pass with caution" }),
+    row({ ticker: "FAIL", overall_score: 55, overall_verdict: "Fail" }),
+    row({ ticker: "INC", overall_score: null, overall_verdict: null }),
+  ];
+  const run = (overallVerdicts: string[], extra: Partial<ScreenerFilterState> = {}) =>
+    filterTickerScores(rows, { ...DEFAULT_FILTER_STATE, overallVerdicts, ...extra }).map((r) => r.ticker);
+
+  it("offers the five options with the raw stored keys, Fail drawn as May not pass", () => {
+    expect(OVERALL_VERDICT_FILTER_OPTIONS).toEqual([
+      { value: "Strong Pass", label: "Strong pass" },
+      { value: "Pass", label: "Pass" },
+      { value: "Pass with caution", label: "Pass with caution" },
+      { value: "Fail", label: "May not pass" },
+      { value: "incomplete", label: "Incomplete" },
+    ]);
+    expect(OVERALL_INCOMPLETE).toBe("incomplete");
+  });
+
+  it("empty is no filter: every row, including an Incomplete one", () => {
+    expect(run([])).toEqual(["SP", "P", "PWC", "FAIL", "INC"]);
+  });
+
+  it.each([
+    ["Strong Pass", ["SP"]],
+    ["Pass", ["P"]],
+    ["Pass with caution", ["PWC"]],
+    ["Fail", ["FAIL"]],
+    [OVERALL_INCOMPLETE, ["INC"]],
+  ])("%s alone matches only its own rows (Pass with caution is not a Pass)", (value, expected) => {
+    expect(run([value])).toEqual(expected);
+  });
+
+  it("several selected are OR'd", () => {
+    expect(run(["Strong Pass", "Pass", "Pass with caution"])).toEqual(["SP", "P", "PWC"]);
+    expect(run(["Fail", OVERALL_INCOMPLETE])).toEqual(["FAIL", "INC"]);
+  });
+
+  it("Incomplete matches a null overall_verdict, whatever else the row carries", () => {
+    const odd = [row({ ticker: "NULL_V", overall_score: 70, overall_verdict: null })];
+    expect(filterTickerScores(odd, { ...DEFAULT_FILTER_STATE, overallVerdicts: [OVERALL_INCOMPLETE] })).toHaveLength(1);
+    expect(filterTickerScores(odd, { ...DEFAULT_FILTER_STATE, overallVerdicts: ["Pass"] })).toHaveLength(0);
+  });
+
+  it("reads the stored verdict, not the score: a 91+ Overall stored as Pass with caution is not a Strong Pass match", () => {
+    const cmg = [row({ ticker: "CMG", overall_score: 92, overall_verdict: "Pass with caution" })];
+    expect(filterTickerScores(cmg, { ...DEFAULT_FILTER_STATE, overallVerdicts: ["Strong Pass"] })).toHaveLength(0);
+    expect(filterTickerScores(cmg, { ...DEFAULT_FILTER_STATE, overallVerdicts: ["Pass with caution"] })).toHaveLength(1);
+  });
+
+  it("combines with the Financials / Growth / Profitability / Debt score ranges (all must hold)", () => {
+    const mixed = [
+      row({ ticker: "A", overall_verdict: "Pass", step5_score: 90 }),
+      row({ ticker: "B", overall_verdict: "Pass", step5_score: 60 }),
+      row({ ticker: "C", overall_verdict: "Fail", step5_score: 90 }),
+    ];
+    const filters = { ...DEFAULT_FILTER_STATE, overallVerdicts: ["Pass"], step5Score: { min: 70, max: null } };
+    expect(filterTickerScores(mixed, filters).map((r) => r.ticker)).toEqual(["A"]);
+  });
+
+  it("counts as one applied filter in the Fundamental section, and none when empty", () => {
+    expect(countActiveFilters({ ...DEFAULT_FILTER_STATE, overallVerdicts: ["Pass", "Fail"] }, false, FUNDAMENTAL_FILTER_KEYS)).toBe(1);
+    expect(countActiveFilters(DEFAULT_FILTER_STATE, false, FUNDAMENTAL_FILTER_KEYS)).toBe(0);
+  });
+
+  it("the old Overall score range no longer exists in the state", () => {
+    expect("overallScore" in DEFAULT_FILTER_STATE).toBe(false);
   });
 });

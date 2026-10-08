@@ -104,10 +104,10 @@ describe("sentence case, with stored values unchanged", () => {
 
   it("re-cases the field, chip and multi-select labels", () => {
     render(<Sections />);
-    for (const label of ["Growth rate", "Mkt cap", "Overall", "Financials", "Profitability", "Debt", "Quote", "P/E", "Growth", "Beta"]) {
+    for (const label of ["Growth rate", "Mkt cap", "Financials", "Profitability", "Debt", "Quote", "P/E", "Growth", "Beta"]) {
       expect(screen.getByRole("group", { name: label })).toBeInTheDocument();
     }
-    for (const label of ["Sector", "Company type", "Moat", "Valuation", "5Y vs SPY", "Weinstein stage", "Warren entry (2h)"]) {
+    for (const label of ["Overall", "Sector", "Company type", "Moat", "Valuation", "5Y vs SPY", "Weinstein stage", "Warren entry (2h)"]) {
       expect(screen.getByRole("button", { name: new RegExp(`^${label.replace(/[()]/g, "\\$&")}`) })).toBeInTheDocument();
     }
     expect(screen.queryByText("Growth Rate")).toBeNull();
@@ -134,7 +134,7 @@ describe("section count badges", () => {
 
   it("counts each section's own applied filters, neutral and compact", () => {
     render(<Sections />);
-    fireEvent.change(within(screen.getByRole("group", { name: "Overall" })).getByRole("textbox", { name: "Minimum" }), { target: { value: "70" } });
+    fireEvent.change(within(screen.getByRole("group", { name: "Financials" })).getByRole("textbox", { name: "Minimum" }), { target: { value: "70" } });
     fireEvent.click(chip("Speculative growth"));
     openMulti("Sector");
     fireEvent.click(within(screen.getByRole("listbox")).getByText("Energy"));

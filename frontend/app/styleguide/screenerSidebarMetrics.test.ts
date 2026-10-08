@@ -11,20 +11,20 @@ import {
 } from "./screenerSidebarMetrics";
 
 describe("screener sidebar metrics (boxed)", () => {
-  it("computes one field and the nine-field grid", () => {
+  it("computes one field and the eight-field grid (Overall is a multi-select above it)", () => {
     expect(rangeFieldHeight()).toBe(55);
-    expect(rangeGridHeight()).toBe(591);
+    expect(rangeGridHeight()).toBe(524);
   });
 
   it("adds one hint row for the market-cap hint, and one row per error line", () => {
     expect(HINT_ROW).toBe(19);
     expect(ERROR_ROW).toBe(19);
-    expect(rangeGridHeight(true)).toBe(610);
+    expect(rangeGridHeight(true)).toBe(543);
   });
 
   it("computes the whole Fundamental card, with and without the hint", () => {
-    expect(fundamentalSectionHeight()).toBe(883);
-    expect(fundamentalSectionHeight(true)).toBe(902);
+    expect(fundamentalSectionHeight()).toBe(864);
+    expect(fundamentalSectionHeight(true)).toBe(883);
   });
 
   it("fits a pair inside the 222px card content", () => {

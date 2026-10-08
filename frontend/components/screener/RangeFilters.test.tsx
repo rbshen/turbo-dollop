@@ -9,7 +9,7 @@ import { DEFAULT_FILTER_STATE, type ScreenerFilterState } from "@/lib/screenerFi
 
 afterEach(cleanup);
 
-// The sidebar's ten Min/Max pairs, driven through the real Fundamental and
+// The sidebar's nine Min/Max pairs (the Overall filter is a verdict multi-select, see "the Overall verdict dropdown" below), driven through the real Fundamental and
 // Technical sections. The harness holds the numeric filter state like the page
 // does and shows it as JSON, so what a box emits can be read back exactly.
 function Harness({ initial = DEFAULT_FILTER_STATE }: { initial?: ScreenerFilterState }) {
@@ -24,7 +24,7 @@ function Harness({ initial = DEFAULT_FILTER_STATE }: { initial?: ScreenerFilterS
           // A view loaded from the API: every range is a brand-new object.
           setFilters({
             ...DEFAULT_FILTER_STATE,
-            overallScore: { min: 70, max: null },
+            step1Score: { min: 70, max: null },
             growthRate: { min: null, max: null },
             marketCap: { min: 1e9, max: 5e12 },
           })
@@ -48,7 +48,6 @@ const type = (box: HTMLInputElement, text: string) => {
 };
 
 const PAIRS: { label: string; key: keyof ScreenerFilterState; unit: string | null }[] = [
-  { label: "Overall", key: "overallScore", unit: null },
   { label: "Financials", key: "step1Score", unit: null },
   { label: "Growth rate", key: "step2Score", unit: null },
   { label: "Profitability", key: "step4Score", unit: null },
@@ -60,7 +59,7 @@ const PAIRS: { label: string; key: keyof ScreenerFilterState; unit: string | nul
   { label: "Beta", key: "beta", unit: null },
 ];
 
-describe("the ten range pairs", () => {
+describe("the nine range pairs", () => {
   it.each(PAIRS)("$label emits numeric filter state from each box", ({ label, key }) => {
     render(<Harness />);
     type(minBox(label), "12.5");
@@ -77,7 +76,7 @@ describe("the ten range pairs", () => {
     expect(others).toEqual(defaults);
   });
 
-  it("has all ten labelled pairs, Beta under Technical, with the placeholders and names", () => {
+  it("has all nine labelled pairs, Beta under Technical, with the placeholders and names", () => {
     render(<Harness />);
     for (const { label } of PAIRS) {
       expect(minBox(label)).toHaveAttribute("placeholder", "Min");
@@ -110,11 +109,11 @@ describe("the ten range pairs", () => {
 
   it("turns the label orange only while that pair holds a value", () => {
     render(<Harness />);
-    const label = () => within(group("Overall")).getByText("Overall");
+    const label = () => within(group("Financials")).getByText("Financials");
     expect(label()).not.toHaveClass("text-filter-active");
-    type(minBox("Overall"), "70");
+    type(minBox("Financials"), "70");
     expect(label()).toHaveClass("text-filter-active");
-    type(minBox("Overall"), "");
+    type(minBox("Financials"), "");
     expect(label()).not.toHaveClass("text-filter-active");
   });
 });
@@ -167,16 +166,16 @@ describe("the commit rule, on a real sidebar pair", () => {
 
   it("shows ONE message for a reversed range, invalid only on the Max box, and still applies it literally", () => {
     render(<Harness />);
-    type(minBox("Overall"), "90");
-    type(maxBox("Overall"), "10");
-    expect(state().overallScore).toEqual({ min: 90, max: 10 });
-    const alerts = within(group("Overall")).getAllByRole("alert");
+    type(minBox("Financials"), "90");
+    type(maxBox("Financials"), "10");
+    expect(state().step1Score).toEqual({ min: 90, max: 10 });
+    const alerts = within(group("Financials")).getAllByRole("alert");
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toHaveTextContent("Min is higher than max, so no ticker can match.");
-    expect(maxBox("Overall")).toHaveAttribute("aria-invalid", "true");
-    expect(minBox("Overall")).not.toHaveAttribute("aria-invalid");
-    type(maxBox("Overall"), "95");
-    expect(alertIn("Overall")).toBeNull();
+    expect(maxBox("Financials")).toHaveAttribute("aria-invalid", "true");
+    expect(minBox("Financials")).not.toHaveAttribute("aria-invalid");
+    type(maxBox("Financials"), "95");
+    expect(alertIn("Financials")).toBeNull();
   });
 });
 
@@ -246,12 +245,12 @@ describe("Mkt cap text", () => {
 describe("external changes re-sync the boxes", () => {
   it("Reset clears a box holding invalid text such as 1x, and every filled box", () => {
     render(<Harness />);
-    type(minBox("Overall"), "70");
+    type(minBox("Financials"), "70");
     type(minBox("Growth"), "1x");
     type(maxBox("Mkt cap"), "5B");
     expect(minBox("Growth").value).toBe("1x");
     fireEvent.click(screen.getByRole("button", { name: "reset" }));
-    expect(minBox("Overall").value).toBe("");
+    expect(minBox("Financials").value).toBe("");
     expect(minBox("Growth").value).toBe("");
     expect(maxBox("Mkt cap").value).toBe("");
     expect(alertIn("Growth")).toBeNull();
@@ -270,9 +269,9 @@ describe("external changes re-sync the boxes", () => {
   it("loading a view rewrites the boxes, including one holding invalid text, and shows 1B and 5T", () => {
     render(<Harness />);
     type(minBox("Growth"), "1x");
-    type(minBox("Overall"), "5");
+    type(minBox("Financials"), "5");
     fireEvent.click(screen.getByRole("button", { name: "load" }));
-    expect(minBox("Overall").value).toBe("70");
+    expect(minBox("Financials").value).toBe("70");
     expect(minBox("Growth").value).toBe("");
     expect(alertIn("Growth")).toBeNull();
     expect(minBox("Mkt cap").value).toBe("1B");
@@ -285,5 +284,36 @@ describe("external changes re-sync the boxes", () => {
     expect(minBox("Quote").value).toBe("12.");
     type(minBox("Quote"), "12.5");
     expect(minBox("Quote").value).toBe("12.5");
+  });
+});
+
+describe("the Overall verdict dropdown in the Fundamental section", () => {
+  it("is a multi-select with the five verdict options, Fail drawn as May not pass, and no Overall range pair", () => {
+    render(<Harness />);
+    expect(screen.queryByRole("group", { name: "Overall" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Overall: none selected" }));
+    const options = within(screen.getByRole("listbox", { name: "Overall" })).getAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["Strong pass", "Pass", "Pass with caution", "May not pass", "Incomplete"]);
+  });
+
+  it("emits the raw stored keys (Fail stays Fail), several at once, and clears back to none", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Overall: none selected" }));
+    fireEvent.click(screen.getByRole("option", { name: "May not pass" }).querySelector("input") as HTMLInputElement);
+    expect(state().overallVerdicts).toEqual(["Fail"]);
+    fireEvent.click(screen.getByRole("option", { name: "Incomplete" }).querySelector("input") as HTMLInputElement);
+    expect(state().overallVerdicts).toEqual(["Fail", "incomplete"]);
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(state().overallVerdicts).toEqual([]);
+  });
+
+  it("turns orange only while something is selected, and counts once in the Fundamental badge", () => {
+    render(<Harness />);
+    const trigger = () => screen.getByRole("button", { name: /^Overall/ });
+    expect(trigger()).not.toHaveClass("text-filter-active");
+    fireEvent.click(trigger());
+    fireEvent.click(screen.getByRole("option", { name: "Pass" }).querySelector("input") as HTMLInputElement);
+    expect(trigger()).toHaveClass("text-filter-active");
+    expect(screen.getByTitle("1 applied")).toBeInTheDocument();
   });
 });

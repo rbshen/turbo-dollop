@@ -22,6 +22,7 @@ import {
   DEFAULT_FILTER_STATE,
   FUNDAMENTAL_FILTER_KEYS,
   MARKET_CAP_SUFFIXES,
+  OVERALL_VERDICT_FILTER_OPTIONS,
   TECHNICAL_FILTER_KEYS,
   countActiveFilters,
   type ScreenerFilterState,
@@ -37,7 +38,7 @@ import {
   rangeGridHeight,
 } from "./screenerSidebarMetrics";
 
-type RangeKey = "overallScore" | "step1Score" | "step2Score" | "step4Score" | "step5Score" | "quote" | "marketCap" | "peRatio" | "growthRate" | "beta";
+type RangeKey = "step1Score" | "step2Score" | "step4Score" | "step5Score" | "quote" | "marketCap" | "peRatio" | "growthRate" | "beta";
 
 interface RangeSpec {
   key: RangeKey;
@@ -49,7 +50,6 @@ interface RangeSpec {
 // The live order in FundamentalFilters, labels in sentence case, units per the
 // owner's decision: Quote and Mkt cap USD, P/E "x", Growth "%", scores none.
 const FUNDAMENTAL_RANGES: RangeSpec[] = [
-  { key: "overallScore", label: "Overall" },
   { key: "step1Score", label: "Financials" },
   { key: "step2Score", label: "Growth rate" },
   { key: "step4Score", label: "Profitability" },
@@ -85,7 +85,7 @@ const STAGE_OPTIONS = [1, 2, 3, 4].map((n) => ({ value: `stage_${n}`, label: `St
 function sampleView(): ScreenerFilterState {
   return {
     ...DEFAULT_FILTER_STATE,
-    overallScore: { min: 70, max: null },
+    overallVerdicts: ["Strong Pass", "Pass", "Pass with caution"],
     marketCap: { min: 1e9, max: 5e12 },
     peRatio: { min: null, max: 25 },
     sectors: ["Technology"],
@@ -179,6 +179,7 @@ function Sidebar() {
 
       <MockSection title="Fundamental" count={countActiveFilters(filters, false, FUNDAMENTAL_FILTER_KEYS)}>
         <div className="space-y-4">
+          <MultiSelectDropdown label="Overall" options={OVERALL_VERDICT_FILTER_OPTIONS} selected={filters.overallVerdicts} onChange={(s) => patch({ overallVerdicts: s })} />
           <div className="grid grid-cols-1 gap-y-3">
             {FUNDAMENTAL_RANGES.map((spec) => (
               <RangeRow
@@ -284,7 +285,7 @@ function PresetColumn() {
     <div className="w-64 shrink-0" data-testid="presets-boxed">
       <h3 className="mb-3 text-xs font-semibold text-text-secondary">Range field states</h3>
       <div className="space-y-4 rounded-lg border border-border-card bg-surface p-4">
-        <PresetState caption="Filled, applied (orange label)" spec={byKey("overallScore")} initial={{ min: 70, max: 90 }} />
+        <PresetState caption="Filled, applied (orange label)" spec={byKey("step1Score")} initial={{ min: 70, max: 90 }} />
         <PresetState caption="Invalid text, with error" spec={byKey("growthRate")} initial={{ min: null, max: null }} seed={{ side: "Minimum", text: "1x" }} />
         <PresetState caption="Incomplete prefix, held while focused" spec={byKey("quote")} initial={{ min: 50, max: null }} seed={{ side: "Minimum", text: "-" }} />
         <PresetState caption="Incomplete prefix, after blur" spec={byKey("peRatio")} initial={{ min: 10, max: null }} seed={{ side: "Minimum", text: ".", blur: true }} />
@@ -328,7 +329,7 @@ function HeightNote() {
         <thead>
           <tr className="text-text-tertiary">
             <th className="py-1 pr-4 font-normal">Boxed</th>
-            <th className="py-1 pr-4 font-normal">Nine-field grid</th>
+            <th className="py-1 pr-4 font-normal">Eight-field grid</th>
             <th className="py-1 font-normal">Whole Fundamental card</th>
           </tr>
         </thead>
