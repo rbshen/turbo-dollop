@@ -1,8 +1,6 @@
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-import json
-
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StringConstraints, field_validator, model_validator
 
 
@@ -40,7 +38,7 @@ class BalanceSheetFallback(BaseModel):
     debt or current-assets line remapped into another -- see
     helpers/balance_sheet_gate.py), so the prior quarter's balance sheet, and
     income/cash-flow TTM windows aligned to it, were used instead. Records the
-    fact for the Review status (scoring/review.py); the scoring rules are unchanged."""
+    fact for the Debt tab; the scoring rules are unchanged."""
 
     reason: str  # "debt_remap" | "current_assets_remap"
     incomplete_quarter_date: str | None = None
@@ -63,21 +61,6 @@ class DataQualityFlag(BaseModel):
     column: str | None = None
     evidence: str
     detail: dict = {}
-
-
-class ReviewReason(BaseModel):
-    """One gated step's contribution to the Review status (scoring/review.py). Facts only, no UI wording. `hint` is the
-    reading after the data-quality guard ("data_uncertain" when guarded), `raw_hint` the one it would have had
-    ("structural" | "by_design" | "unclear"); `rule` names the rule behind `raw_hint`."""
-
-    step: Literal["step1", "step5"]
-    score: int
-    verdict: str
-    hint: str
-    raw_hint: str
-    guarded: bool
-    rule: str
-    evidence: str
 
 
 class RefreshResult(BaseModel):
@@ -1265,16 +1248,6 @@ class TickerScoreOut(BaseModel):
     # Same monitored-watchlist-only scoping as bb_rsi_entry_signal.
     warren_active_signal_kind: str | None = None
     warren_last_buy_fired_at: datetime | None = None
-    # See models.py::TickerScore.review_status. The stored JSON text is parsed on the way out.
-    review_status: str | None = None
-    review_reasons: list[ReviewReason] | None = None
-    conviction: str | None = None
-    data_quality_flags: list[DataQualityFlag] | None = None
-
-    @field_validator("review_reasons", "data_quality_flags", mode="before")
-    @classmethod
-    def _parse_stored_json(cls, value):
-        return json.loads(value) if isinstance(value, str) else value
 
 
 class RecomputeSummary(BaseModel):
@@ -1838,13 +1811,9 @@ class MomentumSnapshotRowOut(BaseModel):
     # ticker the nightly last-close job has not written yet. `quote_currency` joined live from TickerScore.
     last_price: float | None = None
     quote_currency: str | None = None
-    # The stored Review status, joined live from the same TickerScore row as `overall_score` (display only; the ranking
-    # never reads them). `overall_verdict` is carried only for the marker's tooltip ("Overall N would read V"). None for
-    # no status or no score row.
+    # The stored verdict, joined live from the same TickerScore row as `overall_score` (display only; the ranking never
+    # reads it): the score badge's tone and its "Passed with caution" tooltip. None for no score row.
     overall_verdict: str | None = None
-    review_status: str | None = None
-    review_reasons: list[ReviewReason] | None = None
-    conviction: str | None = None
 
 
 class MomentumOut(BaseModel):
@@ -2047,12 +2016,6 @@ class WatchlistRowOut(BaseModel):
     # TickerScore.is_etf of the cache-only score row; the table shows an "ETF" marker in place of
     # the (always blank) score cells. False for a never-viewed ticker with no score row.
     is_etf: bool = False
-    # The stored Review status beside overall_verdict (models.py::TickerScore.review_status, docs/specs/overview.md
-    # "Review status"): read from the same score row as overall_verdict, so the two cannot disagree. None for no
-    # status, a fund, or a ticker with no score row.
-    review_status: str | None = None
-    review_reasons: list[ReviewReason] | None = None
-    conviction: str | None = None
 
 
 class EtfWatchlistRowOut(BaseModel):

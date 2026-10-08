@@ -157,44 +157,32 @@ def test_get_momentum_snapshot_previous_empty_when_only_one_month_exists(monkeyp
 
 
 
-def test_get_momentum_snapshot_joins_the_review_status_from_the_same_score_row(monkeypatch):
-    import json
-
+def test_get_momentum_snapshot_joins_the_score_and_verdict_from_the_same_score_row(monkeypatch):
     engine = _fresh_engine(monkeypatch)
-    reason = {
-        "step": "step5", "score": 43, "verdict": "Fail", "hint": "unclear", "raw_hint": "unclear",
-        "guarded": False, "rule": "not_covered", "evidence": "Current Ratio 0.78 (borderline_fail)",
-    }
     with Session(engine) as session:
         session.add(
             TickerScore(
-                ticker="REV", moat="wide_moat", company_name="Rev Inc", overall_score=71, overall_verdict="Pass",
-                review_status="review_unclear", review_reasons=json.dumps([reason]), conviction="high",
+                ticker="CAUT", moat="wide_moat", company_name="Caut Inc", overall_score=73, overall_verdict="Pass with caution",
                 computed_at=datetime.now(),
             )
         )
         session.add(TickerScore(ticker="PLAIN", moat="wide_moat", company_name="Plain Inc", overall_score=80, overall_verdict="Pass", computed_at=datetime.now()))
         session.commit()
 
-    _patch_universe_and_prices(monkeypatch, ["REV", "PLAIN"], {"REV": _series(130.0), "PLAIN": _series(125.0)})
+    _patch_universe_and_prices(monkeypatch, ["CAUT", "PLAIN"], {"CAUT": _series(130.0), "PLAIN": _series(125.0)})
     asyncio.run(momentum_data.compute_and_store_momentum_snapshot(date(2026, 8, 31)))
     rows = {r.ticker: r for r in momentum_data.get_momentum_snapshot("current").rows}
 
-    assert rows["REV"].review_status == "review_unclear"
-    assert [r.model_dump() for r in rows["REV"].review_reasons] == [reason]
-    assert rows["REV"].conviction == "high"
-    assert (rows["REV"].overall_score, rows["REV"].overall_verdict) == (71, "Pass")
-    # No status: every new field is null, and the existing ones are as before.
-    plain = rows["PLAIN"]
-    assert (plain.review_status, plain.review_reasons, plain.conviction) == (None, None, None)
-    assert (plain.overall_score, plain.overall_verdict) == (80, "Pass")
+    assert (rows["CAUT"].overall_score, rows["CAUT"].overall_verdict) == (73, "Pass with caution")
+    assert (rows["PLAIN"].overall_score, rows["PLAIN"].overall_verdict) == (80, "Pass")
+    assert not {"review_status", "review_reasons", "conviction"} & set(type(rows["CAUT"]).model_fields)
 
 
-def test_ranking_order_does_not_depend_on_the_review_status(monkeypatch):
+def test_ranking_order_does_not_depend_on_the_verdict(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     with Session(engine) as session:
-        for ticker, status in (("AAA", None), ("BBB", "review_unclear")):
-            session.add(TickerScore(ticker=ticker, moat="wide_moat", company_name=ticker, overall_score=70, overall_verdict="Pass", review_status=status, review_reasons="[]" if status else None, computed_at=datetime.now()))
+        for ticker, verdict in (("AAA", "Pass"), ("BBB", "Pass with caution")):
+            session.add(TickerScore(ticker=ticker, moat="wide_moat", company_name=ticker, overall_score=70, overall_verdict=verdict, computed_at=datetime.now()))
         session.commit()
 
     _patch_universe_and_prices(monkeypatch, ["AAA", "BBB"], {"AAA": _series(130.0), "BBB": _series(160.0)})

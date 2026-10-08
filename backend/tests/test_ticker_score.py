@@ -674,7 +674,7 @@ def test_an_etfs_stage_comes_from_its_trend_analysis_row_even_when_its_ticker_sc
     assert result.weinstein_stage == "advance"
 
 
-# ---- Review status columns (scoring/review.py) -------------------------------------------------------------------
+# ---- Failed refresh fetch ------------------------------------------------------------------------------------------
 
 
 def _rate_moat(engine, moat="wide_moat"):
@@ -689,82 +689,7 @@ def _stored(engine) -> TickerScore:
         return session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).one()
 
 
-def test_a_gated_step1_stores_the_review_columns_and_leaves_the_verdict_alone(monkeypatch):
-    import json
-
-    engine = _fresh_engine(monkeypatch)
-    _rate_moat(engine)
-    _patch_all(monkeypatch, step1=_step1(score=40, verdict="Fail"), step2=_step2(90), step4=_step4(90), step5=_step5(90))
-
-    result = asyncio.run(compute_ticker_score("AAPL"))
-
-    # Steps (40*30 + 90*20 + 90*20 + 90*30)/100 = 75.0 x Wide 1.0 -> 75, a passing score; Financials 40 is a weak step, so the label reads
-    # "Pass with caution" (2026-10-08) and the Review status sits beside it, neither changing the other.
-    assert result.overall_score == 75 and result.overall_verdict == "Pass with caution"
-    assert result.review_status == "review_unclear"
-    assert result.conviction == "high"
-    row = _stored(engine)
-    assert row.review_status == "review_unclear" and row.conviction == "high"
-    reasons = json.loads(row.review_reasons)
-    assert [(r["step"], r["score"], r["verdict"], r["hint"], r["rule"]) for r in reasons] == [("step1", 40, "Fail", "unclear", "step1_gated")]
-    assert row.overall_verdict == result.overall_verdict and row.data_quality_flags is None
-
-    from core.schemas import TickerScoreOut
-
-    out = TickerScoreOut(**row.model_dump())
-    assert out.review_status == "review_unclear" and out.review_reasons[0].step == "step1" and out.data_quality_flags is None
-
-
-def test_every_score_computation_rewrites_the_review_columns_so_a_stale_status_never_lingers(monkeypatch):
-    engine = _fresh_engine(monkeypatch)
-    _rate_moat(engine)
-    _patch_all(monkeypatch, step1=_step1(score=40, verdict="Fail"), step2=_step2(90), step4=_step4(90), step5=_step5(90))
-    asyncio.run(compute_ticker_score("AAPL"))
-    assert _stored(engine).review_status == "review_unclear"
-
-    # Step 1 recovers (a Refresh, a recompute): status and reasons go back to None; conviction stays (Pass-family row).
-    _patch_all(monkeypatch, step1=_step1(score=90), step2=_step2(90), step4=_step4(90), step5=_step5(90))
-    asyncio.run(compute_ticker_score("AAPL"))
-    row = _stored(engine)
-    assert (row.review_status, row.review_reasons, row.conviction) == (None, None, "high")
-
-    # The Moat is cleared (a Moat PUT): the ticker is scored as No moat (75 x 0.7 = 52, a Fail), so every review column is null.
-    _patch_all(monkeypatch, step1=_step1(score=40, verdict="Fail"), step2=_step2(90), step4=_step4(90), step5=_step5(90))
-    asyncio.run(compute_ticker_score("AAPL"))
-    assert _stored(engine).review_status == "review_unclear"
-    with Session(engine) as session:
-        from core.models import TickerMoat
-
-        session.delete(session.get(TickerMoat, "AAPL"))
-        session.commit()
-    asyncio.run(compute_ticker_score("AAPL"))
-    row = _stored(engine)
-    assert (row.overall_verdict, row.overall_score) == ("Fail", 52)
-    assert (row.review_status, row.review_reasons, row.conviction) == (None, None, None)
-
-
-def test_a_fail_row_never_gets_a_review_status(monkeypatch):
-    engine = _fresh_engine(monkeypatch)
-    _rate_moat(engine)
-    _patch_all(monkeypatch, step1=_step1(score=10, verdict="Fail"), step2=_step2(10, "Fail"), step4=_step4(10, "Fail"), step5=_step5(10, "Fail"))
-    result = asyncio.run(compute_ticker_score("AAPL"))
-    assert result.overall_verdict == "Fail"
-    assert (result.review_status, result.review_reasons, result.conviction) == (None, None, None)
-
-
-def test_an_etf_gets_no_review_columns_and_reads_no_statements(monkeypatch):
-    engine = _fresh_engine(monkeypatch)
-
-    def boom(*args, **kwargs):
-        raise AssertionError("an ETF must not read statements for the review")
-
-    monkeypatch.setattr(ticker_score, "read_cached_inputs", boom)
-    _patch_all(monkeypatch, summary=_summary(is_etf=True))
-    result = asyncio.run(compute_ticker_score("AAPL"))
-    assert (result.review_status, result.review_reasons, result.conviction, result.data_quality_flags) == (None, None, None, None)
-
-
-def test_a_skipped_upsert_after_a_failed_refresh_fetch_leaves_the_previous_review_untouched(monkeypatch):
+def test_a_skipped_upsert_after_a_failed_refresh_fetch_leaves_the_previous_row_untouched(monkeypatch):
     from core.cache import track_fetch_failures
 
     engine = _fresh_engine(monkeypatch)
@@ -778,46 +703,17 @@ def test_a_skipped_upsert_after_a_failed_refresh_fetch_leaves_the_previous_revie
         tracker.unrecovered.append("income_statement/annual")
         asyncio.run(compute_ticker_score("AAPL"))
     after = _stored(engine)
-    assert (after.review_status, after.review_reasons, after.conviction, after.step1_score) == (
-        before.review_status,
-        before.review_reasons,
-        before.conviction,
-        40,
-    )
+    assert (after.step1_score, after.overall_score, after.overall_verdict) == (40, before.overall_score, before.overall_verdict)
 
 
-def test_a_review_failure_costs_the_row_nothing_but_its_own_columns(monkeypatch):
+def test_a_score_row_has_no_review_fields(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     _rate_moat(engine)
-
-    def boom(*args, **kwargs):
-        raise RuntimeError("simulated")
-
-    monkeypatch.setattr(ticker_score, "read_cached_inputs", boom)
     _patch_all(monkeypatch, step1=_step1(score=40, verdict="Fail"), step2=_step2(90), step4=_step4(90), step5=_step5(90))
+
     result = asyncio.run(compute_ticker_score("AAPL"))
-    assert result.step1_score == 40 and result.overall_score is not None
-    assert (result.review_status, result.review_reasons, result.conviction, result.data_quality_flags) == (None, None, None, None)
 
-
-def test_the_data_quality_flags_are_stored_as_json_whether_or_not_there_is_a_status(monkeypatch):
-    import json
-
-    from core.schemas import DataQualityFlag
-
-    engine = _fresh_engine(monkeypatch)
-    flag = DataQualityFlag(rule="not_landed", statement="income", period="quarterly", period_end="2026-06-30", evidence="x")
-    monkeypatch.setattr(ticker_score, "data_quality_flags", lambda raw, earnings, kind: [flag])
-    _patch_all(monkeypatch)
-    asyncio.run(compute_ticker_score("AAPL"))
-    stored = json.loads(_stored(engine).data_quality_flags)
-    assert [(f["rule"], f["period"], f["period_end"]) for f in stored] == [("not_landed", "quarterly", "2026-06-30")]
-
-
-def test_the_review_reads_the_gate_constant_through_the_score_path(monkeypatch):
-    engine = _fresh_engine(monkeypatch)
-    _rate_moat(engine)
-    _patch_all(monkeypatch, step1=_step1(score=60, verdict="Fail"), step2=_step2(90), step4=_step4(90), step5=_step5(90))
-    assert asyncio.run(compute_ticker_score("AAPL", persist=False)).review_status is None
-    monkeypatch.setattr(ticker_score, "REVIEW_GATE_SCORE", 70)
-    assert asyncio.run(compute_ticker_score("AAPL", persist=False)).review_status == "review_unclear"
+    # Steps (40*30 + 90*20 + 90*20 + 90*30)/100 = 75.0 x Wide 1.0 -> 75; Financials 40 is a weak step, so the label reads
+    # "Pass with caution" (2026-10-08) and that is all the weak step shows.
+    assert result.overall_score == 75 and result.overall_verdict == "Pass with caution"
+    assert not {"review_status", "review_reasons", "conviction", "data_quality_flags"} & set(TickerScore.model_fields)

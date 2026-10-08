@@ -170,13 +170,6 @@ def _operating_income_backup_gates(
     }
 
 
-def operating_health_gate_passes(
-    operating_income: list[float], latest_operating_income: float | None, latest_revenue: float | None
-) -> bool:
-    """Public name for the K2 operating-health gate (scoring/review.py reads it for the Step 1 evidence string)."""
-    return _operating_income_backup_allowed(operating_income, latest_operating_income, latest_revenue)
-
-
 def score_step1(
     revenue: list[float],
     net_income: list[float],

@@ -1,4 +1,3 @@
-import json
 import logging
 from datetime import datetime
 from typing import Awaitable, TypeVar
@@ -20,8 +19,6 @@ from data.speculative_growth_data import get_speculative_growth_data
 from data.step4_data import get_step4_data
 from data.step5_data import get_step5_data
 from data.ticker_summary import get_summary
-from helpers.statement_view import build_statement_view, data_quality_flags, read_cached_inputs
-from scoring.review import REVIEW_GATE_SCORE, compute_review, quarters_from
 from scoring.weights import ScoreWeights
 from data.score_weights import load_score_weights
 from data.warren_signal_data import (
@@ -58,52 +55,6 @@ def _snapshot(key: str, result, has_error: bool) -> StepSnapshot:
         score=result.score if result is not None else None,
         verdict=result.verdict if result is not None else None,
     )
-
-
-def _review_columns(ticker: str, company_type: str | None, overall_verdict: str | None, step1, step2, step4, step5) -> dict:
-    """The four Review columns (scoring/review.py) from the same cached statements the steps just read: no FMP call.
-    Always returns all four keys, None included, so the upsert rewrites them and a stale status can never linger. A failure
-    here never costs the row its scores: it is logged and the four columns are written as None."""
-    empty = {"review_status": None, "review_reasons": None, "conviction": None, "data_quality_flags": None}
-    try:
-        with Session(engine) as session:
-            raw, earnings, classified = read_cached_inputs(session, ticker)
-        kind = company_type or classified
-        flags = data_quality_flags(raw, earnings, kind)
-        view = build_statement_view(raw, kind)
-        result = compute_review(
-            overall_verdict,
-            step1,
-            step2,
-            step4,
-            step5,
-            raw.balance_sheet_annual,
-            quarters_from(raw.balance_sheet_quarterly, view.used.balance_sheet),
-            flags,
-            gate=REVIEW_GATE_SCORE,
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("compute_ticker_score: review failed for %s: %s", ticker, exc)
-        return empty
-    return {
-        "review_status": result.status,
-        "review_reasons": json.dumps(result.reasons) if result.status else None,
-        "conviction": result.conviction,
-        "data_quality_flags": json.dumps([f.model_dump() for f in flags]) if flags else None,
-    }
-
-
-def stored_review_fields(row: TickerScore | None) -> dict:
-    """The Review status fields of one TickerScore row for a payload that shows them beside that same row's verdict (the
-    Watchlist and Momentum rows): status, parsed reasons and conviction, all None for no row or an ETF/fund (it never
-    carries a status). The JSON text is parsed here once; `data_quality_flags` is not part of any row payload."""
-    if row is None or row.is_etf or not row.review_status:
-        return {"review_status": None, "review_reasons": None, "conviction": None}
-    return {
-        "review_status": row.review_status,
-        "review_reasons": json.loads(row.review_reasons) if row.review_reasons else None,
-        "conviction": row.conviction,
-    }
 
 
 # TickerScore columns written by other jobs, never overwritten by a score upsert.
@@ -184,13 +135,6 @@ async def compute_ticker_score(
         narrow_multiplier=narrow_multiplier or resolve_moat_multiplier(None, "narrow_moat"),
     )
 
-    # Demote-only status beside the verdict, never feeding it (an ETF/fund has none: the 5-step framework is not applied).
-    review = (
-        _review_columns(ticker, None, overall.verdict, step1, step2, step4, step5)
-        if not summary.is_etf
-        else {"review_status": None, "review_reasons": None, "conviction": None, "data_quality_flags": None}
-    )
-
     # Step 4 and Step 5 independently run the same shared classifier
     # (scoring/classification.py::classify_company_type) on the same
     # profile data, so they always agree when both are available -- either
@@ -249,7 +193,6 @@ async def compute_ticker_score(
         bb_rsi_entry_signal=is_entry_signal_active(entry_signal.fired_at) if entry_signal else None,
         warren_active_signal_kind=warren_active_up_kind(warren_signal.signal_kind) if warren_signal else None,
         warren_last_buy_fired_at=warren_last_buy_fired_at,
-        **review,
     )
 
     if not persist or (summary.is_etf and not persist_etf):

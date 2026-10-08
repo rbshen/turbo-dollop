@@ -132,7 +132,7 @@ def compute_overall_assessment(
     unrounded. Overall = round(steps_score x multiplier), rounded once. `moat` is "no_moat" | "narrow_moat" | "wide_moat" or
     None (unset, scored as No moat); `narrow_multiplier` is the saved Narrow setting. No cap, no hard-fail override: the verdict
     is read from the Overall score (bands 0-69 Fail, 70-90 Pass, 91+ Strong Pass); a Pass or Strong Pass reads "Pass with caution"
-    when a step carries its own "Pass with caution" or any step is below the pass line (weak). Review is separate and untouched."""
+    when a step carries its own "Pass with caution" or any step is below the pass line (weak)."""
     step_weights = overall_fractions(weights)
     with_status = [(s, _status_for(s)) for s in steps]
 

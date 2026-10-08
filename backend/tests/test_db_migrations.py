@@ -10,11 +10,11 @@ INSERT with a NOT NULL constraint violation.
 from datetime import datetime
 
 from sqlalchemy import text
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 import core.db as db_module
 from core.db import _add_missing_columns, _drop_obsolete_columns
-from core.models import TechnicalEntrySignal
+from core.models import TechnicalEntrySignal, TickerScore
 
 
 def _fresh_engine(monkeypatch):
@@ -270,17 +270,34 @@ def test_an_old_tickerview_table_gains_the_added_columns_and_keeps_its_rows(monk
     assert rows == [("AAPL", "2026-10-02 07:00:52.930737", None, None), ("QQQ", "2026-10-03 02:16:16.264082", None, None)]
 
 
-def test_an_old_tickerscore_table_gains_the_four_review_columns_and_keeps_its_rows(monkeypatch):
+def test_a_tickerscore_table_keeps_the_four_retired_review_columns_unused(monkeypatch):
+    """The Review status was retired (2026-10-08): review_status / review_reasons / conviction / data_quality_flags are no
+    longer on the model but stay as nullable physical columns in the live DB. The startup sweeps must leave them (and their
+    values) alone, and reading and writing the model must still work around them."""
     engine = _fresh_engine(monkeypatch)
     with engine.begin() as conn:
-        conn.execute(text("CREATE TABLE tickerscore (ticker VARCHAR NOT NULL, overall_score INTEGER, overall_verdict VARCHAR, computed_at DATETIME NOT NULL, PRIMARY KEY (ticker))"))
-        conn.execute(text("INSERT INTO tickerscore VALUES ('AAPL', 76, 'Pass', '2026-10-05 02:00:00')"))
+        conn.execute(
+            text(
+                "CREATE TABLE tickerscore (ticker VARCHAR NOT NULL, overall_score INTEGER, overall_verdict VARCHAR, computed_at DATETIME NOT NULL, "
+                "review_status VARCHAR, review_reasons VARCHAR, conviction VARCHAR, data_quality_flags VARCHAR, PRIMARY KEY (ticker))"
+            )
+        )
+        conn.execute(text("INSERT INTO tickerscore VALUES ('AAPL', 76, 'Pass', '2026-10-05 02:00:00', 'review_unclear', '[]', 'high', NULL)"))
 
+    _drop_obsolete_columns()
     _add_missing_columns()
     _add_missing_columns()  # idempotent
 
     with engine.connect() as conn:
-        columns = {row[1]: row[2] for row in conn.execute(text("PRAGMA table_info(tickerscore)"))}
-        row = conn.execute(text("SELECT ticker, overall_verdict, review_status, review_reasons, conviction, data_quality_flags FROM tickerscore")).one()
-    assert {"review_status", "review_reasons", "conviction", "data_quality_flags"} <= set(columns)
-    assert tuple(row) == ("AAPL", "Pass", None, None, None, None)
+        columns = {row[1] for row in conn.execute(text("PRAGMA table_info(tickerscore)"))}
+        legacy = conn.execute(text("SELECT review_status, review_reasons, conviction, data_quality_flags FROM tickerscore")).one()
+    assert {"review_status", "review_reasons", "conviction", "data_quality_flags"} <= columns
+    assert tuple(legacy) == ("review_unclear", "[]", "high", None)
+    assert not {"review_status", "review_reasons", "conviction", "data_quality_flags"} & set(TickerScore.model_fields)
+
+    with Session(engine) as session:
+        row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).one()
+        assert (row.overall_score, row.overall_verdict) == (76, "Pass")
+        session.add(TickerScore(ticker="MSFT", overall_score=80, overall_verdict="Pass", computed_at=datetime(2026, 10, 8)))
+        session.commit()
+        assert session.exec(select(TickerScore).where(TickerScore.ticker == "MSFT")).one().overall_score == 80
