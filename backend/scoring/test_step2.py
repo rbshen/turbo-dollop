@@ -1,4 +1,5 @@
-from scoring.step2 import score_step2
+from scoring.step2 import NEGATIVE_MAGNITUDE_CEILING, PASS_SCORE, _verdict_for, score_step2
+from scoring.weights import BOUNDS, Step2Weights
 
 
 def test_magnitude_high_growth():
@@ -65,8 +66,8 @@ def test_combined_weighting_pass():
 def test_combined_weighting_fail():
     # -5.0% growth is within the graduated "mildly_negative" band -- no
     # longer a flat magnitude 0. magnitude 22 (graduated), agreement 100 ->
-    # 0.7*22 + 0.3*100 = 45.4 -> 45. Verdict stays Fail regardless (gated on
-    # growth_rate_pct's sign directly, not magnitude_score).
+    # 0.7*22 + 0.3*100 = 45.4 -> 45, which is under the 70 line, so the verdict
+    # (which follows the score alone) is Fail.
     result = score_step2(growth_rate_pct=-5.0, spread_pct=5.0)
     assert result.magnitude_score == 22
     assert result.score == 45
@@ -105,11 +106,9 @@ def test_negative_magnitude_graduated_scale_boundaries():
 
 def test_mildly_negative_growth_never_auto_promoted_by_pass_score_floor():
     # Companion-dependency guard: a mildly-negative ticker's magnitude_score
-    # is now nonzero, which would trip the OLD `magnitude_score > 0` guard
-    # on PASS_SCORE_FLOOR and silently push the score to >=70 ("Pass"-range)
-    # -- exactly the false-Pass risk found during the cliff-flattening
-    # investigation (the same class of bug Step 4's ROIC/ROE fix needed a
-    # companion floor for). Even with a maximally generous agreement score
+    # is nonzero, which would trip a `magnitude_score > 0` guard on
+    # PASS_SCORE_FLOOR and silently push the score to >=70 (the floor is gated
+    # on the sign of the growth rate instead). Even with a maximally generous agreement score
     # (100, tight spread), DVN-shaped near-zero growth (-0.03%, magnitude
     # 35) must stay well under 70 and Fail: 0.7*35+0.3*100=54.5->54.
     result = score_step2(growth_rate_pct=-0.03, spread_pct=5.0)
@@ -137,56 +136,79 @@ def test_positive_growth_with_low_natural_blend_is_floored_to_70():
     assert result.verdict == "Pass"
 
 
-def test_negative_growth_still_fails_regardless_of_agreement():
-    # Even a perfectly tight analyst spread (agreement 100) can't rescue
-    # negative projected growth -- Fail is gated on growth_rate_pct's sign,
-    # not the blended score. -1.0% is within the graduated "mildly_negative"
-    # band (magnitude 32): score = 0.7*32 + 0.3*100 = 52.4 -> 52, well above
-    # 0, but still Fail. PASS_SCORE_FLOOR must NOT apply here (its guard is
-    # `growth_rate_pct >= MAGNITUDE_BORDERLINE`) -- a Fail must still be
-    # able to display its real sub-70 score, only a Pass gets floored.
+def test_negative_growth_with_perfect_agreement_scores_under_70_and_fails_without_an_override():
+    # Even a perfectly tight analyst spread (agreement 100) can't rescue negative projected growth. There is no negative-growth
+    # override (removed 2026-10-08): the verdict follows the score. -1.0% is within the graduated "mildly_negative" band
+    # (magnitude 32): score = 0.7*32 + 0.3*100 = 52.4 -> 52, under 70, so the stored verdict is Fail. PASS_SCORE_FLOOR must NOT
+    # apply here (its guard is `growth_rate_pct >= MAGNITUDE_BORDERLINE`), so the sub-70 score is shown as it is.
     result = score_step2(growth_rate_pct=-1.0, spread_pct=2.0)
+    assert result.agreement_score == 100
     assert result.score == 52
     assert result.verdict == "Fail"
 
 
-def test_zero_growth_is_borderline_not_fail():
-    # Exactly 0% growth is the boundary of the doc's "borderline" tier
-    # (0-5%), not negative -- must not fail.
-    result = score_step2(growth_rate_pct=0.0, spread_pct=50.0)
-    assert result.verdict == "Pass"
+def test_verdict_follows_the_score_line():
+    # 70 passes, 69 does not, above 90 is Strong Pass. Reached through the pure helper, since a real input cannot land a
+    # sub-70 score on a non-negative rate (the floor) or a 70+ score on a negative one (the ceiling).
+    assert _verdict_for(69) == "Fail"
+    assert _verdict_for(70) == "Pass"
+    assert _verdict_for(90) == "Pass"
+    assert _verdict_for(91) == "Strong Pass"
 
 
-def test_pass_tier_strong_pass_above_90():
-    result = score_step2(growth_rate_pct=20.0, spread_pct=5.0)  # score 100
-    assert result.verdict == "Strong Pass"
+def test_positive_growth_behaviour_unchanged():
+    # Weak (0-5%) growth, wide spread: natural blend 0.7*40 + 0.3*20 = 34, floored to 70 and still a Pass; never Strong Pass.
+    weak = score_step2(growth_rate_pct=0.1, spread_pct=25.0)
+    assert (weak.score, weak.verdict) == (70, "Pass")
+    # Exactly 0% is non-negative: floored and Pass.
+    zero = score_step2(growth_rate_pct=0.0, spread_pct=25.0)
+    assert (zero.score, zero.verdict) == (70, "Pass")
+    # A natural 76 stays 76 (the floor only lifts), 100 is Strong Pass.
+    assert score_step2(growth_rate_pct=20.0, spread_pct=25.0).verdict == "Pass"
+    assert score_step2(growth_rate_pct=20.0, spread_pct=5.0).verdict == "Strong Pass"
 
 
-def test_pass_tier_pass_at_75_to_90():
-    result = score_step2(growth_rate_pct=20.0, spread_pct=25.0)  # score 76
-    assert 75 <= result.score <= 90
-    assert result.verdict == "Pass"
+def test_every_non_negative_growth_rate_passes_at_every_allowed_weight_set():
+    # The other side of the guard below: the 70 floor means a non-negative rate never reads Fail, whatever the spread or weights.
+    for magnitude in range(50, 101, 5):
+        weights = Step2Weights(magnitude=magnitude, agreement=100 - magnitude)
+        for growth in (0.0, 0.1, 2.5, 7.0, 12.0, 20.0):
+            for spread in (1.0, 15.0, 40.0):
+                assert score_step2(growth, spread, weights).verdict in ("Pass", "Strong Pass")
 
 
-def test_pass_tier_floored_to_70_not_left_below():
-    # magnitude 65 (5-10% growth), agreement 20 (wide) -> natural blend
-    # 0.7*65+0.3*20=51.5 -> 52, floored to 70 -- a Pass can no longer
-    # display a score this low (previously asserted `score < 70`, which
-    # was exactly the display-consistency problem PASS_SCORE_FLOOR fixes).
-    result = score_step2(growth_rate_pct=7.0, spread_pct=25.0)
-    assert result.score == 70
-    assert result.verdict == "Pass"
+def test_negative_growth_ceiling_stays_below_pass_line_at_loosest_weights():
+    # REGRESSION GUARD for removing the negative-growth hard fail (2026-10-08). The verdict follows the score alone, so the
+    # only thing keeping a negative growth rate from passing is that its score cannot reach 70. That rests on the Magnitude
+    # curve ceiling for negative rates (NEGATIVE_MAGNITUDE_CEILING = 35) and the weight bounds (Magnitude at least 50,
+    # Agreement at most 50). A change to the curve or the bounds that lets a negative rate reach 70 must fail here.
+    magnitude_low, magnitude_high = BOUNDS["step2"]["magnitude"]
+    agreement_low, agreement_high = BOUNDS["step2"]["agreement"]
+    assert (magnitude_low, agreement_high) == (50, 50)
+    loosest = Step2Weights(magnitude=magnitude_low, agreement=100 - magnitude_low)
+    # Every allowed split, Agreement at its best (spread 0 -> 100 points), growth swept across the whole negative range
+    # including the points nearest 0% where Magnitude is highest.
+    rates = [-1e-9, -0.001, -0.03, -0.1, -0.5, -1, -2.5, -5, -9.99, -10, -10.01, -25, -60, -99.9]
+    for magnitude in range(magnitude_low, magnitude_high + 1):
+        weights = Step2Weights(magnitude=magnitude, agreement=100 - magnitude)
+        if not agreement_low <= weights.agreement <= agreement_high:
+            continue
+        for rate in rates:
+            result = score_step2(rate, spread_pct=0.0, weights=weights)
+            assert result.agreement_score == 100
+            assert result.score < 70, (magnitude, rate, result)
+            assert result.verdict == "Fail", (magnitude, rate, result)
+    # The worst case in numbers: Magnitude 35 (best negative) at 50/50 with Agreement 100 = 67.5, and 54.5 at the 70/30 default.
+    worst = score_step2(-1e-9, spread_pct=0.0, weights=loosest)
+    assert worst.magnitude_score == NEGATIVE_MAGNITUDE_CEILING == 35
+    assert worst.score == 68
+    assert score_step2(-1e-9, spread_pct=0.0).score in (54, 55)
+    # The curve's own ceiling must stay below the weak tier's 40 and below what could reach 70 at the loosest weights.
+    assert NEGATIVE_MAGNITUDE_CEILING * 0.5 + 100 * 0.5 < PASS_SCORE
 
 
-def test_worst_case_weakest_growth_and_widest_spread_still_floors_to_70():
-    # The absolute floor of the "score = max(0, min(100, round(...)))"
-    # non-negative-growth space: magnitude 40 (the "weak" 0-5% tier, the
-    # lowest tier that isn't a Fail) combined with agreement 20 (the widest
-    # "wide" spread tier) -- natural blend = 0.7*40+0.3*20 = 34, the lowest
-    # a genuinely-positive-growth ticker's raw score can ever be. Confirms
-    # the floor catches this extreme, not just FTNT/AAPL's milder cases.
-    result = score_step2(growth_rate_pct=1.0, spread_pct=30.0)
-    assert result.magnitude_score == 40
-    assert result.agreement_score == 20
-    assert result.score == 70
-    assert result.verdict == "Pass"
+def test_floor_boundary_just_either_side_of_zero():
+    # The 70 floor starts exactly at 0%: +0.1% is lifted to 70, -0.1% keeps its real score.
+    assert score_step2(0.1, spread_pct=0.0).score == 70
+    below = score_step2(-0.1, spread_pct=0.0)
+    assert below.score == 54 and below.verdict == "Fail"

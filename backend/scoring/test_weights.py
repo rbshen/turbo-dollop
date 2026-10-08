@@ -218,10 +218,13 @@ def test_step2_default_matches_the_old_constants():
     assert score_step2(12.0, 15.0).score == round(85 * 0.70 + 60 * 0.30)
 
 
-def test_step2_fail_gate_and_floor_read_no_weights():
-    for weights in (Step2Weights(100, 0), Step2Weights(0, 100), Step2Weights(70, 30)):
+def test_step2_verdict_follows_the_score_and_the_floor_reads_no_weights():
+    # Every set the bounds allow (Magnitude 50-100): a negative rate scores under 70 and so reads Fail with no override, and a
+    # non-negative rate is floored to 70. (Step2Weights(0, 100) is outside the bounds on purpose and is not tested here: it is
+    # exactly what the Magnitude >= 50 bound exists to keep out, since Agreement alone would score a negative rate 100.)
+    for weights in (Step2Weights(100, 0), Step2Weights(50, 50), Step2Weights(70, 30)):
         negative = score_step2(-3.0, 5.0, weights)
-        assert negative.verdict == "Fail"
+        assert negative.score < 70 and negative.verdict == "Fail"
         weak = score_step2(1.0, 50.0, weights)  # growth >= 0: the score never reads below the 70 floor
         assert weak.verdict == "Pass" and weak.score >= 70
 

@@ -29,20 +29,13 @@ MAGNITUDE_BORDERLINE = 0.0
 # deliberately kept below the "weak" tier's 40, so a mildly-negative-growth
 # ticker can never score as well as a genuinely-positive-but-weak one.
 #
-# Verdict is NOT gated on magnitude_score's own value here -- see
-# _verdict_for and PASS_SCORE_FLOOR's guard below, both keyed on
-# `growth_rate_pct < MAGNITUDE_BORDERLINE` directly instead. This is
-# load-bearing, not a style choice: `magnitude_score` becoming nonzero for a
-# mild negative would otherwise (a) auto-promote the verdict to "Pass" via
-# the old `magnitude_score == 0` Fail gate, and (b) trip PASS_SCORE_FLOOR,
-# pushing the score to >=70 -- silently reintroducing a false Pass for a
-# company with genuinely negative projected growth. Decoupling the gates
-# from magnitude_score preserves the doc's own explicit design intent ("Fail
-# is gated on the magnitude tier alone" -- any negative growth still fails,
-# unconditionally, exactly as before) while letting the graduated *score*
-# be an honest, non-zero number instead of a flat 0 -- mirrors how Step 5's
-# Debt/EBITDA Severe-zone fix graduates the displayed number while keeping
-# hard_fail unconditionally true.
+# There is no separate negative-growth Fail gate any more (2026-10-08, docs/specs/growth-rate.md): the verdict follows the
+# score, and a negative rate cannot reach the pass line on its own curve. The best a negative rate scores on Magnitude is
+# NEGATIVE_MAGNITUDE_CEILING (35, approached as the rate nears 0%), so with Agreement at 100 the blend tops out at 54.5 at the
+# 70/30 defaults and 67.5 at the loosest allowed weights (Magnitude 50 / Agreement 50). Guarded by
+# test_step2.py::test_negative_growth_ceiling_stays_below_pass_line_at_loosest_weights: a change to the curve or the weight
+# bounds that lets a negative rate reach 70 fails that test. PASS_SCORE_FLOOR below is gated on `growth_rate_pct >= 0` so a
+# negative rate is never lifted to the pass line.
 MAGNITUDE_SEVERE_NEGATIVE = -10.0
 NEGATIVE_MAGNITUDE_FLOOR = 10
 NEGATIVE_MAGNITUDE_CEILING = 35
@@ -63,7 +56,8 @@ STRONG_PASS_SCORE = 90
 # score_step2's own comment) -- matches the 70 "Pass" floor every other
 # step's shared color bands use, so a Pass verdict can no longer display a
 # Fail-range number.
-PASS_SCORE_FLOOR = 70
+PASS_SCORE = 70
+PASS_SCORE_FLOOR = PASS_SCORE
 
 
 class ScoreResult(NamedTuple):
@@ -101,29 +95,16 @@ def _score_agreement(spread_pct: float) -> tuple[int, str]:
     return 20, "wide"
 
 
-def _verdict_for(score: int, growth_rate_pct: float) -> str:
-    # Deliberately refined beyond step2_positive_growth_rate_assessment_
-    # prompt.md's original score-band verdict -- see CLAUDE.md's "Scoring
-    # rubric deviations". The doc's own scale only fails a company for
-    # negative projected growth; 0-5% is "borderline" and 5-10% is "modest
-    # but acceptable", neither a fail condition. Analyst disagreement (the
-    # agreement component, 30% weight) should never by itself drag a
-    # genuinely positive-growth company under the Fail line, so Fail is
-    # gated on the raw growth rate's sign alone, not the blended score.
-    #
-    # Gated on `growth_rate_pct` directly, NOT `magnitude_score == 0`
-    # (changed 2026-08-13, alongside the negative-magnitude graduated
-    # scale above) -- magnitude_score is no longer 0 for every negative
-    # growth rate (mildly-negative cases now get a nonzero, graduated
-    # score), so checking it here would silently promote a genuinely
-    # negative-growth ticker to "Pass" the moment its magnitude cleared 0.
-    # This keeps the verdict boundary byte-identical to before: any
-    # negative growth still fails, unconditionally.
-    if growth_rate_pct < MAGNITUDE_BORDERLINE:
-        return "Fail"
+def _verdict_for(score: int) -> str:
+    # The verdict follows the score alone: Strong Pass above 90, Pass from 70, Fail below 70 (the stored key; every surface
+    # displays it as "May not pass"). Negative projected growth has no override of its own (removed 2026-10-08): its score
+    # cannot reach 70 (see the NEGATIVE_MAGNITUDE_CEILING note above). Analyst disagreement never drags a positive-growth
+    # company under the line either, because PASS_SCORE_FLOOR lifts any non-negative-growth score to 70.
     if score > STRONG_PASS_SCORE:
         return "Strong Pass"
-    return "Pass"
+    if score >= PASS_SCORE:
+        return "Pass"
+    return "Fail"
 
 
 def score_step2(
@@ -133,8 +114,7 @@ def score_step2(
     already-computed projected growth rate and estimate-range spread (both
     percentages) and returns the weighted score. No I/O, no FMP/DB
     dependency -- mirrors score_step1's shape. `weights` is the magnitude/agreement split (default 70/30); None comes back
-    only when both weights are 0 (nothing to blend), which the caller reads as insufficient data. The Fail gate (negative
-    growth) and the 70 floor read no weights."""
+    only when both weights are 0 (nothing to blend), which the caller reads as insufficient data. The 70 floor reads no weights."""
     shares = normalize(as_dict(weights), ("magnitude", "agreement"))
     if shares is None:
         return None
@@ -163,5 +143,5 @@ def score_step2(
         agreement_score=agreement_score,
         agreement_tier=agreement_tier,
         score=score,
-        verdict=_verdict_for(score, growth_rate_pct),
+        verdict=_verdict_for(score),
     )
