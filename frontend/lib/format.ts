@@ -182,3 +182,9 @@ export function pnlClass(n: number): string {
 
 /** Same palette for underlying price/index changes. */
 export const changeClass = pnlClass;
+
+/** Step names in running prose: "A", "A and B", "A, B and C" (no Oxford comma). */
+export function joinNatural(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}

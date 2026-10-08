@@ -28,6 +28,7 @@ import {
   type OverallAssessment,
   type StepBreakdownEntry,
 } from "@/lib/overallScore";
+import { joinNatural } from "@/lib/format";
 import { FAIL_DISPLAY_LABEL, TONE_TEXT_CLASS, toneFor, toneForNullable, pillLabel, verdictLabel } from "@/lib/tierColor";
 
 interface Props {
@@ -43,9 +44,9 @@ function rollupSummary(breakdown: StepBreakdownEntry[]): string {
   return `${passing} of ${counted.length} weighted components at Pass level or better.`;
 }
 
-// "Financials, Debt may not pass": every step whose stored verdict is "Fail" reads "May not pass" (display only).
+// "Financials and Debt may not pass": every step whose stored verdict is "Fail" reads "May not pass" (display only).
 function failingStepsText(labels: string[]): string {
-  return `${labels.join(", ")} ${FAIL_DISPLAY_LABEL.toLowerCase()}`;
+  return `${joinNatural(labels)} ${FAIL_DISPLAY_LABEL.toLowerCase()}`;
 }
 
 // The three multipliers the description quotes: Wide and No moat are fixed, Narrow is the saved setting.
@@ -265,8 +266,9 @@ export function OverallAssessmentView({
 
           <CalculationSection result={result} multipliers={multipliers} />
 
-          {result.failingSteps.length > 0 && (
-            <p className="text-sm text-not-pass">
+          {/* On "Pass with caution" the amber line below already names these steps, so the slate line shows on "May not pass" only. */}
+          {result.failingSteps.length > 0 && result.verdict !== "Pass with caution" && (
+            <p className="text-sm text-not-pass" data-testid="failing-steps-note">
               <Warning size={16} weight="bold" aria-hidden="true" className="-mt-0.5 mr-1.5 inline" />
               <span className="sr-only">Warning: </span>
               {failingStepsText(result.failingSteps)} — reflected in the weighted score above, but worth reviewing
@@ -280,17 +282,17 @@ export function OverallAssessmentView({
             <p className="text-sm text-caution" data-testid="weak-step-caution-note">
               <Warning size={16} weight="bold" aria-hidden="true" className="-mt-0.5 mr-1.5 inline" />
               <span className="sr-only">Warning: </span>
-              Passed with caution: {result.weakSteps.join(", ")} {FAIL_DISPLAY_LABEL.toLowerCase()} — the overall score is 70 or
+              Passed with caution: {joinNatural(result.weakSteps)} {FAIL_DISPLAY_LABEL.toLowerCase()} — the overall score is 70 or
               more because the other steps carry it, but {result.weakSteps.length > 1 ? "these steps are" : "this step is"} under
               the pass line. Worth reviewing directly.
             </p>
           )}
 
           {result.cautionSteps.length > 0 && (
-            <p className="text-sm text-caution">
+            <p className="text-sm text-caution" data-testid="tiebreaker-caution-note">
               <Warning size={16} weight="bold" aria-hidden="true" className="-mt-0.5 mr-1.5 inline" />
               <span className="sr-only">Warning: </span>
-              {result.cautionSteps.join(", ")} passed with caution — a real breach was excused by its tiebreaker (or, for
+              Passed with caution: {joinNatural(result.cautionSteps)} — a real breach was excused by its tiebreaker (or, for
               Debt, is still unrescued but outweighed by the other ratios), reflected in the weighted score above, but
               worth reviewing directly.
             </p>

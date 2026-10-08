@@ -12,7 +12,7 @@ import { HEAD_CLASS, openTickerPage, RemoveCell, SkeletonRows, SortableColumnHea
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { SortableField, WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
 import { MOAT_NOT_RATED_NOTE, PASS_THRESHOLD } from "@/lib/overallScore";
-import { fmtCompactMoney, fmtMoney, fmtNumber, fmtSignedCompactMoneyTooltip } from "@/lib/format";
+import { fmtCompactMoney, fmtMoney, joinNatural, fmtNumber, fmtSignedCompactMoneyTooltip } from "@/lib/format";
 import { FAIL_DISPLAY_LABEL, toneForNullable } from "@/lib/tierColor";
 import { cn } from "@/lib/utils";
 import { applyHeaderClick, sortWatchlistRows, type SortRule } from "@/lib/watchlistSort";
@@ -89,8 +89,8 @@ export function overallCellTitle(row: WatchlistRowOut): string | undefined {
   if (row.overall_verdict === "Pass with caution") {
     const cautioned = cautionStepLabels(row);
     const weak = weakStepLabels(row);
-    if (cautioned.length > 0) parts.push(`Passed with caution: ${cautioned.join(", ")}`);
-    if (weak.length > 0) parts.push(`${weak.join(", ")} ${FAIL_DISPLAY_LABEL.toLowerCase()}`);
+    if (cautioned.length > 0) parts.push(`Passed with caution: ${joinNatural(cautioned)}`);
+    if (weak.length > 0) parts.push(`${joinNatural(weak)} ${FAIL_DISPLAY_LABEL.toLowerCase()}`);
     if (cautioned.length === 0 && weak.length === 0) parts.push("Passed with caution");
   }
   if (row.moat == null && row.overall_score != null) parts.push(MOAT_NOT_RATED_NOTE);

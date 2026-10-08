@@ -10,6 +10,7 @@ import {
   fmtSignedMoney,
   fmtSignedPctTooltip,
   fmtSignedRatioTooltip,
+  joinNatural,
   pickAxisMoneyUnit,
 } from "@/lib/format";
 
@@ -109,5 +110,14 @@ describe("fmtSignedRatioTooltip", () => {
 
   it("shows no sign for a display-zero value", () => {
     expect(fmtSignedRatioTooltip(0)).toBe("0.00x");
+  });
+});
+
+describe("joinNatural", () => {
+  it("joins step names as prose", () => {
+    expect(joinNatural([])).toBe("");
+    expect(joinNatural(["Debt"])).toBe("Debt");
+    expect(joinNatural(["Debt", "Growth Rate"])).toBe("Debt and Growth Rate");
+    expect(joinNatural(["Financials", "Debt", "Growth Rate"])).toBe("Financials, Debt and Growth Rate");
   });
 });

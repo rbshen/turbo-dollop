@@ -255,13 +255,26 @@ describe("WatchlistTable: Pass with caution tooltip names its reason", () => {
   });
 
   it("names several weak steps, and a weak step is read from the score as well as a stored Fail", () => {
-    expect(overallCellTitle(caution({ step1_score: 65, step1_verdict: "Fail", step5_score: 55, step5_verdict: "Fail" }))).toBe("Financials, Debt may not pass");
+    expect(overallCellTitle(caution({ step1_score: 65, step1_verdict: "Fail", step5_score: 55, step5_verdict: "Fail" }))).toBe("Financials and Debt may not pass");
   });
 
   it("names both reasons when a Debt caution and a weak step apply together", () => {
     expect(overallCellTitle(caution({ step5_score: 74, step5_verdict: "Pass with caution", step2_score: 50, step2_verdict: "Fail" }))).toBe(
       "Passed with caution: Debt. Growth Rate may not pass",
     );
+  });
+
+  it("joins three steps as 'A, B and C' in both parts of the tooltip", () => {
+    expect(
+      overallCellTitle(
+        caution({
+          step1_score: 60, step1_verdict: "Fail",
+          step2_score: 50, step2_verdict: "Fail",
+          step4_score: 55, step4_verdict: "Fail",
+          step5_score: 74, step5_verdict: "Pass with caution",
+        }),
+      ),
+    ).toBe("Passed with caution: Debt. Financials, Growth Rate and Profitability may not pass");
   });
 
   it("keeps the Debt-only text for a step caution alone, and ignores a missing (exempt) score", () => {
