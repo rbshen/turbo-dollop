@@ -6,7 +6,6 @@ import { AnalysisSectionCard, type ReasoningBullet, weightScoreSuffix } from "@/
 import { BankCapitalMetricsForm } from "@/components/step5/BankCapitalMetricsForm";
 import { useStep5 } from "@/lib/hooks/useStep5";
 import { fmtNumber, fmtPct, fmtTableMoney } from "@/lib/format";
-import { debtVerdictLabel } from "@/lib/tierColor";
 import type { BreachContextSignal, Step5Out, Step5RatioResult } from "@/lib/api/types";
 
 // The weights are the saved ones (data.weights), so the line follows Settings > Score weighting.
@@ -281,7 +280,6 @@ export function Step5Card({ ticker }: Props) {
         title="Debt"
         score={data.score}
         verdict={data.verdict}
-        verdictText={debtVerdictLabel(data.verdict)}
         blurb={blurb}
         methodology={methodology(data)}
         notes={notes}

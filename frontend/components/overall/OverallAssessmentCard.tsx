@@ -28,7 +28,7 @@ import {
   type OverallAssessment,
   type StepBreakdownEntry,
 } from "@/lib/overallScore";
-import { DEBT_FAIL_LABEL, TONE_TEXT_CLASS, toneFor, toneForNullable, pillLabel, verdictLabel } from "@/lib/tierColor";
+import { FAIL_DISPLAY_LABEL, TONE_TEXT_CLASS, toneFor, toneForNullable, pillLabel, verdictLabel } from "@/lib/tierColor";
 
 interface Props {
   ticker: string;
@@ -48,7 +48,7 @@ function failingStepsText(labels: string[]): string {
   const failed = labels.filter((label) => label !== "Debt");
   const parts: string[] = [];
   if (failed.length > 0) parts.push(`${failed.join(", ")} failed`);
-  if (failed.length < labels.length) parts.push(`Debt ${DEBT_FAIL_LABEL.toLowerCase()}`);
+  if (failed.length < labels.length) parts.push(`Debt ${FAIL_DISPLAY_LABEL.toLowerCase()}`);
   return parts.join("; ");
 }
 

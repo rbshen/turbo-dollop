@@ -43,7 +43,7 @@ describe("reviewTooltip", () => {
   it("names the Financials step and does not double a trailing period", () => {
     const step1: ReviewReason = { ...STEP5, step: "step1", score: 45, evidence: "weak components: cfo declining 11." };
     expect(reviewTooltip(79, "Pass", [step1], "high")).toBe(
-      "Overall 79 would read Pass. Financials scored 45 (Fail). weak components: cfo declining 11. Conviction: high.",
+      "Overall 79 would read Pass. Financials scored 45 (May not pass). weak components: cfo declining 11. Conviction: high.",
     );
   });
 

@@ -13,9 +13,8 @@ interface Props {
 const RING_CLASS: Record<ScoreTone, string> = {
   strong: "border-positive-strong",
   positive: "border-positive",
-  warn: "border-warn",
   caution: "border-caution",
-  negative: "border-negative",
+  "negative-soft": "border-negative-soft",
   // No score to colour: a quiet neutral ring.
   neutral: "border-text-tertiary",
 };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { pillLabel, toneFor, toneForNullable, verdictLabel } from "@/lib/tierColor";
+import { pillLabel, toneFor, toneForNullable, verdictDisplay, verdictLabel } from "@/lib/tierColor";
 
 describe("pillLabel", () => {
   it.each([
@@ -24,7 +24,7 @@ describe("pillLabel", () => {
 
 describe("toneFor", () => {
   it("checks Fail and Pass with caution before the score tiers", () => {
-    expect(toneFor(95, "Fail")).toBe("negative");
+    expect(toneFor(95, "Fail")).toBe("negative-soft");
     expect(toneFor(74, "Pass with caution")).toBe("caution");
   });
 
@@ -32,7 +32,15 @@ describe("toneFor", () => {
     expect(toneFor(91, "Strong Pass")).toBe("strong");
     expect(toneFor(90, "Pass")).toBe("positive");
     expect(toneFor(75, "Pass")).toBe("positive");
-    expect(toneFor(74, "Pass")).toBe("warn");
+    expect(toneFor(74, "Pass")).toBe("positive");
+    expect(toneFor(72, "Pass")).toBe("positive");
+    expect(toneFor(70, "Pass")).toBe("positive");
+  });
+
+  it("draws Fail in the quiet red at every score, and never in amber for a plain Pass", () => {
+    for (const score of [0, 48, 69, 70, 100]) expect(toneFor(score, "Fail")).toBe("negative-soft");
+    expect(toneFor(69, "Pass")).toBe("negative-soft");
+    for (const score of [70, 72, 74, 75, 90]) expect(toneFor(score, "Pass")).not.toMatch(/warn|caution/);
   });
 
   it("is neutral without a score", () => {
@@ -45,11 +53,27 @@ describe("verdictLabel", () => {
   it("is pillLabel for every verdict (the moat_not_rated key was retired 2026-10-07)", () => {
     expect(verdictLabel("Strong Pass")).toBe("Strong pass");
     expect(verdictLabel("Pass with caution")).toBe("Pass with caution");
-    expect(verdictLabel("Fail")).toBe("Fail");
+    expect(verdictLabel("Fail")).toBe("May not pass");
   });
 
   it("nothing is neutral while there is a score; no score is neutral", () => {
     for (const score of [70, 74, 75, 90, 91, 100]) expect(toneFor(score, "Pass")).not.toBe("neutral");
     expect(toneForNullable(null, "Fail")).toBe("neutral");
+  });
+});
+
+describe("verdictDisplay", () => {
+  it("reads the stored Fail key as May not pass and sentence-cases everything else", () => {
+    expect(verdictDisplay("Fail")).toBe("May not pass");
+    expect(verdictDisplay("Strong Pass")).toBe("Strong pass");
+    expect(verdictDisplay("Pass")).toBe("Pass");
+    expect(verdictDisplay("Pass with caution")).toBe("Pass with caution");
+  });
+
+  it("is display only: the raw Fail still drives the tone", () => {
+    const stored = "Fail";
+    expect(verdictDisplay(stored)).not.toBe(stored);
+    expect(toneFor(48, stored)).toBe("negative-soft");
+    expect(toneForNullable(48, stored)).toBe("negative-soft");
   });
 });

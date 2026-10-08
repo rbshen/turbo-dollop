@@ -4,7 +4,7 @@
 
 import type { StatusTone } from "@/components/ui/status";
 import type { ConvictionLevel, ReviewHint, ReviewReason, ReviewStatus, TickerScoreOut } from "@/lib/api/types";
-import { debtVerdictLabel, verdictLabel } from "@/lib/tierColor";
+import { verdictDisplay } from "@/lib/tierColor";
 
 export const REVIEW_STATUS_LABEL: Record<ReviewStatus, string> = {
   review_structural: "Review (structural)",
@@ -34,9 +34,9 @@ export function reviewStepName(step: ReviewReason["step"]): string {
   return STEP_NAME[step];
 }
 
-/** The verdict a reason quotes, in the wording of its own step: Debt's stored "Fail" reads "May not pass" (display only). */
+/** The verdict a reason quotes, in display wording: the stored "Fail" reads "May not pass" (display only). */
 export function reasonVerdictLabel(reason: ReviewReason): string {
-  return reason.step === "step5" ? debtVerdictLabel(reason.verdict) : reason.verdict;
+  return verdictDisplay(reason.verdict);
 }
 
 export function reviewHintLabel(hint: ReviewHint): string {
@@ -59,7 +59,7 @@ export function reviewTooltip(
   conviction: ConvictionLevel | null | undefined,
 ): string {
   const parts: string[] = [];
-  if (score != null && overallVerdict) parts.push(`Overall ${score} would read ${verdictLabel(overallVerdict)}.`);
+  if (score != null && overallVerdict) parts.push(`Overall ${score} would read ${verdictDisplay(overallVerdict)}.`);
   for (const reason of reasons) {
     parts.push(`${STEP_NAME[reason.step]} scored ${reason.score} (${reasonVerdictLabel(reason)}).`);
     parts.push(sentence(reason.evidence));

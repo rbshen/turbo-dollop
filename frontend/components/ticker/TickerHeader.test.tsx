@@ -117,7 +117,7 @@ describe("AssessmentChipView: the Review status", () => {
   it("shows the 'Moat not rated, scored as No moat' note beside the verdict chip (and in its tooltip) for an unrated ticker only", () => {
     const unrated = { ...ROW, moat: null, overall_score: 56, overall_verdict: "Fail", review_status: null, review_reasons: null } as typeof ROW;
     const { rerender } = render(<AssessmentChipView data={unrated} />);
-    expect(screen.getByText("Fail")).toHaveAttribute("title", expect.stringContaining("Moat not rated, scored as No moat."));
+    expect(screen.getByText("May not pass")).toHaveAttribute("title", expect.stringContaining("Moat not rated, scored as No moat."));
     expect(screen.getByTestId("moat-not-rated-note")).toHaveTextContent("Moat not rated, scored as No moat");
     expect(screen.queryByText("Moat not rated")).not.toBeInTheDocument(); // no verdict pill of that name any more
     rerender(<AssessmentChipView data={{ ...unrated, moat: "wide_moat" } as typeof ROW} />);

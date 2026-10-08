@@ -18,9 +18,9 @@ describe("CircularScoreBadge", () => {
   });
 
   it.each([
-    [50, "Fail", "border-negative"],
+    [50, "Fail", "border-negative-soft"],
     [74, "Pass with caution", "border-caution"],
-    [72, "Pass", "border-warn"],
+    [72, "Pass", "border-positive"],
     [80, "Pass", "border-positive"],
   ])("score %s / %s uses %s", (score, verdict, cls) => {
     render(<CircularScoreBadge score={score} verdict={verdict} />);

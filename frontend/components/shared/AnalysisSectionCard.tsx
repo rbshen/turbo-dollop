@@ -5,7 +5,7 @@ import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Verdict } from "@/components/ui/status";
-import { toneFor, pillLabel } from "@/lib/tierColor";
+import { toneFor, verdictDisplay } from "@/lib/tierColor";
 
 export interface ReasoningBullet {
   key: string;
@@ -39,7 +39,7 @@ interface Props {
   title: string;
   score: number | null;
   verdict: string;
-  /** The wording drawn in the pill; defaults to pillLabel(verdict). The tone and every comparison still use the raw `verdict`. */
+  /** The wording drawn in the pill; defaults to verdictDisplay(verdict). The tone and every comparison still use the raw `verdict`. */
   verdictText?: string;
   blurb: React.ReactNode;
   /** One-line, static (non-ticker-dependent) description of how this
@@ -82,8 +82,8 @@ export function AnalysisSectionCard({ title, score, verdict, verdictText, blurb,
       <Collapsible className="relative">
         <div className="flex items-start justify-between gap-4">
           {/* Fixed width, not content-sized -- verdict text length varies
-              a lot (Fail/Pass/Strong Pass vs. Step 5's "Pass with
-              caution" and "May not pass"), and without a fixed column the title/blurb next
+              a lot ("May not pass"/Pass/Strong pass vs. "Pass with
+              caution"), and without a fixed column the title/blurb next
               to it would shift card to card. Widest real case is a "74"
               (Pass with caution is capped at 74, see CLAUDE.md's
               PASS_WITH_CAUTION_SCORE_CAP) beside a "Pass with caution"
@@ -91,7 +91,7 @@ export function AnalysisSectionCard({ title, score, verdict, verdictText, blurb,
           {score != null && (
             <div className="flex w-52 shrink-0 items-center gap-2">
               <span className="font-mono text-sm tabular-nums text-text-primary">{score}</span>
-              <Verdict tone={toneFor(score, verdict)}>{verdictText ?? pillLabel(verdict)}</Verdict>
+              <Verdict tone={toneFor(score, verdict)}>{verdictText ?? verdictDisplay(verdict)}</Verdict>
             </div>
           )}
           <div data-slot="analysis-text-column" className="min-w-0 flex-1">

@@ -151,7 +151,7 @@ describe("OverallAssessmentView: Moat not rated", () => {
       />,
     );
     expect(screen.getByTestId("moat-not-rated-note")).toHaveTextContent("Moat not rated, scored as No moat");
-    expect(screen.getByText("Fail", { selector: "span" })).toBeInTheDocument(); // the verdict is read from the score; no neutral pill
+    expect(screen.getByText("May not pass", { selector: "span" })).toBeInTheDocument(); // the verdict is read from the score; no neutral pill
     expect(screen.queryByText("Moat not rated", { exact: true })).not.toBeInTheDocument();
     expect(screen.getByTestId("score-equation")).toHaveTextContent("Fundamentals 80.0 × No moat 0.70 = 56");
   });
@@ -287,12 +287,12 @@ describe("OverallAssessmentView: the collapsible calculation", () => {
 });
 
 describe("OverallAssessmentView: score colouring in the table", () => {
-  it("colours each score by the pills' own thresholds: Fail red, 70-74 amber, 75-90 green, over 90 the deeper green, caution tone for a caution verdict", () => {
+  it("colours each score by the pills' own thresholds: Fail quiet red, 70-90 green, over 90 the deeper green, caution tone for a caution verdict", () => {
     const rows = rows4([[60, "Fail"], [72, "Pass"], [80, "Pass"], [95, "Strong Pass"]]);
     render(<OverallAssessmentView result={result({ stepsScore: 77, breakdown: rows })} />);
     expand();
-    expect(screen.getByTestId("score-step1")).toHaveClass("text-negative");
-    expect(screen.getByTestId("score-step2")).toHaveClass("text-warn");
+    expect(screen.getByTestId("score-step1")).toHaveClass("text-negative-soft");
+    expect(screen.getByTestId("score-step2")).toHaveClass("text-positive");
     expect(screen.getByTestId("score-step4")).toHaveClass("text-positive");
     expect(screen.getByTestId("score-step5")).toHaveClass("text-positive-strong");
     cleanup();

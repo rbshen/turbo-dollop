@@ -52,6 +52,7 @@
   --color-warn: var(--fathom-warn);
   --color-caution: var(--fathom-caution);
   --color-negative: var(--fathom-negative);
+  --color-negative-soft: var(--fathom-negative-soft);
   --color-chart-purple: var(--fathom-chart-purple);
   --color-chart-orange: var(--fathom-chart-orange);
   --color-filter-active: var(--fathom-filter-active);
@@ -144,6 +145,12 @@
      negative's (66%) without exceeding its saturation. */
   --fathom-caution: oklch(66% 0.16 80);
   --fathom-negative: oklch(66% 0.19 25);
+  /* The quieter red, "May not pass" (the display word for a stored "Fail") only. Same family as --fathom-negative but lower chroma
+     (0.12 vs 0.19) and a touch rose (hue 18 vs 25), lighter (78% vs 66%): it must read as a firm "not a pass", yet never as loud as
+     No moat / Overvalued, and stay clearly apart from the ambers (hue 80). Contrast: 8.60:1 as text on --fathom-surface, 4.89:1 on its
+     own pill fill (10% of the token over surface; see components/ui/pill.tsx -- at the usual 16% fill a clearly red text cannot reach
+     4.5:1 on its own tint, since the tint lightens with the text). Do not reuse it for other reds. */
+  --fathom-negative-soft: oklch(78% 0.12 18);
   --fathom-chart-purple: oklch(66% 0.1 300);
   /* Distinct hue (55) from --fathom-warn/--fathom-caution (80, amber) and
      --fathom-negative (25, red) -- a true orange, not reused from either,

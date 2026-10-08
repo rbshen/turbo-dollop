@@ -242,7 +242,7 @@ describe("WatchlistTable: Moat not rated", () => {
     const pill = cell("WSM").querySelector("span[title]") as HTMLElement;
     expect(pill).toHaveTextContent("56");
     expect(pill).toHaveAttribute("title", "Moat not rated, scored as No moat");
-    expect(pill).toHaveClass("text-negative"); // a Fail, not a neutral "not rated" pill
+    expect(pill).toHaveClass("text-negative-soft"); // a Fail, not a neutral "not rated" pill
     expect(cell("AAPL").querySelector("span[title]")).toBeNull(); // a rated Pass is unchanged
   });
 });

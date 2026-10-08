@@ -10,7 +10,7 @@ describe("ScoreBadge (Screener card)", () => {
   it("draws any Overall verdict in its own tone and label (an unrated ticker reads its verdict from its x0.7 score)", () => {
     render(<ScoreBadge score={56} verdict="Fail" />);
     expect(screen.getByText("56")).toBeInTheDocument();
-    expect(screen.getByText("Fail")).toHaveClass("text-negative");
+    expect(screen.getByText("May not pass")).toHaveClass("text-negative-soft");
   });
 
   it("still tones a real Pass", () => {
