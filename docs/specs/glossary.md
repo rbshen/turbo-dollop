@@ -35,11 +35,19 @@ least 8 data points to reach it; a shorter history is held at a plain Pass (scor
 
 ## Pass with caution
 
-Currently used only by the **Debt** check. This means a real breach of a safety threshold did
-occur, but either Fathom found enough offsetting evidence (such as a debt-reduction trend, strong free
-cash flow relative to debt, or comfortable interest coverage) to excuse it, or nothing excused it and
-the other ratios still carried the blend to 70 or more (the card names the breached ratio). Read this as "passed, but only barely, and with a real caveat attached" — not as
-equivalent to a clean Pass. See [Debt](debt.md) for the details.
+Two different things carry this label.
+
+**On a check (currently only Debt).** A real breach of a safety threshold did occur, but either Fathom found enough offsetting
+evidence (such as a debt-reduction trend, strong free cash flow relative to debt, or comfortable interest coverage) to excuse it, or
+nothing excused it and the other ratios still carried the blend to 70 or more (the card names the breached ratio). Read this as "passed,
+but only barely, and with a real caveat attached" — not as equivalent to a clean Pass. See [Debt](debt.md) for the details.
+
+**On the Overall verdict (since 2026-10-08).** The Overall reads "Pass with caution" instead of Pass or Strong Pass when its score is 70
+or more **and** either (a) a check carries its own "Pass with caution", or (b) at least one of Financials, Growth Rate, Profitability or
+Debt is below the pass line ("May not pass", a score under 70): the other checks carried the average, but one check did not pass. Both
+reasons can apply at once. A check that is not applied to the company (not supported, such as Debt for an Insurance company) is ignored,
+the Economic Moat plays no part, and an Overall under 70 stays "May not pass". The Overall score itself never changes. The Analysis card
+and the Watchlist tooltip name the steps. The separate Review status is not affected and can sit beside this verdict.
 
 ## Insufficient data
 
@@ -74,7 +82,8 @@ weights"; a hard fail still reads Fail on its own check):
 - If any one check reports **Pass with caution**, that flag carries up into Overall Assessment's
   own displayed verdict even if the blended number would otherwise read as a plain Pass or
   Strong Pass — a real caveat on one check isn't allowed to disappear once it's folded into the
-  bigger picture.
+  bigger picture. So does a check that is **below the pass line** ("May not pass") beside an Overall of 70 or more
+  (2026-10-08): a strong average isn't allowed to hide a check that did not pass.
 - A ticker with **no Moat rated** is **scored as No moat** (multiplier 0.70): its verdict is read from its score like any other (in
   practice Fail), and the Analysis card and header say "Moat not rated, scored as No moat". There is no separate "Moat not rated" verdict
   any more (retired 2026-10-07).

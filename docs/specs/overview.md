@@ -22,7 +22,8 @@ The Analysis tab blends four automated checks into a **Fundamentals score**, the
 | **Economic Moat** | A manual, judgment-based competitive-advantage rating you set yourself — a multiplier, not a blend component; see [Economic Moat](economic-moat.md) |
 
 Each of the four automated cards produces its own score (0–100) and verdict (Fail, displayed "May not pass" / Pass /
-Strong Pass, or occasionally "Pass with caution" — see the [Glossary](glossary.md)). A separate **Review status**
+Strong Pass, or occasionally "Pass with caution" — see the [Glossary](glossary.md)). The **Overall** verdict has the same four words
+(Strong Pass, Pass, Pass with caution, May not pass) under the rule in "The Overall verdict" below. A separate **Review status**
 (below) can sit beside a Pass-family Overall verdict, but it is never a verdict: it does not
 change the number or the verdict.
 
@@ -65,7 +66,17 @@ failing / caution / Review warning lines stay outside the collapsible and are al
 Python `round` (half to even; the app's convention). The Fundamentals score is stored unrounded and shown to one decimal. Rounding the Fundamentals
 score first would sometimes change a verdict (Fundamentals 81.6 x 0.85 = 69.36 reads 69, a Fail; 82 x 0.85 = 69.7 would read 70, a Pass).
 
-The Overall verdict bands are the shared ones used app-wide: Fail below 70, Pass 70-90, Strong Pass above 90. There is **no cap and no
+The Overall verdict bands are the shared ones used app-wide: Fail below 70, Pass 70-90, Strong Pass above 90. On top of the band,
+**Pass with caution** (decision 2026-10-08, `scoring/overall.py::compute_overall_assessment`, mirrored in `frontend/lib/overallScore.ts`):
+a Pass or Strong Pass reads "Pass with caution" when **either** a check carries its own "Pass with caution" (today only Debt, see
+[Debt](debt.md)) **or** at least one of Financials, Growth Rate, Profitability or Debt is below the pass line (score under 70 or a stored `Fail`
+verdict: "May not pass"). The two reasons combine (`caution_reasons` lists `step_caution` and/or `weak_step`; `caution_steps` and `weak_steps` name
+the steps). An exempt check (`not_supported`, such as Insurance Debt) is never weak, an incomplete row has no verdict, an Overall under 70 stays
+"May not pass" (stored `Fail`), and Moat plays no part. It changes only the label: the Overall score, `steps_score`, the sort, the range
+filters and `SCORE_FORMULA_VERSION` are untouched (stored rows were refreshed by a full recompute instead of a version bump). The Review status is
+independent and unchanged: a Pass with a weak Financials or Debt below 50 shows the Review marker beside the "Pass with caution" label. The Analysis card
+adds a line naming the weak steps (beside, not instead of, the Debt tiebreaker line); the Watchlist Analysis tooltip names both kinds.
+There is **no cap and no
 hard-fail override**: a hard fail inside a check (Step 4 negative average ROE or ROIC, a Bank or REIT Step 5
 limit) still reads Fail on that check's own card and still enters the blend only through its score. Step 5 for Standard and Utility
 companies has no hard fail since 2026-10-07: its three ratios are a pure weighted blend and 70 or more passes ([Debt](debt.md)).
@@ -274,7 +285,7 @@ depending on why:
   rest of Overall Assessment from being computed, and the Moat multiplier is applied to the reweighted Fundamentals score as usual.
 
 See the [Glossary](glossary.md) for how both differ from a genuine Fail, and for the additional
-rule that a **Pass with caution** on any one check carries up into Overall Assessment's own
+rule that a **Pass with caution** on any one check, or a check below the pass line, carries up into Overall Assessment's own
 displayed verdict even when the blended number alone would read as a plain Pass or Strong Pass.
 
 ## Valuation is separate
