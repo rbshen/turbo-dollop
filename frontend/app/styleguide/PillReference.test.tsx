@@ -29,9 +29,12 @@ describe("PillReference", () => {
     expect(rating.className).not.toMatch(/bg-/);
   });
 
-  it("draws a stored Fail as the quiet-red May not pass, a 72 Pass in green, and no amber Pass", () => {
+  it("draws a stored Fail as the slate May not pass, a 72 Pass in green, and no amber Pass", () => {
     render(<PillReference />);
-    for (const pill of screen.getAllByText("May not pass")) expect(pill.className).toContain("text-negative-soft");
+    for (const pill of screen.getAllByText("May not pass")) {
+      expect(pill.className).toContain("text-not-pass");
+      expect(pill.className).not.toMatch(/negative|warn|caution/);
+    }
     expect(screen.queryByText("Fail")).toBeNull();
     // Inline sample "72 Pass": green, never amber.
     const pass = screen.getAllByText("Pass").filter((el) => el.className.includes("bg-"));

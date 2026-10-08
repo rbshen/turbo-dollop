@@ -314,8 +314,8 @@ component scores cannot interact with a hidden floor (the one exception is the t
 Fail is gated on the sign of projected growth instead (see [Growth Rate](growth-rate.md)).
 
 **Badge shading.** The score badge draws the 70–90 "Pass" band in one green (`positive`; the 70–74 band was amber until
-2026-10-08); 91+ is a deeper green (`positive-strong`), and Fail (displayed "May not pass", quiet red
-`negative-soft`) / "Pass with caution" (amber) override the score tiers. The tiering is
+2026-10-08); 91+ is a deeper green (`positive-strong`), and Fail (displayed "May not pass", slate
+`not-pass`) / "Pass with caution" (amber) override the score tiers. The tiering is
 shared by every step's badge and chip via `frontend/lib/tierColor.ts` (`toneFor`, `classFor`),
 so color can't be chosen from verdict text alone.
 

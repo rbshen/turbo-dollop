@@ -57,7 +57,7 @@ perfect check scores, which does not happen in practice (the verification after 
 0.30 x 84 + 0.20 x 84 + 0.20 x 83 + 0.30 x 84 = 83.8; for a Narrow Moat ticker at 0.85 that is 83.8 x 0.85 = 71.23, an Overall score of
 **71**. The Analysis card shows exactly this arithmetic, **collapsed by default** (state not persisted) to the one line "Fundamentals 83.8 x Narrow moat 0.85 = 71" with a
 "Show calculation" toggle; expanded it shows a table of each step with its score, weight and points, then the Fundamentals score (one decimal), the result line, and the
-explanatory paragraph with its links. The Score cells in the table are coloured with the same green / amber / quiet-red tones the step pills used (the pills under
+explanatory paragraph with its links. The Score cells in the table are coloured with the same green / amber / slate (May not pass) tones the step pills used (the pills under
 the header were removed 2026-10-07); weights, points and the Fundamentals score are not. The score circle, the verdict, the "N of 4 weighted components" line and the
 failing / caution / Review warning lines stay outside the collapsible and are always visible.
 
@@ -70,7 +70,7 @@ hard-fail override**: a hard fail inside a check (Step 2 negative growth, Step 4
 limit) still reads Fail on that check's own card and still enters the blend only through its score. Step 5 for Standard and Utility
 companies has no hard fail since 2026-10-07: its three ratios are a pure weighted blend and 70 or more passes ([Debt](debt.md)).
 Since 2026-10-08 the stored verdict `Fail` is displayed as **"May not pass"** on every surface, every step and the Overall verdict
-(display only: the stored key, the API, the Review gate and every comparison are unchanged; a quieter red, and a plain 70-74 Pass is green, no longer amber;
+(display only: the stored key, the API, the Review gate and every comparison are unchanged; a slate blue tone, not red, and a plain 70-74 Pass is green, no longer amber;
 docs/design-system.md, "Pills"). The Economic Moat is no longer the one
 exception that can pull Overall below 70 by itself: the multiplier is the whole mechanism (a No moat or unrated ticker needs Fundamentals of 100
 to reach 70). The **Review status** (below) is not an override either.

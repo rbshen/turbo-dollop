@@ -7,7 +7,7 @@ re-explaining it each time.
 
 ## Fail ("May not pass")
 
-Fathom stores this verdict as `Fail` but **displays it as "May not pass"** on every surface (2026-10-08), in a quieter red than "No moat" or "Overvalued"; the rest of this page and the check pages use the stored word Fail.
+Fathom stores this verdict as `Fail` but **displays it as "May not pass"** on every surface (2026-10-08), in a slate blue (not red, unlike "No moat" or "Overvalued"); the rest of this page and the check pages use the stored word Fail.
 
 The check found a genuine, meaningful weakness — not just "not the best," but falling short of
 what the check considers a healthy result. Most checks treat certain conditions as an automatic

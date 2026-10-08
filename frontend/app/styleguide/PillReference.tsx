@@ -67,9 +67,9 @@ const TONES: { tone: StatusTone; label: string }[] = [
   { tone: "positive", label: "Pass" },
   { tone: "warn", label: "Needs review" },
   { tone: "caution", label: "Pass with caution" },
-  { tone: "negative-soft", label: "May not pass" },
   { tone: "negative", label: "No moat" },
   { tone: "speculative", label: "Speculative growth" },
+  { tone: "not-pass", label: "May not pass" },
   { tone: "neutral", label: "Not scored" },
 ];
 
@@ -78,8 +78,8 @@ const BADGE_TONES: { tone: BadgeTone; label: string }[] = [
   { tone: "positive", label: "83" },
   { tone: "warn", label: "Review" },
   { tone: "caution", label: "74 ⚠" },
-  { tone: "negative-soft", label: "48" },
   { tone: "negative", label: "Overvalued" },
+  { tone: "not-pass", label: "48" },
   { tone: "speculative", label: "Spec" },
   { tone: "neutral", label: "Bank" },
 ];
@@ -374,7 +374,7 @@ export function PillReference() {
     <div className="flex flex-col gap-10">
       <Group
         title="Tones — regular and compact"
-        note="Soft tinted fill (tone at 16%; the quieter red, “May not pass”, uses 10% so its text clears 4.5:1 on its own tint), tone-coloured text, no border. Regular is the default; compact is for dense tables only (Watchlist, Momentum). Amber carries only “Needs review” and “Pass with caution”; a plain Pass is green at every score from 70 up. “May not pass” (the stored Fail) is the quieter red; the full red stays for No moat, Overvalued and the direction glyph."
+        note="Soft tinted fill (tone at 16%; “May not pass” uses 14% so its text clears 4.5:1 on its own tint), tone-coloured text, no border. Regular is the default; compact is for dense tables only (Watchlist, Momentum). Amber carries only “Needs review” and “Pass with caution”; a plain Pass is green at every score from 70 up. “May not pass” (the stored Fail) is slate blue, not red, because its wording is not negative either; the full red stays for No moat, Overvalued and the direction glyph. The last two pills, “May not pass” and “Not scored”, sit side by side to judge the slate against the neutral grey."
       >
         <div className="flex flex-col gap-3">
           <Row label="Regular">
@@ -396,10 +396,11 @@ export function PillReference() {
 
       <Group
         title="Neutral variants"
-        note="Neutral has no read to colour: no score, a stage that is neither bullish nor bearish, a fact about the ticker, or a job with nothing to report. Skipped and Unknown are told apart by their word."
+        note="Neutral has no read to colour: no score, a stage that is neither bullish nor bearish, a fact about the ticker, or a job with nothing to report. Skipped and Unknown are told apart by their word. The slate “May not pass” sits first for comparison: it is the only blue-tinted pill here (chroma 0.05 against the greys' 0.012) and is not neutral."
       >
         <div className="flex flex-col gap-3">
           <Row label="Regular">
+            <Status tone="not-pass">May not pass</Status>
             <Status tone="neutral">Not scored</Status>
             <Status tone="neutral">Skipped</Status>
             <Status tone="neutral">Unknown</Status>
@@ -410,6 +411,9 @@ export function PillReference() {
             <Badge missing />
           </Row>
           <Row label="Compact">
+            <Status tone="not-pass" size="compact">
+              May not pass
+            </Status>
             <Status tone="neutral" size="compact">
               Not scored
             </Status>
