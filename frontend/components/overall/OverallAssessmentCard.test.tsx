@@ -35,7 +35,7 @@ describe("OverallAssessmentView: the failing and caution notes", () => {
   it("names the failing steps in a warn-toned note", () => {
     render(<OverallAssessmentView result={result({ failingSteps: ["Debt", "Growth Rate"] })} />);
     const note = screen.getByText(/Debt, Growth Rate may not pass — reflected in the weighted score above/);
-    expect(note).toHaveClass("text-negative-soft");
+    expect(note).toHaveClass("text-not-pass");
   });
 
   it("names the pass-with-caution steps in a caution-toned note", () => {
@@ -54,7 +54,7 @@ describe("OverallAssessmentView: the failing and caution notes", () => {
       expect(note.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
       expect(note.querySelector(".sr-only")).toHaveTextContent("Warning:");
     }
-    expect(notes[0]).toHaveClass("text-negative-soft");
+    expect(notes[0]).toHaveClass("text-not-pass");
     expect(notes[1]).toHaveClass("text-caution");
   });
 });
@@ -287,11 +287,11 @@ describe("OverallAssessmentView: the collapsible calculation", () => {
 });
 
 describe("OverallAssessmentView: score colouring in the table", () => {
-  it("colours each score by the pills' own thresholds: Fail quiet red, 70-90 green, over 90 the deeper green, caution tone for a caution verdict", () => {
+  it("colours each score by the pills' own thresholds: Fail slate (not-pass), 70-90 green, over 90 the deeper green, caution tone for a caution verdict", () => {
     const rows = rows4([[60, "Fail"], [72, "Pass"], [80, "Pass"], [95, "Strong Pass"]]);
     render(<OverallAssessmentView result={result({ stepsScore: 77, breakdown: rows })} />);
     expand();
-    expect(screen.getByTestId("score-step1")).toHaveClass("text-negative-soft");
+    expect(screen.getByTestId("score-step1")).toHaveClass("text-not-pass");
     expect(screen.getByTestId("score-step2")).toHaveClass("text-positive");
     expect(screen.getByTestId("score-step4")).toHaveClass("text-positive");
     expect(screen.getByTestId("score-step5")).toHaveClass("text-positive-strong");

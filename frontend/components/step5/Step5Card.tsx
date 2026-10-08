@@ -112,8 +112,8 @@ function formatRatioValue(key: string, value: number | null): string {
 }
 
 function tierClass(label: string): string {
-  // The tiers that read "May not pass" take the quiet red (the same as the verdict pill); Interest Coverage's "Dangerous" keeps the full red.
-  if (label === "fail" || label === "borderline_fail" || label === "severe" || label === "negative_ebitda") return "text-negative-soft";
+  // The tiers that read "May not pass" take the slate not-pass tone (the same as the verdict pill); Interest Coverage's "Dangerous" keeps the full red.
+  if (label === "fail" || label === "borderline_fail" || label === "severe" || label === "negative_ebitda") return "text-not-pass";
   if (label === "dangerous") return "text-negative";
   if (label === "approaching_limit" || label === "borderline_saved_by_icr" || label === "marginal_via_breach_context" || label === "tight")
     return "text-warn";
@@ -249,7 +249,7 @@ export function Step5Card({ ticker }: Props) {
         <p className="text-xs text-text-tertiary">{data.classification_note}</p>
       )}
       {!isBank && !isInsurance && data.ratios.debt_to_ebitda?.note && (
-        <p className="text-sm text-negative-soft">{data.ratios.debt_to_ebitda.note}</p>
+        <p className="text-sm text-not-pass">{data.ratios.debt_to_ebitda.note}</p>
       )}
       {!isBank && !isInsurance && data.ratios.debt_servicing_ratio?.note && (
         <p className="text-xs text-text-tertiary">{data.ratios.debt_servicing_ratio.note}</p>

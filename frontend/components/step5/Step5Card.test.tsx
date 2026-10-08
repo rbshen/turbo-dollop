@@ -74,8 +74,8 @@ describe("Step5Card", () => {
     };
     render(<Step5Card ticker="ABC" />);
     expect(screen.getByText("May not pass")).toBeInTheDocument();
-    expect(screen.getByText("May not pass")).toHaveClass("text-negative-soft"); // the pill, in the quiet red
-    expect(screen.getByText("EBITDA is negative.")).toHaveClass("text-negative-soft"); // the breach note
+    expect(screen.getByText("May not pass")).toHaveClass("text-not-pass"); // the pill, in the slate not-pass tone
+    expect(screen.getByText("EBITDA is negative.")).toHaveClass("text-not-pass"); // the breach note
     expect(screen.queryByText("Fail")).toBeNull();
     expect(screen.getByText(/Debt \/ EBITDA is in breach and the blended score falls short of the Pass threshold \(70\), so Debt may not pass\./)).toBeInTheDocument();
   });

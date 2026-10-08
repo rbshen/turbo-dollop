@@ -266,7 +266,7 @@ export function OverallAssessmentView({
           <CalculationSection result={result} multipliers={multipliers} />
 
           {result.failingSteps.length > 0 && (
-            <p className="text-sm text-negative-soft">
+            <p className="text-sm text-not-pass">
               <Warning size={16} weight="bold" aria-hidden="true" className="-mt-0.5 mr-1.5 inline" />
               <span className="sr-only">Warning: </span>
               {failingStepsText(result.failingSteps)} — reflected in the weighted score above, but worth reviewing
