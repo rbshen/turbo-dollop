@@ -13,8 +13,8 @@ export const pillVariants = cva("inline-flex max-w-full items-center whitespace-
       warn: "bg-warn/16 text-warn",
       caution: "bg-caution/16 text-caution",
       negative: "bg-negative/16 text-negative",
-      // "May not pass": a 10% fill, not 16%, so its text clears 4.5:1 on its own tint (docs/design-system.md, "Pills").
-      "negative-soft": "bg-negative-soft/10 text-negative-soft",
+      // "May not pass" (slate): a 14% fill, not 16%, so its text clears 4.5:1 on its own tint on every surface (docs/design-system.md, "Pills").
+      "not-pass": "bg-not-pass/14 text-not-pass",
       speculative: "bg-chart-purple/16 text-chart-purple",
       neutral: "bg-surface-2 text-text-secondary",
     },

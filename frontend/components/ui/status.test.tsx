@@ -36,11 +36,12 @@ describe("Status", () => {
     expect(pill.className).toContain(`text-${token}`);
   });
 
-  it("draws the quiet red (May not pass) with its own 10% fill", () => {
-    const { container } = render(<Status tone="negative-soft">May not pass</Status>);
+  it("draws the slate not-pass tone (May not pass) with its own 14% fill, and no red", () => {
+    const { container } = render(<Status tone="not-pass">May not pass</Status>);
     const pill = container.firstElementChild as HTMLElement;
-    expect(pill.className).toContain("bg-negative-soft/10");
-    expect(pill.className).toContain("text-negative-soft");
+    expect(pill.className).toContain("bg-not-pass/14");
+    expect(pill.className).toContain("text-not-pass");
+    expect(pill.className).not.toMatch(/negative/);
   });
 
   it("is regular size by default and quieter when compact, with the same tint", () => {

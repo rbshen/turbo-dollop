@@ -24,7 +24,7 @@ describe("pillLabel", () => {
 
 describe("toneFor", () => {
   it("checks Fail and Pass with caution before the score tiers", () => {
-    expect(toneFor(95, "Fail")).toBe("negative-soft");
+    expect(toneFor(95, "Fail")).toBe("not-pass");
     expect(toneFor(74, "Pass with caution")).toBe("caution");
   });
 
@@ -37,9 +37,12 @@ describe("toneFor", () => {
     expect(toneFor(70, "Pass")).toBe("positive");
   });
 
-  it("draws Fail in the quiet red at every score, and never in amber for a plain Pass", () => {
-    for (const score of [0, 48, 69, 70, 100]) expect(toneFor(score, "Fail")).toBe("negative-soft");
-    expect(toneFor(69, "Pass")).toBe("negative-soft");
+  it("draws Fail in the slate not-pass tone at every score, and never in amber for a plain Pass", () => {
+    for (const score of [0, 48, 69, 70, 100]) expect(toneFor(score, "Fail")).toBe("not-pass");
+    // Any score under 70 resolves to the same tone whatever the verdict text says.
+    for (const verdict of ["Pass", "Strong Pass", "", "insufficient_data"]) expect(toneFor(69, verdict)).toBe("not-pass");
+    for (const score of [0, 1, 50, 69]) expect(toneForNullable(score, null)).toBe("not-pass");
+    expect(toneFor(72, "Pass")).toBe("positive");
     for (const score of [70, 72, 74, 75, 90]) expect(toneFor(score, "Pass")).not.toMatch(/warn|caution/);
   });
 
@@ -73,7 +76,7 @@ describe("verdictDisplay", () => {
   it("is display only: the raw Fail still drives the tone", () => {
     const stored = "Fail";
     expect(verdictDisplay(stored)).not.toBe(stored);
-    expect(toneFor(48, stored)).toBe("negative-soft");
-    expect(toneForNullable(48, stored)).toBe("negative-soft");
+    expect(toneFor(48, stored)).toBe("not-pass");
+    expect(toneForNullable(48, stored)).toBe("not-pass");
   });
 });

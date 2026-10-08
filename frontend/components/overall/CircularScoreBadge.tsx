@@ -14,7 +14,7 @@ const RING_CLASS: Record<ScoreTone, string> = {
   strong: "border-positive-strong",
   positive: "border-positive",
   caution: "border-caution",
-  "negative-soft": "border-negative-soft",
+  "not-pass": "border-not-pass",
   // No score to colour: a quiet neutral ring.
   neutral: "border-text-tertiary",
 };

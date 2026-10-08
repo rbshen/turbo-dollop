@@ -12,23 +12,23 @@ import type { StatusTone } from "@/components/ui/status";
 // The 5 score tiers map 1:1 onto 5 of Status's 7 tones. "neutral" is used only
 // when there is no score to colour (toneForNullable). ("speculative" is never
 // produced here.)
-export type ScoreTone = Extract<StatusTone, "negative-soft" | "caution" | "strong" | "positive" | "neutral">;
+export type ScoreTone = Extract<StatusTone, "not-pass" | "caution" | "strong" | "positive" | "neutral">;
 
 // Color depends on both verdict and score. Fail and "Pass with caution" are
 // checked before the score tiers -- a real breach occurred regardless of how
 // high the blended score is, and Step 2's Fail is gated on projected growth
 // being negative, not on the blended score. The stored "Fail" key is drawn in
-// the quieter red ("negative-soft", the "May not pass" look, 2026-10-08); the
-// comparison itself still runs on the raw "Fail". Amber (warn / caution) is
+// the slate "not-pass" tone (the "May not pass" look, 2026-10-08; no red, the
+// wording is not negative either); the comparison itself still runs on the raw "Fail". Amber (warn / caution) is
 // left to Pass with caution and the Review statuses: a plain 70-74 Pass is
 // green like any other Pass.
 export function toneFor(score: number, verdict: string): ScoreTone {
-  if (verdict === "Fail") return "negative-soft";
+  if (verdict === "Fail") return "not-pass";
   if (verdict === "Pass with caution") return "caution";
   // Strong Pass (91-100) gets a deeper shade than a plain Pass (70-90).
   if (score > 90) return "strong";
   if (score >= 70) return "positive";
-  return "negative-soft"; // below 70 is the Fail band whatever the verdict text says
+  return "not-pass"; // below 70 is the Fail band whatever the verdict text says
 }
 
 // score == null covers both "no score computed for this ticker/step" and
@@ -50,7 +50,7 @@ export const TONE_TEXT_CLASS: Record<StatusTone, string> = {
   warn: "text-warn",
   caution: "text-caution",
   negative: "text-negative",
-  "negative-soft": "text-negative-soft",
+  "not-pass": "text-not-pass",
   speculative: "text-chart-purple",
   neutral: "text-text-secondary",
 };

@@ -18,7 +18,7 @@ describe("CircularScoreBadge", () => {
   });
 
   it.each([
-    [50, "Fail", "border-negative-soft"],
+    [50, "Fail", "border-not-pass"],
     [74, "Pass with caution", "border-caution"],
     [72, "Pass", "border-positive"],
     [80, "Pass", "border-positive"],
