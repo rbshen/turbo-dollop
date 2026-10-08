@@ -34,19 +34,21 @@ least 8 data points to reach it; a shorter history is held at a plain Pass (scor
 
 ## Pass with caution
 
-Two different things carry this label.
+Two different things carry the stored key `Pass with caution`, and since 2026-10-08 they are **drawn with two different labels**, so that each
+label means one thing: the word "Pass with caution" is the **Overall** verdict only, and the Debt check's own state reads **"Pass, ratio in
+breach"** (display only; the stored value, API value and amber tone are unchanged).
 
-**On a check (currently only Debt).** A real breach of a safety threshold did occur, but either Fathom found enough offsetting
+**On a check (currently only Debt) — displayed "Pass, ratio in breach".** A real breach of a safety threshold did occur, but either Fathom found enough offsetting
 evidence (such as a debt-reduction trend, strong free cash flow relative to debt, or comfortable interest coverage) to excuse it, or
 nothing excused it and the other ratios still carried the blend to 70 or more (the card names the breached ratio). Read this as "passed,
 but only barely, and with a real caveat attached" — not as equivalent to a clean Pass. See [Debt](debt.md) for the details.
 
 **On the Overall verdict (since 2026-10-08).** The Overall reads "Pass with caution" instead of Pass or Strong Pass when its score is 70
-or more **and** either (a) a check carries its own "Pass with caution", or (b) at least one of Financials, Growth Rate, Profitability or
+or more **and** either (a) the Debt check is "Pass, ratio in breach" (its stored `Pass with caution`), or (b) at least one of Financials, Growth Rate, Profitability or
 Debt is below the pass line ("May not pass", a score under 70): the other checks carried the average, but one check did not pass. Both
 reasons can apply at once. A check that is not applied to the company (not supported, such as Debt for an Insurance company) is ignored,
 the Economic Moat plays no part, and an Overall under 70 stays "May not pass". The Overall score itself never changes. The Analysis card
-and the Watchlist tooltip name the steps.
+and the Watchlist tooltip name the cause in plain words ("because Debt passed with a ratio in breach" / "because Financials may not pass (under 70)").
 
 ## Insufficient data
 
@@ -78,7 +80,7 @@ weights"; Step 4's hard fail still reads Fail on its own check):
   marked incomplete instead. A check that comes back **not supported** is treated differently:
   it's simply excluded from the blend, with the remaining checks reweighted to fill the gap — it
   does not block the rest of Overall Assessment from being computed.
-- If any one check reports **Pass with caution**, that flag carries up into Overall Assessment's
+- If any one check reports **Pass, ratio in breach** (Debt's stored `Pass with caution`), that flag carries up into Overall Assessment's
   own displayed verdict even if the blended number would otherwise read as a plain Pass or
   Strong Pass — a real caveat on one check isn't allowed to disappear once it's folded into the
   bigger picture. So does a check that is **below the pass line** ("May not pass") beside an Overall of 70 or more

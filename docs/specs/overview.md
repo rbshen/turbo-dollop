@@ -22,8 +22,9 @@ The Analysis tab blends four automated checks into a **Fundamentals score**, the
 | **Economic Moat** | A manual, judgment-based competitive-advantage rating you set yourself — a multiplier, not a blend component; see [Economic Moat](economic-moat.md) |
 
 Each of the four automated cards produces its own score (0–100) and verdict (Fail, displayed "May not pass" / Pass /
-Strong Pass, or occasionally "Pass with caution" — see the [Glossary](glossary.md)). The **Overall** verdict has the same four words
-(Strong Pass, Pass, Pass with caution, May not pass) under the rule in "The Overall verdict" below.
+Strong Pass; the Debt card alone can also read "Pass, ratio in breach", the display word for its stored `Pass with caution` — see the
+[Glossary](glossary.md)). The **Overall** verdict has the same words (Strong Pass, Pass, Pass with caution, May not pass) under the rule in
+"The Overall verdict" below; **"Pass with caution" means the Overall verdict only** (decision 2026-10-08, "two meanings").
 
 **The Fundamentals score** is the weighted average of the four checks, rescaled to 100 over the checks that apply to the company. These are
 the **default** weights; all four are adjustable in Settings > Score weighting (see "Adjustable weights" below) and must add up to 100:
@@ -66,15 +67,15 @@ score first would sometimes change a verdict (Fundamentals 81.6 x 0.85 = 69.36 r
 
 The Overall verdict bands are the shared ones used app-wide: Fail below 70, Pass 70-90, Strong Pass above 90. On top of the band,
 **Pass with caution** (decision 2026-10-08, `scoring/overall.py::compute_overall_assessment`, mirrored in `frontend/lib/overallScore.ts`):
-a Pass or Strong Pass reads "Pass with caution" when **either** a check carries its own "Pass with caution" (today only Debt, see
-[Debt](debt.md)) **or** at least one of Financials, Growth Rate, Profitability or Debt is below the pass line (score under 70 or a stored `Fail`
+a Pass or Strong Pass reads "Pass with caution" when **either** a check carries its own stored `Pass with caution` (today only Debt, drawn
+"Pass, ratio in breach" on its own card, see [Debt](debt.md)) **or** at least one of Financials, Growth Rate, Profitability or Debt is below the pass line (score under 70 or a stored `Fail`
 verdict: "May not pass"). The two reasons combine (`caution_reasons` lists `step_caution` and/or `weak_step`; `caution_steps` and `weak_steps` name
 the steps). An exempt check (`not_supported`, such as Insurance Debt) is never weak, an incomplete row has no verdict, an Overall under 70 stays
-"May not pass" (stored `Fail`), and Moat plays no part. It changes only the label: the Overall score, `steps_score`, the sort, the range
+"May not pass" (stored `Fail`), and Moat plays no part. It changes only the label: the Overall score, `steps_score`, the sort, the step score range
 filters and `SCORE_FORMULA_VERSION` are untouched (stored rows were refreshed by a full recompute instead of a version bump). The Analysis card
-adds an amber line naming the weak steps ("Passed with caution: ...", beside the Debt tiebreaker line, which starts the same way); on a Pass with caution the
+adds an amber line naming the cause in plain words ("Pass with caution, because Financials may not pass — ... under 70", beside the Debt line "Pass with caution, because Debt passed with a ratio in breach — ..."; the Debt line drops the "Pass with caution, because" start when the Overall is not a Pass with caution); on a Pass with caution the
 slate "X may not pass" failing-steps line is hidden, since the amber line already names those steps (it still shows on "May not pass"). Step lists read "A, B and C".
-The Watchlist Analysis tooltip names both kinds.
+The Watchlist Analysis tooltip names both kinds in the same words ("Pass with caution, because Debt passed with a ratio in breach and Growth Rate may not pass (under 70)").
 There is **no cap and no
 hard-fail override**: a hard fail inside a check (Step 4 negative average ROE or ROIC) still reads Fail on that check's own card and
 still enters the blend only through its score. Step 5 has no hard fail on any path (Standard and Utility since 2026-10-07, Bank and REIT
@@ -92,10 +93,13 @@ docs/archive/claude-md-history-scoring.md for that investigation). And a durable
 any single financial metric, but it now acts on the whole result rather than as one 31% slice: a Narrow Moat costs 15% of the Fundamentals
 score by default, a missing or No Moat costs 30%.
 
-**Saved Screener views and the weights.** A saved view stores filters (including Overall score ranges) and a sort, never results. Changing
+**Saved Screener views and the weights.** A saved view stores filters (the Overall verdict set `overallVerdicts` and the Financials / Growth /
+Profitability / Debt score ranges, among others) and a sort, never results. Changing
 the weights or the Narrow multiplier re-scores every ticker, so the same saved view then selects different tickers; nothing in the view
-itself changes. The 2026-10-07 formula change moved scores too (see docs/decisions.md), so a saved Overall range selects different
-tickers than before.
+itself changes. The 2026-10-07 formula change moved scores too (see docs/decisions.md), so a saved score range selects different
+tickers than before. Saved views written before 2026-10-08 stored an Overall score range (`overallScore`); a one-time migration turned it
+into a verdict set (min 70 → Strong Pass + Pass + Pass with caution, 91+ → Strong Pass, a max under 70 → May not pass), and the Screener's
+loader keeps only the keys the filter state has, so a leftover `overallScore` or `reviewStatuses` is neither applied nor written back.
 
 The default weights are defined once, in `backend/scoring/weights.py::DEFAULT_WEIGHTS` (every scorer takes a weight set as a
 parameter and defaults to it; `overall.py::STEP_WEIGHTS` is just the Overall defaults as fractions of 100). The multipliers are
@@ -204,7 +208,11 @@ multiplier is 0.70, exactly as if you had rated it No Moat.
 The rule lives in two places that must agree: `backend/scoring/overall.py::compute_overall_assessment`
 and `frontend/lib/overallScore.ts::computeOverallAssessment`. Both are tested against one shared case
 file, `backend/tests/fixtures/overall_verdict_cases.json`. Display: the note in the ticker header chip, the Analysis card and the Watchlist
-Analysis pill. Sorts and the range filters read `overall_score` only and never see the verdict. The Screener card, the Watchlist pill and the Momentum stock table's Overall verdict column draw
+Analysis pill. Sorts and the Financials / Growth / Profitability / Debt range filters read scores only and never see the verdict. The Screener's **Overall
+filter** (2026-10-08, replacing the Overall score range) is the opposite: a multi-select over the stored `overall_verdict`, OR semantics, empty =
+no filter, client-side like the other criteria. Its options are Strong pass, Pass, Pass with caution, May not pass (value `Fail`, the stored key)
+and Incomplete (a row whose `overall_verdict` is null); "Pass with caution" is its own option and is not matched by "Pass", and a 91+ Overall
+stored as Pass with caution is not matched by "Strong pass". The "Overall score" sort stays. The Screener card, the Watchlist pill and the Momentum stock table's Overall verdict column draw
 `overall_verdict`.
 
 ## What happens if a check can't be completed

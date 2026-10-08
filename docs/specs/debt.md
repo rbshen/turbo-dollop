@@ -76,9 +76,12 @@ pattern.
 
 - **May not pass** (stored as `Fail`) — the score is below 70. A Bank or REIT whose limit is breached
   always lands there (see "Bank path"); no Debt path has a hard fail any more.
-- **Pass with caution** — the blend is 70 or more, but it contains a real breach: one a legitimate
-  offsetting factor resolved, or one nothing excused that the other ratios outweighed. The card
-  names the breached ratio. Treat this as "barely passing" (capped at 74), not equivalent to a clean Pass.
+- **Pass, ratio in breach** (stored as `Pass with caution`; display only since 2026-10-08) — the blend is 70 or more, but it contains
+  a real breach: one a legitimate offsetting factor resolved, or one nothing excused that the other ratios outweighed. The card
+  names the breached ratio. Treat this as "barely passing" (capped at 74), not equivalent to a clean Pass. The label is the Debt
+  step's own word (`frontend/lib/tierColor.ts::debtVerdictDisplay`); "Pass with caution" now means the Overall verdict only, and the
+  Overall card says "because Debt passed with a ratio in breach" when this is the reason. The stored value, the API value, the amber tone and
+  `SCORE_FORMULA_VERSION` are unchanged.
 - **Pass** — 70 to 90 with no ratio in breach.
 - **Strong Pass** — above 90 with every ratio in safe territory.
 - **Not supported** — this company type doesn't have a reliable way to compute this check with
@@ -269,7 +272,7 @@ caution ticker reads as barely passing.
 
 **Verdict**, in order (`_standard_verdict`):
 1. `score < 70` → `Fail` (stored key; displayed "May not pass"). Nothing else can force this.
-2. `caution` → Pass with caution (the card names every breached ratio).
+2. `caution` → stored `Pass with caution`, drawn "Pass, ratio in breach" (the card names every breached ratio).
 3. `score > 90` → Strong Pass.
 4. Otherwise → Pass.
 
@@ -309,16 +312,16 @@ was the same cliff in the verdict).
 |---|---|---|---|
 | Debt/EBITDA at 3.0×, others perfect | 100 / 70 / 100 | 86 | Pass |
 | Debt/EBITDA 3.01×, others perfect | 100 / 0 / 100 | 55 | May not pass |
-| Debt/EBITDA 3.01× rescued (40–60 pts), others perfect | 100 / 40–60 / 100 | 73–82, capped at 74 | Pass with caution |
+| Debt/EBITDA 3.01× rescued (40–60 pts), others perfect | 100 / 40–60 / 100 | 73–82, capped at 74 | Pass, ratio in breach |
 | Debt/EBITDA 4.01× (severe), others perfect | 100 / 15 / 100 | 62 | May not pass |
 | Negative EBITDA, others perfect | 100 / 0 / 100 | 55 | May not pass |
 | Negative EBITDA, Debt Servicing excluded | 100 / 0 / – | 36 | May not pass |
-| Debt/EBITDA perfect, Debt Servicing just past 30% (no rescue), Current Ratio perfect | 100 / 100 / 0 | 70 | Pass with caution |
-| Debt/EBITDA perfect, Current Ratio just under 1.0, Debt Servicing perfect | 0 / 100 / 100 | 75 → 74 | Pass with caution |
+| Debt/EBITDA perfect, Debt Servicing just past 30% (no rescue), Current Ratio perfect | 100 / 100 / 0 | 70 | Pass, ratio in breach |
+| Debt/EBITDA perfect, Current Ratio just under 1.0, Debt Servicing perfect | 0 / 100 / 100 | 75 → 74 | Pass, ratio in breach |
 | Current Ratio just under 1.0, Debt/EBITDA good (85) | 0 / 85 / 100 | 68 | May not pass |
-| Debt/EBITDA perfect, Debt Servicing severe 45%, Current Ratio perfect | 100 / 100 / 14 | 74 | Pass with caution |
+| Debt/EBITDA perfect, Debt Servicing severe 45%, Current Ratio perfect | 100 / 100 / 14 | 74 | Pass, ratio in breach |
 
-**Pass with caution at the threshold.** A Current Ratio breach, or a Servicing breach, beside two
+**Pass, ratio in breach at the threshold.** A Current Ratio breach, or a Servicing breach, beside two
 perfect ratios passes (75 / 70); beside a merely "good" Debt/EBITDA it does not. Debt/EBITDA, the
 heaviest ratio, can never be breached and still pass unless a rescue gives it 40–60 points.
 
