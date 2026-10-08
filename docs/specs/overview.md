@@ -75,7 +75,9 @@ the steps). An exempt check (`not_supported`, such as Insurance Debt) is never w
 "May not pass" (stored `Fail`), and Moat plays no part. It changes only the label: the Overall score, `steps_score`, the sort, the range
 filters and `SCORE_FORMULA_VERSION` are untouched (stored rows were refreshed by a full recompute instead of a version bump). The Review status is
 independent and unchanged: a Pass with a weak Financials or Debt below 50 shows the Review marker beside the "Pass with caution" label. The Analysis card
-adds a line naming the weak steps (beside, not instead of, the Debt tiebreaker line); the Watchlist Analysis tooltip names both kinds.
+adds an amber line naming the weak steps ("Passed with caution: ...", beside the Debt tiebreaker line, which starts the same way); on a Pass with caution the
+slate "X may not pass" failing-steps line is hidden, since the amber line already names those steps (it still shows on "May not pass"). Step lists read "A, B and C".
+The Watchlist Analysis tooltip names both kinds.
 There is **no cap and no
 hard-fail override**: a hard fail inside a check (Step 4 negative average ROE or ROIC, a Bank or REIT Step 5
 limit) still reads Fail on that check's own card and still enters the blend only through its score. Step 5 for Standard and Utility
