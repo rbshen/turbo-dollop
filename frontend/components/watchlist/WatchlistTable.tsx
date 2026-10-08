@@ -11,9 +11,9 @@ import { Badge } from "@/components/ui/badge";
 import { HEAD_CLASS, openTickerPage, RemoveCell, SkeletonRows, SortableColumnHead, useRemoveFlow } from "@/components/watchlist/tableParts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { SortableField, WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
-import { MOAT_NOT_RATED_NOTE } from "@/lib/overallScore";
+import { MOAT_NOT_RATED_NOTE, PASS_THRESHOLD } from "@/lib/overallScore";
 import { fmtCompactMoney, fmtMoney, fmtNumber, fmtSignedCompactMoneyTooltip } from "@/lib/format";
-import { toneForNullable } from "@/lib/tierColor";
+import { FAIL_DISPLAY_LABEL, toneForNullable } from "@/lib/tierColor";
 import { cn } from "@/lib/utils";
 import { applyHeaderClick, sortWatchlistRows, type SortRule } from "@/lib/watchlistSort";
 
@@ -66,10 +66,33 @@ function cautionStepLabels(row: WatchlistRowOut): string[] {
   return labels;
 }
 
-// Hover text for the Analysis pill: names the cautioned steps and/or says the ticker has no Moat rated (it is scored as No moat).
+// The steps below the pass line ("May not pass": score under 70, or a stored Fail verdict), named like cautionStepLabels. These are the
+// second reason an Overall reads "Pass with caution" (scoring/overall.py::weak_steps); a null score is not weak (exempt or missing).
+function weakStepLabels(row: WatchlistRowOut): string[] {
+  const labels: string[] = [];
+  const steps: [string, number | null, string | null][] = [
+    ["Financials", row.step1_score, row.step1_verdict],
+    ["Growth Rate", row.step2_score, row.step2_verdict],
+    ["Profitability", row.step4_score, row.step4_verdict],
+    ["Debt", row.step5_score, row.step5_verdict],
+  ];
+  for (const [label, score, verdict] of steps) {
+    if (score != null && (verdict === "Fail" || score < PASS_THRESHOLD)) labels.push(label);
+  }
+  return labels;
+}
+
+// Hover text for the Analysis pill: names the cautioned steps and/or the steps that may not pass, and/or says the ticker has no Moat
+// rated (it is scored as No moat).
 export function overallCellTitle(row: WatchlistRowOut): string | undefined {
   const parts: string[] = [];
-  if (row.overall_verdict === "Pass with caution") parts.push(`Passed with caution: ${cautionStepLabels(row).join(", ")}`);
+  if (row.overall_verdict === "Pass with caution") {
+    const cautioned = cautionStepLabels(row);
+    const weak = weakStepLabels(row);
+    if (cautioned.length > 0) parts.push(`Passed with caution: ${cautioned.join(", ")}`);
+    if (weak.length > 0) parts.push(`${weak.join(", ")} ${FAIL_DISPLAY_LABEL.toLowerCase()}`);
+    if (cautioned.length === 0 && weak.length === 0) parts.push("Passed with caution");
+  }
   if (row.moat == null && row.overall_score != null) parts.push(MOAT_NOT_RATED_NOTE);
   return parts.length > 0 ? parts.join(". ") : undefined;
 }

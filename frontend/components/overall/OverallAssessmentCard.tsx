@@ -276,6 +276,16 @@ export function OverallAssessmentView({
 
           {review && <ReviewStatusBlock review={review} />}
 
+          {result.cautionReasons.includes("weak_step") && (
+            <p className="text-sm text-caution" data-testid="weak-step-caution-note">
+              <Warning size={16} weight="bold" aria-hidden="true" className="-mt-0.5 mr-1.5 inline" />
+              <span className="sr-only">Warning: </span>
+              Passed with caution: {result.weakSteps.join(", ")} {FAIL_DISPLAY_LABEL.toLowerCase()} — the overall score is 70 or
+              more because the other steps carry it, but {result.weakSteps.length > 1 ? "these steps are" : "this step is"} under
+              the pass line. Worth reviewing directly.
+            </p>
+          )}
+
           {result.cautionSteps.length > 0 && (
             <p className="text-sm text-caution">
               <Warning size={16} weight="bold" aria-hidden="true" className="-mt-0.5 mr-1.5 inline" />

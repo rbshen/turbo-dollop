@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { WatchlistTable } from "@/components/watchlist/WatchlistTable";
+import { overallCellTitle, WatchlistTable } from "@/components/watchlist/WatchlistTable";
 import type { WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
 import { DEFAULT_SORT_RULES, sortWatchlistRows } from "@/lib/watchlistSort";
 
@@ -244,6 +244,34 @@ describe("WatchlistTable: Moat not rated", () => {
     expect(pill).toHaveAttribute("title", "Moat not rated, scored as No moat");
     expect(pill).toHaveClass("text-not-pass"); // a Fail, not a neutral "not rated" pill
     expect(cell("AAPL").querySelector("span[title]")).toBeNull(); // a rated Pass is unchanged
+  });
+});
+
+describe("WatchlistTable: Pass with caution tooltip names its reason", () => {
+  const caution = (overrides: Partial<WatchlistRowOut>): WatchlistRowOut => ({ ...ROWS[0], overall_verdict: "Pass with caution", overall_score: 80, ...overrides });
+
+  it("names the weak step when a step is below the pass line", () => {
+    expect(overallCellTitle(caution({ step4_score: 60, step4_verdict: "Fail" }))).toBe("Profitability may not pass");
+  });
+
+  it("names several weak steps, and a weak step is read from the score as well as a stored Fail", () => {
+    expect(overallCellTitle(caution({ step1_score: 65, step1_verdict: "Fail", step5_score: 55, step5_verdict: "Fail" }))).toBe("Financials, Debt may not pass");
+  });
+
+  it("names both reasons when a Debt caution and a weak step apply together", () => {
+    expect(overallCellTitle(caution({ step5_score: 74, step5_verdict: "Pass with caution", step2_score: 50, step2_verdict: "Fail" }))).toBe(
+      "Passed with caution: Debt. Growth Rate may not pass",
+    );
+  });
+
+  it("keeps the Debt-only text for a step caution alone, and ignores a missing (exempt) score", () => {
+    expect(overallCellTitle(caution({ step5_score: 74, step5_verdict: "Pass with caution" }))).toBe("Passed with caution: Debt");
+    expect(overallCellTitle(caution({ step5_score: null, step5_verdict: "not_supported" }))).toBe("Passed with caution");
+  });
+
+  it("adds nothing to a plain Pass or a Fail", () => {
+    expect(overallCellTitle({ ...ROWS[0], step4_score: 60, step4_verdict: "Fail" })).toBeUndefined();
+    expect(overallCellTitle({ ...ROWS[0], overall_verdict: "Fail", overall_score: 50, step4_score: 60, step4_verdict: "Fail" })).toBeUndefined();
   });
 });
 

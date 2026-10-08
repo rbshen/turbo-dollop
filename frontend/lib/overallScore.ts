@@ -116,7 +116,15 @@ export interface OverallAssessment {
   // occurred, so this is surfaced separately from failingSteps rather than
   // silently blending into a plain Pass.
   cautionSteps: string[];
+  /** Steps below the pass line (score under 70, or a stored "Fail" verdict): "May not pass". Exempt steps are never in it. Listed
+   * whatever the Overall verdict; it only drives the caution when the Overall passes. */
+  weakSteps: string[];
+  /** Why the verdict reads "Pass with caution" (empty for every other verdict): "step_caution" (a step's own caution flag) and/or
+   * "weak_step" (a step below the pass line beside an Overall of 70 or more). Both can apply. */
+  cautionReasons: CautionReason[];
 }
+
+export type CautionReason = "step_caution" | "weak_step";
 
 function statusFor(snapshot: StepSnapshot): StepStatus {
   if (snapshot.hasError) return "error";
@@ -145,7 +153,7 @@ function statusFor(snapshot: StepSnapshot): StepStatus {
  * (only read for a Narrow rating). Fundamentals score = the weighted average of the steps that apply (an exempt "not_supported" step is
  * excluded and the rest reweighted; any step with missing data makes the whole assessment incomplete, which no Moat rating can
  * rescue), unrounded; Overall = round(fundamentals score x multiplier). No cap and no hard-fail override: the verdict is read from the Overall
- * score, and a step's "Pass with caution" still carries up beside an otherwise-passing score. Mirrors
+ * score; a Pass or Strong Pass reads "Pass with caution" when a step carries its own caution flag or any step is below the pass line. Mirrors
  * backend/scoring/overall.py::compute_overall_assessment exactly. */
 export function computeOverallAssessment(
   steps: StepSnapshot[],
@@ -178,6 +186,8 @@ export function computeOverallAssessment(
       incompleteSteps: [],
       failingSteps: [],
       cautionSteps: [],
+      weakSteps: [],
+      cautionReasons: [],
     };
   }
 
@@ -196,6 +206,7 @@ export function computeOverallAssessment(
 
   const failingSteps = ok.filter((s) => s.data!.verdict === "Fail").map((s) => s.label);
   const cautionSteps = ok.filter((s) => s.data!.verdict === "Pass with caution").map((s) => s.label);
+  const weakSteps = ok.filter((s) => s.data!.verdict === "Fail" || (s.data!.score as number) < PASS_THRESHOLD).map((s) => s.label);
 
   const breakdown: StepBreakdownEntry[] = withStatus.map((s) => ({
     key: s.key,
@@ -209,12 +220,14 @@ export function computeOverallAssessment(
 
   // The verdict BAND must match the shared bands used everywhere else in the app.
   const scoreVerdict = score !== null ? verdictFor(score) : null;
-  // A step-level "Pass with caution" flag must win over the blended
-  // score's own band -- Fail stays Fail (already the strongest signal),
-  // but an otherwise-green Pass/Strong Pass displays as caution instead.
+  // Two triggers turn an otherwise-green Pass/Strong Pass into "Pass with caution": a step's own "Pass with caution" flag, and (since
+  // 2026-10-08) a step below the pass line that the other steps outweighed. Fail stays Fail (already the strongest signal).
   // This changes only the DISPLAYED verdict; `score` above is untouched.
-  const verdict: OverallAssessment["verdict"] =
-    scoreVerdict !== null && scoreVerdict !== "Fail" && cautionSteps.length > 0 ? "Pass with caution" : scoreVerdict;
+  const passing = scoreVerdict !== null && scoreVerdict !== "Fail";
+  const cautionReasons: CautionReason[] = passing
+    ? [...(cautionSteps.length > 0 ? (["step_caution"] as const) : []), ...(weakSteps.length > 0 ? (["weak_step"] as const) : [])]
+    : [];
+  const verdict: OverallAssessment["verdict"] = cautionReasons.length > 0 ? "Pass with caution" : scoreVerdict;
 
   return {
     status: canCompute ? "complete" : "incomplete",
@@ -228,5 +241,7 @@ export function computeOverallAssessment(
     incompleteSteps: canCompute ? [] : incomplete.map((s) => s.label),
     failingSteps,
     cautionSteps,
+    weakSteps,
+    cautionReasons,
   };
 }

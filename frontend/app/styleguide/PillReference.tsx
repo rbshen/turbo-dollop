@@ -353,6 +353,8 @@ function overallResult(overrides: Partial<OverallAssessment>): OverallAssessment
     incompleteSteps: [],
     failingSteps: [],
     cautionSteps: ["Profitability"],
+    weakSteps: [],
+    cautionReasons: [],
     ...overrides,
   };
 }
@@ -374,7 +376,7 @@ export function PillReference() {
     <div className="flex flex-col gap-10">
       <Group
         title="Tones — regular and compact"
-        note="Soft tinted fill (tone at 16%; “May not pass” uses 14% so its text clears 4.5:1 on its own tint), tone-coloured text, no border. Regular is the default; compact is for dense tables only (Watchlist, Momentum). Amber carries only “Needs review” and “Pass with caution”; a plain Pass is green at every score from 70 up. “May not pass” (the stored Fail) is slate blue, not red, because its wording is not negative either; the full red stays for No moat, Overvalued and the direction glyph. The last two pills, “May not pass” and “Not scored”, sit side by side to judge the slate against the neutral grey."
+        note="Soft tinted fill (tone at 16%; “May not pass” uses 14% so its text clears 4.5:1 on its own tint), tone-coloured text, no border. Regular is the default; compact is for dense tables only (Watchlist, Momentum). Amber carries only “Needs review” and “Pass with caution” (an Overall of 70 or more where a step carries its own caution flag, such as Debt with an unrescued breach, or where any step is below the pass line; both reasons can apply at once, and the Analysis card and the Watchlist tooltip name the steps); a plain Pass is green at every score from 70 up. “May not pass” (the stored Fail) is slate blue, not red, because its wording is not negative either; the full red stays for No moat, Overvalued and the direction glyph. The last two pills, “May not pass” and “Not scored”, sit side by side to judge the slate against the neutral grey."
       >
         <div className="flex flex-col gap-3">
           <Row label="Regular">
@@ -544,8 +546,16 @@ export function PillReference() {
                 score: 74,
                 stepsScore: 74,
                 verdict: "Pass with caution",
-                failingSteps: ["Debt"],
-                cautionSteps: ["Profitability"],
+                breakdown: [
+                  { key: "step1", label: "Financials", baseWeight: 0.3, effectiveWeight: 0.3, score: 90, verdict: "Pass", status: "ok" },
+                  { key: "step2", label: "Growth Rate", baseWeight: 0.2, effectiveWeight: 0.2, score: 88, verdict: "Pass", status: "ok" },
+                  { key: "step4", label: "Profitability", baseWeight: 0.2, effectiveWeight: 0.2, score: 60, verdict: "Fail", status: "ok" },
+                  { key: "step5", label: "Debt", baseWeight: 0.3, effectiveWeight: 0.3, score: 74, verdict: "Pass with caution", status: "ok" },
+                ],
+                failingSteps: ["Profitability"],
+                cautionSteps: ["Debt"],
+                weakSteps: ["Profitability"],
+                cautionReasons: ["step_caution", "weak_step"],
               })}
             />
           </div>

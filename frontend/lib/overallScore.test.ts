@@ -74,7 +74,8 @@ describe("computeOverallAssessment: the Fundamentals score", () => {
     expect(result.status).toBe("complete");
     expect(result.stepsScore).toBeCloseTo(75, 10);
     expect(result.score).toBe(75);
-    expect(result.verdict).toBe("Pass");
+    expect(result.verdict).toBe("Pass with caution"); // Debt 60 is below the pass line (2026-10-08)
+    expect(result.weakSteps).toEqual(["Step 5"]);
   });
 
   it("all steps at 100 with a Wide moat scores exactly 100, Strong Pass", () => {
@@ -194,6 +195,35 @@ describe("computeOverallAssessment: failing, caution and the verdict bands", () 
     expect(computeOverallAssessment(BASE, "wide_moat").cautionSteps).toEqual([]);
   });
 
+  it("a step below the pass line turns a passing Overall into Pass with caution, naming the weak step", () => {
+    const steps = [snapshot("step1", "Step 1", 90, "Pass"), snapshot("step2", "Step 2", 90, "Pass"), snapshot("step4", "Step 4", 60, "Fail"), snapshot("step5", "Step 5", 90, "Pass")];
+    const result = computeOverallAssessment(steps, "wide_moat");
+    expect(result.score).toBe(84); // untouched
+    expect(result.verdict).toBe("Pass with caution");
+    expect(result.weakSteps).toEqual(["Step 4"]);
+    expect(result.cautionSteps).toEqual([]);
+    expect(result.cautionReasons).toEqual(["weak_step"]);
+    // A Strong Pass reads the same; a Fail Overall stays Fail with no reasons.
+    const strong = [snapshot("step1", "Step 1", 100, "Strong Pass"), snapshot("step2", "Step 2", 100, "Strong Pass"), snapshot("step4", "Step 4", 69, "Fail"), snapshot("step5", "Step 5", 100, "Strong Pass")];
+    expect(computeOverallAssessment(strong, "wide_moat").verdict).toBe("Pass with caution");
+    const failing = computeOverallAssessment(steps, null);
+    expect(failing.verdict).toBe("Fail");
+    expect(failing.cautionReasons).toEqual([]);
+    expect(failing.weakSteps).toEqual(["Step 4"]);
+  });
+
+  it("both triggers can apply at once, and an exempt step is never weak", () => {
+    const both = [snapshot("step1", "Step 1", 95, "Strong Pass"), snapshot("step2", "Step 2", 95, "Strong Pass"), snapshot("step4", "Step 4", 60, "Fail"), snapshot("step5", "Step 5", 74, "Pass with caution")];
+    const result = computeOverallAssessment(both, "wide_moat");
+    expect(result.cautionReasons).toEqual(["step_caution", "weak_step"]);
+    expect(result.cautionSteps).toEqual(["Step 5"]);
+    expect(result.weakSteps).toEqual(["Step 4"]);
+    const exempt = [...BASE.slice(0, 3), snapshot("step5", "Step 5", null, "not_supported")];
+    const clean = computeOverallAssessment(exempt, "wide_moat");
+    expect(clean.weakSteps).toEqual([]);
+    expect(clean.verdict).not.toBe("Pass with caution");
+  });
+
   it("bands: 69 is Fail, 70 is Pass, 90 is Pass, 91 is Strong Pass", () => {
     expect(computeOverallAssessment(uniform(69, "Fail"), "wide_moat").verdict).toBe("Fail");
     expect(computeOverallAssessment(uniform(70, "Pass"), "wide_moat").verdict).toBe("Pass");
@@ -285,6 +315,9 @@ interface SharedCase {
     steps_score: number | null;
     moat_multiplier: number | null;
     moat_note: string | null;
+    caution_steps: string[];
+    weak_steps: string[];
+    caution_reasons: string[];
   };
 }
 
@@ -299,6 +332,9 @@ function runCase(c: SharedCase) {
     steps_score: result.stepsScore,
     moat_multiplier: result.moatMultiplier,
     moat_note: result.moatNote,
+    caution_steps: result.cautionSteps,
+    weak_steps: result.weakSteps,
+    caution_reasons: result.cautionReasons,
   };
 }
 

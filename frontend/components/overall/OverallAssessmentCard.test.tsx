@@ -22,6 +22,8 @@ function result(overrides: Partial<OverallAssessment>): OverallAssessment {
     incompleteSteps: [],
     failingSteps: [],
     cautionSteps: [],
+    weakSteps: [],
+    cautionReasons: [],
     ...overrides,
   };
 }
@@ -42,6 +44,39 @@ describe("OverallAssessmentView: the failing and caution notes", () => {
     render(<OverallAssessmentView result={result({ cautionSteps: ["Debt"] })} />);
     const note = screen.getByText(/Debt passed with caution — a real breach was excused/);
     expect(note).toHaveClass("text-caution");
+  });
+
+  it("names the weak steps for a Pass with caution that came from a step below the pass line", () => {
+    render(
+      <OverallAssessmentView
+        result={result({ verdict: "Pass with caution", weakSteps: ["Profitability"], failingSteps: ["Profitability"], cautionReasons: ["weak_step"] })}
+      />,
+    );
+    const note = screen.getByTestId("weak-step-caution-note");
+    expect(note).toHaveTextContent(/Passed with caution: Profitability may not pass — the overall score is 70 or more/);
+    expect(note).toHaveClass("text-caution");
+    // None of the Step 5 tiebreaker wording appears for this reason alone.
+    expect(screen.queryByText(/a real breach was excused/)).toBeNull();
+  });
+
+  it("shows both notes when a step caution and a weak step both apply", () => {
+    render(
+      <OverallAssessmentView
+        result={result({
+          verdict: "Pass with caution",
+          cautionSteps: ["Debt"],
+          weakSteps: ["Financials", "Profitability"],
+          cautionReasons: ["step_caution", "weak_step"],
+        })}
+      />,
+    );
+    expect(screen.getByText(/Debt passed with caution — a real breach was excused/)).toBeInTheDocument();
+    expect(screen.getByTestId("weak-step-caution-note")).toHaveTextContent(/Financials, Profitability may not pass.*these steps are under the pass line/);
+  });
+
+  it("shows no weak-step note unless the verdict came from one", () => {
+    render(<OverallAssessmentView result={result({ weakSteps: ["Debt"], failingSteps: ["Debt"], verdict: "Fail", cautionReasons: [] })} />);
+    expect(screen.queryByTestId("weak-step-caution-note")).toBeNull();
   });
 
   it("draws each note's warning as an aria-hidden icon in the note's own tone, never as an emoji", () => {
