@@ -424,12 +424,10 @@ export interface Step5Out {
   // "not_supported" for Bank; "insufficient_data" when required figures
   // are missing.
   verdict: string;
-  // Bank (CET1/NPL) and REIT (gearing) only: a ratio past its hard limit
-  // forces Fail. Always false on the Standard path (no hard fail since
-  // 2026-10-07); see unrescued_breaches.
-  hard_fail: boolean;
-  // Standard path: keys of `ratios` in an unrescued breach this period. A
-  // blend of 70 or more that holds one reads "Pass with caution".
+  // No Debt path has a hard fail: the verdict follows the score alone.
+  // Keys of `ratios` in an unrescued breach this period. Standard: a blend
+  // of 70 or more that holds one reads "Pass with caution". Bank (cet1_ratio,
+  // npl_ratio) and REIT (gearing_ratio): a breach always scores under 70.
   unrescued_breaches: string[];
   // True whenever verdict === "Pass with caution".
   pass_with_caution: boolean;

@@ -367,7 +367,6 @@ def test_cet1_excellent_above_14():
 def test_bank_both_excellent_is_strong_pass():
     result = score_step5_bank(cet1_pct=15.0, npl_pct=0.5)
     assert result["score"] == 100
-    assert result["hard_fail"] is False
     assert result["verdict"] == "Strong Pass"
     assert result["weights"] == {"cet1_ratio": 0.5, "npl_ratio": 0.5}
     assert result["ratios"]["cet1_ratio"]["label"] == "excellent"
@@ -378,19 +377,23 @@ def test_bank_blend_math_mixed_tiers():
     # CET1 "good" (85) + NPL "acceptable" (70) -> (85*0.5 + 70*0.5) = 77.5 -> 78
     result = score_step5_bank(cet1_pct=13.0, npl_pct=4.0)
     assert result["score"] == 78
-    assert result["hard_fail"] is False
     assert result["verdict"] == "Pass"
 
 
-def test_bank_cet1_hard_fail_overrides_even_with_excellent_npl():
+def test_bank_cet1_breach_fails_on_the_score_even_with_excellent_npl():
+    # No hard fail (2026-10-08): CET1 scores 0, so 0 x 0.5 + 100 x 0.5 = 50, under 70.
     result = score_step5_bank(cet1_pct=6.0, npl_pct=0.5)
-    assert result["hard_fail"] is True
+    assert "hard_fail" not in result
+    assert result["score"] == 50
+    assert result["unrescued_breaches"] == ["cet1_ratio"]
     assert result["verdict"] == "Fail"
 
 
-def test_bank_npl_hard_fail_overrides_even_with_excellent_cet1():
+def test_bank_npl_breach_fails_on_the_score_even_with_excellent_cet1():
     result = score_step5_bank(cet1_pct=15.0, npl_pct=6.0)
-    assert result["hard_fail"] is True
+    assert "hard_fail" not in result
+    assert result["score"] == 50
+    assert result["unrescued_breaches"] == ["npl_ratio"]
     assert result["verdict"] == "Fail"
 
 
@@ -434,7 +437,6 @@ def test_comfortable_company_completely_unaffected():
         current_ratio=1.07, adjusted_current_ratio=1.15, debt_to_ebitda=0.53, debt_servicing_pct=0.0,
         interest_coverage_ratio=None,
     )
-    assert result["hard_fail"] is False
     assert result["unrescued_breaches"] == []
     assert result["pass_with_caution"] is False
     assert result["score"] == 92
@@ -449,7 +451,6 @@ def test_severe_breach_still_fails_regardless_of_strong_icr():
         current_ratio=0.80, adjusted_current_ratio=0.80, debt_to_ebitda=4.31, debt_servicing_pct=12.5,
         interest_coverage_ratio=5.96,
     )
-    assert result["hard_fail"] is False
     assert result["unrescued_breaches"] == ["current_ratio", "debt_to_ebitda"]
     assert result["ratios"]["debt_to_ebitda"]["label"] == "severe"
     assert result["score"] == 32
@@ -462,7 +463,6 @@ def test_borderline_debt_to_ebitda_with_strong_icr_becomes_pass_with_caution():
         current_ratio=1.39, adjusted_current_ratio=1.39, debt_to_ebitda=3.42, debt_servicing_pct=4.0,
         interest_coverage_ratio=12.45,
     )
-    assert result["hard_fail"] is False
     assert result["pass_with_caution"] is True
     assert result["verdict"] == "Pass with caution"
 
@@ -473,7 +473,6 @@ def test_borderline_debt_to_ebitda_with_weak_icr_still_fails():
         current_ratio=1.33, adjusted_current_ratio=1.33, debt_to_ebitda=3.23, debt_servicing_pct=0.0,
         interest_coverage_ratio=1.13,
     )
-    assert result["hard_fail"] is False
     assert result["unrescued_breaches"] == ["debt_to_ebitda"]
     assert result["pass_with_caution"] is False
     assert result["score"] == 48
@@ -486,7 +485,6 @@ def test_current_ratio_saved_by_deferred_revenue_becomes_pass_with_caution():
         current_ratio=0.75, adjusted_current_ratio=1.84, debt_to_ebitda=0.67, debt_servicing_pct=1.2,
         interest_coverage_ratio=67.3,
     )
-    assert result["hard_fail"] is False
     assert result["pass_with_caution"] is True
     assert result["verdict"] == "Pass with caution"
     # Unblended average would be (85+100+100)/3 = 95 -- Current Ratio's
@@ -538,7 +536,6 @@ def test_tiebreaker_saved_breach_with_sub_70_blend_stays_fail():
         interest_coverage_ratio=5.0,
     )
     assert result["ratios"]["debt_to_ebitda"]["saved_by_tiebreaker"] is True
-    assert result["hard_fail"] is False
     assert result["unrescued_breaches"] == []
     assert result["score"] == 62
     assert result["pass_with_caution"] is False
@@ -551,7 +548,6 @@ def test_current_ratio_borderline_without_deferred_revenue_still_fails():
         current_ratio=0.89, adjusted_current_ratio=0.89, debt_to_ebitda=2.11, debt_servicing_pct=15.4,
         interest_coverage_ratio=7.63,
     )
-    assert result["hard_fail"] is False
     assert result["unrescued_breaches"] == ["current_ratio"]
     assert result["pass_with_caution"] is False
     assert result["score"] == 57
@@ -580,7 +576,6 @@ def test_debt_to_ebitda_breach_context_gate_uses_raw_dsr_not_dsrs_own_rescue():
     assert result["ratios"]["debt_servicing_ratio"]["saved_by_tiebreaker"] is True
     assert result["ratios"]["debt_to_ebitda"]["saved_by_tiebreaker"] is False
     assert result["ratios"]["debt_to_ebitda"]["label"] == "borderline_fail"
-    assert result["hard_fail"] is False
     assert result["unrescued_breaches"] == ["debt_to_ebitda"]
     # 100*.25 + 0*.45 + 60*.30 = 43
     assert result["score"] == 43
@@ -595,7 +590,6 @@ def test_severe_unrescued_breach_with_two_excellent_ratios_passes_with_caution()
         current_ratio=3.0, adjusted_current_ratio=3.0, debt_to_ebitda=0.5, debt_servicing_pct=45.0,
         interest_coverage_ratio=None,
     )
-    assert result["hard_fail"] is False
     assert result["ratios"]["debt_servicing_ratio"]["label"] == "severe"
     assert result["unrescued_breaches"] == ["debt_servicing_ratio"]
     assert result["score"] == 74
@@ -631,7 +625,6 @@ def test_no_hard_fail_one_approaching_limit_still_passes():
         current_ratio=2.5, adjusted_current_ratio=2.5, debt_to_ebitda=0.8, debt_servicing_pct=25.0,
         interest_coverage_ratio=None,
     )
-    assert result["hard_fail"] is False
     assert result["pass_with_caution"] is False
     assert result["verdict"] == "Pass"
 
@@ -642,7 +635,6 @@ def test_all_excellent_is_strong_pass():
         interest_coverage_ratio=None,
     )
     assert result["score"] == 100
-    assert result["hard_fail"] is False
     assert result["verdict"] == "Strong Pass"
 
 
@@ -668,7 +660,6 @@ def test_negative_ebitda_is_a_real_fail_not_insufficient_data():
     assert "EBITDA is negative" in result["ratios"]["debt_to_ebitda"]["note"]
     assert "$-2,892,963,000" in result["ratios"]["debt_to_ebitda"]["note"]
     # No hard fail: the 0-point ratio stays IN the blend and the weights alone end it under 70.
-    assert result["hard_fail"] is False
     assert result["unrescued_breaches"] == ["debt_to_ebitda"]
     assert result["verdict"] == "Fail"
     # Default weights are 25/45/30 (Current Ratio, Debt/EBITDA, Debt Servicing).
@@ -683,7 +674,6 @@ def test_negative_ebitda_ends_below_70_through_the_weights_alone():
         current_ratio=3.0, adjusted_current_ratio=3.0, debt_to_ebitda=None, debt_servicing_pct=5.0,
         interest_coverage_ratio=None, ebitda_ttm=-1.0,
     )
-    assert result["hard_fail"] is False
     assert result["score"] == 55 and result["score"] < 70
     assert result["verdict"] == "Fail"
 
@@ -717,7 +707,6 @@ def test_dsr_excluded_for_negative_cfo_when_ebitda_positive_is_not_a_fail():
     assert result["ratios"]["debt_servicing_ratio"]["points"] == 0
     assert result["ratios"]["debt_servicing_ratio"]["note"] is not None
     assert "$-1,680,000,000" in result["ratios"]["debt_servicing_ratio"]["note"]
-    assert result["hard_fail"] is False
     assert result["unrescued_breaches"] == []
     # Only current_ratio and debt_to_ebitda count -- DSR's weight is
     # redistributed proportionally (25 : 45 -> 5/14 and 9/14), mirroring
@@ -744,7 +733,6 @@ def test_dsr_excluded_and_negative_ebitda_can_combine():
     assert result["ratios"]["debt_to_ebitda"]["label"] == "negative_ebitda"
     assert result["ratios"]["debt_servicing_ratio"]["label"] == "excluded_negative_cfo"
     assert set(result["weights"]) == {"current_ratio", "debt_to_ebitda"}
-    assert result["hard_fail"] is False
     assert result["unrescued_breaches"] == ["debt_to_ebitda"]
     assert result["score"] == 25
     assert result["verdict"] == "Fail"
@@ -778,17 +766,17 @@ def test_breach_context_gate_fails_safely_when_debt_servicing_pct_is_excluded():
 # --- REIT path -- unchanged ---
 
 
-def test_reit_hard_fail_overrides():
+def test_reit_gearing_breach_fails_on_the_score():
     result = score_step5_reit(gearing_pct=50.0)
     assert result["score"] == 0
-    assert result["hard_fail"] is True
+    assert "hard_fail" not in result
+    assert result["unrescued_breaches"] == ["gearing_ratio"]
     assert result["verdict"] == "Fail"
 
 
 def test_reit_healthy_passes():
     result = score_step5_reit(gearing_pct=25.0)
     assert result["score"] == 100
-    assert result["hard_fail"] is False
     assert result["verdict"] == "Strong Pass"
 
 
@@ -797,7 +785,6 @@ def test_reit_approaching_limit_band_passes_at_70():
     # HST, KIM, O, REG's real shape, 2026-07-31); it now scores 70, the lowest passing score. Above 45% is still the hard fail.
     result = score_step5_reit(gearing_pct=42.0)
     assert result["score"] == 70
-    assert result["hard_fail"] is False
     assert result["verdict"] == "Pass"
     assert score_step5_reit(gearing_pct=45.0)["verdict"] == "Pass"
     assert score_step5_reit(gearing_pct=45.01)["verdict"] == "Fail"
@@ -1216,7 +1203,51 @@ def test_ma_real_shape_end_to_end_is_not_rescued_but_carried_by_the_other_ratios
     )
     assert result["ratios"]["current_ratio"]["label"] == "borderline_fail"
     assert result["ratios"]["current_ratio"]["saved_by_tiebreaker"] is False
-    assert result["hard_fail"] is False
     assert result["unrescued_breaches"] == ["current_ratio"]
     assert result["score"] == 74
     assert result["verdict"] == "Pass with caution"
+
+
+# --- Bank and REIT: the verdict follows the score alone (no hard fail, 2026-10-08) ---
+# A breach scores 0, so it must land under 70; every passing tier scores 70 or more. Checked over the whole input range, and over the
+# CET1 weight band (0.31-0.69) a future adjustable Bank weight would have to stay inside.
+
+
+def _bank_blend(cet1_pct: float, npl_pct: float, cet1_weight: float) -> int:
+    return round(score_cet1(cet1_pct).points * cet1_weight + score_npl(npl_pct).points * (1 - cet1_weight))
+
+
+def test_bank_verdict_follows_the_score_over_the_whole_cet1_npl_grid():
+    for cet1 in (x / 10 for x in range(0, 301)):
+        for npl in (x / 20 for x in range(0, 301)):
+            result = score_step5_bank(cet1, npl)
+            breached = cet1 < 10.0 or npl >= 5.0
+            assert (result["verdict"] == "Fail") == (result["score"] < 70) == breached, (cet1, npl, result["score"])
+            assert bool(result["unrescued_breaches"]) == breached
+
+
+def test_reit_verdict_follows_the_score_over_the_gearing_range():
+    for gearing in (x / 10 for x in range(0, 1501)):
+        result = score_step5_reit(gearing)
+        breached = gearing > 45.0
+        assert (result["verdict"] == "Fail") == (result["score"] < 70) == breached, (gearing, result["score"])
+        assert bool(result["unrescued_breaches"]) == breached
+
+
+def test_any_cet1_weight_in_the_031_to_069_band_keeps_breach_under_70_and_limits_at_70():
+    for hundredths in range(31, 70):
+        weight = hundredths / 100
+        for cet1 in (x / 10 for x in range(0, 301)):
+            for npl in (0.0, 0.5, 2.0, 4.99, 5.0, 8.0):
+                breached = cet1 < 10.0 or npl >= 5.0
+                score = _bank_blend(cet1, npl, weight)
+                assert (score < 70) == breached, (weight, cet1, npl, score)
+        assert _bank_blend(10.0, 4.99, weight) >= 70  # both exactly at their limit still pass
+
+
+def test_cet1_weight_outside_the_band_would_let_a_breach_pass():
+    # The edges of the band are strict: at 0.30 a CET1 breach beside a perfect NPL scores 70, at 0.70 an NPL breach beside a perfect CET1 does.
+    assert _bank_blend(9.9, 0.0, 0.30) == 70
+    assert _bank_blend(20.0, 5.0, 0.70) == 70
+    assert _bank_blend(9.9, 0.0, 0.31) == 69
+    assert _bank_blend(20.0, 5.0, 0.69) == 69

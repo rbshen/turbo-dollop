@@ -38,7 +38,6 @@ function step5(overrides: Record<string, unknown> = {}): Step5Out {
     deferred_revenue_current: null,
     score: 74,
     verdict: "Pass with caution",
-    hard_fail: false,
     unrescued_breaches: ["current_ratio"],
     pass_with_caution: true,
     weights: { current_ratio: 0.25, debt_to_ebitda: 0.45, debt_servicing_ratio: 0.3 },
@@ -87,21 +86,21 @@ describe("Step5Card", () => {
     expect(document.body.textContent).not.toMatch(/33%|34%/);
   });
 
-  it("keeps the hard-fail wording for a REIT (gearing hard limit), with 'May not pass' as the display word", () => {
+  it("names a REIT gearing breach in the score-based wording (no hard fail), with 'May not pass' as the display word", () => {
     hook = {
       data: step5({
         company_type: "REIT/Property Developer",
         score: 0,
         verdict: "Fail",
-        hard_fail: true,
         pass_with_caution: false,
-        unrescued_breaches: [],
+        unrescued_breaches: ["gearing_ratio"],
         ratios: { gearing_ratio: ratio(50, "fail", 0) },
         weights: { gearing_ratio: 1 },
       }),
     };
     render(<Step5Card ticker="ABC" />);
-    expect(screen.getByText(/breached its hard limit, so this may not pass regardless of the blended score/)).toBeInTheDocument();
+    expect(screen.getByText(/Gearing Ratio is in breach and the blended score falls short of the Pass threshold \(70\), so Debt may not pass\./)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/hard limit|regardless of the blended score/);
     expect(screen.getAllByText(/May not pass/).length).toBeGreaterThan(0);
   });
 });

@@ -393,11 +393,10 @@ class Step5Out(BaseModel):
     # pass"); "Pass with caution" when the blend reached 70 but a breach was excused by its tiebreaker or is still unrescued;
     # "not_supported" for Bank; "insufficient_data" when required figures are missing.
     verdict: str
-    # Bank (CET1/NPL) and REIT (gearing) only: a ratio past its hard limit forces Fail whatever the score. Always False on the Standard
-    # path, which has had no hard fail since 2026-10-07 (docs/specs/debt.md); see `unrescued_breaches` there.
-    hard_fail: bool = False
-    # Standard path: the ratios (keys of `ratios`) in an unrescued breach zone (borderline/severe, or negative EBITDA) this period.
-    # A blend of 70 or more that contains one reads "Pass with caution".
+    # No path has a hard fail (Standard since 2026-10-07, Bank and REIT since 2026-10-08): the verdict follows the score alone
+    # (docs/specs/debt.md). The ratios (keys of `ratios`) in an unrescued breach zone this period: Standard borderline/severe or
+    # negative EBITDA (a blend of 70 or more that contains one reads "Pass with caution"); Bank cet1_ratio / npl_ratio past their
+    # limit; REIT gearing_ratio past 45% (those always score under 70, so never a caution).
     unrescued_breaches: list[str] = []
     # True whenever verdict == "Pass with caution" -- convenience flag so
     # the frontend doesn't need to string-match the verdict.

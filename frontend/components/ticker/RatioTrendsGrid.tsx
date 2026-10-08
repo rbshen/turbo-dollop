@@ -40,7 +40,7 @@ function ratioValues(data: RatiosOut, label: string): (number | null)[] {
 // this only changes which pipeline's numbers feed these preview cards.
 //
 // Current Ratio / Debt-to-EBITDA / Interest Coverage cards (2026-08-13):
-// the three ratios whose breach drives Debt's hard-fail verdict (see
+// the three ratios whose breach drags Debt's score down (see
 // CLAUDE.md). Current Ratio and Interest Coverage are read straight off
 // RatiosOut -- confirmed via real cached data (AAPL/T/SBUX/MSFT/NKE) to be
 // numerically identical to Step 5's own computation, so no backend change

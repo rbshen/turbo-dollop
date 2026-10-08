@@ -316,7 +316,7 @@ def test_step5_excluded_dsr_redistributes_proportionally():
 def test_step5_zero_weight_is_left_out_but_the_breach_is_still_named():
     result = _step5(Step5Weights(50, 50, 0), dsr=45.0)  # DSR past its Severe line, weighted 0: not in the blend, still a breach
     assert result["weights"]["debt_servicing_ratio"] == 0.0
-    assert result["hard_fail"] is False and result["unrescued_breaches"] == ["debt_servicing_ratio"]
+    assert "hard_fail" not in result and result["unrescued_breaches"] == ["debt_servicing_ratio"]
     # 100*.5 + 70*.5 = 85 reaches the Pass line; the unrescued breach makes it a caution pass, capped at 74.
     assert result["score"] == 74 and result["verdict"] == "Pass with caution"
 

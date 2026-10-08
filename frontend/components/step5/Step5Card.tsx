@@ -12,8 +12,8 @@ import type { BreachContextSignal, Step5Out, Step5RatioResult } from "@/lib/api/
 function methodology(data: Step5Out): string {
   if (data.company_type === "Bank" || data.company_type === "REIT/Property Developer") {
     return (
-      "Gearing Ratio for REITs, CET1 and NPL for Banks, each tiered against a hard limit; breaching a hard limit means " +
-      "the section may not pass regardless of the blended score."
+      "Gearing Ratio for REITs, CET1 and NPL for Banks, each tiered against its limit; 70 or more passes, below 70 may not pass. " +
+      "A ratio past its limit scores 0, which keeps the blend under 70."
     );
   }
   const shares = REASONING_ORDER.slice(0, 3)
@@ -230,16 +230,13 @@ export function Step5Card({ ticker }: Props) {
       ? "Standard debt ratios aren't meaningful for insurers -- no substitute capital-adequacy signal is currently available from FMP."
       : data.verdict === "insufficient_data"
         ? `Required balance sheet/income statement figures were unavailable for ${ticker}.`
-        : data.hard_fail
-          ? // Bank (CET1/NPL) and REIT (gearing) only: their hard fail is unchanged.
-            "At least one ratio breached its hard limit, so this may not pass regardless of the blended score."
-          : data.pass_with_caution
-            ? "The blended score reaches the Pass threshold, but see the caution note below."
-            : data.verdict === "Fail"
-              ? breaches.length > 0
-                ? `${breachNames} in breach and the blended score falls short of the Pass threshold (70), so Debt may not pass.`
-                : "No ratio is in breach, but the blended score falls short of the Pass threshold (70), so Debt may not pass."
-              : "No ratio is in breach.";
+        : data.pass_with_caution
+          ? "The blended score reaches the Pass threshold, but see the caution note below."
+          : data.verdict === "Fail"
+            ? breaches.length > 0
+              ? `${breachNames} in breach and the blended score falls short of the Pass threshold (70), so Debt may not pass.`
+              : "No ratio is in breach, but the blended score falls short of the Pass threshold (70), so Debt may not pass."
+            : "No ratio is in breach.";
 
   const notes = (
     <>

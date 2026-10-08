@@ -9,7 +9,7 @@ STRONG_PASS_SCORE = 90
 
 # Same 70 floor "Pass" starts at everywhere else in the app (CLAUDE.md).
 # A tiebreaker-saved breach is a Pass variant -- it must never promote an
-# otherwise-failing blend into "Pass with caution" (see _verdict_for).
+# otherwise-failing blend into "Pass with caution" (see _standard_verdict).
 PASS_SCORE_THRESHOLD = 70
 
 # --- Severity bands ----------------------------------------------------------
@@ -367,9 +367,9 @@ __all__ = [
 class RatioResult(NamedTuple):
     label: str
     points: int
-    # The ratio is in an unrescued breach zone (Borderline not excused, Severe, negative EBITDA). Bank and REIT ratios: a hard fail that
-    # forces the verdict. Standard ratios (since 2026-10-07): only a flag, the points already carry it and nothing forces the verdict;
-    # score_step5_standard turns it into `unrescued_breaches` and the caution flag.
+    # The ratio is in an unrescued breach zone (Borderline not excused, Severe, negative EBITDA; a Bank CET1/NPL or REIT gearing limit
+    # breach). Only a flag on every path (Standard since 2026-10-07, Bank and REIT since 2026-10-08): the points already carry it and
+    # nothing forces the verdict. The path functions turn it into `unrescued_breaches` (and, Standard only, the caution flag).
     hard_fail: bool
     # True when a Borderline breach was excused by its tiebreaker (deferred
     # revenue for Current Ratio, Interest Coverage for the other two, or the
@@ -472,7 +472,7 @@ def score_debt_servicing(value_pct: float, icr_is_safe: bool) -> RatioResult:
 def score_gearing(value_pct: float) -> RatioResult:
     """REIT / Property Developer gearing tiers. Under 45% passes: the 40-45% band scores 70, the lowest passing score (it was 60,
     which the shared 70 floor read as a Fail, so a REIT at 42% failed despite being under the limit; changed 2026-10-08,
-    docs/decisions.md). Above 45% is the hard fail; 45.0 itself stays in the 40-45% tier."""
+    docs/decisions.md). Above 45% is the breach (0 points, so under 70); 45.0 itself stays in the 40-45% tier."""
     if value_pct < 30.0:
         return RatioResult("excellent", 100, False)
     if value_pct <= 40.0:
@@ -485,7 +485,7 @@ def score_gearing(value_pct: float) -> RatioResult:
 def score_npl(value_pct: float) -> RatioResult:
     """NPL ratio tiers, mirroring Debt/EBITDA's excellent/good/acceptable/
     fail structure (both are higher-is-worse ratios). The source doc's own
-    threshold is <5% = pass, so >=5% is the hard-fail boundary; the
+    threshold is <5% = pass, so >=5% is the breach boundary (0 points); the
     sub-tiers above that are first-pass judgment calls, same status as
     Step 4's CCC thresholds (no doc-given numeric gradation exists).
     Also used, unchanged, as the NPL half of score_step5_bank's blend once
@@ -519,46 +519,15 @@ def score_cet1(value_pct: float) -> RatioResult:
 
 
 def _standard_verdict(score: int, caution: bool) -> str:
-    """The Standard/Utility verdict: a pure read of the blend (2026-10-07, no hard fail). Below 70 is "Fail" (the stored key; the Debt
-    card displays it as "May not pass"); 70 or more is "Pass with caution" when `caution` (a rescued breach, or a breach no tiebreaker
-    excused), else "Strong Pass" above 90, else "Pass"."""
+    """The verdict for every Debt path: a pure read of the score (Standard/Utility since 2026-10-07, Bank and REIT since 2026-10-08;
+    no path has a hard fail). Below 70 is "Fail" (the stored key; every surface displays it as "May not pass"); 70 or more is "Pass
+    with caution" when `caution` (Standard only: a rescued breach, or a breach no tiebreaker excused), else "Strong Pass" above 90,
+    else "Pass"."""
     if score < PASS_SCORE_THRESHOLD:
         return "Fail"
     if caution:
         return "Pass with caution"
     return "Strong Pass" if score > STRONG_PASS_SCORE else "Pass"
-
-
-def _verdict_for(score: int, hard_fail: bool, saved_by_tiebreaker: bool) -> str:
-    # REIT gearing and Bank CET1/NPL only (the Standard path uses _standard_verdict). Hard-fail overrides the blended score entirely -- mirrors the Step 2
-    # fix (CLAUDE.md's "Scoring rubric deviations"): a breached hard limit
-    # must never be diluted by averaging with healthy ratios.
-    if hard_fail:
-        return "Fail"
-    # Neither a hard fail nor a tiebreaker-saved breach, yet the blend still
-    # lands below the shared 70 Pass floor -- must not display "Pass"/"Pass
-    # with caution" text next to a Fail-range number. Checked once here,
-    # covering BOTH: a rescued breach whose blend is still too low (e.g. a
-    # saved Debt/EBITDA breach at 60pts alongside a separately weak,
-    # non-breaching DSR at 60pts, "approaching_limit", blending under 70
-    # with no hard_fail anywhere -- the rescue is redundant in that case,
-    # the ticker genuinely fails regardless), AND a plain no-breach-at-all
-    # fallback that's just mediocre (e.g. REIT gearing's own
-    # "approaching_limit" tier, 60pts, no breach involved -- previously
-    # this masked-Pass gap survived even after the first fix above, since
-    # this branch only guarded the saved_by_tiebreaker case).
-    if score < PASS_SCORE_THRESHOLD:
-        return "Fail"
-    # A Borderline breach excused by its tiebreaker is a distinct third
-    # state -- not a clean Pass (a real breach did occur), not a Fail (a
-    # tiebreaker resolved it) -- checked before the Strong Pass threshold
-    # since a saved breach should never read as a Strong Pass regardless
-    # of score.
-    if saved_by_tiebreaker:
-        return "Pass with caution"
-    if score > STRONG_PASS_SCORE:
-        return "Strong Pass"
-    return "Pass"
 
 
 def score_step5_standard(
@@ -724,8 +693,6 @@ def score_step5_standard(
     return {
         "score": score,
         "verdict": verdict,
-        # No hard fail on the Standard path since 2026-10-07 (Bank and REIT keep theirs); kept so the three paths share one shape.
-        "hard_fail": False,
         "unrescued_breaches": unrescued_breaches,
         # Derived from the actual verdict, not re-tested independently --
         # a breach alone would say True even for the below-70 Fail (see _standard_verdict).
@@ -767,12 +734,13 @@ def score_step5_standard(
 
 
 def score_step5_reit(gearing_pct: float) -> dict:
-    """Pure scoring function for Step 5's REIT/Property Developer path."""
+    """Pure scoring function for Step 5's REIT/Property Developer path. No hard fail (2026-10-08): the verdict is a pure read of the
+    score. Gearing past 45% scores 0 and so always lands under 70; every passing tier scores 70 or more."""
     g = score_gearing(gearing_pct)
     return {
         "score": g.points,
-        "verdict": _verdict_for(g.points, g.hard_fail, False),
-        "hard_fail": g.hard_fail,
+        "verdict": _standard_verdict(g.points, False),
+        "unrescued_breaches": ["gearing_ratio"] if g.hard_fail else [],
         "weights": WEIGHTS_REIT,
         "ratios": {
             "gearing_ratio": {"value": gearing_pct, "label": g.label, "points": g.points},
@@ -785,18 +753,19 @@ def score_step5_bank(cet1_pct: float, npl_pct: float) -> dict:
     entered CET1 ratio and a resolved NPL ratio (manual override or the
     live compute_npl_ratio() result -- see step5_data.py) are available.
     Blends 50/50 -- CET1 (capital adequacy) and NPL (asset quality) are
-    independent signals, neither doc-weighted over the other. Hard-fail
-    override reuses _verdict_for unchanged; saved_by_tiebreaker is always
-    False here -- no rescue mechanism exists for either ratio in v1."""
+    independent signals, neither doc-weighted over the other. No hard fail (2026-10-08): the verdict is a pure read of the score
+    and no rescue mechanism exists for either ratio. A breached ratio scores 0, so with a CET1 weight w the other ratio caps the
+    blend at 100 x (1 - w) (CET1 breached) or 100 x w (NPL breached): under 70 for every w strictly between 0.30 and 0.70, and two
+    ratios at their limit score 70. WEIGHTS_BANK is a code constant; it must stay inside that 0.31-0.69 band if it is ever made
+    adjustable (docs/specs/debt.md)."""
     cet1 = score_cet1(cet1_pct)
     npl = score_npl(npl_pct)
-    hard_fail = cet1.hard_fail or npl.hard_fail
+    unrescued_breaches = [key for key, result in (("cet1_ratio", cet1), ("npl_ratio", npl)) if result.hard_fail]
     score = round(cet1.points * WEIGHTS_BANK["cet1_ratio"] + npl.points * WEIGHTS_BANK["npl_ratio"])
-    verdict = _verdict_for(score, hard_fail, False)
     return {
         "score": score,
-        "verdict": verdict,
-        "hard_fail": hard_fail,
+        "verdict": _standard_verdict(score, False),
+        "unrescued_breaches": unrescued_breaches,
         "weights": WEIGHTS_BANK,
         "ratios": {
             "cet1_ratio": {"value": cet1_pct, "label": cet1.label, "points": cet1.points},

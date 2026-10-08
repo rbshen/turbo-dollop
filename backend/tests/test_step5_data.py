@@ -191,7 +191,6 @@ def test_uses_quarterly_balance_sheet_not_annual(monkeypatch):
     # (which would hard-fail).
     assert result.ratios["current_ratio"].value == 1.25
     assert result.ratios["current_ratio"].label == "acceptable"
-    assert result.hard_fail is False
 
 
 def test_ebitda_and_net_interest_expense_are_ttm_summed(monkeypatch):
@@ -277,7 +276,6 @@ def test_borderline_debt_to_ebitda_saved_by_icr_reads_pass_with_caution_end_to_e
     assert result.ratios["interest_coverage_ratio"].label == "safe"
     assert result.pass_with_caution is True
     assert result.verdict == "Pass with caution"
-    assert result.hard_fail is False
 
 
 # A raw Current Ratio below 1.0, resolved to >=1.0 once deferred revenue is
@@ -316,7 +314,6 @@ def test_current_ratio_rescued_by_deferred_revenue_reads_pass_with_caution_end_t
     assert result.ratios["current_ratio"].saved_by_tiebreaker is True
     assert result.pass_with_caution is True
     assert result.verdict == "Pass with caution"
-    assert result.hard_fail is False
 
 
 def test_insufficient_data_when_fewer_than_four_quarters_available(monkeypatch):
@@ -355,7 +352,6 @@ def test_negative_ebitda_end_to_end_is_a_real_fail_not_insufficient_data(monkeyp
 
     # No hard fail on the Standard path: the 0-point ratio stays in the blend and the weights alone end it under 70.
     assert result.verdict == "Fail"
-    assert result.hard_fail is False
     assert result.unrescued_breaches == ["debt_to_ebitda"]
     assert result.score is not None and result.score < 70
     assert result.ratios["debt_to_ebitda"].label == "negative_ebitda"
@@ -391,7 +387,6 @@ def test_dsr_excluded_end_to_end_when_ebitda_positive_but_cfo_negative(monkeypat
     # DSR's weight is gone, not just zeroed -- only current_ratio and
     # debt_to_ebitda remain, redistributed in proportion (25 : 45).
     assert result.weights == pytest.approx({"current_ratio": 25 / 70, "debt_to_ebitda": 45 / 70})
-    assert result.hard_fail is False
 
 
 def test_bank_overall_verdict_stays_not_supported_regardless_of_npl(monkeypatch):
@@ -440,7 +435,6 @@ def test_insurance_stays_not_supported_despite_severe_current_ratio_breach(monke
     assert result.verdict == "not_supported"
     assert result.score is None
     assert result.ratios == {}
-    assert result.hard_fail is False
 
 
 def test_bank_npl_ratio_computed_when_tags_present_and_plausible(monkeypatch):
@@ -636,7 +630,7 @@ def test_bank_manual_npl_override_takes_precedence_over_auto(monkeypatch):
     assert result.ratios["npl_ratio"].label == "excellent"
 
 
-def test_bank_hard_fail_cet1_forces_fail_despite_great_npl(monkeypatch):
+def test_bank_cet1_breach_fails_on_the_score_despite_great_npl(monkeypatch):
     _fresh_engine(monkeypatch)
     _patch_fmp(
         monkeypatch,
@@ -648,7 +642,8 @@ def test_bank_hard_fail_cet1_forces_fail_despite_great_npl(monkeypatch):
 
     result = asyncio.run(get_step5_data("jpm"))
 
-    assert result.hard_fail is True
+    assert result.score < 70
+    assert result.unrescued_breaches == ["cet1_ratio"]
     assert result.verdict == "Fail"
 
 
