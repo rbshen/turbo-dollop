@@ -82,12 +82,13 @@ export function AnalysisSectionCard({ title, score, verdict, verdictText, blurb,
       <Collapsible className="relative">
         <div className="flex items-start justify-between gap-4">
           {/* Fixed width, not content-sized -- verdict text length varies
-              a lot ("May not pass"/Pass/Strong pass vs. "Pass with
-              caution"), and without a fixed column the title/blurb next
+              a lot ("May not pass"/Pass/Strong pass vs. "Pass, ratio
+              in breach"), and without a fixed column the title/blurb next
               to it would shift card to card. Widest real case is a "74"
-              (Pass with caution is capped at 74, see CLAUDE.md's
-              PASS_WITH_CAUTION_SCORE_CAP) beside a "Pass with caution"
-              pill, ~160px; w-52 (208px) leaves headroom over that. */}
+              (a Debt pass with a ratio in breach is capped at 74, see
+              CLAUDE.md's PASS_WITH_CAUTION_SCORE_CAP) beside a "Pass,
+              ratio in breach" pill, ~170px; w-52 (208px) leaves headroom
+              over that. */}
           {score != null && (
             <div className="flex w-52 shrink-0 items-center gap-2">
               <span className="font-mono text-sm tabular-nums text-text-primary">{score}</span>

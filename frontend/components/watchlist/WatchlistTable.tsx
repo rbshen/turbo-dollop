@@ -88,9 +88,11 @@ export function overallCellTitle(row: WatchlistRowOut): string | undefined {
   if (row.overall_verdict === "Pass with caution") {
     const cautioned = cautionStepLabels(row);
     const weak = weakStepLabels(row);
-    if (cautioned.length > 0) parts.push(`Passed with caution: ${joinNatural(cautioned)}`);
-    if (weak.length > 0) parts.push(`${joinNatural(weak)} ${FAIL_DISPLAY_LABEL.toLowerCase()}`);
-    if (cautioned.length === 0 && weak.length === 0) parts.push("Passed with caution");
+    // The cause of each, in plain words: a Debt "Pass, ratio in breach" (the step's own caution) vs. a step under 70 ("may not pass").
+    const causes: string[] = [];
+    if (cautioned.length > 0) causes.push(`${joinNatural(cautioned)} passed with a ratio in breach`);
+    if (weak.length > 0) causes.push(`${joinNatural(weak)} ${FAIL_DISPLAY_LABEL.toLowerCase()} (under 70)`);
+    parts.push(causes.length > 0 ? `Pass with caution, because ${causes.join(" and ")}` : "Pass with caution");
   }
   if (row.moat == null && row.overall_score != null) parts.push(MOAT_NOT_RATED_NOTE);
   return parts.length > 0 ? parts.join(". ") : undefined;

@@ -251,16 +251,16 @@ describe("WatchlistTable: Pass with caution tooltip names its reason", () => {
   const caution = (overrides: Partial<WatchlistRowOut>): WatchlistRowOut => ({ ...ROWS[0], overall_verdict: "Pass with caution", overall_score: 80, ...overrides });
 
   it("names the weak step when a step is below the pass line", () => {
-    expect(overallCellTitle(caution({ step4_score: 60, step4_verdict: "Fail" }))).toBe("Profitability may not pass");
+    expect(overallCellTitle(caution({ step4_score: 60, step4_verdict: "Fail" }))).toBe("Pass with caution, because Profitability may not pass (under 70)");
   });
 
   it("names several weak steps, and a weak step is read from the score as well as a stored Fail", () => {
-    expect(overallCellTitle(caution({ step1_score: 65, step1_verdict: "Fail", step5_score: 55, step5_verdict: "Fail" }))).toBe("Financials and Debt may not pass");
+    expect(overallCellTitle(caution({ step1_score: 65, step1_verdict: "Fail", step5_score: 55, step5_verdict: "Fail" }))).toBe("Pass with caution, because Financials and Debt may not pass (under 70)");
   });
 
   it("names both reasons when a Debt caution and a weak step apply together", () => {
     expect(overallCellTitle(caution({ step5_score: 74, step5_verdict: "Pass with caution", step2_score: 50, step2_verdict: "Fail" }))).toBe(
-      "Passed with caution: Debt. Growth Rate may not pass",
+      "Pass with caution, because Debt passed with a ratio in breach and Growth Rate may not pass (under 70)",
     );
   });
 
@@ -274,12 +274,12 @@ describe("WatchlistTable: Pass with caution tooltip names its reason", () => {
           step5_score: 74, step5_verdict: "Pass with caution",
         }),
       ),
-    ).toBe("Passed with caution: Debt. Financials, Growth Rate and Profitability may not pass");
+    ).toBe("Pass with caution, because Debt passed with a ratio in breach and Financials, Growth Rate and Profitability may not pass (under 70)");
   });
 
   it("keeps the Debt-only text for a step caution alone, and ignores a missing (exempt) score", () => {
-    expect(overallCellTitle(caution({ step5_score: 74, step5_verdict: "Pass with caution" }))).toBe("Passed with caution: Debt");
-    expect(overallCellTitle(caution({ step5_score: null, step5_verdict: "not_supported" }))).toBe("Passed with caution");
+    expect(overallCellTitle(caution({ step5_score: 74, step5_verdict: "Pass with caution" }))).toBe("Pass with caution, because Debt passed with a ratio in breach");
+    expect(overallCellTitle(caution({ step5_score: null, step5_verdict: "not_supported" }))).toBe("Pass with caution");
   });
 
   it("adds nothing to a plain Pass or a Fail", () => {
@@ -404,7 +404,7 @@ describe("WatchlistTable: Analysis cell", () => {
     expect(analysisCell("HCA")).toHaveTextContent("71");
     expect(analysisCell("HCA").children).toHaveLength(1);
     expect(analysisCell("GE")).toHaveTextContent("73 ⚠");
-    expect(analysisCell("GE").querySelector("span[title^='Passed with caution']")).not.toBeNull();
+    expect(analysisCell("GE").querySelector("span[title^='Pass with caution']")).not.toBeNull();
   });
 
   it("an ETF row shows the ETF marker", () => {

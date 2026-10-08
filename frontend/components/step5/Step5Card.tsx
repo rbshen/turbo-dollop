@@ -6,6 +6,7 @@ import { AnalysisSectionCard, type ReasoningBullet, weightScoreSuffix } from "@/
 import { BankCapitalMetricsForm } from "@/components/step5/BankCapitalMetricsForm";
 import { useStep5 } from "@/lib/hooks/useStep5";
 import { fmtNumber, fmtPct, fmtTableMoney } from "@/lib/format";
+import { DEBT_CAUTION_DISPLAY_LABEL, debtVerdictDisplay } from "@/lib/tierColor";
 import type { BreachContextSignal, Step5Out, Step5RatioResult } from "@/lib/api/types";
 
 // The weights are the saved ones (data.weights), so the line follows Settings > Score weighting.
@@ -23,7 +24,7 @@ function methodology(data: Step5Out): string {
   return (
     `A weighted blend of ${shares || "Current Ratio, Debt/EBITDA and Debt Servicing Ratio"}, each tiered against its limit; ` +
     "70 or more passes, below 70 may not pass. A ratio in breach scores 0 (or close to it) instead of failing the section on its own, " +
-    "and a pass that still contains an unrescued breach reads Pass with caution."
+    "and a pass that still contains a ratio in breach reads Pass, ratio in breach."
   );
 }
 
@@ -231,7 +232,7 @@ export function Step5Card({ ticker }: Props) {
       : data.verdict === "insufficient_data"
         ? `Required balance sheet/income statement figures were unavailable for ${ticker}.`
         : data.pass_with_caution
-          ? "The blended score reaches the Pass threshold, but see the caution note below."
+          ? "The blended score reaches the Pass threshold, but a ratio is in breach; see the note below."
           : data.verdict === "Fail"
             ? breaches.length > 0
               ? `${breachNames} in breach and the blended score falls short of the Pass threshold (70), so Debt may not pass.`
@@ -268,7 +269,9 @@ export function Step5Card({ ticker }: Props) {
         </p>
       )}
       {!isBank && !isInsurance && data.pass_with_caution && (
-        <p className="text-sm text-caution">Pass with caution: {cautionSummary(data, breaches)}.</p>
+        <p className="text-sm text-caution">
+          {DEBT_CAUTION_DISPLAY_LABEL}: {cautionSummary(data, breaches)}.
+        </p>
       )}
     </>
   );
@@ -279,6 +282,7 @@ export function Step5Card({ ticker }: Props) {
         title="Debt"
         score={data.score}
         verdict={data.verdict}
+        verdictText={debtVerdictDisplay(data.verdict)}
         blurb={blurb}
         methodology={methodology(data)}
         notes={notes}

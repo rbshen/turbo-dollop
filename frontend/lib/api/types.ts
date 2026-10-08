@@ -420,13 +420,14 @@ export interface Step5Out {
   score: number | null;
   // "Fail" / "Pass" / "Strong Pass" / "Pass with caution" for scored
   // tickers ("Fail" is the stored key for a blend under 70; the Debt card
-  // DISPLAYS it as "May not pass" -- see debtVerdictLabel in lib/tierColor.ts);
+  // DISPLAYS it as "May not pass", and the stored "Pass with caution" as
+  // "Pass, ratio in breach" -- see debtVerdictDisplay in lib/tierColor.ts);
   // "not_supported" for Bank; "insufficient_data" when required figures
   // are missing.
   verdict: string;
   // No Debt path has a hard fail: the verdict follows the score alone.
   // Keys of `ratios` in an unrescued breach this period. Standard: a blend
-  // of 70 or more that holds one reads "Pass with caution". Bank (cet1_ratio,
+  // of 70 or more that holds one is stored "Pass with caution" (drawn "Pass, ratio in breach"). Bank (cet1_ratio,
   // npl_ratio) and REIT (gearing_ratio): a breach always scores under 70.
   unrescued_breaches: string[];
   // True whenever verdict === "Pass with caution".

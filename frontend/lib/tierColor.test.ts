@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { pillLabel, toneFor, toneForNullable, verdictDisplay, verdictLabel } from "@/lib/tierColor";
+import { debtVerdictDisplay, pillLabel, toneFor, toneForNullable, verdictDisplay, verdictLabel } from "@/lib/tierColor";
 
 describe("pillLabel", () => {
   it.each([
@@ -78,5 +78,18 @@ describe("verdictDisplay", () => {
     expect(verdictDisplay(stored)).not.toBe(stored);
     expect(toneFor(48, stored)).toBe("not-pass");
     expect(toneForNullable(48, stored)).toBe("not-pass");
+  });
+});
+
+describe("debtVerdictDisplay", () => {
+  it("draws the Debt step's stored Pass with caution as 'Pass, ratio in breach' and leaves every other verdict as verdictDisplay does", () => {
+    expect(debtVerdictDisplay("Pass with caution")).toBe("Pass, ratio in breach");
+    for (const verdict of ["Fail", "Pass", "Strong Pass", "insufficient_data"]) expect(debtVerdictDisplay(verdict)).toBe(verdictDisplay(verdict));
+  });
+
+  it("is display only: the Overall verdict word and the amber tone are unchanged", () => {
+    expect(verdictDisplay("Pass with caution")).toBe("Pass with caution");
+    expect(verdictLabel("Pass with caution")).toBe("Pass with caution");
+    expect(toneFor(74, "Pass with caution")).toBe("caution");
   });
 });

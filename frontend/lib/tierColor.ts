@@ -6,6 +6,7 @@
 //    via Status/Verdict/Badge.
 //  - pillLabel: the sentence-case display wording for any pill label.
 //  - verdictDisplay / verdictLabel: the display wording of a verdict ("Fail" reads "May not pass").
+//  - debtVerdictDisplay: the same for the Debt step, whose own "Pass with caution" reads "Pass, ratio in breach".
 
 import type { StatusTone } from "@/components/ui/status";
 
@@ -61,6 +62,16 @@ export const FAIL_DISPLAY_LABEL = "May not pass";
 // Display wording for any verdict: "Fail" reads "May not pass", everything else is pillLabel'd. Use wherever a verdict word is drawn.
 export function verdictDisplay(verdict: string): string {
   return verdict === "Fail" ? FAIL_DISPLAY_LABEL : pillLabel(verdict);
+}
+
+// The Debt step's own "Pass with caution" (stored key unchanged; Debt blend of 70+ that holds a ratio in breach, score capped at 74) is
+// DRAWN "Pass, ratio in breach" (2026-10-08), so that "Pass with caution" means one thing only: the Overall verdict. Display only: the
+// stored/API value, toneFor ("caution", amber) and every comparison still run on the raw "Pass with caution". Use for a Debt verdict only.
+export const DEBT_CAUTION_DISPLAY_LABEL = "Pass, ratio in breach";
+
+// Display wording for the Debt step's verdict: its caution reads DEBT_CAUTION_DISPLAY_LABEL, every other verdict goes through verdictDisplay.
+export function debtVerdictDisplay(verdict: string): string {
+  return verdict === "Pass with caution" ? DEBT_CAUTION_DISPLAY_LABEL : verdictDisplay(verdict);
 }
 
 // Display wording for an Overall verdict (the old "moat_not_rated" key was retired 2026-10-07: an unrated ticker reads its verdict from

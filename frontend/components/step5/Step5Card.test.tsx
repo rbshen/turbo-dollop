@@ -51,8 +51,10 @@ describe("Step5Card", () => {
   it("names the unrescued breached ratio in the caution note and the blurb", () => {
     hook = { data: step5() };
     render(<Step5Card ticker="ABC" />);
-    expect(screen.getByText("Pass with caution")).toBeInTheDocument();
-    expect(screen.getByText(/Pass with caution: Current Ratio \(Borderline — may not pass, 0\/100\) is in breach and not excused/)).toBeInTheDocument();
+    // The Debt step's own caution is drawn "Pass, ratio in breach"; "Pass with caution" is the Overall verdict's word only.
+    expect(screen.getByText("Pass, ratio in breach")).toBeInTheDocument();
+    expect(screen.queryByText(/Pass with caution/)).toBeNull();
+    expect(screen.getByText(/Pass, ratio in breach: Current Ratio \(Borderline — may not pass, 0\/100\) is in breach and not excused/)).toBeInTheDocument();
     expect(screen.getByText(/other ratios carry the blend to 74/)).toBeInTheDocument();
   });
 

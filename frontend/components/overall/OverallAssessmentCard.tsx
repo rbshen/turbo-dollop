@@ -236,9 +236,9 @@ export function OverallAssessmentView({
             <p className="text-sm text-caution" data-testid="weak-step-caution-note">
               <Warning size={16} weight="bold" aria-hidden="true" className="-mt-0.5 mr-1.5 inline" />
               <span className="sr-only">Warning: </span>
-              Passed with caution: {joinNatural(result.weakSteps)} {FAIL_DISPLAY_LABEL.toLowerCase()} — the overall score is 70 or
+              Pass with caution, because {joinNatural(result.weakSteps)} {FAIL_DISPLAY_LABEL.toLowerCase()} — the overall score is 70 or
               more because the other steps carry it, but {result.weakSteps.length > 1 ? "these steps are" : "this step is"} under
-              the pass line. Worth reviewing directly.
+              70. Worth reviewing directly.
             </p>
           )}
 
@@ -246,9 +246,11 @@ export function OverallAssessmentView({
             <p className="text-sm text-caution" data-testid="tiebreaker-caution-note">
               <Warning size={16} weight="bold" aria-hidden="true" className="-mt-0.5 mr-1.5 inline" />
               <span className="sr-only">Warning: </span>
-              Passed with caution: {joinNatural(result.cautionSteps)} — a real breach was excused by its tiebreaker (or, for
-              Debt, is still unrescued but outweighed by the other ratios), reflected in the weighted score above, but
-              worth reviewing directly.
+              {result.verdict === "Pass with caution" && result.cautionReasons.includes("step_caution")
+                ? `Pass with caution, because ${joinNatural(result.cautionSteps)} passed`
+                : `${joinNatural(result.cautionSteps)} passed`}{" "}
+              with a ratio in breach — the breach was excused by its tiebreaker (or, for Debt, is still unrescued but
+              outweighed by the other ratios), reflected in the weighted score above, but worth reviewing directly.
             </p>
           )}
         </>

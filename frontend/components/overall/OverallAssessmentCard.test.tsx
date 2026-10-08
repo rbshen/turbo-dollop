@@ -43,7 +43,7 @@ describe("OverallAssessmentView: the failing and caution notes", () => {
   it("names the pass-with-caution steps in a caution-toned note", () => {
     render(<OverallAssessmentView result={result({ verdict: "Pass with caution", cautionSteps: ["Debt"], cautionReasons: ["step_caution"] })} />);
     const note = screen.getByTestId("tiebreaker-caution-note");
-    expect(note).toHaveTextContent(/^Warning: Passed with caution: Debt — a real breach was excused by its tiebreaker/);
+    expect(note).toHaveTextContent(/^Warning: Pass with caution, because Debt passed with a ratio in breach — the breach was excused by its tiebreaker/);
     expect(note).toHaveClass("text-caution");
     expect(screen.queryByTestId("failing-steps-note")).toBeNull();
     expect(screen.queryByTestId("weak-step-caution-note")).toBeNull();
@@ -56,13 +56,13 @@ describe("OverallAssessmentView: the failing and caution notes", () => {
       />,
     );
     const note = screen.getByTestId("weak-step-caution-note");
-    expect(note).toHaveTextContent(/Passed with caution: Profitability may not pass — the overall score is 70 or more/);
+    expect(note).toHaveTextContent(/Pass with caution, because Profitability may not pass — the overall score is 70 or more/);
     expect(note).toHaveClass("text-caution");
     // The grey failing-steps line would only repeat the amber one, so it is hidden on a Pass with caution.
     expect(screen.queryByTestId("failing-steps-note")).toBeNull();
     expect(screen.queryByText(/reflected in the weighted score above/)).toBeNull();
     // None of the Step 5 tiebreaker wording appears for this reason alone.
-    expect(screen.queryByText(/a real breach was excused/)).toBeNull();
+    expect(screen.queryByText(/the breach was excused/)).toBeNull();
   });
 
   it("shows both notes when a step caution and a weak step both apply", () => {
@@ -77,8 +77,8 @@ describe("OverallAssessmentView: the failing and caution notes", () => {
         })}
       />,
     );
-    expect(screen.getByTestId("tiebreaker-caution-note")).toHaveTextContent(/Passed with caution: Debt — a real breach was excused/);
-    expect(screen.getByTestId("weak-step-caution-note")).toHaveTextContent(/Financials and Profitability may not pass.*these steps are under the pass line/);
+    expect(screen.getByTestId("tiebreaker-caution-note")).toHaveTextContent(/Pass with caution, because Debt passed with a ratio in breach — the breach was excused/);
+    expect(screen.getByTestId("weak-step-caution-note")).toHaveTextContent(/Financials and Profitability may not pass.*these steps are under 70/);
     expect(screen.queryByTestId("failing-steps-note")).toBeNull();
   });
 
@@ -89,7 +89,7 @@ describe("OverallAssessmentView: the failing and caution notes", () => {
     expect(screen.queryByTestId("tiebreaker-caution-note")).toBeNull();
   });
 
-  it("starts both amber lines with 'Passed with caution:' and joins several steps naturally", () => {
+  it("starts both amber lines with 'Pass with caution, because' and joins several steps naturally", () => {
     render(
       <OverallAssessmentView
         result={result({
@@ -100,8 +100,8 @@ describe("OverallAssessmentView: the failing and caution notes", () => {
         })}
       />,
     );
-    expect(screen.getByTestId("tiebreaker-caution-note")).toHaveTextContent(/^Warning: Passed with caution: Debt and Growth Rate — /);
-    expect(screen.getByTestId("weak-step-caution-note")).toHaveTextContent(/^Warning: Passed with caution: Financials, Growth Rate and Profitability may not pass — /);
+    expect(screen.getByTestId("tiebreaker-caution-note")).toHaveTextContent(/^Warning: Pass with caution, because Debt and Growth Rate passed with a ratio in breach — /);
+    expect(screen.getByTestId("weak-step-caution-note")).toHaveTextContent(/^Warning: Pass with caution, because Financials, Growth Rate and Profitability may not pass — /);
   });
 
   it("shows no weak-step note unless the verdict came from one", () => {
@@ -114,7 +114,7 @@ describe("OverallAssessmentView: the failing and caution notes", () => {
       <OverallAssessmentView result={result({ verdict: "Fail", score: 60, failingSteps: ["Debt"], cautionSteps: ["Growth Rate"] })} />,
     );
     expect(container.textContent).not.toMatch(/[\u26A0\uFE0F]/);
-    const notes = [screen.getByText(/Debt may not pass/), screen.getByText(/Passed with caution: Growth Rate/)];
+    const notes = [screen.getByText(/Debt may not pass/), screen.getByText(/Growth Rate passed with a ratio in breach/)];
     for (const note of notes) {
       expect(note.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
       expect(note.querySelector(".sr-only")).toHaveTextContent("Warning:");
@@ -286,7 +286,7 @@ describe("OverallAssessmentView: the collapsible calculation", () => {
     render(<OverallAssessmentView result={result({ ...props, verdict: "Fail", score: 60, failingSteps: ["Debt"], cautionSteps: ["Growth Rate"] })} />);
     for (let pass = 0; pass < 2; pass++) {
       expect(screen.getByText(/Debt may not pass — reflected/)).toBeInTheDocument();
-      expect(screen.getByText(/Passed with caution: Growth Rate/)).toBeInTheDocument();
+      expect(screen.getByText(/Growth Rate passed with a ratio in breach/)).toBeInTheDocument();
       expect(screen.getByTestId("calculation")).not.toContainElement(screen.getByText(/Debt may not pass — reflected/));
       fireEvent.click(screen.getAllByRole("button", { name: /calculation/ })[0]);
     }
