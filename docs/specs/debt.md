@@ -26,7 +26,8 @@ Settings exist to guarantee exactly that (see "Weights and bounds" below).
 
 **70 or more passes; below 70 reads "May not pass"** on every Debt surface. That wording is display
 only: the stored verdict key is still `Fail` (Overall, the Review gate, the Screener and the Watchlist
-read it unchanged), and the other steps and the Overall verdict still say Fail.
+read it unchanged). Since 2026-10-08 every other step and the Overall verdict display their stored `Fail` as "May not pass" too
+(`verdictDisplay` in `frontend/lib/tierColor.ts`).
 
 ## Borderline breaches get a second look
 
@@ -263,7 +264,7 @@ Comfortable-zone tier (up to 100), unlike the ICR rescue on Debt/EBITDA and DSR,
 rescued Current Ratio could blend to 95-100 despite a real breach (ADBE at 95 and AMP at 100 were
 the real cases). The verdict text already couldn't say "Strong Pass" for a saved breach, but a
 95-100 *number* beside an amber "caution" badge still read as contradictory. 74 is the top of
-the lowest-shade "Pass" bucket the shared badge uses (70-74, `frontend/lib/tierColor.ts`), so a
+the 70-74 band (the same shade as any plain Pass since 2026-10-08; only the "caution" amber singles it out), so a
 caution ticker reads as barely passing.
 
 **Verdict**, in order (`_standard_verdict`):

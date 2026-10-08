@@ -168,7 +168,7 @@ displays its real sub-70 score.
 Why the floor exists: because the verdict is not gated on the blended score, a weak-but-positive
 projection (a "weak" 40-point magnitude tier with a "tight" 100-point agreement tier blends to
 `40×0.70 + 100×0.30 = 58`) would otherwise show a Fail-range number next to "Pass" text — and be
-colored amber by the shared color system (`frontend/lib/tierColor.ts`), which has no visibility
+coloured by the shared color system (amber then; since 2026-10-08 a plain 70-74 Pass is green) (`frontend/lib/tierColor.ts`), which has no visibility
 into Growth Rate's different verdict semantics.
 
 ### Verdict

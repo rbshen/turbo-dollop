@@ -313,9 +313,9 @@ The verdict is purely these bands applied to the final blended score (`_verdict_
 component scores cannot interact with a hidden floor (the one exception is the thin-history cap above, which only ever holds a score at 90). Growth Rate uses the same bands, but its
 Fail is gated on the sign of projected growth instead (see [Growth Rate](growth-rate.md)).
 
-**Badge shading.** The score badge splits the 70–90 "Pass" band into two color shades without a
-text distinction: 70–74 amber (`warn` tone), 75–90 green (`positive`); 91+ is a deeper green
-(`positive-strong`), and Fail / "Pass with caution" override the score tiers. The tiering is
+**Badge shading.** The score badge draws the 70–90 "Pass" band in one green (`positive`; the 70–74 band was amber until
+2026-10-08); 91+ is a deeper green (`positive-strong`), and Fail (displayed "May not pass", quiet red
+`negative-soft`) / "Pass with caution" (amber) override the score tiers. The tiering is
 shared by every step's badge and chip via `frontend/lib/tierColor.ts` (`toneFor`, `classFor`),
 so color can't be chosen from verdict text alone.
 

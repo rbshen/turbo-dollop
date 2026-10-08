@@ -5,7 +5,9 @@ Assessment they roll up into) reports a verdict using a shared set of labels. Th
 what each one means in plain terms; the individual check pages link back here rather than
 re-explaining it each time.
 
-## Fail
+## Fail ("May not pass")
+
+Fathom stores this verdict as `Fail` but **displays it as "May not pass"** on every surface (2026-10-08), in a quieter red than "No moat" or "Overvalued"; the rest of this page and the check pages use the stored word Fail.
 
 The check found a genuine, meaningful weakness — not just "not the best," but falling short of
 what the check considers a healthy result. Most checks treat certain conditions as an automatic
@@ -14,7 +16,7 @@ projected growth, and a Bank's Debt check fails if a capital ratio breaches its 
 being that a single serious red flag shouldn't get averaged away by strength elsewhere. Debt for
 ordinary companies has no automatic fail since 2026-10-07: a breach scores near zero and the
 weights, which put the most weight on Debt/EBITDA, keep it below 70. Debt shows that result as
-**"May not pass"** (the stored verdict is still Fail); see [Debt](debt.md).
+"May not pass" like every other check; see [Debt](debt.md).
 
 Growth Rate is a deliberate exception: it only fails when analysts project the company will
 actually shrink. See [Growth Rate](growth-rate.md) for why.

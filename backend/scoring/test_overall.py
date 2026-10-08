@@ -387,3 +387,14 @@ def test_a_non_default_weight_set_changes_the_steps_score_not_the_multiplier():
     result = compute_overall_assessment(steps, moat="wide_moat", weights=OverallWeights(10, 5, 5, 80))
     assert result.steps_score == pytest.approx(0.10 * 90 + 0.05 * 80 + 0.05 * 70 + 0.80 * 60)
     assert result.moat_multiplier == 1.0
+
+
+def test_the_stored_verdict_key_is_still_fail_below_70_display_wording_is_frontend_only():
+    """2026-10-08: "Fail" is displayed as "May not pass" by the frontend (verdictDisplay); every stored/API verdict key stays "Fail"."""
+    steps = [snapshot("step1", "Step 1", 48, "Fail"), *BASE[1:]]
+    result = compute_overall_assessment(steps, moat="wide_moat")
+    assert snapshot("step1", "Step 1", 48, "Fail").verdict == "Fail"
+    assert result.failing_steps == ["Step 1"]
+    low = compute_overall_assessment([snapshot(k, k, 48, "Fail") for k in ("step1", "step2", "step4", "step5")], moat="wide_moat")
+    assert low.verdict == "Fail"
+    assert "May not pass" not in repr(low)
