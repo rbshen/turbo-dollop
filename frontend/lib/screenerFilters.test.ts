@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { ReviewReason, TickerScoreOut } from "@/lib/api/types";
+import type { TickerScoreOut } from "@/lib/api/types";
 import { checkNumber } from "@/lib/numberInput";
 import {
   DEFAULT_FILTER_STATE,
   FUNDAMENTAL_FILTER_KEYS,
   MOAT_FILTER_OPTIONS,
-  REVIEW_STATUS_FILTER_OPTIONS,
   TECHNICAL_FILTER_KEYS,
   WARREN_SIGNAL_KIND_FILTER_OPTIONS,
   countActiveFilters,
@@ -705,119 +704,11 @@ describe("sentence-case option labels (display only)", () => {
   });
 });
 
-describe("Review status filter", () => {
-  const reason = (step: "step1" | "step5" = "step5"): ReviewReason => ({
-    step,
-    score: 43,
-    verdict: "Fail",
-    hint: "unclear",
-    raw_hint: "unclear",
-    guarded: false,
-    rule: "not_covered",
-    evidence: "evidence",
-  });
-  const reviewed = (ticker: string, status: string | null, extra: Partial<TickerScoreOut> = {}) =>
-    row({
-      ticker,
-      review_status: status as TickerScoreOut["review_status"],
-      review_reasons: status ? [reason()] : null,
-      conviction: status ? "high" : null,
-      ...extra,
-    });
-  const rows = [
-    reviewed("STRUCT", "review_structural"),
-    reviewed("UNCLEAR", "review_unclear"),
-    reviewed("DESIGN", "review_by_design"),
-    reviewed("UNSURE", "data_uncertain"),
-    reviewed("PLAIN", null),
-    row({ ticker: "OLD" }), // a payload that predates the fields
-  ];
-  const run = (reviewStatuses: string[], extra: Partial<ScreenerFilterState> = {}) =>
-    filterTickerScores(rows, { ...DEFAULT_FILTER_STATE, reviewStatuses, ...extra }).map((r) => r.ticker);
-
-  it("offers the four statuses, in the spec's order, with the shared labels and stable keys", () => {
-    expect(REVIEW_STATUS_FILTER_OPTIONS).toEqual([
-      { value: "review_structural", label: "Review (structural)" },
-      { value: "review_unclear", label: "Review (unclear)" },
-      { value: "review_by_design", label: "Review (by design)" },
-      { value: "data_uncertain", label: "Data uncertain" },
-    ]);
-  });
-
-  it("is empty by default and an empty selection filters nothing (rows with no status stay)", () => {
-    expect(DEFAULT_FILTER_STATE.reviewStatuses).toEqual([]);
-    expect(run([])).toEqual(["STRUCT", "UNCLEAR", "DESIGN", "UNSURE", "PLAIN", "OLD"]);
-  });
-
-  it.each([
-    ["review_structural", ["STRUCT"]],
-    ["review_unclear", ["UNCLEAR"]],
-    ["review_by_design", ["DESIGN"]],
-    ["data_uncertain", ["UNSURE"]],
-  ])("%s alone keeps only that status", (status, expected) => {
-    expect(run([status])).toEqual(expected);
-  });
-
-  it("combines options with OR", () => {
-    expect(run(["review_unclear", "data_uncertain"])).toEqual(["UNCLEAR", "UNSURE"]);
-    expect(run(["review_structural", "review_unclear", "review_by_design", "data_uncertain"])).toEqual([
-      "STRUCT",
-      "UNCLEAR",
-      "DESIGN",
-      "UNSURE",
-    ]);
-  });
-
-  it("excludes rows with no status (and with a status but no reasons) once active", () => {
-    expect(run(["review_unclear"])).not.toContain("PLAIN");
-    expect(run(["review_unclear"])).not.toContain("OLD");
-    const noReasons = [row({ ticker: "BARE", review_status: "review_unclear", review_reasons: [] })];
-    expect(filterTickerScores(noReasons, { ...DEFAULT_FILTER_STATE, reviewStatuses: ["review_unclear"] })).toEqual([]);
-  });
-
-  it("ANDs with the other filters", () => {
-    const mixed = [
-      reviewed("A", "review_unclear", { overall_score: 80, sector: "Energy" }),
-      reviewed("B", "review_unclear", { overall_score: 60, sector: "Energy" }),
-      reviewed("C", "data_uncertain", { overall_score: 80, sector: "Energy" }),
-      reviewed("D", "review_unclear", { overall_score: 80, sector: "Technology" }),
-    ];
-    const state = {
-      ...DEFAULT_FILTER_STATE,
-      reviewStatuses: ["review_unclear"],
-      overallScore: { min: 70, max: null },
-      sectors: ["Energy"],
-    };
-    expect(filterTickerScores(mixed, state).map((r) => r.ticker)).toEqual(["A"]);
-  });
-
-  it("never changes a row's score or verdict, or the order sortTickerScores gives (still overall_score)", () => {
-    const kept = filterTickerScores(
-      [reviewed("LOW", "review_unclear", { overall_score: 71 }), reviewed("HIGH", "review_unclear", { overall_score: 85 })],
-      { ...DEFAULT_FILTER_STATE, reviewStatuses: ["review_unclear"] },
-    );
-    expect(kept.map((r) => [r.overall_score, r.overall_verdict])).toEqual([
-      [71, "Pass"],
-      [85, "Pass"],
-    ]);
-    expect(sortTickerScores(kept, "overall_score", "desc").map((r) => r.ticker)).toEqual(["HIGH", "LOW"]);
-  });
-
-  it("counts as one active filter in the Fundamental section only", () => {
-    const state = { ...DEFAULT_FILTER_STATE, reviewStatuses: ["review_unclear", "data_uncertain"] };
-    expect(countActiveFilters(state, false, FUNDAMENTAL_FILTER_KEYS)).toBe(1);
-    expect(countActiveFilters(state, false, TECHNICAL_FILTER_KEYS)).toBe(0);
-    expect(countActiveFilters(DEFAULT_FILTER_STATE, false)).toBe(0);
-  });
-
-  it("a saved view that predates the key loads with it empty and filters as before", () => {
-    const merged = { ...DEFAULT_FILTER_STATE, ...({ overallScore: { min: 70, max: null }, moat: ["wide_moat"] } as Partial<ScreenerFilterState>) };
-    expect(merged.reviewStatuses).toEqual([]);
-    expect(filterTickerScores([row({ ticker: "A", overall_score: 80, moat: "wide_moat" })], merged).map((r) => r.ticker)).toEqual(["A"]);
-  });
-
-  it("a saved view carrying the key restores it", () => {
-    const merged = { ...DEFAULT_FILTER_STATE, ...({ reviewStatuses: ["data_uncertain"] } as Partial<ScreenerFilterState>) };
-    expect(filterTickerScores(rows, merged).map((r) => r.ticker)).toEqual(["UNSURE"]);
+describe("a saved view that still carries the retired reviewStatuses key", () => {
+  it("merges onto the defaults without error, filters nothing and adds nothing to the active count", () => {
+    const merged = { ...DEFAULT_FILTER_STATE, ...({ reviewStatuses: ["review_unclear"], moat: ["wide_moat"] } as unknown as Partial<ScreenerFilterState>) };
+    expect(filterTickerScores([row({ ticker: "A", moat: "wide_moat" }), row({ ticker: "B", moat: "wide_moat" })], merged).map((r) => r.ticker)).toEqual(["A", "B"]);
+    expect(countActiveFilters(merged, false)).toBe(1);
+    expect("reviewStatuses" in DEFAULT_FILTER_STATE).toBe(false);
   });
 });

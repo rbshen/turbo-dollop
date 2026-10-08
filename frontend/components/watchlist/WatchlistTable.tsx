@@ -3,7 +3,6 @@
 import { useMemo } from "react";
 
 import { MiniBarChart } from "@/components/charts/MiniBarChart";
-import { ReviewMarker } from "@/components/shared/ReviewMarkers";
 import { MOAT_LABEL_SHORT, MOAT_TONE } from "@/components/ticker/MoatPill";
 import { VALUATION_LABEL_SHORT, VALUATION_TONE } from "@/components/ticker/FairValuePill";
 import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGrowthPill";
@@ -353,20 +352,14 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
                     ETF
                   </Badge>
                 ) : row.overall_score != null ? (
-                  <>
-                    <Badge
-                      size="compact"
-                      tone={toneForNullable(row.overall_score, row.overall_verdict)}
-                      title={overallCellTitle(row)}
-                    >
-                      {row.overall_score}
-                      {row.overall_verdict === "Pass with caution" && " ⚠"}
-                    </Badge>
-                    {/* The stored Review status (same score row as the verdict above): an icon-only marker so the column
-                        keeps its width; its tooltip carries the reason. Nothing renders without a status. Sort stays on
-                        overall_score. */}
-                    <ReviewMarker review={row} overallScore={row.overall_score} className="ml-1 align-middle" />
-                  </>
+                  <Badge
+                    size="compact"
+                    tone={toneForNullable(row.overall_score, row.overall_verdict)}
+                    title={overallCellTitle(row)}
+                  >
+                    {row.overall_score}
+                    {row.overall_verdict === "Pass with caution" && " ⚠"}
+                  </Badge>
                 ) : (
                   <Badge size="compact" missing />
                 )}

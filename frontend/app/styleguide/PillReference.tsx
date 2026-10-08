@@ -65,7 +65,7 @@ function Row({ label, children }: { label?: string; children: ReactNode }) {
 const TONES: { tone: StatusTone; label: string }[] = [
   { tone: "strong", label: "Strong pass" },
   { tone: "positive", label: "Pass" },
-  { tone: "warn", label: "Needs review" },
+  { tone: "warn", label: "Overdue" },
   { tone: "caution", label: "Pass with caution" },
   { tone: "negative", label: "No moat" },
   { tone: "speculative", label: "Speculative growth" },
@@ -76,7 +76,7 @@ const TONES: { tone: StatusTone; label: string }[] = [
 const BADGE_TONES: { tone: BadgeTone; label: string }[] = [
   { tone: "strong", label: "92" },
   { tone: "positive", label: "83" },
-  { tone: "warn", label: "Review" },
+  { tone: "warn", label: "Hold" },
   { tone: "caution", label: "74 ⚠" },
   { tone: "negative", label: "Overvalued" },
   { tone: "not-pass", label: "48" },
@@ -376,7 +376,7 @@ export function PillReference() {
     <div className="flex flex-col gap-10">
       <Group
         title="Tones — regular and compact"
-        note="Soft tinted fill (tone at 16%; “May not pass” uses 14% so its text clears 4.5:1 on its own tint), tone-coloured text, no border. Regular is the default; compact is for dense tables only (Watchlist, Momentum). Amber carries only “Needs review” and “Pass with caution” (an Overall of 70 or more where a step carries its own caution flag, such as Debt with an unrescued breach, or where any step is below the pass line; both reasons can apply at once, and the Analysis card and the Watchlist tooltip name the steps); a plain Pass is green at every score from 70 up. “May not pass” (the stored Fail) is slate blue, not red, because its wording is not negative either; the full red stays for No moat, Overvalued and the direction glyph. The last two pills, “May not pass” and “Not scored”, sit side by side to judge the slate against the neutral grey."
+        note="Soft tinted fill (tone at 16%; “May not pass” uses 14% so its text clears 4.5:1 on its own tint), tone-coloured text, no border. Regular is the default; compact is for dense tables only (Watchlist, Momentum). Amber carries “Pass with caution” on the score verdicts (an Overall of 70 or more where a step carries its own caution flag, such as Debt with an unrescued breach, or where any step is below the pass line; both reasons can apply at once, and the Analysis card and the Watchlist tooltip name the steps); a plain Pass is green at every score from 70 up. “May not pass” (the stored Fail) is slate blue, not red, because its wording is not negative either; the full red stays for No moat, Overvalued and the direction glyph. The last two pills, “May not pass” and “Not scored”, sit side by side to judge the slate against the neutral grey."
       >
         <div className="flex flex-col gap-3">
           <Row label="Regular">

@@ -125,45 +125,6 @@ describe("sentence case, with stored values unchanged", () => {
   });
 });
 
-describe("Review status filter (Fundamental section)", () => {
-  it("is a multi-select after Valuation, offering the four statuses with the shared labels", () => {
-    render(<Sections />);
-    const names = screen.getAllByRole("button", { name: /^(Moat|Valuation|Review status)/ }).map((b) => b.textContent);
-    expect(names).toEqual(["Moat", "Valuation", "Review status"]);
-    openMulti("Review status");
-    expect(optionLabels()).toEqual(["Review (structural)", "Review (unclear)", "Review (by design)", "Data uncertain"]);
-  });
-
-  it("stores the stable keys, ORs across options and starts empty", () => {
-    render(<Sections />);
-    expect(state().reviewStatuses).toEqual([]);
-    openMulti("Review status");
-    fireEvent.click(within(screen.getByRole("listbox")).getByText("Review (unclear)"));
-    fireEvent.click(within(screen.getByRole("listbox")).getByText("Data uncertain"));
-    expect(state().reviewStatuses).toEqual(["review_unclear", "data_uncertain"]);
-  });
-
-  it("turns orange and adds one to the Fundamental count only while something is selected, like Moat", () => {
-    render(<Sections />);
-    const trigger = () => screen.getByRole("button", { name: /^Review status/ });
-    const moat = () => screen.getByRole("button", { name: /^Moat/ });
-    expect(trigger()).not.toHaveClass("text-filter-active");
-    expect(badge("Fundamental")).toBeNull();
-    cleanup();
-    render(<Sections initial={{ ...DEFAULT_FILTER_STATE, reviewStatuses: ["review_by_design"], moat: ["wide_moat"] }} />);
-    expect(trigger()).toHaveClass("text-filter-active");
-    expect(trigger().className).toBe(moat().className); // the very same active styling as Moat
-    expect(badge("Fundamental")).toHaveAttribute("title", "2 applied");
-  });
-
-  it("clears with the dropdown's Clear button", () => {
-    render(<Sections initial={{ ...DEFAULT_FILTER_STATE, reviewStatuses: ["review_unclear"] }} />);
-    openMulti("Review status");
-    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
-    expect(state().reviewStatuses).toEqual([]);
-  });
-});
-
 describe("section count badges", () => {
   it("shows no badge at zero (a neutral zero would be noise on every header)", () => {
     render(<Sections />);

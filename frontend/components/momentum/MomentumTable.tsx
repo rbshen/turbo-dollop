@@ -1,21 +1,18 @@
 import type { MouseEvent } from "react";
 
-import { ReviewMarker } from "@/components/shared/ReviewMarkers";
 import { MOAT_LABEL_SHORT, MOAT_TONE } from "@/components/ticker/MoatPill";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { EtfMomentumRowOut, MomentumSnapshotRowOut } from "@/lib/api/types";
 import { fmtMoney, fmtPct, pnlClass } from "@/lib/format";
+import { toneForNullable } from "@/lib/tierColor";
 
 const HEAD_CLASS = "text-xs font-medium text-text-tertiary";
 
 // A stock row, or an ETF row (which has no moat, overall score or currency).
 export type MomentumTableRow = EtfMomentumRowOut &
   Partial<
-    Pick<
-      MomentumSnapshotRowOut,
-      "moat" | "overall_score" | "quote_currency" | "overall_verdict" | "review_status" | "review_reasons" | "conviction"
-    >
+    Pick<MomentumSnapshotRowOut, "moat" | "overall_score" | "quote_currency" | "overall_verdict">
   >;
 
 interface Props {
@@ -103,22 +100,17 @@ export function MomentumTable({ rows, showMoatAndScore = true }: Props) {
             <TableCell className={`text-right font-mono font-bold ${pnlClass(row.composite_score)}`}>
               {fmtPct(row.composite_score * 100)}
             </TableCell>
-            {/* No verdict field exists alongside overall_score here
-                (MomentumSnapshotRowOut has no overall_verdict) -- unlike
-                every other Badge/Status score cell in the app, tierColor's
-                tone functions can't tier this one without guessing at a
-                mapping, so it stays a neutral compact pill (same always-gray
-                read as before this migration, just via Badge's `missing`
-                state instead of a bare "—"). See the design-system session
-                5a report. */}
+            {/* Context only: the rank above never reads the score or verdict. A Pass with caution reads as in the Watchlist. */}
             {showMoatAndScore && (
               <TableCell className="text-right">
-                {/* The stored Review status, joined from the same TickerScore row as the score (display only: the rank
-                    above never reads it). Icon-only, left of the score; nothing renders without a status. */}
-                <ReviewMarker review={row} overallScore={row.overall_score} className="mr-1 align-middle" />
                 {row.overall_score != null ? (
-                  <Badge size="compact" tone="neutral">
+                  <Badge
+                    size="compact"
+                    tone={toneForNullable(row.overall_score, row.overall_verdict ?? null)}
+                    title={row.overall_verdict === "Pass with caution" ? "Passed with caution" : undefined}
+                  >
                     {row.overall_score}
+                    {row.overall_verdict === "Pass with caution" && " ⚠"}
                   </Badge>
                 ) : (
                   <Badge size="compact" missing />

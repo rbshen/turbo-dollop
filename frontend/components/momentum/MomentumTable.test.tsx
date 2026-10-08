@@ -71,10 +71,10 @@ describe("MomentumTable", () => {
     expect(screen.getByText("—")).toBeInTheDocument();
   });
 
-  it("renders the Score column as a neutral (never sign-colored) badge", () => {
+  it("tones the Score badge by score and verdict like the Watchlist (never sign-colored)", () => {
     render(<MomentumTable rows={ROWS} />);
     const overallCell = screen.getAllByText("47")[0];
-    expect(overallCell).toHaveClass("text-text-secondary");
+    expect(overallCell).toHaveClass("text-not-pass"); // under 70 with no stored verdict
     const compositeCell = screen.getByText("+1008.30%");
     expect(compositeCell.className).not.toContain("text-text-secondary");
   });
@@ -176,63 +176,45 @@ describe("MomentumTable whole-row click", () => {
   });
 });
 
-describe("MomentumTable Review marker", () => {
-  const REASON = {
-    step: "step5" as const,
-    score: 25,
-    verdict: "Fail",
-    hint: "unclear" as const,
-    raw_hint: "unclear" as const,
-    guarded: false,
-    rule: "not_covered",
-    evidence: "Current Ratio 0.59 (severe): below 1.0 in 1 of the last 5 fiscal years and 3 of the last 8 quarters",
-  };
-  const reviewed = (row: MomentumSnapshotRowOut, status: MomentumSnapshotRowOut["review_status"]): MomentumSnapshotRowOut => ({
+describe("MomentumTable score badge", () => {
+  const withVerdict = (row: MomentumSnapshotRowOut, overall_score: number, overall_verdict: string | null): MomentumSnapshotRowOut => ({
     ...row,
-    overall_verdict: "Pass",
-    review_status: status,
-    review_reasons: status ? [REASON] : null,
-    conviction: status ? "high" : null,
+    overall_score,
+    overall_verdict,
   });
   const scoreCell = (ticker: string) => {
     const cells = (screen.getByText(ticker).closest("tr") as HTMLElement).querySelectorAll("td");
     return cells[cells.length - 1] as HTMLElement;
   };
 
-  it.each([
-    ["review_structural", "Review (structural)"],
-    ["review_unclear", "Review (unclear)"],
-    ["review_by_design", "Review (by design)"],
-    ["data_uncertain", "Data uncertain"],
-  ] as const)("%s draws the icon marker beside the unchanged neutral score badge", (status, label) => {
-    render(<MomentumTable rows={[reviewed({ ...ROWS[0], overall_score: 79 }, status)]} />);
-    const marker = scoreCell("SNDK").querySelector("[data-testid='review-marker']") as HTMLElement;
-    expect(marker).toHaveTextContent(label);
-    expect(marker.getAttribute("title")).toBe(`Overall 79 would read Pass. Debt scored 25 (May not pass). ${REASON.evidence}. Conviction: high.`);
-    const score = screen.getByText("79");
-    expect(score).toHaveClass("text-text-secondary"); // still the neutral pill
-    expect(scoreCell("SNDK").querySelector("span[title]:not([data-testid])")).toBeNull(); // no other tooltip added
+  it("draws a Pass with caution score in the caution tone with the warning suffix and a plain tooltip", () => {
+    render(<MomentumTable rows={[withVerdict(ROWS[0], 73, "Pass with caution")]} />);
+    const badge = scoreCell("SNDK").querySelector("span[title]") as HTMLElement;
+    expect(badge).toHaveTextContent("73 ⚠");
+    expect(badge).toHaveClass("text-caution");
+    expect(badge).toHaveAttribute("title", "Passed with caution");
   });
 
-  it("renders no marker without a status, or for a row that predates the fields", () => {
-    render(<MomentumTable rows={[reviewed(ROWS[0], null), ROWS[1]]} />);
-    expect(document.querySelector("[data-testid='review-marker']")).toBeNull();
-    expect(scoreCell("SNDK")).toHaveTextContent("47");
+  it("tones a plain Pass green, with no suffix and no tooltip", () => {
+    render(<MomentumTable rows={[withVerdict(ROWS[0], 79, "Pass")]} />);
+    expect(screen.getByText("79")).toHaveClass("text-positive");
+    expect(scoreCell("SNDK").querySelector("span[title]")).toBeNull();
+    expect(scoreCell("SNDK")).not.toHaveTextContent("⚠");
   });
 
-  it("keeps the snapshot's own order (rank), whatever the statuses and scores", () => {
+  it("keeps the snapshot's own order (rank), whatever the scores and verdicts", () => {
     const rows = [
-      reviewed({ ...ROWS[0], ticker: "ONE", rank: 1, overall_score: 40 }, "review_unclear"),
-      reviewed({ ...ROWS[1], ticker: "TWO", rank: 2, overall_score: 90 }, null),
-      reviewed({ ...ROWS[1], ticker: "THREE", rank: 3, overall_score: 60 }, "data_uncertain"),
+      withVerdict({ ...ROWS[0], ticker: "ONE", rank: 1 }, 40, "Fail"),
+      withVerdict({ ...ROWS[1], ticker: "TWO", rank: 2 }, 90, "Strong Pass"),
+      withVerdict({ ...ROWS[1], ticker: "THREE", rank: 3 }, 73, "Pass with caution"),
     ];
     render(<MomentumTable rows={rows} />);
     const order = [...document.querySelectorAll("tbody tr")].map((tr) => tr.querySelectorAll("td")[0].textContent);
     expect(order).toEqual(["1", "2", "3"]);
   });
 
-  it("the ETF table (no Moat/Score columns) never shows a marker", () => {
-    render(<MomentumTable rows={[reviewed(ROWS[0], "review_unclear")]} showMoatAndScore={false} />);
-    expect(document.querySelector("[data-testid='review-marker']")).toBeNull();
+  it("the ETF table (no Moat/Score columns) shows no score badge", () => {
+    render(<MomentumTable rows={[withVerdict(ROWS[0], 73, "Pass with caution")]} showMoatAndScore={false} />);
+    expect(screen.queryByText(/73/)).toBeNull();
   });
 });

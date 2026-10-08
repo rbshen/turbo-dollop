@@ -146,24 +146,6 @@ export interface DataQualityFlag {
   detail: Record<string, unknown>;
 }
 
-// Review status (backend scoring/review.py): a separate, demote-only read stored beside overall_verdict, which it never
-// changes. Wording and tones are lib/reviewStatus.ts's; the backend sends keys and facts only.
-export type ReviewStatus = "review_structural" | "data_uncertain" | "review_unclear" | "review_by_design";
-export type ReviewHint = "structural" | "by_design" | "unclear";
-export type ConvictionLevel = "high" | "medium" | "low";
-
-export interface ReviewReason {
-  step: "step1" | "step5";
-  score: number;
-  verdict: string;
-  // The reading after the data-quality guard ("data_uncertain" when guarded); raw_hint is the one it would have had.
-  hint: ReviewHint | "data_uncertain";
-  raw_hint: ReviewHint;
-  guarded: boolean;
-  rule: string;
-  evidence: string;
-}
-
 export type PerfVsSpyStatus = "outperform" | "underperform" | "match" | "no_data";
 
 export interface TickerSummaryOut {
@@ -773,12 +755,6 @@ export interface TickerScoreOut {
   warren_active_signal_kind: "blue_up" | "yellow_up" | "gray_up" | null;
   // See TickerScore.warren_last_buy_fired_at.
   warren_last_buy_fired_at: string | null;
-  // See TickerScore.review_status: null unless the stored overall_verdict is Pass-family and Step 1 or Step 5 failed
-  // below the gate. Optional (absent on a payload or fixture that predates it) and read as null.
-  review_status?: ReviewStatus | null;
-  review_reasons?: ReviewReason[] | null;
-  conviction?: ConvictionLevel | null;
-  data_quality_flags?: DataQualityFlag[] | null;
 }
 
 export type ScreenerUniverse = "sp500" | "dow" | "nasdaq" | "all";
@@ -1481,11 +1457,6 @@ export interface WatchlistRowOut {
   // The ticker is an ETF/fund: the table shows an "ETF" marker in place of the blank score cells.
   // Optional only so existing fixtures keep compiling; the API always sends it.
   is_etf?: boolean;
-  // The stored Review status beside overall_verdict, read from the same score row (see TickerScoreOut.review_status).
-  // Optional (absent on a fixture that predates it) and read as null; null for a fund or a ticker with no status.
-  review_status?: ReviewStatus | null;
-  review_reasons?: ReviewReason[] | null;
-  conviction?: ConvictionLevel | null;
 }
 
 // Latest Weinstein Stage Analysis for one ticker -- see backend/core/schemas.py::
@@ -1857,13 +1828,9 @@ export interface MomentumSnapshotRowOut {
   // Fathom's Overall Assessment score, for context only -- never used in
   // this ranking. Joined live from TickerScore, same as company_name.
   overall_score: number | null;
-  // Joined from the same TickerScore row as overall_score (display only, never part of the ranking): the stored Review
-  // status, its reasons and conviction, and the stored verdict the marker's tooltip quotes. Optional (absent on a fixture
-  // that predates it) and read as null.
+  // Joined from the same TickerScore row as overall_score (display only, never part of the ranking): the stored verdict,
+  // which tones the score badge. Optional (absent on a fixture that predates it) and read as null.
   overall_verdict?: string | null;
-  review_status?: ReviewStatus | null;
-  review_reasons?: ReviewReason[] | null;
-  conviction?: ConvictionLevel | null;
 }
 
 export interface MomentumOut {

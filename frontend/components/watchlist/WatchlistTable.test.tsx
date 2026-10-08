@@ -385,26 +385,13 @@ describe("WatchlistTable width", () => {
   });
 });
 
-describe("WatchlistTable: Review marker", () => {
-  const REASON = {
-    step: "step5" as const,
-    score: 43,
-    verdict: "Fail",
-    hint: "unclear" as const,
-    raw_hint: "unclear" as const,
-    guarded: false,
-    rule: "not_covered",
-    evidence: "Current Ratio 0.78 (borderline_fail): below 1.0 in 1 of the last 5 fiscal years and 5 of the last 8 quarters",
-  };
-  const reviewed = (ticker: string, status: WatchlistRowOut["review_status"], extra: Partial<WatchlistRowOut> = {}): WatchlistRowOut => ({
+describe("WatchlistTable: Analysis cell", () => {
+  const scored = (ticker: string, extra: Partial<WatchlistRowOut> = {}): WatchlistRowOut => ({
     ...ROWS[0],
     ticker,
     company_name: `${ticker} Corp`,
     overall_score: 71,
     overall_verdict: "Pass",
-    review_status: status,
-    review_reasons: status ? [REASON] : null,
-    conviction: status ? "high" : null,
     ...extra,
   });
   const analysisCell = (ticker: string) =>
@@ -412,57 +399,21 @@ describe("WatchlistTable: Review marker", () => {
   const renderRows = (rows: WatchlistRowOut[], sortRules = DEFAULT_SORT_RULES) =>
     render(<WatchlistTable watchlist={WATCHLIST} rows={rows} sortRules={sortRules} onSortRulesChange={vi.fn()} />);
 
-  it.each([
-    ["review_structural", "Review (structural)"],
-    ["review_unclear", "Review (unclear)"],
-    ["review_by_design", "Review (by design)"],
-    ["data_uncertain", "Data uncertain"],
-  ] as const)("%s draws an icon-only marker in the Analysis cell with the shared tooltip", (status, label) => {
-    renderRows([reviewed("HCA", status)]);
-    const marker = analysisCell("HCA").querySelector("[data-testid='review-marker']") as HTMLElement;
-    expect(marker).not.toBeNull();
-    expect(marker).toHaveTextContent(label); // screen-reader text only
-    expect(marker.querySelector(".sr-only")).not.toBeNull();
-    expect(marker.getAttribute("title")).toBe(
-      `Overall 71 would read Pass. Debt scored 43 (May not pass). ${REASON.evidence}. Conviction: high.`,
-    );
-  });
-
-  it("keeps the score pill exactly as it was beside the marker (a Pass stays a Pass, the caution glyph stays)", () => {
-    renderRows([reviewed("HCA", "review_unclear"), reviewed("GE", "review_unclear", { overall_verdict: "Pass with caution", overall_score: 73, step5_verdict: "Pass with caution" })]);
+  it("shows the score pill alone; a Pass with caution keeps its glyph and tooltip", () => {
+    renderRows([scored("HCA"), scored("GE", { overall_verdict: "Pass with caution", overall_score: 73, step5_verdict: "Pass with caution" })]);
     expect(analysisCell("HCA")).toHaveTextContent("71");
+    expect(analysisCell("HCA").children).toHaveLength(1);
     expect(analysisCell("GE")).toHaveTextContent("73 ⚠");
-    // the pill's own tooltip (caution steps) is untouched by the marker
     expect(analysisCell("GE").querySelector("span[title^='Passed with caution']")).not.toBeNull();
-    expect(analysisCell("GE").querySelector("[data-testid='review-marker']")).not.toBeNull();
   });
 
-  it("renders no marker for a row without a status (and nothing else changes in its cell)", () => {
-    renderRows([reviewed("MSFT", null), ROWS[0]]);
-    expect(analysisCell("MSFT").querySelector("[data-testid='review-marker']")).toBeNull();
-    expect(analysisCell("MSFT").children).toHaveLength(1); // the pill only
-    expect(analysisCell("AAPL").querySelector("[data-testid='review-marker']")).toBeNull();
-  });
-
-  it("an ETF row never shows a marker, even if a payload carried a status", () => {
-    renderRows([reviewed("QQQ", "review_unclear", { is_etf: true, overall_score: null, overall_verdict: null })]);
+  it("an ETF row shows the ETF marker", () => {
+    renderRows([scored("QQQ", { is_etf: true, overall_score: null, overall_verdict: null })]);
     expect(analysisCell("QQQ")).toHaveTextContent("ETF");
-    expect(analysisCell("QQQ").querySelector("[data-testid='review-marker']")).toBeNull();
   });
 
-  it("does not make the column any wider through fixed widths: the Analysis header and cell carry no width class", () => {
-    renderRows([reviewed("HCA", "review_unclear")]);
-    const header = screen.getByRole("button", { name: "Analysis" }).closest("th") as HTMLElement;
-    expect(header.className).not.toMatch(/\bw-|min-w-|max-w-/);
-    expect(analysisCell("HCA").className).not.toMatch(/\bw-|min-w-|max-w-/);
-    // the marker is a 12px icon plus a 4px gap
-    const marker = analysisCell("HCA").querySelector("[data-testid='review-marker']") as HTMLElement;
-    expect(marker).toHaveClass("ml-1");
-    expect(marker.querySelector("svg")).toHaveAttribute("width", "12");
-  });
-
-  it("still sorts on overall_score only: a status moves nothing", () => {
-    const rows = [reviewed("LOW", null, { overall_score: 60 }), reviewed("HI", "review_unclear", { overall_score: 90 }), reviewed("MID", "data_uncertain", { overall_score: 75 })];
+  it("sorts on overall_score", () => {
+    const rows = [scored("LOW", { overall_score: 60 }), scored("HI", { overall_score: 90 }), scored("MID", { overall_score: 75 })];
     const sorted = sortWatchlistRows(rows, [{ field: "overall_score", direction: "desc" }]).map((r) => r.ticker);
     expect(sorted).toEqual(["HI", "MID", "LOW"]);
     renderRows(rows);

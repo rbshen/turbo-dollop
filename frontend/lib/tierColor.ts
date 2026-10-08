@@ -20,8 +20,7 @@ export type ScoreTone = Extract<StatusTone, "not-pass" | "caution" | "strong" | 
 // being negative, not on the blended score. The stored "Fail" key is drawn in
 // the slate "not-pass" tone (the "May not pass" look, 2026-10-08; no red, the
 // wording is not negative either); the comparison itself still runs on the raw "Fail". Amber (warn / caution) is
-// left to Pass with caution and the Review statuses: a plain 70-74 Pass is
-// green like any other Pass.
+// left to Pass with caution: a plain 70-74 Pass is green like any other Pass.
 export function toneFor(score: number, verdict: string): ScoreTone {
   if (verdict === "Fail") return "not-pass";
   if (verdict === "Pass with caution") return "caution";
@@ -56,7 +55,7 @@ export const TONE_TEXT_CLASS: Record<StatusTone, string> = {
 };
 
 // The display word for a stored "Fail" (2026-10-08, every step and the Overall verdict). Display only: every comparison
-// (verdict === "Fail", the Review gate, the Overall rollup, toneFor) still runs on the raw stored value, which never changes.
+// (verdict === "Fail", the Overall rollup, toneFor) still runs on the raw stored value, which never changes.
 export const FAIL_DISPLAY_LABEL = "May not pass";
 
 // Display wording for any verdict: "Fail" reads "May not pass", everything else is pillLabel'd. Use wherever a verdict word is drawn.

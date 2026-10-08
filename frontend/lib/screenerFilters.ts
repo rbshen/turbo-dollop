@@ -2,7 +2,6 @@ import type { MultiSelectOption } from "@/components/screener/MultiSelectDropdow
 import { PERF_VS_SPY_LABELS } from "@/components/ticker/PerfVsSpyPill";
 import { VALUATION_LABELS } from "@/components/screener/ValuationBadge";
 import { MOAT_LABELS } from "@/lib/overallScore";
-import { displayedReview, REVIEW_STATUS_LABEL } from "@/lib/reviewStatus";
 import { pillLabel } from "@/lib/tierColor";
 import { WEINSTEIN_STAGE_LABEL } from "@/lib/weinsteinStage";
 import type { TickerScoreOut } from "@/lib/api/types";
@@ -47,16 +46,6 @@ export const MOAT_FILTER_OPTIONS: MultiSelectOption[] = [
   { value: "narrow_moat", label: pillLabel(MOAT_LABELS.narrow_moat) },
   { value: "no_moat", label: pillLabel(MOAT_LABELS.no_moat) },
   { value: MOAT_NOT_SET, label: "Not set" },
-];
-
-// The four Review statuses (docs/specs/overview.md, "Review status"), in the order the spec lists them, labels from the
-// one place that owns them (lib/reviewStatus.ts). Fixed set like Moat. A row with no status has no "none" option to
-// filter for: it simply fails every .includes() once this filter is active, like the null-sector convention.
-export const REVIEW_STATUS_FILTER_OPTIONS: MultiSelectOption[] = [
-  { value: "review_structural", label: REVIEW_STATUS_LABEL.review_structural },
-  { value: "review_unclear", label: REVIEW_STATUS_LABEL.review_unclear },
-  { value: "review_by_design", label: REVIEW_STATUS_LABEL.review_by_design },
-  { value: "data_uncertain", label: REVIEW_STATUS_LABEL.data_uncertain },
 ];
 
 // No "not set" option here, unlike Moat -- Valuation status only has the 3
@@ -144,9 +133,6 @@ export interface ScreenerFilterState {
   companyTypes: string[];
   moat: string[];
   valuationVerdict: string[];
-  // Review status (the stored review_status beside the verdict; filtering never changes the verdict or any sort).
-  // Multi-select, OR semantics, empty = no filter -- a saved view that predates the key merges onto this default.
-  reviewStatuses: string[];
   vsSpy: string[];
   weinsteinStages: string[];
   // Plain boolean, unlike the array filters above -- a checkbox, not a
@@ -181,7 +167,6 @@ export const DEFAULT_FILTER_STATE: ScreenerFilterState = {
   companyTypes: [],
   moat: [],
   valuationVerdict: [],
-  reviewStatuses: [],
   vsSpy: [],
   weinsteinStages: [],
   speculativeGrowth: false,
@@ -209,7 +194,6 @@ export const FUNDAMENTAL_FILTER_KEYS: readonly FilterKey[] = [
   "companyTypes",
   "moat",
   "valuationVerdict",
-  "reviewStatuses",
   "speculativeGrowth",
 ];
 export const TECHNICAL_FILTER_KEYS: readonly FilterKey[] = [
@@ -319,8 +303,6 @@ export function filterTickerScores(
     if (filters.valuationVerdict.length > 0 && (!row.valuation_verdict || !filters.valuationVerdict.includes(row.valuation_verdict))) {
       return false;
     }
-    // The status the pill draws (displayedReview: a stored status with its reasons), so a filtered-in row always shows one.
-    if (filters.reviewStatuses.length > 0 && !filters.reviewStatuses.includes(displayedReview(row)?.status ?? "")) return false;
     if (filters.vsSpy.length > 0 && !filters.vsSpy.includes(row.perf_5y_vs_spy_status ?? "no_data")) return false;
     if (filters.weinsteinStages.length > 0) {
       const matchesStage = filters.weinsteinStages.includes(row.weinstein_stage ?? "");
