@@ -466,7 +466,7 @@ export function PillReference() {
 
       <Group
         title="Score + label"
-        note="The number beside a pill is never coloured (text-primary, mono); the pill carries the tone. Inline, stacked above the pill (the real ScreenerCard ScoreBadge), and the score held inside a compact pill (the Watchlist Analysis cell)."
+        note="The number beside a pill is never coloured (text-primary, mono); the pill carries the tone. Inline, stacked above the pill (the real ScreenerCard ScoreBadge), and compact pills (the Watchlist Verdict cell holds the verdict word; its score is in the tooltip)."
       >
         <div className="flex flex-col gap-5">
           <Row label="Inline">
@@ -588,7 +588,7 @@ export function PillReference() {
 
       <Group
         title="In context — Watchlist rows (compact pills; Rating stays coloured text)"
-        note="Real WatchlistTable, mock rows: all three pills; Pass with caution (⚠) with Hold; a May not pass with No moat and Sell; and an unscored ticker with a missing score and N/A rating. Up to three compact pills per row (Moat, Value, Analysis)."
+        note="Real WatchlistTable, mock rows: all three pills; Pass with caution (no glyph, the amber word) with Hold; a May not pass with No moat and Sell; and an unscored ticker with a missing verdict and N/A rating. Up to three compact pills per row (Moat, Value, Verdict)."
       >
         <WatchlistTable watchlist={WATCHLIST} rows={WATCHLIST_ROWS} sortRules={[]} onSortRulesChange={() => {}} />
       </Group>

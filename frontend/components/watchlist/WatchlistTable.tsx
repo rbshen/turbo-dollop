@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { SortableField, WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
 import { MOAT_NOT_RATED_NOTE, PASS_THRESHOLD } from "@/lib/overallScore";
 import { fmtCompactMoney, fmtMoney, joinNatural, fmtNumber, fmtSignedCompactMoneyTooltip } from "@/lib/format";
-import { FAIL_DISPLAY_LABEL, toneForNullable } from "@/lib/tierColor";
+import { FAIL_DISPLAY_LABEL, toneForNullable, verdictLabel } from "@/lib/tierColor";
 import { cn } from "@/lib/utils";
 import { applyHeaderClick, sortWatchlistRows, type SortRule } from "@/lib/watchlistSort";
 
@@ -49,11 +49,11 @@ interface Props {
 // as they scroll underneath.
 // HEAD_CLASS (the sticky header cell classes) lives in tableParts.tsx, shared with the ETF table.
 
-// The Analysis column collapses the 4 individual step chips into one
-// overall_score/overall_verdict pill (see the column-order comment below) --
+// The Verdict column collapses the 4 individual step chips into one
+// overall_verdict pill (see the column-order comment below) --
 // that collapse means a step-level "Pass with caution" flag (currently only
 // ever Step 5's) is otherwise invisible here even though it now drives the
-// Analysis pill's own caution color (see lib/tierColor.ts). This names
+// Verdict pill's own caution color (see lib/tierColor.ts). This names
 // exactly which step(s) triggered it, surfaced as a small marker with a
 // tooltip, without re-adding the removed per-step columns.
 function cautionStepLabels(row: WatchlistRowOut): string[] {
@@ -81,10 +81,11 @@ function weakStepLabels(row: WatchlistRowOut): string[] {
   return labels;
 }
 
-// Hover text for the Analysis pill: names the cautioned steps and/or the steps that may not pass, and/or says the ticker has no Moat
-// rated (it is scored as No moat).
+// Hover text for the Verdict pill: the Overall score (the pill itself shows only the verdict word), then the cautioned steps and/or the
+// steps that may not pass, and/or that the ticker has no Moat rated (it is scored as No moat).
 export function overallCellTitle(row: WatchlistRowOut): string | undefined {
   const parts: string[] = [];
+  if (row.overall_score != null) parts.push(`Overall score ${row.overall_score}`);
   if (row.overall_verdict === "Pass with caution") {
     const cautioned = cautionStepLabels(row);
     const weak = weakStepLabels(row);
@@ -184,14 +185,14 @@ function SortableHead({
 }
 
 // Column order per design_handoff_fathom_v2/README.md's Watchlist spec:
-// Ticker, Sector, Price, Chg, Moat, Valuation, Analysis, Rating, Mkt Cap,
-// Beta, P/E, then a trailing icon-only remove button. "Analysis" collapses
-// the old F/G/D/P STEP_CHIPS into row.overall_score/overall_verdict, same
+// Ticker, Sector, Price, Chg, Moat, Valuation, Verdict, Rating, Mkt Cap,
+// Beta, P/E, then a trailing icon-only remove button. "Verdict" (2026-10-09, was the "Analysis" score pill) collapses
+// the old F/G/D/P STEP_CHIPS into row.overall_verdict (the score moved to its tooltip), same
 // as ScreenerCard's own STEP_CHIPS removal. Price/Chg replaced (2026-08-03)
 // with Revenue/Net Income/CFO 5yr mini trend charts -- the live quote they
 // required was the one thing on this cache-only page that always hit FMP
 // live; see watchlist_data.py's now-removed _live_quote. The "vs SPY" 3-bar
-// column that used to sit before Analysis was removed (2026-09-05) --
+// column that used to sit before Analysis/Verdict was removed (2026-09-05) --
 // perf_5y_vs_spy_pct/_status are still fetched, just no longer shown or
 // sortable at all (no SortableField entry either, unlike before that
 // redesign). The Trend/A-D-Div/SMA technical-indicators cluster (from the
@@ -207,7 +208,7 @@ function SortableHead({
 // icon buttons instead of "Okay"/"Cancel" text -- this column has no room
 // for the full "Remove TICKER from WATCHLIST_NAME?" sentence, so the
 // question is carried in each icon's title/aria-label instead.
-// Ticker, Sector, Last, Rev, NI, CFO, Moat, Value, Analysis, Rating, Mkt cap,
+// Ticker, Sector, Last, Rev, NI, CFO, Moat, Value, Verdict, Rating, Mkt cap,
 // Beta, P/E, remove -- matches the header row below; used only to span the
 // loading skeleton's rows across every column.
 const COLUMN_COUNT = 14;
@@ -266,9 +267,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
           >
             Value
           </SortableHead>
-          <SortableHead field="overall_score" rules={sortRules} onChange={onSortRulesChange} className={`${HEAD_CLASS} text-center`}>
-            Analysis
-          </SortableHead>
+          <TableHead className={`${HEAD_CLASS} text-center`}>Verdict</TableHead>
           <SortableHead field="consensus_rating" rules={sortRules} onChange={onSortRulesChange} className={HEAD_CLASS}>
             Rating
           </SortableHead>
@@ -353,14 +352,13 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
                   <Badge size="compact" tone="neutral" title="Exchange-traded fund -- not scored">
                     ETF
                   </Badge>
-                ) : row.overall_score != null ? (
+                ) : row.overall_verdict != null ? (
                   <Badge
                     size="compact"
                     tone={toneForNullable(row.overall_score, row.overall_verdict)}
                     title={overallCellTitle(row)}
                   >
-                    {row.overall_score}
-                    {row.overall_verdict === "Pass with caution" && " ⚠"}
+                    {verdictLabel(row.overall_verdict)}
                   </Badge>
                 ) : (
                   <Badge size="compact" missing />

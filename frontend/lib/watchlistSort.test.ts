@@ -43,24 +43,15 @@ function row(overrides: Partial<WatchlistRowOut> = {}): WatchlistRowOut {
 
 describe("sortWatchlistRows", () => {
   it("sorts by a single numeric rule", () => {
-    const rows = [row({ ticker: "LOW", overall_score: 20 }), row({ ticker: "HIGH", overall_score: 90 })];
-    const result = sortWatchlistRows(rows, [{ field: "overall_score", direction: "desc" }]);
+    const rows = [row({ ticker: "LOW", market_cap: 20 }), row({ ticker: "HIGH", market_cap: 90 })];
+    const result = sortWatchlistRows(rows, [{ field: "market_cap", direction: "desc" }]);
     expect(result.map((r) => r.ticker)).toEqual(["HIGH", "LOW"]);
   });
 
-  it("sorts an unrated (scored as No moat) row by its Overall score like any other", () => {
-    const rows = [
-      row({ ticker: "UNRATED", overall_score: 81, overall_verdict: "Pass", moat: null }),
-      row({ ticker: "PASS", overall_score: 75, overall_verdict: "Pass" }),
-      row({ ticker: "FAIL", overall_score: 60, overall_verdict: "Fail" }),
-    ];
-    expect(sortWatchlistRows(rows, [{ field: "overall_score", direction: "desc" }]).map((r) => r.ticker)).toEqual(["UNRATED", "PASS", "FAIL"]);
-  });
-
   it("sorts nulls last regardless of direction", () => {
-    const rows = [row({ ticker: "NULL", overall_score: null }), row({ ticker: "REAL", overall_score: 50 })];
-    expect(sortWatchlistRows(rows, [{ field: "overall_score", direction: "asc" }]).map((r) => r.ticker)).toEqual(["REAL", "NULL"]);
-    expect(sortWatchlistRows(rows, [{ field: "overall_score", direction: "desc" }]).map((r) => r.ticker)).toEqual(["REAL", "NULL"]);
+    const rows = [row({ ticker: "NULL", market_cap: null }), row({ ticker: "REAL", market_cap: 50 })];
+    expect(sortWatchlistRows(rows, [{ field: "market_cap", direction: "asc" }]).map((r) => r.ticker)).toEqual(["REAL", "NULL"]);
+    expect(sortWatchlistRows(rows, [{ field: "market_cap", direction: "desc" }]).map((r) => r.ticker)).toEqual(["REAL", "NULL"]);
   });
 
   it("sorts text fields via localeCompare", () => {
@@ -70,11 +61,11 @@ describe("sortWatchlistRows", () => {
 
   it("falls through to the second rule on a tie", () => {
     const rows = [
-      row({ ticker: "B", overall_score: 80, market_cap: 100 }),
-      row({ ticker: "A", overall_score: 80, market_cap: 200 }),
+      row({ ticker: "B", sector: "Technology", market_cap: 100 }),
+      row({ ticker: "A", sector: "Technology", market_cap: 200 }),
     ];
     const rules: SortRule[] = [
-      { field: "overall_score", direction: "desc" },
+      { field: "sector", direction: "asc" },
       { field: "market_cap", direction: "desc" },
     ];
     expect(sortWatchlistRows(rows, rules).map((r) => r.ticker)).toEqual(["A", "B"]);
@@ -141,10 +132,10 @@ describe("applyHeaderClick", () => {
   });
 
   it("appends as lowest priority behind existing rules", () => {
-    const rules: SortRule[] = [{ field: "overall_score", direction: "desc" }];
+    const rules: SortRule[] = [{ field: "market_cap", direction: "desc" }];
     const result = applyHeaderClick(rules, "ticker");
     expect(result).toEqual([
-      { field: "overall_score", direction: "desc" },
+      { field: "market_cap", direction: "desc" },
       { field: "ticker", direction: "asc" },
     ]);
   });
@@ -205,20 +196,20 @@ describe("applyHeaderClick", () => {
   });
 
   it("full click cycle for one column returns to append behavior after removal", () => {
-    let rules = DEFAULT_SORT_RULES;
-    rules = applyHeaderClick(rules, "ticker"); // 1st click: append
-    expect(rules).toEqual([{ field: "overall_score", direction: "desc" }, { field: "ticker", direction: "asc" }]);
-    rules = applyHeaderClick(rules, "ticker"); // 2nd click: flip
-    expect(rules).toEqual([{ field: "overall_score", direction: "desc" }, { field: "ticker", direction: "desc" }]);
-    rules = applyHeaderClick(rules, "ticker"); // 3rd click: remove
-    expect(rules).toEqual([{ field: "overall_score", direction: "desc" }]);
-    rules = applyHeaderClick(rules, "ticker"); // 4th click: append again, back at default direction
-    expect(rules).toEqual([{ field: "overall_score", direction: "desc" }, { field: "ticker", direction: "asc" }]);
+    let rules: SortRule[] = [{ field: "sector", direction: "asc" }];
+    rules = applyHeaderClick(rules, "market_cap"); // 1st click: append
+    expect(rules).toEqual([{ field: "sector", direction: "asc" }, { field: "market_cap", direction: "desc" }]);
+    rules = applyHeaderClick(rules, "market_cap"); // 2nd click: flip
+    expect(rules).toEqual([{ field: "sector", direction: "asc" }, { field: "market_cap", direction: "asc" }]);
+    rules = applyHeaderClick(rules, "market_cap"); // 3rd click: remove
+    expect(rules).toEqual([{ field: "sector", direction: "asc" }]);
+    rules = applyHeaderClick(rules, "market_cap"); // 4th click: append again, back at default direction
+    expect(rules).toEqual([{ field: "sector", direction: "asc" }, { field: "market_cap", direction: "desc" }]);
   });
 });
 
 describe("parseSortRules", () => {
-  it("applies the overall_score-desc default when no key was ever persisted (a fresh watchlist)", () => {
+  it("applies the ticker A-to-Z default when no key was ever persisted (a fresh watchlist)", () => {
     expect(parseSortRules(null)).toEqual(DEFAULT_SORT_RULES);
   });
 
@@ -232,6 +223,39 @@ describe("parseSortRules", () => {
       { field: "market_cap", direction: "desc" },
     ];
     expect(parseSortRules(JSON.stringify(rules))).toEqual(rules);
+  });
+
+  it("the default is the rule a first click on the Ticker header produces, and the ticker sort is A to Z", () => {
+    expect(DEFAULT_SORT_RULES).toEqual([{ field: "ticker", direction: "asc" }]);
+    expect(applyHeaderClick([], "ticker")).toEqual(DEFAULT_SORT_RULES);
+    const rows = [row({ ticker: "MSFT" }), row({ ticker: "AAPL" }), row({ ticker: "GOOG" })];
+    expect(sortWatchlistRows(rows, DEFAULT_SORT_RULES).map((r) => r.ticker)).toEqual(["AAPL", "GOOG", "MSFT"]);
+  });
+
+  it("drops a persisted overall_score or overall_verdict rule without error and keeps the other rules in order", () => {
+    const old = [
+      { field: "moat", direction: "asc" },
+      { field: "overall_score", direction: "desc" },
+      { field: "market_cap", direction: "desc" },
+      { field: "overall_verdict", direction: "asc" },
+    ];
+    expect(parseSortRules(JSON.stringify(old))).toEqual([
+      { field: "moat", direction: "asc" },
+      { field: "market_cap", direction: "desc" },
+    ]);
+  });
+
+  it("falls back to the ticker default when dropping the retired rules leaves nothing", () => {
+    expect(parseSortRules('[{"field":"overall_score","direction":"desc"}]')).toEqual(DEFAULT_SORT_RULES);
+    expect(parseSortRules('[{"field":"overall_verdict","direction":"desc"},{"field":"overall_score","direction":"asc"}]')).toEqual(DEFAULT_SORT_RULES);
+  });
+
+  it("still honors a persisted explicit empty array (the user cleared every sort), unlike the retired-rule fallback", () => {
+    expect(parseSortRules("[]")).toEqual([]);
+  });
+
+  it("still rejects a stored array that holds an unknown field beside a retired one", () => {
+    expect(parseSortRules('[{"field":"overall_score","direction":"desc"},{"field":"nope","direction":"asc"}]')).toEqual(DEFAULT_SORT_RULES);
   });
 
   it("falls back to the default on malformed JSON", () => {

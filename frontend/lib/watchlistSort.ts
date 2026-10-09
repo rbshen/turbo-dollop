@@ -10,7 +10,8 @@ export interface SortRule {
 
 export const MAX_SORT_RULES = 4;
 
-export const DEFAULT_SORT_RULES: SortRule[] = [{ field: "overall_score", direction: "desc" }];
+// Ticker A to Z (2026-10-09): the same rule a first click on the Ticker header produces (see applyHeaderClick and DEFAULT_DIRECTION).
+export const DEFAULT_SORT_RULES: SortRule[] = [{ field: "ticker", direction: "asc" }];
 
 // Every field a header can currently be clicked to sort by -- used to
 // validate a rule loaded from localStorage (see app/watchlist/page.tsx)
@@ -28,7 +29,6 @@ const DEFAULT_DIRECTION: Record<SortableField, SortDirection> = {
   market_cap: "desc",
   pe_ratio: "desc",
   beta: "desc",
-  overall_score: "desc",
 };
 
 export const SORTABLE_FIELDS = Object.keys(DEFAULT_DIRECTION) as SortableField[];
@@ -69,8 +69,7 @@ function rank(map: Record<string, number>, value: string | null): number {
   return map[value.toLowerCase()] ?? Infinity;
 }
 
-// Shared by every numeric SortableField (market_cap/pe_ratio/beta/
-// overall_score) -- nulls always sort to the end
+// Shared by every numeric SortableField (market_cap/pe_ratio/beta) -- nulls always sort to the end
 // regardless of direction, same convention screenerFilters.ts's
 // sortTickerScores uses for the same reason (an Incomplete/not-yet-computed
 // ticker shouldn't jump to the top just because "asc" was picked).
@@ -217,7 +216,26 @@ function isRuleOver<F extends string>(value: unknown, fields: readonly F[]): val
 // directly (rather than reading localStorage itself) so it's a pure
 // function, testable without mocking `window`.
 export function parseSortRules(raw: string | null): SortRule[] {
-  return parseSortRulesWith(raw, SORTABLE_FIELDS, DEFAULT_SORT_RULES);
+  return parseSortRulesWith(dropRetiredSortRules(raw), SORTABLE_FIELDS, DEFAULT_SORT_RULES);
+}
+
+// No column sorts by the Overall score or verdict any more (2026-10-09: the Analysis score sort was retired, and the Verdict column that
+// replaced it is not sortable). A persisted rule naming either field is dropped and every other rule is kept in order. If dropping
+// leaves a non-empty array empty, the default applies (the user never chose "no sort": the key only held the retired rule); a persisted
+// "[]" stays "[]" (an explicit clear, see above). Anything that is not a JSON array is returned untouched for parseSortRulesWith to reject.
+const RETIRED_SORT_FIELDS: readonly string[] = ["overall_score", "overall_verdict"];
+
+function dropRetiredSortRules(raw: string | null): string | null {
+  if (raw == null) return raw;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return raw;
+    const kept = parsed.filter((r) => !(r && typeof r === "object" && RETIRED_SORT_FIELDS.includes((r as { field?: unknown }).field as string)));
+    if (kept.length === parsed.length) return raw;
+    return JSON.stringify(kept.length > 0 ? kept : DEFAULT_SORT_RULES);
+  } catch {
+    return raw;
+  }
 }
 
 // The same parse over any table's field set and default: a rule naming a field outside `fields` (a stale or foreign

@@ -1403,9 +1403,9 @@ export interface WatchlistExportListOut {
 // field here has a real clickable header in WatchlistTable.tsx -- unlike
 // the old dropdown, which also offered step1-5 individual scores despite
 // those never having had their own columns (collapsed into the single
-// Analysis pill since the v2 redesign). Those are dropped here rather than
-// carried forward, since there's no header to click for them; overall_score
-// (the Analysis column) is the one blended score that stays sortable.
+// Verdict column since the v2 redesign). Those are dropped here rather than
+// carried forward, since there's no header to click for them. The Verdict column itself is not sortable (2026-10-09), and the
+// old "overall_score" sort is gone too (a persisted rule naming it, or "overall_verdict", is dropped by parseSortRules).
 export type SortableField =
   | "ticker"
   | "sector"
@@ -1414,8 +1414,7 @@ export type SortableField =
   | "consensus_rating"
   | "market_cap"
   | "pe_ratio"
-  | "beta"
-  | "overall_score";
+  | "beta";
 
 // Same field set as TickerScoreOut minus sector/industry/company_type/
 // growth_rate/computed_at (not shown on the Watchlist table), plus Step 1's

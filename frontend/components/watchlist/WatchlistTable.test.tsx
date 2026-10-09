@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { overallCellTitle, WatchlistTable } from "@/components/watchlist/WatchlistTable";
 import type { WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
-import { DEFAULT_SORT_RULES, sortWatchlistRows } from "@/lib/watchlistSort";
+import { DEFAULT_SORT_RULES } from "@/lib/watchlistSort";
 
 const removeTickerFromWatchlist = vi.fn();
 vi.mock("@/lib/hooks/useWatchlists", () => ({
@@ -235,15 +235,15 @@ describe("WatchlistTable remove button", () => {
 });
 
 describe("WatchlistTable: Moat not rated", () => {
-  it("draws the score in its normal verdict tone with the note as its tooltip (scored as No moat)", () => {
+  it("draws the verdict in its normal tone with the score and the note as its tooltip (scored as No moat)", () => {
     const unrated: WatchlistRowOut = { ...ROWS[0], ticker: "WSM", moat: null, overall_score: 56, overall_verdict: "Fail" };
     render(<WatchlistTable watchlist={WATCHLIST} rows={[ROWS[0], unrated]} sortRules={DEFAULT_SORT_RULES} onSortRulesChange={vi.fn()} />);
     const cell = (ticker: string) => (screen.getByText(ticker).closest("tr") as HTMLElement).querySelectorAll("td")[8];
     const pill = cell("WSM").querySelector("span[title]") as HTMLElement;
-    expect(pill).toHaveTextContent("56");
-    expect(pill).toHaveAttribute("title", "Moat not rated, scored as No moat");
+    expect(pill).toHaveTextContent("May not pass");
+    expect(pill).toHaveAttribute("title", "Overall score 56. Moat not rated, scored as No moat");
     expect(pill).toHaveClass("text-not-pass"); // a Fail, not a neutral "not rated" pill
-    expect(cell("AAPL").querySelector("span[title]")).toBeNull(); // a rated Pass is unchanged
+    expect(cell("AAPL").querySelector("span[title]")).toHaveAttribute("title", "Overall score 90"); // a rated Pass: the score only
   });
 });
 
@@ -251,16 +251,16 @@ describe("WatchlistTable: Pass with caution tooltip names its reason", () => {
   const caution = (overrides: Partial<WatchlistRowOut>): WatchlistRowOut => ({ ...ROWS[0], overall_verdict: "Pass with caution", overall_score: 80, ...overrides });
 
   it("names the weak step when a step is below the pass line", () => {
-    expect(overallCellTitle(caution({ step4_score: 60, step4_verdict: "Fail" }))).toBe("Pass with caution, because Profitability may not pass (under 70)");
+    expect(overallCellTitle(caution({ step4_score: 60, step4_verdict: "Fail" }))).toBe("Overall score 80. Pass with caution, because Profitability may not pass (under 70)");
   });
 
   it("names several weak steps, and a weak step is read from the score as well as a stored Fail", () => {
-    expect(overallCellTitle(caution({ step1_score: 65, step1_verdict: "Fail", step5_score: 55, step5_verdict: "Fail" }))).toBe("Pass with caution, because Financials and Debt may not pass (under 70)");
+    expect(overallCellTitle(caution({ step1_score: 65, step1_verdict: "Fail", step5_score: 55, step5_verdict: "Fail" }))).toBe("Overall score 80. Pass with caution, because Financials and Debt may not pass (under 70)");
   });
 
   it("names both reasons when a Debt caution and a weak step apply together", () => {
     expect(overallCellTitle(caution({ step5_score: 74, step5_verdict: "Pass with caution", step2_score: 50, step2_verdict: "Fail" }))).toBe(
-      "Pass with caution, because Debt passed with a ratio in breach and Growth Rate may not pass (under 70)",
+      "Overall score 80. Pass with caution, because Debt passed with a ratio in breach and Growth Rate may not pass (under 70)",
     );
   });
 
@@ -274,17 +274,18 @@ describe("WatchlistTable: Pass with caution tooltip names its reason", () => {
           step5_score: 74, step5_verdict: "Pass with caution",
         }),
       ),
-    ).toBe("Pass with caution, because Debt passed with a ratio in breach and Financials, Growth Rate and Profitability may not pass (under 70)");
+    ).toBe("Overall score 80. Pass with caution, because Debt passed with a ratio in breach and Financials, Growth Rate and Profitability may not pass (under 70)");
   });
 
   it("keeps the Debt-only text for a step caution alone, and ignores a missing (exempt) score", () => {
-    expect(overallCellTitle(caution({ step5_score: 74, step5_verdict: "Pass with caution" }))).toBe("Pass with caution, because Debt passed with a ratio in breach");
-    expect(overallCellTitle(caution({ step5_score: null, step5_verdict: "not_supported" }))).toBe("Pass with caution");
+    expect(overallCellTitle(caution({ step5_score: 74, step5_verdict: "Pass with caution" }))).toBe("Overall score 80. Pass with caution, because Debt passed with a ratio in breach");
+    expect(overallCellTitle(caution({ step5_score: null, step5_verdict: "not_supported" }))).toBe("Overall score 80. Pass with caution");
   });
 
-  it("adds nothing to a plain Pass or a Fail", () => {
-    expect(overallCellTitle({ ...ROWS[0], step4_score: 60, step4_verdict: "Fail" })).toBeUndefined();
-    expect(overallCellTitle({ ...ROWS[0], overall_verdict: "Fail", overall_score: 50, step4_score: 60, step4_verdict: "Fail" })).toBeUndefined();
+  it("is the score alone for a plain Pass or a Fail, and undefined with no score", () => {
+    expect(overallCellTitle({ ...ROWS[0], step4_score: 60, step4_verdict: "Fail" })).toBe("Overall score 90");
+    expect(overallCellTitle({ ...ROWS[0], overall_verdict: "Fail", overall_score: 50, step4_score: 60, step4_verdict: "Fail" })).toBe("Overall score 50");
+    expect(overallCellTitle({ ...ROWS[0], overall_verdict: null, overall_score: null })).toBeUndefined();
   });
 });
 
@@ -311,12 +312,12 @@ describe("WatchlistTable: ETF rows", () => {
     is_etf: true,
   };
 
-  function analysisCell(ticker: string) {
+  function verdictCell(ticker: string) {
     const row = screen.getByText(ticker).closest("tr") as HTMLElement;
-    return row.querySelectorAll("td")[8]; // Ticker, Sector, Last, Rev, NI, CFO, Moat, Value, Analysis
+    return row.querySelectorAll("td")[8]; // Ticker, Sector, Last, Rev, NI, CFO, Moat, Value, Verdict
   }
 
-  it("shows an ETF marker in the Analysis cell instead of the blank/missing score", () => {
+  it("shows an ETF marker in the Verdict cell instead of the blank/missing verdict", () => {
     render(
       <WatchlistTable
         watchlist={WATCHLIST}
@@ -325,10 +326,11 @@ describe("WatchlistTable: ETF rows", () => {
         onSortRulesChange={vi.fn()}
       />,
     );
-    expect(analysisCell("QQQ")).toHaveTextContent("ETF");
-    expect(analysisCell("QQQ")).not.toHaveTextContent("—");
-    expect(analysisCell("AAPL")).toHaveTextContent("90"); // a stock row is unchanged
-    expect(analysisCell("AAPL")).not.toHaveTextContent("ETF");
+    expect(verdictCell("QQQ")).toHaveTextContent("ETF");
+    expect(verdictCell("QQQ")).not.toHaveTextContent("—");
+    expect(verdictCell("AAPL")).toHaveTextContent("Pass"); // a stock row shows its verdict word, not the score
+    expect(verdictCell("AAPL")).not.toHaveTextContent("90");
+    expect(verdictCell("AAPL")).not.toHaveTextContent("ETF");
   });
 
   it("shows a dash in the Rating cell of an ETF row, while a stock row keeps its rating", () => {
@@ -341,7 +343,7 @@ describe("WatchlistTable: ETF rows", () => {
       />,
     );
     const ratingCell = (ticker: string) =>
-      (screen.getByText(ticker).closest("tr") as HTMLElement).querySelectorAll("td")[9]; // ... Analysis, Rating
+      (screen.getByText(ticker).closest("tr") as HTMLElement).querySelectorAll("td")[9]; // ... Verdict, Rating
     expect(ratingCell("QQQ")).toHaveTextContent("—");
     expect(ratingCell("QQQ")).not.toHaveTextContent("N/A");
     expect(ratingCell("AAPL")).toHaveTextContent("BUY");
@@ -356,7 +358,7 @@ describe("WatchlistTable: ETF rows", () => {
         onSortRulesChange={vi.fn()}
       />,
     );
-    expect(analysisCell("QQQ")).toHaveTextContent("—");
+    expect(verdictCell("QQQ")).toHaveTextContent("—");
   });
 });
 
@@ -385,7 +387,7 @@ describe("WatchlistTable width", () => {
   });
 });
 
-describe("WatchlistTable: Analysis cell", () => {
+describe("WatchlistTable: Verdict cell", () => {
   const scored = (ticker: string, extra: Partial<WatchlistRowOut> = {}): WatchlistRowOut => ({
     ...ROWS[0],
     ticker,
@@ -394,30 +396,61 @@ describe("WatchlistTable: Analysis cell", () => {
     overall_verdict: "Pass",
     ...extra,
   });
-  const analysisCell = (ticker: string) =>
+  const verdictCell = (ticker: string) =>
     (screen.getByText(ticker).closest("tr") as HTMLElement).querySelectorAll("td")[8] as HTMLElement;
   const renderRows = (rows: WatchlistRowOut[], sortRules = DEFAULT_SORT_RULES) =>
     render(<WatchlistTable watchlist={WATCHLIST} rows={rows} sortRules={sortRules} onSortRulesChange={vi.fn()} />);
 
-  it("shows the score pill alone; a Pass with caution keeps its glyph and tooltip", () => {
+  it("shows the verdict word alone, with the score in the tooltip; a Pass with caution has no glyph and names its reason", () => {
     renderRows([scored("HCA"), scored("GE", { overall_verdict: "Pass with caution", overall_score: 73, step5_verdict: "Pass with caution" })]);
-    expect(analysisCell("HCA")).toHaveTextContent("71");
-    expect(analysisCell("HCA").children).toHaveLength(1);
-    expect(analysisCell("GE")).toHaveTextContent("73 ⚠");
-    expect(analysisCell("GE").querySelector("span[title^='Pass with caution']")).not.toBeNull();
+    expect(verdictCell("HCA")).toHaveTextContent(/^Pass$/);
+    expect(verdictCell("HCA").children).toHaveLength(1);
+    expect(verdictCell("HCA").querySelector("span[title]")).toHaveAttribute("title", "Overall score 71");
+    expect(verdictCell("GE")).toHaveTextContent(/^Pass with caution$/);
+    expect(verdictCell("GE").textContent).not.toContain("⚠");
+    expect(verdictCell("GE").querySelector("span[title]")).toHaveAttribute(
+      "title",
+      "Overall score 73. Pass with caution, because Debt passed with a ratio in breach",
+    );
+  });
+
+  it("draws every stored verdict in its display word and tone", () => {
+    renderRows([
+      scored("SP", { overall_verdict: "Strong Pass", overall_score: 95 }),
+      scored("FL", { overall_verdict: "Fail", overall_score: 55 }),
+    ]);
+    expect(verdictCell("SP")).toHaveTextContent("Strong pass");
+    expect(verdictCell("SP").querySelector("span[title]")).toHaveClass("text-positive-strong");
+    expect(verdictCell("FL")).toHaveTextContent("May not pass");
+    expect(verdictCell("FL").querySelector("span[title]")).toHaveClass("text-not-pass");
+  });
+
+  it("shows the missing dash for an incomplete (null) verdict", () => {
+    renderRows([scored("INC", { overall_verdict: null, overall_score: null })]);
+    expect(verdictCell("INC")).toHaveTextContent("—");
   });
 
   it("an ETF row shows the ETF marker", () => {
     renderRows([scored("QQQ", { is_etf: true, overall_score: null, overall_verdict: null })]);
-    expect(analysisCell("QQQ")).toHaveTextContent("ETF");
+    expect(verdictCell("QQQ")).toHaveTextContent("ETF");
   });
 
-  it("sorts on overall_score", () => {
-    const rows = [scored("LOW", { overall_score: 60 }), scored("HI", { overall_score: 90 }), scored("MID", { overall_score: 75 })];
-    const sorted = sortWatchlistRows(rows, [{ field: "overall_score", direction: "desc" }]).map((r) => r.ticker);
-    expect(sorted).toEqual(["HI", "MID", "LOW"]);
+  it("the Verdict header is a plain header: no button, no sort state, nothing sorted by it", () => {
+    renderRows([scored("AAPL")]);
+    expect(screen.queryByRole("button", { name: "Verdict" })).toBeNull();
+    const head = screen.getByText("Verdict").closest("th") as HTMLElement;
+    expect(head).not.toHaveAttribute("aria-sort");
+    expect(head.querySelector("button, svg")).toBeNull();
+    // The sortable neighbours keep their buttons.
+    expect(screen.getByRole("button", { name: "Value" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rating" })).toBeInTheDocument();
+  });
+
+  it("the default sort is ticker A to Z, and the Ticker header shows it as ascending", () => {
+    const rows = [scored("MSFT"), scored("AAPL"), scored("GOOG")];
     renderRows(rows);
     const order = [...document.querySelectorAll("tbody tr")].map((tr) => tr.querySelector("td p")?.textContent);
-    expect(order).toEqual(["HI", "MID", "LOW"]);
+    expect(order).toEqual(["AAPL", "GOOG", "MSFT"]);
+    expect(screen.getByRole("button", { name: "Ticker" }).closest("th")).toHaveAttribute("aria-sort", "ascending");
   });
 });
