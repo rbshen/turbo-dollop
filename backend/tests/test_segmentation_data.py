@@ -206,7 +206,7 @@ def test_two_segment_split_is_never_flagged():
 
 def test_gddy_style_near_coincidence_is_not_flagged():
     # GoDaddy 2021 (millions): Domains is within ~1% of the other two, but it is a
-    # real segment -- outside the 0.5% tolerance and only two others.
+    # real segment -- outside the 0.25% tolerance and only two others.
     rows = [
         {
             "fiscalYear": "2021",
@@ -220,11 +220,51 @@ def test_gddy_style_near_coincidence_is_not_flagged():
     assert _flags(exact) == {}
 
 
-def test_tolerance_boundary():
-    inside = [{"fiscalYear": "2024", "date": "2024-12-31", "data": {"A": 10.0, "B": 20.0, "C": 30.0, "T": 60.2}}]  # 0.33%
-    outside = [{"fiscalYear": "2024", "date": "2024-12-31", "data": {"A": 10.0, "B": 20.0, "C": 30.0, "T": 60.4}}]  # 0.67%
-    assert _flags(inside) == {"T": ["2024"]}
-    assert _flags(outside) == {}
+def _gap_row(year: str, name: str, gap: float) -> dict:
+    # Three parts summing to 600; `name` is 600 * (1 + gap) -- a gap of 0.001 is 0.1%.
+    return {
+        "fiscalYear": year,
+        "date": f"{year}-12-31",
+        "data": {"A": 100.0, "B": 200.0, "C": 300.0, name: 600.0 * (1 + gap)},
+    }
+
+
+def test_plain_name_one_year_at_point_one_percent_is_not_flagged():
+    assert _flags([_gap_row("2024", "Domains", 0.001)]) == {}
+
+
+def test_plain_name_one_exact_year_is_flagged():
+    assert _flags([_gap_row("2024", "Domains", 0.0)]) == {"Domains": ["2024"]}
+    assert _flags([_gap_row("2024", "Domains", 0.0001)]) == {"Domains": ["2024"]}  # exact-tie boundary (0.01%)
+    assert _flags([_gap_row("2024", "Domains", 0.00011)]) == {}
+
+
+def test_plain_name_two_years_at_point_two_percent_is_flagged():
+    rows = [_gap_row("2024", "Domains", 0.002), _gap_row("2023", "Domains", -0.002)]
+    assert _flags(rows) == {"Domains": ["2023", "2024"]}
+
+
+def test_plain_name_reports_only_years_inside_tolerance():
+    rows = [_gap_row("2024", "Domains", 0.002), _gap_row("2023", "Domains", 0.002), _gap_row("2022", "Domains", 0.004)]
+    assert _flags(rows) == {"Domains": ["2023", "2024"]}
+
+
+def test_total_looking_name_one_year_at_point_two_percent_is_flagged():
+    assert _flags([_gap_row("2024", "Revenue Net", 0.002)]) == {"Revenue Net": ["2024"]}
+    assert _flags([_gap_row("2024", "Segment Total", 0.002)]) == {"Segment Total": ["2024"]}
+
+
+def test_gap_of_point_three_percent_is_never_flagged():
+    for name in ("Domains", "Revenue Net"):
+        assert _flags([_gap_row("2024", name, 0.003)]) == {}
+        assert _flags([_gap_row("2024", name, 0.003), _gap_row("2023", name, 0.003)]) == {}
+    # A 0.3% year does not count toward the two-year requirement either.
+    assert _flags([_gap_row("2024", "Domains", 0.002), _gap_row("2023", "Domains", 0.003)]) == {}
+
+
+def test_single_year_near_miss_beside_an_exact_year_reports_only_passing_years():
+    rows = [_gap_row("2024", "Domains", 0.0), _gap_row("2023", "Domains", 0.003)]
+    assert _flags(rows) == {"Domains": ["2024"]}
 
 
 def test_get_segmentation_data_exposes_likely_totals(monkeypatch):

@@ -31,14 +31,19 @@ def _is_other_name(name: str) -> bool:
 
 
 # Likely-total detection (warning only -- no value is ever altered). A segment
-# is flagged for a year when it equals the sum of every other positive segment
-# that year within TOTAL_TOLERANCE and at least MIN_OTHERS_PLAIN other positive
+# matches in a year when it equals the sum of every other positive segment that
+# year within TOTAL_TOLERANCE and at least MIN_OTHERS_PLAIN other positive
 # segments exist, or MIN_OTHERS_TOTAL_NAMED when its name also reads like a
-# total. FMP sometimes returns a consolidated/"Revenue Net" line beside its parts
-# (MEDP 2022-2023), which a stacked chart then counts twice.
-TOTAL_TOLERANCE = 0.005
+# total. A total-looking name is flagged on one matching year; a plain name
+# needs MIN_YEARS_PLAIN matching years or one EXACT_TIE_TOLERANCE tie (a single
+# near-miss is usually just a segment that is about half of sales). FMP
+# sometimes returns a consolidated/"Revenue Net" line beside its parts (MEDP
+# 2022-2023), which a stacked chart then counts twice.
+TOTAL_TOLERANCE = 0.0025
+EXACT_TIE_TOLERANCE = 0.0001
 MIN_OTHERS_PLAIN = 3
 MIN_OTHERS_TOTAL_NAMED = 2
+MIN_YEARS_PLAIN = 2
 _TOTAL_NAME = re.compile(r"total|revenue|consolidated", re.IGNORECASE)
 
 
@@ -131,7 +136,7 @@ def _detect_likely_totals(rows: list[dict], window: int = ANNUAL_WINDOW) -> list
     if not rows:
         return []
 
-    flagged: dict[str, list[str]] = {}
+    matches: dict[str, list[tuple[str, float]]] = {}  # name -> [(fiscal year, gap)], oldest-first
     for row in reversed(rows[:window]):  # oldest-first
         data = {name: _coerce_numeric(value) for name, value in (row.get("data") or {}).items()}
         positive = {name: value for name, value in data.items() if value is not None and value > 0}
@@ -140,10 +145,20 @@ def _detect_likely_totals(rows: list[dict], window: int = ANNUAL_WINDOW) -> list
             others_count = len(positive) - 1
             others_sum = total_of_all - value
             min_others = MIN_OTHERS_TOTAL_NAMED if _TOTAL_NAME.search(name) else MIN_OTHERS_PLAIN
-            if others_count >= min_others and abs(value - others_sum) <= TOTAL_TOLERANCE * others_sum:
-                flagged.setdefault(name, []).append(_annual_year(row))
+            if others_count < min_others or others_sum <= 0:
+                continue
+            gap = abs(value - others_sum) / others_sum
+            if gap <= TOTAL_TOLERANCE:
+                matches.setdefault(name, []).append((_annual_year(row), gap))
 
-    return [LikelyTotal(segment=name, years=years) for name, years in flagged.items()]
+    flagged: list[LikelyTotal] = []
+    for name, hits in matches.items():
+        looks_like_total = bool(_TOTAL_NAME.search(name))
+        years = [year for year, _ in hits]
+        has_exact_tie = any(gap <= EXACT_TIE_TOLERANCE for _, gap in hits)
+        if looks_like_total or len(set(years)) >= MIN_YEARS_PLAIN or has_exact_tie:
+            flagged.append(LikelyTotal(segment=name, years=years))
+    return flagged
 
 
 def _log_likely_totals(ticker: str, kind: str, likely: list[LikelyTotal]) -> None:
