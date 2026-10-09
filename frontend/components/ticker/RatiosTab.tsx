@@ -1,6 +1,7 @@
 "use client";
 
 import { FmpRatiosNote } from "@/components/shared/DataQualityNote";
+import { PeHistoryCard } from "@/components/ticker/PeHistoryCard";
 import { RatiosTable } from "@/components/ticker/RatiosTable";
 import { RatioTrendsGrid } from "@/components/ticker/RatioTrendsGrid";
 import { useRatios } from "@/lib/hooks/useRatios";
@@ -36,6 +37,8 @@ export function RatiosTab({ ticker }: Props) {
         <h2 className="text-sm font-semibold uppercase tracking-widest text-text-secondary">Historical Trends</h2>
         <RatioTrendsGrid ticker={ticker} />
       </div>
+
+      <PeHistoryCard ticker={ticker} />
 
       <div className="space-y-4">
         <p className="text-xs text-text-tertiary">

@@ -911,6 +911,40 @@ export interface RatiosOut {
   data_quality?: DataQualityFlag[];
 }
 
+export interface PeHistoryPoint {
+  date: string;
+  stock: number | null;
+  sector: number | null;
+  industry: number | null;
+}
+
+export interface PeHistoryLatest {
+  value: number;
+  date: string;
+}
+
+/** P/E history chart (Ratios tab), last 1 year; a null series value is a gap. `status` gates the chart; under "ok",
+ * `stock_status` says why the ticker line is missing. See docs/specs/sector-industry-pe.md, "Phase 2". */
+export interface PeHistoryOut {
+  ticker: string;
+  status: "ok" | "etf" | "unsupported_exchange" | "no_profile";
+  note: string | null;
+  label: string;
+  window_start: string | null;
+  exchange: string | null;
+  sector: string | null;
+  industry: string | null;
+  stock_status: "ok" | "adr" | "no_eps" | "no_prices";
+  stock_starts: string | null;
+  sector_available: boolean;
+  industry_available: boolean;
+  industry_fallback: boolean;
+  points: PeHistoryPoint[];
+  latest_stock: PeHistoryLatest | null;
+  latest_sector: PeHistoryLatest | null;
+  latest_industry: PeHistoryLatest | null;
+}
+
 /** A segment whose value equals the sum of the others in `years` (oldest-first):
  * probably a provider total row. Warning only -- its values are unchanged. */
 export interface LikelyTotal {

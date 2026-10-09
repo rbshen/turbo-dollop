@@ -62,6 +62,7 @@ from core.tickers import normalize_ticker
 from data.news_data import get_news_data
 from pipeline.refresh import clear_ticker_cache, groups_blocking_refresh
 from data.financials_data import get_cash_flow_cell_sec_check, get_financials_data
+from data.pe_history_data import get_pe_history
 from data.ratios_data import get_ratios_data
 from data.saved_screener_filters import delete_saved_filter, list_saved_filters, upsert_saved_filter
 from data.segmentation_data import get_segmentation_data
@@ -113,6 +114,7 @@ from core.schemas import (
     MomentumOut,
     MomentumPeriod,
     NewsOut,
+    PeHistoryOut,
     RatiosOut,
     RecomputeSummary,
     RefreshResult,
@@ -867,6 +869,12 @@ async def ticker_ratios(ticker: str) -> RatiosOut:
         # would leak the key into the response body the moment that stops
         # being true for some future call site.
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
+
+
+@app.get("/api/tickers/{ticker}/pe-history", response_model=PeHistoryOut)
+def ticker_pe_history(ticker: str) -> PeHistoryOut:
+    # Cache-only (no FMP call): the ticker's trailing P/E beside FMP's sector / industry average P/E, last 1 year.
+    return get_pe_history(normalize_ticker(ticker))
 
 
 @app.get("/api/tickers/{ticker}/segmentation", response_model=SegmentationOut)

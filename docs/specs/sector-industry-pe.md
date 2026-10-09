@@ -1,7 +1,9 @@
 # Sector / industry average P/E (FMP) — Phase 1, data layer
 
-Status (2026-10-09): **data layer only.** The table, the 5-year backfill, the nightly snapshot job and a series read
-function exist. There is no chart, no overlay and no API route yet, and the ticker's own P/E series is not built.
+Status (2026-10-09): **phase 1 (data layer) and phase 2 (the P/E history chart) are built.** Phase 1: the table, the 5-year
+backfill, the nightly snapshot job and a series read function. Phase 2: the ticker's own P/E series, the route
+`GET /api/tickers/{t}/pe-history` and the "P/E history" card on the Ratios tab (below). The table keeps its 5 years; the
+chart window is **1 year**.
 
 ## What it is, and the label
 
@@ -19,7 +21,7 @@ for its trend and for rough position, never as a precise premium/discount.
 1,046 sector rows on AMEX, 12 on NASDAQ). It is **stored as returned**; a reader must treat `pe <= 0` as no value (and
 never plot it as zero). No value is negative or above 1,000.
 
-## Which exchange (rule for the later overlay)
+## Which exchange (rule for the overlay)
 
 Use the **ticker's own listing exchange**: NASDAQ, NYSE or AMEX (the three FMP exchanges stored). A ticker listed on
 OTC, CBOE or anywhere else gets **no overlay**, and **ETFs get none** either (`isEtf`/`isFund`). Fathom is US-listed
@@ -101,4 +103,52 @@ NYSE 160,288; sector AMEX 13,641; NASDAQ 14,070; NYSE 14,069), 2021-10-11 to 202
 ## Reading
 
 `data/sector_industry_pe_data.py::get_series(kind, name, exchange, years=5)` → `[(date, pe), ...]` oldest first
-(empty = no overlay). No route yet.
+(empty = no overlay). The chart calls it with `years=1`.
+
+## Phase 2: the P/E history chart (Ratios tab)
+
+**Window: the last 1 year** (`data/pe_history_data.py::CHART_WINDOW_YEARS`). The API returns only the last year of stock,
+sector and industry points, so all three lines start on the same date; the table still holds 5 years (a longer window
+would need no Phase 1 change). Decision of 2026-10-09 (docs/decisions.md).
+
+**Route** `GET /api/tickers/{t}/pe-history` → `PeHistoryOut` (`core/schemas.py`). Cache-only: no FMP call, no write, no DB
+schema change. `status` ("ok" | "etf" | "unsupported_exchange" | "no_profile") gates the chart; under "ok", `stock_status`
+("ok" | "adr" | "no_eps" | "no_prices") says why the ticker line is missing while the overlays may still be there.
+`points` = `{date, stock, sector, industry}` per trading day (null = gap), `latest_*` = the last value of each series
+with its date, `stock_starts` = the first stock point, `industry_fallback`, `sector_available`, `industry_available`.
+
+**Ticker line.** Daily close (cached daily bars through the last completed session, `read_cached_completed_daily_bars`;
+split-adjusted, as the cached statements' EPS is) ÷ TTM EPS = the sum of 4 consecutive quarterly `epsDiluted` from the
+cached `income_statement/quarterly` row. A TTM value applies **from the 4th quarter's `filingDate`** (fallback: period end
++ 45 days), so no day uses an EPS that was not yet public. A day with TTM EPS <= 0 is dropped (the header P/E's
+positive-EPS rule). A window is **broken** (no value from its filing date until the next valid window; an older value is
+never carried over it) when neighbouring quarters are not 60-135 days apart (a missing quarter, or a semiannual reporter)
+or when a Q4 row's `epsDiluted` equals its fiscal year's annual EPS
+(`helpers/ttm.py::is_quarter_content_duplicate_of_annual`, applied to every Q4 in the window; the Defect-B *correction* is
+not applied, the window is just dropped). ADR (income-statement `reportedCurrency` ≠ profile `currency`): **no stock line**
+and a note (price ÷ EPS would need FX); the sector / industry overlays still show.
+
+**Sector / industry lines.** From `SectorIndustryPe` on the ticker's own profile `exchange`, joined to the bar dates as of
+the last stored day within 5 calendar days. `pe <= 0` is a gap (the day stays in the join as NaN so the previous day is not
+carried across it). No industry series (Asset Management; HSY, STE, VLTO, CCJ, BF-B on their own exchange): `industry_fallback`,
+the UI shows the sector line with a small note and "Industry n/a" in the headline. ETF/fund → `status` "etf"; OTC/CBOE/other →
+"unsupported_exchange"; no cached profile → "no_profile": no series, a note, no toggles. Without cached bars the calendar is
+the stored sector / industry dates (`stock_status` "no_prices"). No long-history read, so an untracked ticker with no cached
+daily bars has no stock line.
+
+**UI.** `PeHistoryCard` (fetch) → `PeHistoryPanel` (headline, two `Switch`es "Overlay sector PE" / "Overlay industry PE", notes) →
+`PeHistoryChart` (a sibling of `PriceTargetTrendChart`: recharts lines, one shared hidden P/E axis, `ChartLegend`; stock
+`series-1`, sector `series-2`, industry `series-3`). Overlays start off, except when there is no stock line (then they start
+on so the chart is not blank). Headline "Stock 28.4 · Sector 22.1 · Industry 24.7" for the latest day, "n/a" for a missing value.
+Legend / tooltip labels for the overlays read "<name>: average PE of listed companies (FMP)". The gap is never called a premium
+or a discount; the card says the bases differ and the stock P/E can differ from the header P/E (`netIncomePerShareTTM`, live
+price). A dashed "Stock P/E starts →" marker shows when `stock_starts` is later than the first point. **Y-range rule**
+(`lib/peHistory.ts::peYRange`): 0 to a nice ceiling of 1.15 × the 95th percentile of the visible values (never above the
+largest value); points above it are clipped by the axis, the tooltip keeps the true value, and a line says "N days above X
+not shown".
+
+**Measured on the real cache (2026-10-09, 584 stock profiles on NASDAQ/NYSE/AMEX; 32 ETFs; 4 OTC/CBOE):** stock line OK 537,
+no usable EPS 33, ADR 12, no cached bars 2. 23 tickers' stock line starts after the window start (a new TTM window filed
+inside the year, e.g. BA, DLTR, INTC). Quarterly statements are cached with `limit=12` (`TOTAL_QUARTERS_NEEDED`), which covers
+the 1-year window for 576 of 585 tickers; a 5-year ticker line would not fit it. Windows dropped, not covered: semiannual
+reporters CCEP and FER (182-day gaps), a missing quarter at FLY and Q, and FERG's Q4 2026-06-30 row (duplicate of the annual EPS).

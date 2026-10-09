@@ -15,6 +15,7 @@ How every chart is coloured, drawn and worded. Companion to `docs/design-system.
 | A bar or line that is one series (Revenue, ROE, price target) | `series-1` (brand blue). |
 | Several series that are not ordered by meaning | `series-1` to `series-5`, in order. Never `warn`, `positive`, `negative` or `brand` under another name. |
 | Breadth 20, 50, 200-day lines | `series-3`, `series-2`, `series-1`. Draw order 200, 50, 20 so the most volatile line is on top. |
+| P/E history (Ratios tab): stock, sector average, industry average | `series-1`, `series-2`, `series-3`, one shared P/E axis, the "data starts" dashed marker as on the price-target chart. |
 | Recommendation Trend (Buy, Outperform, Hold, Underperform, Sell) | Sentiment colours as built: `positive`, `brand`, `warn`, `chart-purple`, `negative`. It is a scale, not a set of series. Unchanged. |
 | Total Debt (long-term and short-term) | `series-1` and `chart-orange`. Orange stays reserved for the Debt chart. |
 

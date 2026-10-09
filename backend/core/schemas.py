@@ -2193,6 +2193,47 @@ class RatiosOut(BaseModel):
     data_quality: list[DataQualityFlag] = []
 
 
+class PeHistoryPoint(BaseModel):
+    """One day of the P/E history chart; a null series value is a gap (never plotted)."""
+
+    date: str
+    stock: float | None = None
+    sector: float | None = None
+    industry: float | None = None
+
+
+class PeHistoryLatest(BaseModel):
+    value: float
+    date: str
+
+
+class PeHistoryOut(BaseModel):
+    """P/E history chart on the Ratios tab (docs/specs/sector-industry-pe.md, "Phase 2"): the ticker's own
+    trailing P/E beside FMP's sector / industry average P/E, last 1 year only, read from the cache (no FMP call).
+
+    `status` gates the whole chart: "ok" | "etf" | "unsupported_exchange" | "no_profile". Under "ok",
+    `stock_status` says why the ticker line is missing ("ok" | "adr" | "no_eps" | "no_prices"); the overlays can
+    still be there. `industry_fallback`: no industry series on the exchange, so the sector line stands in."""
+
+    ticker: str
+    status: str
+    note: str | None = None
+    label: str
+    window_start: str | None = None
+    exchange: str | None = None
+    sector: str | None = None
+    industry: str | None = None
+    stock_status: str = "ok"
+    stock_starts: str | None = None
+    sector_available: bool = False
+    industry_available: bool = False
+    industry_fallback: bool = False
+    points: list[PeHistoryPoint] = []
+    latest_stock: PeHistoryLatest | None = None
+    latest_sector: PeHistoryLatest | None = None
+    latest_industry: PeHistoryLatest | None = None
+
+
 class LikelyTotal(BaseModel):
     """A segment whose value equals the sum of the others in `years` (fiscal
     years, oldest-first) -- probably a provider total row. Warning only: the
