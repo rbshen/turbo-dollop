@@ -35,8 +35,10 @@ export default function SectorsPage() {
 
       <div className="space-y-1 border-t border-border-subtle pt-4 text-xs text-text-tertiary">
         <p>
-          Trailing price change (excludes dividends) of the 11 SPDR sector ETFs over calendar-day windows; YTD is
-          measured from the prior year&apos;s final close. Click a column header to sort.
+          Trailing price change (excludes dividends) of the 11 SPDR sector ETFs, rolling back from the last completed
+          close: 1D = the prior close, 1W = 7 days, 1M to 9M = the same date N months earlier, 1Y = the same date one
+          year earlier; a weekend or holiday baseline uses the prior close. YTD is measured from the prior
+          year&apos;s final close. Click a column header to sort.
         </p>
         <p>Cell color is scaled within each column — the strongest tint is that window&apos;s largest move, so tints aren&apos;t comparable across columns.</p>
       </div>
