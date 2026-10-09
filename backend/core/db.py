@@ -13,11 +13,12 @@ logger = logging.getLogger(__name__)
 
 DB_PATH = (BASE_DIR / settings.database_path).resolve()
 # How long a connection waits for another connection's lock before raising "database is locked" (sqlite3's `timeout`,
-# which SQLite applies as PRAGMA busy_timeout; sqlite3's own default is 5 s). The journal mode is still the default
-# (delete, not WAL), so a writer blocks readers while it commits and a long reader (the 03:30 UTC backup) blocks a
-# commit. Most request handlers are `async def` calling the synchronous session, so a lock wait also freezes the event
+# which SQLite applies as PRAGMA busy_timeout; sqlite3's own default is 5 s). The journal mode is WAL (since 2026-10-04,
+# set once on the file and checked at startup by _log_journal_mode), so readers and a writer do not block each other and
+# a "database is locked" means two writers; a restored older backup or a hand copy can bring back "delete". Most
+# request handlers are `async def` calling the synchronous session, so a lock wait also freezes the event
 # loop's single thread: 15 s is the compromise between riding out a long writer and stalling the API. Every engine that
-# writes is this one (see docs/OPS_RUNBOOK.md, "Database locking"); read-only engines open the file with mode=ro.
+# writes is this one (see backend/OPS_RUNBOOK.md, "Database locking"); read-only engines open the file with mode=ro.
 SQLITE_BUSY_TIMEOUT_SECONDS = 15
 
 engine = create_engine(
@@ -190,7 +191,7 @@ def _seed_ticker_views(now: datetime | None = None) -> int:
 
 def _log_journal_mode() -> str | None:
     """Logs the live file's journal mode at startup: INFO when it is "wal" (the intended mode since 2026-10-04, see
-    docs/OPS_RUNBOOK.md, "WAL"), WARNING otherwise (a restore of an older backup brings back "delete", and a hand
+    backend/OPS_RUNBOOK.md, "WAL"), WARNING otherwise (a restore of an older backup brings back "delete", and a hand
     copy of the file loses the mode). `PRAGMA journal_mode` with no argument only reads: it never changes the mode and
     writes nothing. Never raises (a startup log line must not stop the app or a cron job). Returns the mode, or None."""
     try:
@@ -204,7 +205,7 @@ def _log_journal_mode() -> str | None:
     else:
         logger.warning(
             "SQLite journal_mode=%s, expected wal: readers block writers and the 03:30 UTC backup can stall commits "
-            "(re-enable with the steps in docs/OPS_RUNBOOK.md, \"WAL\").",
+            "(re-enable with the steps in backend/OPS_RUNBOOK.md, \"WAL\").",
             mode,
         )
     return mode

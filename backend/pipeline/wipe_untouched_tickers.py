@@ -17,8 +17,9 @@ FATHOM_ALLOW_WIPE_APPLY=1 is set. The added set is the real one since step 2
 (`TickerView.added_at`, `load_added_tickers`): added tickers are protected. The lock stays on until the remaining
 checklist in docs/specs/tracked-universe.md ("Planned: opt-in universe and wipe") is done.
 
-Apply mode: one transaction per ticker, opened with BEGIN IMMEDIATE (the journal mode is not WAL, so a long delete
-would block the API: each ticker is small). Inside it the decision is re-checked from scratch (a ticker touched or
+Apply mode: one transaction per ticker, opened with BEGIN IMMEDIATE (the journal mode has been WAL since 2026-10-04,
+so a delete does not block API reads but does hold the single write lock: each ticker is small). Inside it the
+decision is re-checked from scratch (a ticker touched or
 protected since the pass began is skipped), then rows are deleted in the registry order, `TickerView` last. FundamentalsCache
 `forex_rate` rows are never touched. A failure rolls that ticker back and the run continues; the ticker simply stays
 a candidate for the next run.

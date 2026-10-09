@@ -215,7 +215,7 @@ def test_the_real_engine_waits_the_named_constant_for_a_lock():
 
 def test_the_only_engines_the_app_builds_for_writing_use_the_constant():
     """core.db.engine is the single writing engine (every module imports it); the two other create_engine calls
-    open mode=ro and the backup job's raw connections copy the file (see docs/OPS_RUNBOOK.md, "Database locking")."""
+    open mode=ro and the backup job's raw connections copy the file (see backend/OPS_RUNBOOK.md, "Database locking")."""
     import pathlib
     import re
 
