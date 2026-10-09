@@ -1,7 +1,7 @@
 import { Warning } from "@phosphor-icons/react";
 
 import { fmtSwingDate } from "@/components/technical/ChecklistCard";
-import { Status } from "@/components/ui/status";
+import { Status, type StatusProps } from "@/components/ui/status";
 import {
   formatWeinsteinSince,
   weinsteinMaLabelShort,
@@ -39,6 +39,8 @@ interface Props {
   // it's "not computed," and gets no pill at all rather than a placeholder
   // (same "only show when meaningful" contract as MoatPill/SpeculativeGrowthPill).
   data: WeinsteinStagePillData | null | undefined;
+  // "compact" is for dense tables (the Watchlist's Stage column); omitted = the regular pill every other caller draws.
+  size?: StatusProps["size"];
 }
 
 function buildTooltip(data: WeinsteinStagePillData): string {
@@ -61,12 +63,12 @@ function buildTooltip(data: WeinsteinStagePillData): string {
   return lines.join("\n");
 }
 
-export function WeinsteinStagePill({ data }: Props) {
+export function WeinsteinStagePill({ data, size }: Props) {
   if (!data || !data.weinstein_stage) return null;
   const stage = data.weinstein_stage;
 
   return (
-    <Status tone={WEINSTEIN_STAGE_TONE[stage]} title={buildTooltip(data)}>
+    <Status tone={WEINSTEIN_STAGE_TONE[stage]} size={size} title={buildTooltip(data)}>
       {pillLabel(WEINSTEIN_STAGE_LABEL[stage])}
       {/* Pending confirmation -- without this, the extra tooltip line
           buildTooltip appends is invisible (a native `title` attribute

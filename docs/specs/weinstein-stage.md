@@ -336,8 +336,12 @@ All null when not currently pending. `TrendAnalysisOut` gains the same fields ne
 optional `pending` object so a non-pending ticker's payload is unchanged.
 
 **Deliberately out of scope for this round**: Watchlist/Screener surfacing of the pending state
-(today only the Screener card's Weinstein pill shows the stage itself; the Watchlist has had no
-Weinstein column since the Watchlist UI columns were removed on 2026-09-06); a symmetric "how many weeks
+(the Screener card's Weinstein pill shows the stage itself, and since 2026-10-09 the stock Watchlist table has a
+display-only, non-sortable **Stage** column right after Verdict: the compact `WeinsteinStagePill` with the full "Stage 2 · Advance"
+label and the same tooltip, or a `missing` "—" with the tooltip "No Weinstein stage yet" when there is none. `WatchlistRowOut` carries
+the five pill fields (`weinstein_stage`, `_since_date`, `_since_is_lower_bound`, `_ma_slope_pct`, `_vs_ma_pct`) copied from the row's
+`compute_ticker_score` result, which reads `TrendAnalysis` live per request; the pending state is still not shown there, and the ETF
+watchlist table has no Stage column); a symmetric "how many weeks
 until an *existing* stage would be at risk of reversing" read; backtesting the band-cushion
 diagnostic beyond the single-ticker illustration above; a dedicated mean-reversion/downside
 scenario.

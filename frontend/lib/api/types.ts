@@ -1471,6 +1471,12 @@ export interface WatchlistRowOut {
   perf_5y_vs_spy_status: PerfVsSpyStatus | null;
   // See TickerScoreOut.speculative_growth_qualifies above.
   speculative_growth_qualifies: boolean | null;
+  // See TickerScore.weinstein_stage/_since_date/_since_is_lower_bound/_ma_slope_pct/_vs_ma_pct -- the Stage column (2026-10-09).
+  weinstein_stage: "base" | "advance" | "top" | "decline" | null;
+  weinstein_stage_since_date: string | null;
+  weinstein_stage_since_is_lower_bound: boolean | null;
+  weinstein_ma_slope_pct: number | null;
+  weinstein_vs_ma_pct: number | null;
   // FMP's live consensus label -- "N/A" (never null) when there's no cached
   // analyst-ratings data for this ticker yet.
   consensus_rating: string;

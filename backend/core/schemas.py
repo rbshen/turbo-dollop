@@ -2023,6 +2023,13 @@ class WatchlistRowOut(BaseModel):
     perf_5y_vs_spy_status: str | None = None
     # See models.py::TickerScore.speculative_growth_qualifies.
     speculative_growth_qualifies: bool | None = None
+    # Weinstein stage (2026-10-09, the table's Stage column): the five fields the WeinsteinStagePill reads, copied from the same
+    # score object (compute_ticker_score reads TrendAnalysis live per request). All None for a ticker with no score row or no stage.
+    weinstein_stage: str | None = None
+    weinstein_stage_since_date: date | None = None
+    weinstein_stage_since_is_lower_bound: bool | None = None
+    weinstein_ma_slope_pct: float | None = None
+    weinstein_vs_ma_pct: float | None = None
     # FMP's live consensus label (ConsensusBanner.rating), "N/A" when there's
     # no cached analyst-ratings data for this ticker yet -- never null.
     consensus_rating: str

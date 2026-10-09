@@ -6,6 +6,7 @@ import { MiniBarChart } from "@/components/charts/MiniBarChart";
 import { MOAT_LABEL_SHORT, MOAT_TONE } from "@/components/ticker/MoatPill";
 import { VALUATION_LABEL_SHORT, VALUATION_TONE } from "@/components/ticker/FairValuePill";
 import { SPECULATIVE_GROWTH_TEXT_CLASS } from "@/components/ticker/SpeculativeGrowthPill";
+import { WeinsteinStagePill } from "@/components/ticker/WeinsteinStagePill";
 import { Badge } from "@/components/ui/badge";
 import { HEAD_CLASS, openTickerPage, RemoveCell, SkeletonRows, SortableColumnHead, useRemoveFlow } from "@/components/watchlist/tableParts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -81,11 +82,17 @@ function weakStepLabels(row: WatchlistRowOut): string[] {
   return labels;
 }
 
-// Hover text for the Verdict pill: the Overall score (the pill itself shows only the verdict word), then the cautioned steps and/or the
-// steps that may not pass, and/or that the ticker has no Moat rated (it is scored as No moat).
+// Hover text for the Verdict pill: the full verdict word first (the pill truncates it with an ellipsis in a narrow column) with the
+// Overall score beside it, then the cautioned steps and/or the steps that may not pass, and/or that the ticker has no Moat rated
+// (it is scored as No moat).
 export function overallCellTitle(row: WatchlistRowOut): string | undefined {
   const parts: string[] = [];
-  if (row.overall_score != null) parts.push(`Overall score ${row.overall_score}`);
+  if (row.overall_verdict != null) {
+    const word = verdictLabel(row.overall_verdict);
+    parts.push(row.overall_score != null ? `${word} (overall score ${row.overall_score})` : word);
+  } else if (row.overall_score != null) {
+    parts.push(`Overall score ${row.overall_score}`);
+  }
   if (row.overall_verdict === "Pass with caution") {
     const cautioned = cautionStepLabels(row);
     const weak = weakStepLabels(row);
@@ -93,7 +100,7 @@ export function overallCellTitle(row: WatchlistRowOut): string | undefined {
     const causes: string[] = [];
     if (cautioned.length > 0) causes.push(`${joinNatural(cautioned)} passed with a ratio in breach`);
     if (weak.length > 0) causes.push(`${joinNatural(weak)} ${FAIL_DISPLAY_LABEL.toLowerCase()} (under 70)`);
-    parts.push(causes.length > 0 ? `Pass with caution, because ${causes.join(" and ")}` : "Pass with caution");
+    if (causes.length > 0) parts.push(`Because ${causes.join(" and ")}`);
   }
   if (row.moat == null && row.overall_score != null) parts.push(MOAT_NOT_RATED_NOTE);
   return parts.length > 0 ? parts.join(". ") : undefined;
@@ -185,8 +192,9 @@ function SortableHead({
 }
 
 // Column order per design_handoff_fathom_v2/README.md's Watchlist spec:
-// Ticker, Sector, Price, Chg, Moat, Valuation, Verdict, Rating, Mkt Cap,
-// Beta, P/E, then a trailing icon-only remove button. "Verdict" (2026-10-09, was the "Analysis" score pill) collapses
+// Ticker, Sector, Price, Chg, Moat, Valuation, Verdict, Stage, Rating, Mkt Cap,
+// Beta, P/E, then a trailing icon-only remove button. "Stage" (2026-10-09) is the current Weinstein stage as the same
+// WeinsteinStagePill the Screener cards and the ticker header draw (compact size), display only (no SortableField), "—" when the ticker has none. "Verdict" (2026-10-09, was the "Analysis" score pill) collapses
 // the old F/G/D/P STEP_CHIPS into row.overall_verdict (the score moved to its tooltip), same
 // as ScreenerCard's own STEP_CHIPS removal. Price/Chg replaced (2026-08-03)
 // with Revenue/Net Income/CFO 5yr mini trend charts -- the live quote they
@@ -200,7 +208,7 @@ function SortableHead({
 // 2026-09-06 and the feature itself later deleted outright. REV/NI/CFO headers stay at their
 // narrowed width (w-14) from that build, unchanged. Ticker/Sector were widened
 // the same day (w-32->w-[250px], w-24->w-[250px]) to use the space that cluster's removal freed up, then narrowed
-// to 150px / 140px on 2026-10-06 (see TICKER_COL below) because that pair made the table wider than the page.
+// to 150px / 140px on 2026-10-06 (see TICKER_COL below) because that pair made the table wider than the page, then to 110px / 100px on 2026-10-09.
 // idle -> confirming (click −) -> removing (click check) -> idle (mutate()
 // flips the row out of `rows` entirely) or error (auto-reverts after 4s).
 // Same inline-confirm idiom as AddToWatchlistButton's remove flow and
@@ -208,17 +216,21 @@ function SortableHead({
 // icon buttons instead of "Okay"/"Cancel" text -- this column has no room
 // for the full "Remove TICKER from WATCHLIST_NAME?" sentence, so the
 // question is carried in each icon's title/aria-label instead.
-// Ticker, Sector, Last, Rev, NI, CFO, Moat, Value, Verdict, Rating, Mkt cap,
+// Ticker, Sector, Last, Rev, NI, CFO, Moat, Value, Verdict, Stage, Rating, Mkt cap,
 // Beta, P/E, remove -- matches the header row below; used only to span the
 // loading skeleton's rows across every column.
-const COLUMN_COUNT = 14;
+const COLUMN_COUNT = 15;
 
-// Ticker / Sector widths (th and td). Narrowed from 250px each on 2026-10-06 so the table fits PageContainer's 1216px
-// content width (max-w-7xl minus px-8) with no horizontal scroll: fixed and auto columns now sum to about 1,120px.
+// Ticker / Sector / Verdict widths (th and td). Narrowed from 250px each on 2026-10-06 so the table fits PageContainer's 1216px
+// content width (max-w-7xl minus px-8) with no horizontal scroll (fixed and auto columns then summed to about 1,120px), and again on
+// 2026-10-09 (Ticker 150 -> 110, Sector 140 -> 100, Verdict capped at 96) to make room for the Stage column (about 130px with its
+// padding); the new total is an estimate from character widths, not measured.
 // Sector truncates with its full name in the cell's title; the company name under the ticker truncates the same way.
 // The max-w on each td is the same number (an auto-layout table only honours truncate with a max-width).
-const TICKER_COL = "w-[150px]";
-const SECTOR_COL = "w-[140px]";
+// The Verdict pill truncates with an ellipsis ("Pass with ...") past VERDICT_MAX; its title carries the full word.
+const TICKER_COL = "w-[110px]";
+const SECTOR_COL = "w-[100px]";
+const VERDICT_MAX = "max-w-[96px]";
 
 export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesChange }: Props) {
   const sorted = useMemo(() => (rows ? sortWatchlistRows(rows, sortRules) : []), [rows, sortRules]);
@@ -268,6 +280,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
             Value
           </SortableHead>
           <TableHead className={`${HEAD_CLASS} text-center`}>Verdict</TableHead>
+          <TableHead className={`${HEAD_CLASS} text-center`}>Stage</TableHead>
           <SortableHead field="consensus_rating" rules={sortRules} onChange={onSortRulesChange} className={HEAD_CLASS}>
             Rating
           </SortableHead>
@@ -298,7 +311,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
       <TableBody>
         {sorted.map((row) => (
           <TableRow key={row.ticker} interactive onClick={() => openTickerPage(row.ticker)}>
-            <TableCell className={`${TICKER_COL} max-w-[150px] overflow-hidden`}>
+            <TableCell className={`${TICKER_COL} max-w-[110px] overflow-hidden`}>
                 <p
                   className={cn(
                     "font-mono text-sm font-bold whitespace-nowrap",
@@ -317,7 +330,7 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
                   {row.company_name}
                 </p>
               </TableCell>
-              <TableCell className={`${SECTOR_COL} max-w-[140px] truncate text-text-secondary`} title={row.sector ?? undefined}>
+              <TableCell className={`${SECTOR_COL} max-w-[100px] truncate text-text-secondary`} title={row.sector ?? undefined}>
                 {row.sector}
               </TableCell>
               <TableCell className="text-right font-mono text-text-secondary">
@@ -357,11 +370,19 @@ export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesC
                     size="compact"
                     tone={toneForNullable(row.overall_score, row.overall_verdict)}
                     title={overallCellTitle(row)}
+                    className={VERDICT_MAX}
                   >
-                    {verdictLabel(row.overall_verdict)}
+                    <span className="truncate">{verdictLabel(row.overall_verdict)}</span>
                   </Badge>
                 ) : (
                   <Badge size="compact" missing />
+                )}
+              </TableCell>
+              <TableCell className="text-center">
+                {row.weinstein_stage != null ? (
+                  <WeinsteinStagePill data={row} size="compact" />
+                ) : (
+                  <Badge size="compact" missing title="No Weinstein stage yet" />
                 )}
               </TableCell>
               <TableCell className={ratingColorClass(row.consensus_rating)}>

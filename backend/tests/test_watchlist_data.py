@@ -6,7 +6,7 @@ compute_ticker_score's TickerScore row into WatchlistRowOut, mirroring the
 existing moat/perf_5y_vs_spy_status passthrough it sits next to."""
 
 import asyncio
-from datetime import datetime
+from datetime import date, datetime
 
 import data.watchlist_data as watchlist_data
 from core.models import TickerScore, WatchlistTicker
@@ -188,3 +188,35 @@ def test_the_row_carries_no_review_fields(monkeypatch):
     row = _row_for(monkeypatch, _score())
 
     assert not {"review_status", "review_reasons", "conviction"} & set(type(row).model_fields)
+
+
+def test_weinstein_fields_flow_into_the_row(monkeypatch):
+    score = _score()
+    score.weinstein_stage = "advance"
+    score.weinstein_stage_since_date = date(2026, 3, 2)
+    score.weinstein_stage_since_is_lower_bound = False
+    score.weinstein_ma_slope_pct = 1.5
+    score.weinstein_vs_ma_pct = 8.2
+    _patch(monkeypatch, score)
+    ticker = WatchlistTicker(watchlist_id=1, ticker="AAPL", added_at=datetime(2026, 1, 1))
+
+    row = asyncio.run(get_watchlist_rows([ticker]))[0]
+
+    assert row.weinstein_stage == "advance"
+    assert row.weinstein_stage_since_date == date(2026, 3, 2)
+    assert row.weinstein_stage_since_is_lower_bound is False
+    assert row.weinstein_ma_slope_pct == 1.5
+    assert row.weinstein_vs_ma_pct == 8.2
+
+
+def test_weinstein_fields_none_when_no_ticker_score_row(monkeypatch):
+    _patch(monkeypatch, None)
+    ticker = WatchlistTicker(watchlist_id=1, ticker="AAPL", added_at=datetime(2026, 1, 1))
+
+    row = asyncio.run(get_watchlist_rows([ticker]))[0]
+
+    assert row.weinstein_stage is None
+    assert row.weinstein_stage_since_date is None
+    assert row.weinstein_stage_since_is_lower_bound is None
+    assert row.weinstein_ma_slope_pct is None
+    assert row.weinstein_vs_ma_pct is None

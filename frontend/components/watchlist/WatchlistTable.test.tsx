@@ -58,6 +58,11 @@ const ROWS: WatchlistRowOut[] = [
     perf_5y_vs_spy_pct: null,
     perf_5y_vs_spy_status: null,
     speculative_growth_qualifies: false,
+    weinstein_stage: null,
+    weinstein_stage_since_date: null,
+    weinstein_stage_since_is_lower_bound: null,
+    weinstein_ma_slope_pct: null,
+    weinstein_vs_ma_pct: null,
     consensus_rating: "Buy",
     added_at: "2026-01-01T00:00:00Z",
   },
@@ -241,9 +246,9 @@ describe("WatchlistTable: Moat not rated", () => {
     const cell = (ticker: string) => (screen.getByText(ticker).closest("tr") as HTMLElement).querySelectorAll("td")[8];
     const pill = cell("WSM").querySelector("span[title]") as HTMLElement;
     expect(pill).toHaveTextContent("May not pass");
-    expect(pill).toHaveAttribute("title", "Overall score 56. Moat not rated, scored as No moat");
+    expect(pill).toHaveAttribute("title", "May not pass (overall score 56). Moat not rated, scored as No moat");
     expect(pill).toHaveClass("text-not-pass"); // a Fail, not a neutral "not rated" pill
-    expect(cell("AAPL").querySelector("span[title]")).toHaveAttribute("title", "Overall score 90"); // a rated Pass: the score only
+    expect(cell("AAPL").querySelector("span[title]")).toHaveAttribute("title", "Pass (overall score 90)"); // a rated Pass: the word and the score
   });
 });
 
@@ -251,16 +256,16 @@ describe("WatchlistTable: Pass with caution tooltip names its reason", () => {
   const caution = (overrides: Partial<WatchlistRowOut>): WatchlistRowOut => ({ ...ROWS[0], overall_verdict: "Pass with caution", overall_score: 80, ...overrides });
 
   it("names the weak step when a step is below the pass line", () => {
-    expect(overallCellTitle(caution({ step4_score: 60, step4_verdict: "Fail" }))).toBe("Overall score 80. Pass with caution, because Profitability may not pass (under 70)");
+    expect(overallCellTitle(caution({ step4_score: 60, step4_verdict: "Fail" }))).toBe("Pass with caution (overall score 80). Because Profitability may not pass (under 70)");
   });
 
   it("names several weak steps, and a weak step is read from the score as well as a stored Fail", () => {
-    expect(overallCellTitle(caution({ step1_score: 65, step1_verdict: "Fail", step5_score: 55, step5_verdict: "Fail" }))).toBe("Overall score 80. Pass with caution, because Financials and Debt may not pass (under 70)");
+    expect(overallCellTitle(caution({ step1_score: 65, step1_verdict: "Fail", step5_score: 55, step5_verdict: "Fail" }))).toBe("Pass with caution (overall score 80). Because Financials and Debt may not pass (under 70)");
   });
 
   it("names both reasons when a Debt caution and a weak step apply together", () => {
     expect(overallCellTitle(caution({ step5_score: 74, step5_verdict: "Pass with caution", step2_score: 50, step2_verdict: "Fail" }))).toBe(
-      "Overall score 80. Pass with caution, because Debt passed with a ratio in breach and Growth Rate may not pass (under 70)",
+      "Pass with caution (overall score 80). Because Debt passed with a ratio in breach and Growth Rate may not pass (under 70)",
     );
   });
 
@@ -274,17 +279,17 @@ describe("WatchlistTable: Pass with caution tooltip names its reason", () => {
           step5_score: 74, step5_verdict: "Pass with caution",
         }),
       ),
-    ).toBe("Overall score 80. Pass with caution, because Debt passed with a ratio in breach and Financials, Growth Rate and Profitability may not pass (under 70)");
+    ).toBe("Pass with caution (overall score 80). Because Debt passed with a ratio in breach and Financials, Growth Rate and Profitability may not pass (under 70)");
   });
 
   it("keeps the Debt-only text for a step caution alone, and ignores a missing (exempt) score", () => {
-    expect(overallCellTitle(caution({ step5_score: 74, step5_verdict: "Pass with caution" }))).toBe("Overall score 80. Pass with caution, because Debt passed with a ratio in breach");
-    expect(overallCellTitle(caution({ step5_score: null, step5_verdict: "not_supported" }))).toBe("Overall score 80. Pass with caution");
+    expect(overallCellTitle(caution({ step5_score: 74, step5_verdict: "Pass with caution" }))).toBe("Pass with caution (overall score 80). Because Debt passed with a ratio in breach");
+    expect(overallCellTitle(caution({ step5_score: null, step5_verdict: "not_supported" }))).toBe("Pass with caution (overall score 80)");
   });
 
-  it("is the score alone for a plain Pass or a Fail, and undefined with no score", () => {
-    expect(overallCellTitle({ ...ROWS[0], step4_score: 60, step4_verdict: "Fail" })).toBe("Overall score 90");
-    expect(overallCellTitle({ ...ROWS[0], overall_verdict: "Fail", overall_score: 50, step4_score: 60, step4_verdict: "Fail" })).toBe("Overall score 50");
+  it("is the verdict word and the score for a plain Pass or a Fail, and undefined with no score", () => {
+    expect(overallCellTitle({ ...ROWS[0], step4_score: 60, step4_verdict: "Fail" })).toBe("Pass (overall score 90)");
+    expect(overallCellTitle({ ...ROWS[0], overall_verdict: "Fail", overall_score: 50, step4_score: 60, step4_verdict: "Fail" })).toBe("May not pass (overall score 50)");
     expect(overallCellTitle({ ...ROWS[0], overall_verdict: null, overall_score: null })).toBeUndefined();
   });
 });
@@ -343,7 +348,7 @@ describe("WatchlistTable: ETF rows", () => {
       />,
     );
     const ratingCell = (ticker: string) =>
-      (screen.getByText(ticker).closest("tr") as HTMLElement).querySelectorAll("td")[9]; // ... Verdict, Rating
+      (screen.getByText(ticker).closest("tr") as HTMLElement).querySelectorAll("td")[10]; // ... Verdict, Stage, Rating
     expect(ratingCell("QQQ")).toHaveTextContent("—");
     expect(ratingCell("QQQ")).not.toHaveTextContent("N/A");
     expect(ratingCell("AAPL")).toHaveTextContent("BUY");
@@ -373,8 +378,8 @@ describe("WatchlistTable width", () => {
     expect(container.querySelector("table")?.className).not.toMatch(/min-w-/);
     const ticker = screen.getByRole("button", { name: "Ticker" }).closest("th");
     const sector = screen.getByRole("button", { name: "Sector" }).closest("th");
-    expect(ticker?.className).toContain("w-[150px]");
-    expect(sector?.className).toContain("w-[140px]");
+    expect(ticker?.className).toContain("w-[110px]");
+    expect(sector?.className).toContain("w-[100px]");
     expect(container.innerHTML).not.toContain("250px");
   });
 
@@ -405,12 +410,12 @@ describe("WatchlistTable: Verdict cell", () => {
     renderRows([scored("HCA"), scored("GE", { overall_verdict: "Pass with caution", overall_score: 73, step5_verdict: "Pass with caution" })]);
     expect(verdictCell("HCA")).toHaveTextContent(/^Pass$/);
     expect(verdictCell("HCA").children).toHaveLength(1);
-    expect(verdictCell("HCA").querySelector("span[title]")).toHaveAttribute("title", "Overall score 71");
+    expect(verdictCell("HCA").querySelector("span[title]")).toHaveAttribute("title", "Pass (overall score 71)");
     expect(verdictCell("GE")).toHaveTextContent(/^Pass with caution$/);
     expect(verdictCell("GE").textContent).not.toContain("⚠");
     expect(verdictCell("GE").querySelector("span[title]")).toHaveAttribute(
       "title",
-      "Overall score 73. Pass with caution, because Debt passed with a ratio in breach",
+      "Pass with caution (overall score 73). Because Debt passed with a ratio in breach",
     );
   });
 
@@ -452,5 +457,74 @@ describe("WatchlistTable: Verdict cell", () => {
     const order = [...document.querySelectorAll("tbody tr")].map((tr) => tr.querySelector("td p")?.textContent);
     expect(order).toEqual(["AAPL", "GOOG", "MSFT"]);
     expect(screen.getByRole("button", { name: "Ticker" }).closest("th")).toHaveAttribute("aria-sort", "ascending");
+  });
+});
+
+describe("WatchlistTable: Stage column", () => {
+  const withStage = (ticker: string, extra: Partial<WatchlistRowOut> = {}): WatchlistRowOut => ({ ...ROWS[0], ticker, company_name: `${ticker} Corp`, ...extra });
+  const stageCell = (ticker: string) =>
+    (screen.getByText(ticker).closest("tr") as HTMLElement).querySelectorAll("td")[9] as HTMLElement; // ... Verdict, Stage
+  const renderRows = (rows: WatchlistRowOut[]) =>
+    render(<WatchlistTable watchlist={WATCHLIST} rows={rows} sortRules={DEFAULT_SORT_RULES} onSortRulesChange={vi.fn()} />);
+
+  it("sits right after Verdict and is a plain header: no button, no sort state", () => {
+    renderRows([withStage("AAPL")]);
+    const headers = [...document.querySelectorAll("thead th")].map((h) => h.textContent?.trim());
+    expect(headers.indexOf("Stage")).toBe(headers.indexOf("Verdict") + 1);
+    expect(screen.queryByRole("button", { name: "Stage" })).toBeNull();
+    const head = screen.getByText("Stage").closest("th") as HTMLElement;
+    expect(head).not.toHaveAttribute("aria-sort");
+    expect(head.querySelector("button, svg")).toBeNull();
+  });
+
+  it("draws the stage as the compact Weinstein pill with its full label and tooltip", () => {
+    renderRows([
+      withStage("AAPL", {
+        weinstein_stage: "advance",
+        weinstein_stage_since_date: "2026-03-02",
+        weinstein_stage_since_is_lower_bound: false,
+        weinstein_ma_slope_pct: 1.5,
+        weinstein_vs_ma_pct: 8.2,
+      }),
+      withStage("DECL", { weinstein_stage: "decline" }),
+    ]);
+    expect(stageCell("AAPL")).toHaveTextContent(/^Stage 2 · Advance$/);
+    const pill = stageCell("AAPL").querySelector("span[title]") as HTMLElement;
+    expect(pill).toHaveClass("text-positive", "text-[11px]"); // advance is green; compact type size
+    expect(pill.getAttribute("title")).toContain("slope: +1.5%");
+    expect(stageCell("DECL")).toHaveTextContent("Stage 4 · Decline");
+    expect(stageCell("DECL").querySelector("span[title]")).toHaveClass("text-negative");
+  });
+
+  it("shows the missing dash with one generic tooltip when there is no stage", () => {
+    renderRows([withStage("NOST")]);
+    expect(stageCell("NOST")).toHaveTextContent(/^—$/);
+    expect(stageCell("NOST").querySelector("span[title]")).toHaveAttribute("title", "No Weinstein stage yet");
+  });
+
+  it("shows the stage of an ETF row in a stock list too, and the dash when it has none", () => {
+    renderRows([withStage("QQQ", { is_etf: true, weinstein_stage: "top" }), withStage("SPY", { is_etf: true })]);
+    expect(stageCell("QQQ")).toHaveTextContent("Stage 3 · Top");
+    expect(stageCell("SPY")).toHaveTextContent("—");
+  });
+});
+
+describe("WatchlistTable: Verdict truncation", () => {
+  it("caps the pill width and ellipsises the word, with the full verdict in the title", () => {
+    render(
+      <WatchlistTable
+        watchlist={WATCHLIST}
+        rows={[{ ...ROWS[0], overall_verdict: "Pass with caution", overall_score: 73, step5_score: 74, step5_verdict: "Pass with caution" }]}
+        sortRules={DEFAULT_SORT_RULES}
+        onSortRulesChange={vi.fn()}
+      />,
+    );
+    const cell = (screen.getByText("AAPL").closest("tr") as HTMLElement).querySelectorAll("td")[8] as HTMLElement;
+    const pill = cell.querySelector("span[title]") as HTMLElement;
+    expect(pill).toHaveClass("max-w-[96px]");
+    const word = screen.getByText("Pass with caution");
+    expect(word).toHaveClass("truncate");
+    expect(pill).toContainElement(word);
+    expect(pill.getAttribute("title")).toMatch(/^Pass with caution \(overall score 73\)/);
   });
 });
