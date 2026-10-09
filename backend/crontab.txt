@@ -15,7 +15,7 @@
 #   last close -> Weinstein + bar-cache fill -> Liquidity Zone (support/resistance)
 #   -> BB+RSI -> Warren -> Sector ETF heatmap -> Market Breadth -> ETFs screener
 #   -> (corporate events: DISABLED 2026-10-01, planned slot 1:50 AM, see below)
-#   -> FMP fundamentals -> sector/industry P/E snapshot -> analyst price-target -> score recompute -> SQLite backup
+#   -> FMP fundamentals -> sector/industry P/E snapshot -> analyst price-target -> score recompute -> signal snapshot -> SQLite backup
 # Nothing else runs between 1:50 and 2:00, which the planned corporate-events slot needs (the ETFs
 # screener job at 1:45 is short, ~1-3 min, and ends before 1:50).
 # Hard ordering constraints (pinned by tests/test_cron_wiring.py):
@@ -167,6 +167,13 @@
 # ad-hoc tickers outside the index universe (IREN/SEZL/POOL backstop -- see
 # pipeline/nightly_score_recompute.py). Cache-only, zero FMP calls (~25s).
 25 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_score_recompute >> /home/shen/fathom/backend/logs/nightly_score_recompute_cron.log 2>&1
+
+# 3:28 Daily signal snapshot (APPEND-ONLY TickerSignalSnapshot): one row per tracked ticker with the stored Overall verdict,
+# Valuation verdict, Weinstein stage and whether it is Pass-family + Undervalued that day, copied from TickerScore. MUST run
+# after the 3:25 recompute (it reads what that wrote) and before the 3:30 backup (so the backup holds it). Reads the DB only:
+# zero FMP calls, ~1-2 s; a same-day re-run inserts nothing. Feeds no score. See pipeline/nightly_signal_snapshot.py and
+# docs/specs/stuck-check.md.
+28 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_signal_snapshot >> /home/shen/fathom/backend/logs/nightly_signal_snapshot_cron.log 2>&1
 
 # 3:30 Daily SQLite backup (was 3:55 before the 2026-09-30 reorder) -- last in the
 # chain so it holds the night's full output. Compressed, timestamped copy of

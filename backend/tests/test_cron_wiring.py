@@ -133,6 +133,7 @@ _NIGHTLY_CHAIN_ORDER = [
     "pipeline.nightly_sector_industry_pe",
     "pipeline.nightly_price_target_snapshot",
     "pipeline.nightly_score_recompute",
+    "pipeline.nightly_signal_snapshot",
     "pipeline.backup_db",
 ]
 
@@ -225,3 +226,11 @@ def test_sector_industry_pe_runs_after_fundamentals_and_before_the_jobs_that_fol
     assert pe >= _daily_minute_of_day("pipeline.nightly_fundamentals_fetch") + 65
     assert pe + 5 <= _daily_minute_of_day("pipeline.nightly_price_target_snapshot")
     assert pe + 10 <= _daily_minute_of_day("pipeline.nightly_score_recompute")
+
+
+def test_signal_snapshot_runs_after_the_recompute_and_before_the_backup():
+    """The snapshot copies what the 3:25 recompute wrote onto TickerScore (a run before it logs yesterday's values) and must end
+    (~1-2 s) before the backup so the backup holds the night's row."""
+    snapshot = _daily_minute_of_day("pipeline.nightly_signal_snapshot")
+    assert snapshot >= _daily_minute_of_day("pipeline.nightly_score_recompute") + 3
+    assert snapshot + 2 <= _daily_minute_of_day("pipeline.backup_db")
