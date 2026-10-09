@@ -15,6 +15,7 @@ import { useEtfWatchlistRows } from "@/lib/hooks/useEtfWatchlistRows";
 import { useWatchlists } from "@/lib/hooks/useWatchlists";
 import { useWatchlistRows } from "@/lib/hooks/useWatchlistRows";
 import { ETF_WATCHLIST_NAME } from "@/lib/monitoredWatchlists";
+import { buildTradingViewText } from "@/lib/watchlistExport";
 import { DEFAULT_SORT_RULES, parseSortRules, type SortRule } from "@/lib/watchlistSort";
 
 // Sort state moved off the old page-level <select>/direction-toggle
@@ -134,36 +135,10 @@ export default function WatchlistPage() {
 
   function handleExportTradingView() {
     if (!active || !exportRows) return;
-    // TradingView's own watchlist "sections" feature exports as ###SectionName
-    // inline in the same comma-separated list -- group by sector (falling
-    // back to a literal "Other" bucket, never dropping the ### marker for
-    // just those rows so the file's structure stays consistent throughout).
-    // One pass over `rows` (raw fetch order, not the on-screen sort)
-    // preserves each row's existing relative order within its own sector,
-    // and sections appear in first-encounter order.
-    const bySector = new Map<string, typeof exportRows>();
-    for (const row of exportRows) {
-      const key = row.sector ?? "Other";
-      const bucket = bySector.get(key);
-      if (bucket) {
-        bucket.push(row);
-      } else {
-        bySector.set(key, [row]);
-      }
-    }
+    // Rows go in raw fetch order, not the on-screen sort. The sector grouping is shared with the multi-list export.
+    const { content } = buildTradingViewText(exportRows);
 
-    const parts: string[] = [];
-    for (const [sector, sectorRows] of bySector) {
-      // Rows with no cached exchange yet (never-visited ticker) can't form
-      // a valid EXCHANGE:SYMBOL pair -- skipped rather than written bare.
-      // A sector left with nothing exportable is skipped entirely too, so
-      // a ### marker never appears with zero tickers under it.
-      const pairs = sectorRows.filter((r) => r.exchange != null).map((r) => `${r.exchange}:${r.ticker}`);
-      if (pairs.length === 0) continue;
-      parts.push(`###${sector}`, ...pairs);
-    }
-
-    const blob = new Blob([parts.join(",")], { type: "text/plain" });
+    const blob = new Blob([content], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

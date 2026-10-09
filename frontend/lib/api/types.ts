@@ -1384,6 +1384,20 @@ export interface WatchlistOut {
   monitored?: boolean;
 }
 
+// GET /api/watchlists/export-data: the multi-list export's payload (docs/specs/watchlist-export.md). exchange and sector
+// come from the cached profile and are null when none is cached; a fund's sector is always null.
+export interface WatchlistExportTickerOut {
+  ticker: string;
+  exchange: string | null;
+  sector: string | null;
+}
+
+export interface WatchlistExportListOut {
+  id: number;
+  name: string;
+  tickers: WatchlistExportTickerOut[];
+}
+
 // The Watchlist table's click-to-sort column headers (2026-09-05 redesign,
 // replacing the old <select>-driven WatchlistSortField dropdown). Every
 // field here has a real clickable header in WatchlistTable.tsx -- unlike
