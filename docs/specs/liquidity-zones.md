@@ -134,8 +134,11 @@ Tickers on none of the monitored lists have no row at all.
 
 - `GET /api/tickers/{ticker}/liquidity-zones` returns the Daily and Weekly zones (`None` if the ticker was
   never computed).
-- **`LiquidityZonesCard`** (`frontend/components/technical/`) on the Technical tab, fetched independently
-  (`useLiquidityZones`, not gated on the trend-analysis load state, same convention as `useEntrySignal`).
+- **No Technical-tab section (2026-10-09).** `LiquidityZonesCard` and the `useLiquidityZones` hook were removed from the
+  Technical tab (UI only: the endpoint above, detection, tables and nightly job are unchanged, and the Chart tab still draws
+  the zones). The card description below is kept as the record of what it showed.
+- **`LiquidityZonesCard`** (removed; formerly on the Technical tab, fetched independently
+  (`useLiquidityZones`, not gated on the trend-analysis load state, same convention as `useEntrySignal`)).
   Daily and Weekly sit side by side, each with its nearest resistance zones (above price), a current-price
   divider, and nearest support zones (below price). Each zone row shows price, distance from last price,
   cluster size ("N swings merged", omitted for a single-swing zone), and when it formed. The ladder is sized

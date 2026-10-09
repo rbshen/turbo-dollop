@@ -1,17 +1,15 @@
 "use client";
 
 import { BbRsiEntrySignalCard } from "@/components/technical/BbRsiEntrySignalCard";
-import { LiquidityZonesCard } from "@/components/technical/LiquidityZonesCard";
 import { WarrenSignalCard } from "@/components/technical/WarrenSignalCard";
 import { WeinsteinStageCard } from "@/components/technical/WeinsteinStageCard";
 import { useEntrySignal } from "@/lib/hooks/useEntrySignal";
-import { useLiquidityZones } from "@/lib/hooks/useLiquidityZones";
 import { useTrendAnalysis } from "@/lib/hooks/useTrendAnalysis";
 import { useWarrenSignal } from "@/lib/hooks/useWarrenSignal";
 
 interface Props {
   ticker: string;
-  /** The ETF page: the three watchlist-gated cards' "not tracked" copy points at the ETF watchlist. */
+  /** The ETF page: the two watchlist-gated cards' "not tracked" copy points at the ETF watchlist. */
   isEtf?: boolean;
 }
 
@@ -28,10 +26,6 @@ export function TechnicalTab({ ticker, isEtf }: Props) {
   // loading reads the same as null to WarrenSignalCard, which has its own
   // "not tracked" state.
   const { data: warrenSignalData } = useWarrenSignal(ticker);
-  // Same independent-fetch convention as entrySignalData above -- a fully
-  // separate table/endpoint, undefined-while-loading reads the same as
-  // null to LiquidityZonesCard, which has its own "not tracked" state.
-  const { data: liquidityZonesData } = useLiquidityZones(ticker);
 
   if (error) {
     return <p className="py-6 text-sm text-negative">Couldn&apos;t load Technical — {error.message}</p>;
@@ -63,8 +57,6 @@ export function TechnicalTab({ ticker, isEtf }: Props) {
         <BbRsiEntrySignalCard data={entrySignalData ?? null} isEtf={isEtf} />
         <WarrenSignalCard data={warrenSignalData ?? null} isEtf={isEtf} />
       </div>
-
-      <LiquidityZonesCard data={liquidityZonesData ?? null} isEtf={isEtf} />
     </div>
   );
 }

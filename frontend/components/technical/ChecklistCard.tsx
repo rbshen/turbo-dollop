@@ -40,7 +40,7 @@ interface Props {
   disclaimer: string;
   /** When true, the checklist items render inside a Collapsible (same
    * primitive AnalysisSectionCard uses for its reasoning bullets),
-   * collapsed by default with a "Show details +"/"Hide details -" toggle.
+   * expanded by default (2026-10-09), with a "Hide details"/"Show details" toggle.
    * Defaults to false (always-expanded). Weinstein Stage Analysis opts in,
    * since its checklist is longer and mostly supporting detail behind the
    * stage pill itself. */
@@ -88,7 +88,7 @@ export function ChecklistCard({ title, statusLabel, statusTone, blurb, items, ex
       </div>
 
       {collapsible ? (
-        <Collapsible>
+        <Collapsible defaultOpen>
           <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-text-tertiary">
             <span className="group-data-[panel-open]:hidden">Show details</span>
             <span className="hidden group-data-[panel-open]:inline">Hide details</span>

@@ -23,16 +23,17 @@ function card(collapsible: boolean) {
 }
 
 describe("ChecklistCard: the details toggle", () => {
-  it("is collapsed to start, and expands and collapses with the trigger", () => {
+  it("is expanded to start, and collapses and expands with the trigger", () => {
     card(true);
     const trigger = screen.getByRole("button");
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("First check")).toBeVisible();
+    fireEvent.click(trigger);
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText("First check")).not.toBeInTheDocument();
     fireEvent.click(trigger);
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("First check")).toBeVisible();
-    fireEvent.click(trigger);
-    expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
   it("carries a collapsed 'Show details' label and an expanded 'Hide details' label", () => {
@@ -68,7 +69,6 @@ describe("ChecklistCard: the details toggle", () => {
 describe("ChecklistCard: the expanded details line up with the paragraph", () => {
   it("has the details and the header text as children of one stack, with no left offset on either path", () => {
     const { container } = card(true);
-    fireEvent.click(screen.getByRole("button"));
     const root = container.firstElementChild as HTMLElement;
     const textBlock = screen.getByText("Blurb").parentElement as HTMLElement;
     const details = screen.getByText("First check").closest("ul")!.closest("[data-slot=collapsible-content]") as HTMLElement;
