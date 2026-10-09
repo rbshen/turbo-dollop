@@ -11,9 +11,10 @@ import type { ReactNode } from "react";
 import { RefreshButton } from "@/components/ticker/RefreshButton";
 import { UniverseControlView } from "@/components/ticker/UniverseControl";
 import { ExportMenu } from "@/components/watchlist/ExportMenu";
+import { MultiExportPanel } from "@/components/watchlist/MultiExportPanel";
 import { WatchlistDeleteButton } from "@/components/watchlist/WatchlistDeleteButton";
 import { WatchlistNameEditor } from "@/components/watchlist/WatchlistNameEditor";
-import type { UniverseAddOut, UniverseRemoveOut, UniverseStatusOut, WatchlistOut } from "@/lib/api/types";
+import type { UniverseAddOut, UniverseRemoveOut, UniverseStatusOut, WatchlistExportListOut, WatchlistOut } from "@/lib/api/types";
 
 const MOCK_WATCHLIST: WatchlistOut = {
   id: -1,
@@ -28,6 +29,24 @@ const MOCK_WATCHLIST: WatchlistOut = {
     { ticker: "NVDA", added_at: "2026-01-01T00:00:00Z" },
   ],
 };
+
+// The multi-list export panel's mock lists, created out of name order on purpose (the panel sorts E2 before E10), and the
+// payload a mock export "fetches": one duplicate (AAPL), one ticker with no cached exchange, one empty list.
+const mockList = (id: number, name: string, count: number): WatchlistOut => ({
+  ...MOCK_WATCHLIST,
+  id: -id,
+  name,
+  tickers: Array.from({ length: count }, (_, i) => ({ ticker: `MOCK${i}`, added_at: "2026-01-01T00:00:00Z" })),
+});
+const MOCK_EXPORT_WATCHLISTS: WatchlistOut[] = [mockList(1, "E10", 4), mockList(2, "E2", 3), mockList(3, "Growth", 0), mockList(4, "ETF", 2)];
+const MOCK_EXPORT_PAYLOAD: Record<number, WatchlistExportListOut> = {
+  [-1]: { id: -1, name: "E10", tickers: [{ ticker: "AAPL", exchange: "NASDAQ", sector: "Technology" }, { ticker: "NEWCO", exchange: null, sector: null }] },
+  [-2]: { id: -2, name: "E2", tickers: [{ ticker: "AAPL", exchange: "NASDAQ", sector: "Technology" }, { ticker: "XOM", exchange: "NYSE", sector: "Energy" }] },
+  [-3]: { id: -3, name: "Growth", tickers: [] },
+  [-4]: { id: -4, name: "ETF", tickers: [{ ticker: "SPY", exchange: "AMEX", sector: null }] },
+};
+const mockLoadLists = (ids: number[]) => later(ids.map((id) => MOCK_EXPORT_PAYLOAD[id]), 400);
+const mockLoadListsRejected = () => new Promise<never>((_, reject) => setTimeout(() => reject(new Error("GET /watchlists/export-data failed: 404 - No watchlist with id 9")), 400));
 
 // Mock requests: resolve (or reject) after a beat, never touch the network.
 const later = <T,>(value: T, ms = 600) => new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
@@ -150,6 +169,56 @@ export function WatchlistButtonsMock() {
           </div>
           <Case caption="Disabled (no rows)" testId="export-disabled">
             <ExportMenu disabled onExportTradingView={noop} onExportThinkorswim={noop} />
+          </Case>
+          <div className="min-h-36">
+            <Case caption="Open with the multi-list item" testId="export-open-multi">
+              <ExportMenu defaultOpen onExportTradingView={noop} onExportThinkorswim={noop} onExportMultiple={noop} />
+            </Case>
+          </div>
+          <div className="min-h-36">
+            <Case caption="Open, active list empty: only the multi-list item is live" testId="export-open-multi-only">
+              <ExportMenu defaultOpen singleDisabled onExportTradingView={noop} onExportThinkorswim={noop} onExportMultiple={noop} />
+            </Case>
+          </div>
+        </div>
+      </Frame>
+
+      <Frame
+        title="Export multiple lists"
+        testId="multi-export-section"
+        note="The real MultiExportPanel, shown inline under the page header when the Export menu's third item is chosen. Tick lists, pick ONE format, Export writes ONE file: TradingView merges the lists' sectors (no list names), thinkorswim writes bare symbols one per line; both de-duplicate. The result line names what was left out (skipped for a missing exchange in the caution tone, never red). Lists are in natural name order. The request and the download are mocks; nothing is sent or saved."
+      >
+        <div className="flex flex-col gap-8">
+          <Case caption="Idle: nothing ticked, Export disabled (tick two and press Export for a live mock run)" testId="multi-export-idle">
+            <MultiExportPanel watchlists={MOCK_EXPORT_WATCHLISTS} onClose={noop} loadLists={mockLoadLists} download={noop} />
+          </Case>
+          <Case caption="Result with every note" testId="multi-export-result">
+            <MultiExportPanel
+              watchlists={MOCK_EXPORT_WATCHLISTS}
+              onClose={noop}
+              loadLists={mockLoadLists}
+              download={noop}
+              defaultSelected={[-1, -2, -3]}
+              defaultResult={{
+                summary: "Exported 2 symbols from 3 lists",
+                notes: ["1 duplicate removed", "1 empty list skipped"],
+                skippedNote: "1 skipped (no cached exchange)",
+              }}
+            />
+          </Case>
+          <Case caption="thinkorswim chosen, request failed (Export to see another one live)" testId="multi-export-error">
+            <MultiExportPanel
+              watchlists={MOCK_EXPORT_WATCHLISTS}
+              onClose={noop}
+              loadLists={mockLoadListsRejected}
+              download={noop}
+              defaultSelected={[-4]}
+              defaultFormat="thinkorswim"
+              defaultError="No watchlist with id 9"
+            />
+          </Case>
+          <Case caption="At a phone's content width" testId="multi-export-narrow" width={311}>
+            <MultiExportPanel watchlists={MOCK_EXPORT_WATCHLISTS} onClose={noop} loadLists={mockLoadLists} download={noop} defaultSelected={[-2]} />
           </Case>
         </div>
       </Frame>

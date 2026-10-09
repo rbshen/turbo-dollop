@@ -7,13 +7,28 @@ import { Button } from "@/components/ui/button";
 
 interface Props {
   disabled?: boolean;
+  // Disables just the two single-list items (the active list has no rows to export yet); the trigger stays usable so
+  // the multi-list item remains reachable.
+  singleDisabled?: boolean;
   // Styleguide seam: draws the menu open. The page never passes it.
   defaultOpen?: boolean;
   onExportTradingView: () => void;
   onExportThinkorswim: () => void;
+  // The third item, "Export multiple lists…", which opens the page's inline panel. Omitted = the two-item menu.
+  onExportMultiple?: () => void;
 }
 
-export function ExportMenu({ disabled, defaultOpen = false, onExportTradingView, onExportThinkorswim }: Props) {
+const ITEM_CLASS =
+  "w-full rounded px-2 py-1.5 text-left text-xs text-text-secondary hover:bg-surface-2 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-text-secondary";
+
+export function ExportMenu({
+  disabled,
+  singleDisabled,
+  defaultOpen = false,
+  onExportTradingView,
+  onExportThinkorswim,
+  onExportMultiple,
+}: Props) {
   const [open, setOpen] = useState(defaultOpen);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -67,24 +82,22 @@ export function ExportMenu({ disabled, defaultOpen = false, onExportTradingView,
               close();
             }
           }}
-          className="absolute right-0 z-20 mt-1 w-44 rounded-md border border-border-input bg-surface p-1 shadow-lg"
+          className="absolute right-0 z-20 mt-1 w-52 rounded-md border border-border-input bg-surface p-1 shadow-lg"
         >
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => select(onExportTradingView)}
-            className="w-full rounded px-2 py-1.5 text-left text-xs text-text-secondary hover:bg-surface-2 hover:text-text-primary"
-          >
+          <button type="button" role="menuitem" disabled={singleDisabled} onClick={() => select(onExportTradingView)} className={ITEM_CLASS}>
             TradingView (.txt)
           </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => select(onExportThinkorswim)}
-            className="w-full rounded px-2 py-1.5 text-left text-xs text-text-secondary hover:bg-surface-2 hover:text-text-primary"
-          >
+          <button type="button" role="menuitem" disabled={singleDisabled} onClick={() => select(onExportThinkorswim)} className={ITEM_CLASS}>
             thinkorswim (.csv)
           </button>
+          {onExportMultiple && (
+            <>
+              <div role="separator" className="my-1 border-t border-border-subtle" />
+              <button type="button" role="menuitem" onClick={() => select(onExportMultiple)} className={ITEM_CLASS}>
+                Export multiple lists…
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

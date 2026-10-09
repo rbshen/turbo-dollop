@@ -6,6 +6,7 @@ import { PageContainer } from "@/components/layout/PageContainer";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs } from "@/components/ui/tabs";
 import { ExportMenu } from "@/components/watchlist/ExportMenu";
+import { MultiExportPanel } from "@/components/watchlist/MultiExportPanel";
 import { WatchlistDeleteButton } from "@/components/watchlist/WatchlistDeleteButton";
 import { WatchlistNameEditor } from "@/components/watchlist/WatchlistNameEditor";
 import { EtfWatchlistTable } from "@/components/watchlist/EtfWatchlistTable";
@@ -62,6 +63,8 @@ export default function WatchlistPage() {
   // null until the user picks a tab -- defaults to the first watchlist
   // below rather than needing an effect to sync it once data loads.
   const [manualActiveId, setManualActiveId] = useState<number | null>(null);
+  // The inline "Export multiple lists" panel (opened from the Export menu's third item).
+  const [multiExportOpen, setMultiExportOpen] = useState(false);
 
   const mostRecentlyCreated = watchlists?.length
     ? watchlists.reduce((latest, w) => (w.created_at > latest.created_at ? w : latest))
@@ -192,12 +195,15 @@ export default function WatchlistPage() {
         title="Watchlists"
         actions={
           <ExportMenu
-            disabled={!exportRows || exportRows.length === 0}
+            singleDisabled={!exportRows || exportRows.length === 0}
             onExportTradingView={handleExportTradingView}
             onExportThinkorswim={handleExportThinkorswim}
+            onExportMultiple={() => setMultiExportOpen(true)}
           />
         }
       />
+
+      {multiExportOpen && <MultiExportPanel watchlists={watchlists} onClose={() => setMultiExportOpen(false)} />}
 
       {/* A user can create an unbounded number of watchlists (no cap on
           count, only WATCHLIST_CAPACITY on tickers-per-list), so this is

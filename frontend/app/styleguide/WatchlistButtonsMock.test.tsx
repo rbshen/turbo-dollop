@@ -152,3 +152,44 @@ describe("WatchlistButtonsMock: universe control", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
+
+describe("WatchlistButtonsMock: export multiple lists", () => {
+  it("draws the menu with the third item, and with only that item live", () => {
+    render(<WatchlistButtonsMock />);
+    expect(frame("export-open-multi").getAllByRole("menuitem").map((el) => el.textContent)).toEqual([
+      "TradingView (.txt)",
+      "thinkorswim (.csv)",
+      "Export multiple lists…",
+    ]);
+    const only = frame("export-open-multi-only");
+    expect(only.getByRole("menuitem", { name: "TradingView (.txt)" })).toBeDisabled();
+    expect(only.getByRole("menuitem", { name: "Export multiple lists…" })).toBeEnabled();
+  });
+
+  it("shows the panel idle, with a result line, with an error and at 311px", () => {
+    render(<WatchlistButtonsMock />);
+    const idle = frame("multi-export-idle");
+    expect(idle.getAllByRole("checkbox").map((el) => el.closest("label")?.textContent)).toEqual(["E2 (3)", "E10 (4)", "ETF (2)", "Growth (0)"]);
+    expect(idle.getByRole("button", { name: /^Export$/ })).toBeDisabled();
+
+    expect(frame("multi-export-result").getByRole("status")).toHaveTextContent(
+      "Exported 2 symbols from 3 lists · 1 duplicate removed · 1 empty list skipped · 1 skipped (no cached exchange)",
+    );
+    expect(frame("multi-export-result").getByText(/no cached exchange/)).toHaveClass("text-caution");
+    expect(frame("multi-export-error").getByRole("status")).toHaveTextContent("Couldn't export — No watchlist with id 9");
+    expect(frame("multi-export-narrow").getByRole("button", { name: /^Export$/ })).toBeEnabled();
+  });
+
+  it("a live mock export never touches the network", async () => {
+    vi.useFakeTimers();
+    render(<WatchlistButtonsMock />);
+    const idle = frame("multi-export-idle");
+    fireEvent.click(idle.getByRole("checkbox", { name: /^E2/ }));
+    fireEvent.click(idle.getByRole("button", { name: /^Export$/ }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(idle.getByRole("status")).toHaveTextContent("Exported 2 symbols from 1 list");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});

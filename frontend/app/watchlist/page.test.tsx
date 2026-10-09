@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SWRConfig } from "swr";
 
@@ -181,6 +181,8 @@ describe("WatchlistPage", () => {
       await waitFor(() => expect(screen.getByRole("button", { name: /Export list/ })).not.toBeDisabled());
 
       fireEvent.click(screen.getByRole("button", { name: /Export list/ }));
+      // The single-list items stay disabled until the active list's rows have loaded.
+      await waitFor(() => expect(screen.getByRole("menuitem", { name: /TradingView/ })).toBeEnabled());
       fireEvent.click(screen.getByRole("menuitem", { name: /TradingView/ }));
 
       expect(blobs).toHaveLength(1);
@@ -190,6 +192,23 @@ describe("WatchlistPage", () => {
         reader.readAsText(blobs[0]);
       });
       expect(text).toBe("###Other,AMEX:SPY,NASDAQ:QQQ");
+    });
+  });
+
+  describe("Export multiple lists", () => {
+    it("opens the inline panel from the Export menu, even while the active list is empty", async () => {
+      renderPage();
+      const trigger = await screen.findByRole("button", { name: /Export list/ });
+      expect(trigger).toBeEnabled();
+      fireEvent.click(trigger);
+      expect(screen.getByRole("menuitem", { name: /TradingView/ })).toBeDisabled();
+      fireEvent.click(screen.getByRole("menuitem", { name: "Export multiple lists…" }));
+
+      const panel = screen.getByRole("region", { name: "Export multiple lists" });
+      expect(panel).toBeInTheDocument();
+      expect(within(panel).getAllByRole("checkbox").map((el) => el.closest("label")?.textContent)).toEqual(["W1 (0)", "W2 (0)"]);
+      fireEvent.click(within(panel).getByRole("button", { name: "Close" }));
+      expect(screen.queryByRole("region", { name: "Export multiple lists" })).not.toBeInTheDocument();
     });
   });
 });
