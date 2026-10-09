@@ -123,7 +123,11 @@ anchored mid-September, instead of 2026-08-31.)
   `verdictLabel(overall_verdict)`: Strong pass, Pass, Pass with caution, May not pass (stored "Fail"); tone is `toneForNullable(overall_score,
   overall_verdict)`, so it matches the Watchlist and header. A ticker with no verdict shows the `missing` Badge ("—"). No ⚠ suffix or tooltip
   (the label itself says it). Context only: the ranking never reads the verdict. The prop name `showMoatAndScore` predates the change.
-- **Footnotes.** Stock section: the Moat point-in-time caveat only (today's Moat classification is the filter). ETF section:
+- **Footnotes.** Both sections open with the same returns note: 3/6/12 calendar-month lookbacks from the prior month-end close,
+  a weekend/holiday baseline uses the last close on or before the target date, and "Last" is the latest close, newer than the
+  return end date. Then, Stock section: the Moat point-in-time caveat (today's Moat classification is the filter). ETF section:
   price-only basis (split-adjusted, no dividends), leveraged funds included, and the previous-month ranking uses today's ETF
-  universe, not point-in-time (see Caveats). Neither footnote appears in the other section.
+  universe, not point-in-time (see Caveats). The Moat and ETF caveats do not appear in the other section.
+- **Dates.** "As of" is a date-only string, drawn with `fmtEventDate` (parsed as a UTC calendar day), never `new Date(iso)`, which
+  shifts it back a day in US timezones (`MomentumSection.test.tsx`, run under `America/New_York`).
 - **Not changed:** `/styleguide`, the backend, CLAUDE.md. Tests: `app/momentum/page.test.tsx`, `components/momentum/MomentumTable.test.tsx`.

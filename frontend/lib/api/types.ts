@@ -1889,8 +1889,8 @@ export interface EtfMomentumOut {
 }
 
 // Sector Heatmap -- see backend/data/sector_heatmap_data.py. Every return
-// is a trailing TOTAL return (price + reinvested distributions) in
-// percentage points (4.25 == +4.25%), calendar-day windows.
+// is a trailing price-only return (split-adjusted close, no dividends) in
+// percentage points (4.25 == +4.25%), over calendar-offset windows.
 export interface SectorHeatmapCellOut {
   // null when the fund has no history that far back, or no row exists for
   // the current as_of_date -- never imputed.

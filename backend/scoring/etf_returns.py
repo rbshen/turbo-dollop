@@ -16,10 +16,8 @@ anchor's target (Sunday) has no bar and the lookup falls back to Friday's,
 exactly like every other window already falls back across a weekend/holiday.
 No separate trading-day-aware mechanism was needed.
 
-The input series is whatever adjusted close the caller supplies (a TOTAL-return
-series would make the ratio of two closes include reinvested distributions; the
-Sector Heatmap now passes plain split-adjusted FMP closes) -- nothing here knows
-or cares about dividends."""
+The input series is the price-only, split-adjusted close the caller supplies (the
+Sector Heatmap passes plain FMP closes) -- nothing here knows or cares about dividends."""
 
 from dataclasses import dataclass
 from datetime import date
@@ -65,8 +63,8 @@ def _last_bar_on_or_before(series: pd.Series, target: pd.Timestamp) -> tuple[pd.
 
 
 def compute_window_returns(adj_close: pd.Series, anchor: pd.Timestamp) -> list[WindowReturn]:
-    """All 7 windows, in WINDOWS order, for one fund's total-return-adjusted
-    close series (DatetimeIndex, any order/tz -- normalized here).
+    """All 8 windows, in WINDOWS order, for one fund's price-only
+    split-adjusted close series (DatetimeIndex, any order/tz -- normalized here).
 
     A window is None/None (never imputed) when the fund has no bar on/before
     that window's target date (young fund), when the base close is not

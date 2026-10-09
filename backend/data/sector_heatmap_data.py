@@ -1,5 +1,5 @@
 """Orchestration layer for the Sector Heatmap -- the 11 SPDR sector ETFs x 8
-trailing total-return windows. Same shape as data/momentum_data.py: fetch
+trailing price-only windows. Same shape as data/momentum_data.py: fetch
 through the shared bars cache (clients/shared_bars_cache.py), run the pure
 math (scoring/etf_returns.py), persist (models.py::SectorEtfReturn), and a
 read path that never computes live. Independent of FMP and of Step 1-5/
@@ -94,7 +94,7 @@ def _resolve_anchor(closes: dict[str, pd.Series], completed_date: date) -> pd.Ti
 
 
 async def compute_and_store_sector_returns(completed_date: date | None = None) -> dict:
-    """Fetches the 11 sector ETFs through the shared bars cache, computes all 7 windows
+    """Fetches the 11 sector ETFs through the shared bars cache, computes all 8 windows
     for each, and upserts them. Idempotent per (ticker, window, as_of_date):
     a weekend/holiday re-run re-computes the same anchor and overwrites in
     place. `completed_date` (the last completed session, default: derived

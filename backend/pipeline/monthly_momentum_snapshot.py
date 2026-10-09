@@ -10,8 +10,8 @@ fundamentals calls (a shared-bars-cache batch fetch of FMP daily bars); skipped 
 nightly_trend_calculation.py.
 
 Scheduled to *try* daily across the first several days of the month
-(crontab.txt: `0 3 1-5 * *`) rather than on the literal 1st, because the
-lookback windows must anchor to a month's FINAL close -- running at 3am on
+(crontab.txt: `50 2 1-5 * *`) rather than on the literal 1st, because the
+lookback windows must anchor to a month's FINAL close -- running at 2:50am on
 the calendar 1st would be before that day's own trading session even
 starts, and a holiday can push the real first trading day of the month
 past the 1st anyway (see helpers/trading_calendar.py::

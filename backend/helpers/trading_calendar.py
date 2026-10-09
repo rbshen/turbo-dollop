@@ -3,7 +3,7 @@ pipeline/monthly_momentum_snapshot.py) -- pure, no DB/HTTP, matching this
 package's existing shape (ttm.py, shares.py, etc.). Uses
 pandas_market_calendars, the same library the original momentum-backtest
 scratch work already relied on for month-end/next-trading-day logic (see
-CLAUDE.md's Momentum section) -- reused here rather than picked fresh.
+docs/specs/momentum.md) -- reused here rather than picked fresh.
 """
 
 from datetime import date, datetime, timedelta

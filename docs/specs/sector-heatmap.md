@@ -94,7 +94,7 @@ CSS grid (not a chart library), ETFs as rows, windows as columns. These UI choic
 judgment and are open to revision. Color scale is **per
 column** (each window's own largest |return| sets that column's intensity ceiling, floored at
 1pp so a flat column doesn't paint noise at full saturation) — tints are therefore not
-comparable across columns, stated on the page footnote; a fixed per-window clamp was the
+comparable across columns, stated on the page footnote (which also says the windows roll back from the last completed close: 1W = 7 days, 1M-9M and 1Y = the same date N months/a year earlier, a weekend/holiday baseline uses the prior close, YTD from the prior year's final close); a fixed per-window clamp was the
 considered alternative. Default sort is 3M descending; header clicks re-sort client-side, blank
 cells always sink. Each ETF label is a link (one `Link` per row, new tab) to `/tickers/<ETF>`, which renders the ETF
 variant of the ticker page (`docs/specs/etf-page.md`; links added 2026-10-01 together with that page). The nav item "Sectors" opens in a new tab like Momentum/Watchlist/

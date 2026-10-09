@@ -1,5 +1,6 @@
 """Standalone script: nightly Sector Heatmap recompute -- the 11 SPDR sector
-ETFs x 8 trailing total-return windows (1d/1w/1m/3m/6m/9m/YTD/1y). See
+ETFs x 8 trailing price-only windows, split-adjusted close, no dividends
+(1d/1w/1m/3m/6m/9m/YTD/1y). See
 data/sector_heatmap_data.py for the fetch/compute/persist logic and
 scoring/etf_returns.py for the pure return math. A single shared-bars-cache batch fetch (FMP
 daily bars, ~3-4s on a warm cache); like nightly_trend_calculation.py it is skipped -- a real

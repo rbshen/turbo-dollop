@@ -5,7 +5,7 @@ fetch) and pipeline/monthly_momentum_snapshot.py for the cron entry point.
 
 Methodology ported directly from the original ad hoc scratch script
 (~/scratch/fathom-momentum-live/, validated against real cached data before
-this feature existed -- see CLAUDE.md's Momentum section): trailing total
+this feature existed -- see docs/specs/momentum.md): trailing total
 return over 3/6/12-month windows anchored to a given date, using raw
 (non-skip-month) returns since averaging three windows already dampens
 single-month noise, then a simple equal-weighted average as the composite

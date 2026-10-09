@@ -1042,19 +1042,16 @@ class EtfMomentumSnapshot(SQLModel, table=True):
 
 
 class SectorEtfReturn(SQLModel, table=True):
-    """One trailing TOTAL return (price change + reinvested distributions,
-    from an adjusted close) for one sector ETF over one calendar window,
+    """One trailing price-only return (split-adjusted close, no dividends)
+    for one sector ETF over one calendar window,
     as of one trading day -- the Sector Heatmap's storage (see
     data/sector_heatmap_data.py, scoring/etf_returns.py,
     pipeline/nightly_sector_heatmap.py). Long format, one row per
-    (ticker, return_window, as_of_date), rather than 7 wide columns per
+    (ticker, return_window, as_of_date), rather than 8 wide columns per
     ticker: adding or dropping a window later needs no schema change.
 
-    Computed returns only, deliberately NOT bars -- SharedBarsCache carries
-    no adjusted close, and an adjusted close is rescaled retroactively at
-    every ex-dividend date, so a stored adjusted-close history would go
-    subtly wrong between refetches. A return is a self-contained number
-    that never needs re-adjusting.
+    Computed returns only, deliberately NOT bars -- a return is a
+    self-contained number, and SharedBarsCache already owns the bars.
 
     Keeps a rolling window of history (as_of_date is part of the key)
     instead of latest-only: the nightly job upserts, so a weekend/holiday
