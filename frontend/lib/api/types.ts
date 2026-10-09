@@ -2099,3 +2099,29 @@ export interface UniverseRemoveOut {
   changed: boolean;
   message: string;
 }
+
+// --- Why might it be stuck? (docs/specs/stuck-check.md) ---
+
+export interface StuckExemption {
+  ticker: string;
+  reason: string;
+  rows: string[];
+}
+
+export interface StuckCheckSettingsValues {
+  sbc_revenue_pct: number;
+  sbc_fcf_pct: number;
+  cash_conversion_line: number;
+  share_growth_pct: number;
+  one_off_pct: number;
+  sector_band_pp: number;
+  smoothing_days: number;
+  exemptions: StuckExemption[];
+}
+
+export interface StuckCheckSettingsOut extends StuckCheckSettingsValues {
+  defaults: StuckCheckSettingsValues;
+  bounds: Record<Exclude<keyof StuckCheckSettingsValues, "exemptions">, { min: number; max: number }>;
+  row_options: { key: string; label: string }[];
+  updated_at: string;
+}

@@ -24,7 +24,19 @@ SUBTITLE = "Context, not scored"
 
 # Row keys an exemption entry may name (a ticker-level exemption, Settings > Why might it be stuck?). Rows 7 and 8 read stored
 # values and are not exemptable. "2_fcf" is the %-of-FCF half of the SBC row.
-EXEMPTABLE_ROWS: tuple[str, ...] = ("1", "2", "2_fcf", "3", "4", "5", "6", "9", "10", "12")
+EXEMPTABLE_ROW_LABELS: dict[str, str] = {
+    "1": "Cash conversion",
+    "2": "Stock-based compensation",
+    "2_fcf": "SBC as % of free cash flow",
+    "3": "FCF after stock-based compensation",
+    "4": "Buybacks vs stock-based compensation",
+    "5": "Share count",
+    "6": "Shareholder yield",
+    "9": "Margins",
+    "10": "Growth",
+    "12": "Return on invested capital",
+}
+EXEMPTABLE_ROWS: tuple[str, ...] = tuple(EXEMPTABLE_ROW_LABELS)
 
 # Company types whose FCF is not comparable to a Standard company's (Step 1 exempts CFO and FCF for Bank / Insurance / REIT; a
 # Utility's FCF is structurally negative, docs/why-stuck-panel-investigation-2026-10-09.md). Cash conversion (1) and FCF after SBC

@@ -149,6 +149,20 @@ def _isolate_score_weights_cache():
 
 
 @pytest.fixture(autouse=True)
+def _isolate_stuck_check_caches():
+    """data.stuck_check_settings (5 s, keyed on id(engine)) and data.stuck_check_data's sector context (10 min) are in-process
+    snapshots; every test starts and ends with both dropped."""
+    import data.stuck_check_data as stuck_check_data
+    import data.stuck_check_settings as stuck_check_settings
+
+    stuck_check_settings.invalidate_cache()
+    stuck_check_data.invalidate_sector_cache()
+    yield
+    stuck_check_settings.invalidate_cache()
+    stuck_check_data.invalidate_sector_cache()
+
+
+@pytest.fixture(autouse=True)
 def recompute_launches(monkeypatch):
     """No test ever starts the real recompute worker (a subprocess): data.score_recompute.launcher records what WOULD have been
     launched instead. A test of the worker itself runs pipeline.score_recompute_job.run_job in-process."""

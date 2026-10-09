@@ -18,10 +18,10 @@ from core.models import FundamentalsCache, TickerScore
 from core.schemas import StuckCheckOut, StuckFigureOut, StuckRowOut
 from core.tickers import normalize_ticker
 from data.market_breadth_data import SECTOR_TO_ETF
+from data.stuck_check_settings import load_stuck_settings
 from data.tracked_universe import load_tracked_universe
 from helpers.statement_view import build_statement_view, read_cached_inputs
 from scoring.stuck_check import (
-    DEFAULT_STUCK_SETTINGS,
     RELATIVE_STRENGTH_WINDOWS,
     SUBTITLE,
     FiscalYear,
@@ -38,11 +38,6 @@ from scoring.stuck_check import (
 BARS_LOOKBACK_DAYS = 430  # a 12-month return needs a base bar a year back, plus slack for a holiday
 SECTOR_CONTEXT_TTL_SECONDS = 600.0
 SPY = "SPY"
-
-
-def load_stuck_settings() -> StuckSettings:
-    """The saved thresholds, or the code defaults when nothing is saved."""
-    return DEFAULT_STUCK_SETTINGS
 
 
 # --- cached reads ------------------------------------------------------------------------------------------------------------
@@ -213,7 +208,7 @@ def _row_out(row: StuckRow) -> StuckRowOut:
 def get_stuck_check_data(ticker: str, settings: StuckSettings | None = None) -> StuckCheckOut:
     """Cache only: reads `FundamentalsCache`, `TickerScore`, `SharedBarsCache` and never fetches or writes."""
     ticker = normalize_ticker(ticker)
-    settings = settings if settings is not None else load_stuck_settings()
+    settings = settings if settings is not None else load_stuck_settings(engine)
     with Session(engine) as session:
         score = session.get(TickerScore, ticker)
         profile_rows = _cached_rows(session, ticker, "profile", "latest")

@@ -2675,3 +2675,78 @@ class StuckCheckOut(BaseModel):
     company_type: str | None = None
     rows: list[StuckRowOut] = []
     footer: str | None = None
+
+
+class StuckExemptionIO(BaseModel):
+    """One hand-maintained exemption (ticker + reason + the rows it exempts): shape shared by the endpoint's input and output."""
+
+    ticker: str
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)]
+    rows: Annotated[list[str], Field(min_length=1)]
+
+    @field_validator("ticker")
+    @classmethod
+    def _ticker(cls, value: str) -> str:
+        import re
+
+        cleaned = value.strip().upper()
+        if not re.fullmatch(r"[A-Z0-9][A-Z0-9.\-]{0,9}", cleaned):
+            raise ValueError("Enter a ticker such as IBKR or BRK.B.")
+        return cleaned
+
+    @field_validator("rows")
+    @classmethod
+    def _rows(cls, value: list[str]) -> list[str]:
+        from scoring.stuck_check import EXEMPTABLE_ROWS
+
+        unknown = [r for r in value if r not in EXEMPTABLE_ROWS]
+        if unknown:
+            raise ValueError(f"Unknown row {unknown[0]!r}.")
+        if len(set(value)) != len(value):
+            raise ValueError("A row is listed twice.")
+        return value
+
+
+class StuckCheckSettingsIn(BaseModel):
+    """The Settings > Why might it be stuck? save body. The bounds are scoring/stuck_check.py::STUCK_BOUNDS, the one definition."""
+
+    sbc_revenue_pct: float = Field(ge=1, le=50)
+    sbc_fcf_pct: float = Field(ge=5, le=100)
+    cash_conversion_line: float = Field(ge=0.1, le=1.5)
+    share_growth_pct: float = Field(ge=0.5, le=10)
+    one_off_pct: float = Field(ge=30, le=95)
+    sector_band_pp: float = Field(ge=0.5, le=10)
+    smoothing_days: StrictInt = Field(ge=1, le=20)
+    exemptions: Annotated[list[StuckExemptionIO], Field(max_length=100)]
+
+    @model_validator(mode="after")
+    def _unique_tickers(self):
+        tickers = [e.ticker for e in self.exemptions]
+        if len(set(tickers)) != len(tickers):
+            raise ValueError("A ticker is listed twice in the exemption list.")
+        return self
+
+
+class StuckCheckBoundsOut(BaseModel):
+    min: float
+    max: float
+
+
+class StuckCheckRowOptionOut(BaseModel):
+    key: str
+    label: str
+
+
+class StuckCheckSettingsOut(BaseModel):
+    sbc_revenue_pct: float
+    sbc_fcf_pct: float
+    cash_conversion_line: float
+    share_growth_pct: float
+    one_off_pct: float
+    sector_band_pp: float
+    smoothing_days: int
+    exemptions: list[StuckExemptionIO]
+    defaults: StuckCheckSettingsIn
+    bounds: dict[str, StuckCheckBoundsOut]
+    row_options: list[StuckCheckRowOptionOut]
+    updated_at: datetime
