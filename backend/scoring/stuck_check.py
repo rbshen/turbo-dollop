@@ -130,7 +130,7 @@ class Figure:
     key: str
     label: str
     value: float | None
-    unit: str  # usd | pct | pp | ratio | multiple | count | text
+    unit: str  # money (reporting currency) | pct | pp | ratio | multiple | count | text
     text: str | None = None  # a word that replaces or accompanies the value ("n/m", "in line", "93rd percentile")
 
 
@@ -293,7 +293,7 @@ def sbc_rows(
 
     # Latest-FY figures: always shown when there is anything to show.
     def latest_figures() -> list[Figure]:
-        figures = [Figure("sbc_latest", "Latest fiscal year", latest.sbc if _has(latest.sbc) else None, "usd")]
+        figures = [Figure("sbc_latest", "Latest fiscal year", latest.sbc if _has(latest.sbc) else None, "money")]
         if _has(latest.sbc) and _has(latest.revenue):
             figures.append(Figure("sbc_latest_pct_revenue", "Latest fiscal year, % of revenue", _pct(latest.sbc, latest.revenue), "pct"))
         return figures
@@ -305,7 +305,7 @@ def sbc_rows(
         if after_row.status is None:
             fcf, sbc = latest.fcf, latest.sbc
             after_row.figures = [
-                Figure("fcf_after_sbc_latest", "Latest fiscal year", fcf - sbc if _has(fcf) and _has(sbc) else None, "usd")
+                Figure("fcf_after_sbc_latest", "Latest fiscal year", fcf - sbc if _has(fcf) and _has(sbc) else None, "money")
             ]
             if _has(fcf) and _has(sbc) and _has(latest.revenue):
                 after_row.figures.append(
@@ -354,9 +354,9 @@ def sbc_rows(
         latest_pair = latest if _has(latest.fcf) and _has(latest.sbc) else None
         latest_after = latest_pair.fcf - latest_pair.sbc if latest_pair else None
         after_row.figures = [
-            Figure("fcf_after_sbc_5y", f"{len(fcf_sbc_pairs)}-year total", total_after if fcf_sbc_pairs else None, "usd"),
+            Figure("fcf_after_sbc_5y", f"{len(fcf_sbc_pairs)}-year total", total_after if fcf_sbc_pairs else None, "money"),
             Figure("fcf_after_sbc_5y_pct_revenue", f"{len(fcf_sbc_pairs)}-year total, % of revenue", _pct(total_after, revenue_after) if fcf_sbc_pairs else None, "pct"),
-            Figure("fcf_after_sbc_latest", "Latest fiscal year", latest_after, "usd"),
+            Figure("fcf_after_sbc_latest", "Latest fiscal year", latest_after, "money"),
             Figure(
                 "fcf_after_sbc_latest_pct_revenue",
                 "Latest fiscal year, % of revenue",
@@ -442,7 +442,7 @@ def shareholder_yield_row(years: list[FiscalYear], exempt: dict[str, str]) -> St
     fcf = _sum([y.fcf for y in last5])
     nm = fcf <= 0
     row.figures = [
-        Figure("returned_5y", f"Dividends + net buybacks, {len(last5)} years", paid, "usd"),
+        Figure("returned_5y", f"Dividends + net buybacks, {len(last5)} years", paid, "money"),
         Figure("shareholder_yield_pct_fcf", f"% of {len(last5)}-year free cash flow", None if nm else paid / fcf * 100, "pct", "n/m" if nm else None),
     ]
     return row

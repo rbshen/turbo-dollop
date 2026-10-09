@@ -2125,3 +2125,39 @@ export interface StuckCheckSettingsOut extends StuckCheckSettingsValues {
   row_options: { key: string; label: string }[];
   updated_at: string;
 }
+
+export interface StuckFigure {
+  key: string;
+  label: string;
+  value: number | null;
+  /** money | pct | pp | ratio | multiple | count | text */
+  unit: string;
+  /** A word that replaces or accompanies the value: "n/m", "in line", "93rd percentile", a stored verdict. */
+  text: string | null;
+}
+
+export type StuckStatus = "ok" | "flagged" | "not_applicable" | "not_reported";
+
+export interface StuckRow {
+  key: string;
+  number: number;
+  title: string;
+  /** null = figures only, no label. Never a verdict word. */
+  status: StuckStatus | null;
+  reason: string | null;
+  figures: StuckFigure[];
+  notes: string[];
+}
+
+export interface StuckCheckOut {
+  ticker: string;
+  subtitle: string;
+  applicable: boolean;
+  not_applicable_reason: string | null;
+  has_data: boolean;
+  company_type: string | null;
+  /** Currency of the statement figures (money unit). */
+  currency: string;
+  rows: StuckRow[];
+  footer: string | null;
+}

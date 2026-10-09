@@ -14,6 +14,8 @@ Fathom is a company fundamentals valuation web app. It runs a multi-step fundame
 
 **Step 1 by company type (2026-10-08, docs/decisions.md):** Bank, Insurance, REIT/Property Developer and Commodity Company are scored on **Revenue (the real FMP revenue line, no Net Interest Income substitution anywhere) and Net Income** only, with Operating Income as the existing Net Income backup; CFO, FCF and Margins are exempt, on one weight table (Margins/CFO/FCF weight spread proportionally over Revenue and Net Income, 59.57/40.43 at the defaults, `scoring/weights.py::step1_tables`' third table, derived from the saved weights too). Standard and Utility keep all five components (Utility keeps its margin severity carve-out, the only type with one). Commodity is still the industry allowlist plus the JCI/MAS override. The defaults quoted in these docs are the code's; the saved set in the DB can differ (docs/specs/overview.md). REIT Debt (gearing): under 45% passes, the 40-45% band scores 70 (was 60, which failed); Insurance Debt is not applied and Overall renormalizes without it. `SCORE_FORMULA_VERSION` was deliberately not bumped for this change (stored rows were refreshed by a full recompute instead).
 
+**Stuck check (2026-10-09, docs/specs/stuck-check.md):** the Analysis tab's last card, "Why might it be stuck?" (subtitle "Context, not scored"), is informational and **feeds nothing**: not Overall, not any verdict, not `TickerScore`, not the Screener, no badge or count. Labels only (OK / Flagged / Not applicable / Not reported; Flagged a plain amber `warn` tag, no red, no verdict wording). `scoring/stuck_check.py` (pure) + `data/stuck_check_data.py` (cache only, no FMP call, no write; cleaned completed-fiscal-year statements, the stored `TickerScore` price values, cached daily bars) behind `GET /api/tickers/{t}/stuck-check`; thresholds and the ticker exemption list (IBKR, GM seeded) are in Settings > Why might it be stuck? (`StuckCheckSettings`, `data/stuck_check_settings.py`, `GET/PUT /api/config/stuck-check`; no recompute, applies on the next page load). `pipeline/nightly_signal_snapshot.py` (3:28 AM, after the recompute) appends one `TickerSignalSnapshot` row per tracked ticker per day (Overall, Valuation, Weinstein stage, Pass-family + Undervalued; ~25 MB a year, idempotent, no UI); `scoring/good_undervalued.py` is the smoothed since-date helper. Open follow-up: IBKR and GM still reach Step 1 with their distorted cash-flow series (spec, "Open follow-ups").
+
 ## Tech stack
 
 - **Frontend**: Next.js (App Router), TypeScript, Tailwind v4, shadcn/ui (`base-lyra` style, phosphor icons, neutral base color). Dark-only theme — no light mode toggle, `dark` class hardcoded on `<html>` in `app/layout.tsx`. SWR for data fetching. Mirrors the visual style and conventions of the sibling `options_tracker` project.
@@ -76,6 +78,8 @@ backend/     FastAPI app, organized into packages by role:
                nightly_price_target_snapshot.py,
                nightly_etf_screener.py (the ETFs screener read-model, 1:45 AM;
                registered 2026-10-03, see docs/specs/etf-screener.md),
+               nightly_signal_snapshot.py (the daily signal log, 3:28 AM,
+               docs/specs/stuck-check.md),
                monthly_momentum_snapshot.py, recompute_ticker_scores.py,
                tracked_universe_report.py (read-only universe report),
                audit_fixture_contamination.py, refresh.py, prune_cache.py,
@@ -173,7 +177,7 @@ Full mechanism, exact cadence windows, and past incidents are documented in `bac
 
 Scoring methodology and feature-specific detail live in `docs/specs/*.md` and `docs/archive/*.md`, not in this file.
 
-**Scoring methodology:** Financials — docs/specs/financials.md. Growth Rate — docs/specs/growth-rate.md. Debt — docs/specs/debt.md. Profitability — docs/specs/profitability.md. Valuation (Step 3) — docs/specs/valuation.md. Overall Assessment step weighting, Screener ETF exclusion — docs/specs/overview.md. Company classification / non-lender ticker overrides / Bank CET1-NPL standard — docs/specs/company-type-variations.md. Economic Moat — docs/specs/economic-moat.md. Glossary of terms — docs/specs/glossary.md. Speculative Growth lens — docs/specs/speculative-growth.md.
+**Scoring methodology:** Financials — docs/specs/financials.md. Growth Rate — docs/specs/growth-rate.md. Debt — docs/specs/debt.md. Profitability — docs/specs/profitability.md. Valuation (Step 3) — docs/specs/valuation.md. Overall Assessment step weighting, Screener ETF exclusion — docs/specs/overview.md. Company classification / non-lender ticker overrides / Bank CET1-NPL standard — docs/specs/company-type-variations.md. Economic Moat — docs/specs/economic-moat.md. Glossary of terms — docs/specs/glossary.md. Speculative Growth lens — docs/specs/speculative-growth.md. "Why might it be stuck?" card, its Settings and the daily signal snapshot log — docs/specs/stuck-check.md (investigation: docs/why-stuck-panel-investigation-2026-10-09.md).
 
 **Tracked universe** (nightly ticker set, 30-day view expiry, protected set, seed, delisted clearing) — docs/specs/tracked-universe.md.
 

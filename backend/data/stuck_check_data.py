@@ -242,6 +242,7 @@ def get_stuck_check_data(ticker: str, settings: StuckSettings | None = None) -> 
     own_cap = context.market_caps.get(ticker) or (score.market_cap if score else None)
     weight_pct = own_cap / total_cap * 100 if own_cap and total_cap else None
     ipo_date = _parse_date(profile.get("ipoDate"))
+    currency = (view.income_annual[0].get("reportedCurrency") if view.income_annual else None) or "USD"
 
     rows = evaluate_fundamental_rows(years, company_type, ticker, ipo_date, settings, context.cagrs)
     footer = footer_line(rows)
@@ -249,5 +250,10 @@ def get_stuck_check_data(ticker: str, settings: StuckSettings | None = None) -> 
     rows.append(_relative_strength(ticker, sector, settings.sector_band_pp, weight_pct))
     rows.sort(key=lambda r: r.number)
     return StuckCheckOut(
-        ticker=ticker, subtitle=SUBTITLE, company_type=company_type, rows=[_row_out(r) for r in rows], footer=footer
+        ticker=ticker,
+        subtitle=SUBTITLE,
+        company_type=company_type,
+        currency=currency,
+        rows=[_row_out(r) for r in rows],
+        footer=footer,
     )

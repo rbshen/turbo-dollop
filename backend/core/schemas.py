@@ -2644,7 +2644,7 @@ class StuckFigureOut(BaseModel):
     key: str
     label: str
     value: float | None = None
-    # usd | pct | pp | ratio | multiple | count | text
+    # money (in StuckCheckOut.currency) | pct | pp | ratio | multiple | count | text
     unit: str
     # A word that replaces or accompanies the value: "n/m", "in line", "leads", "93rd percentile", a stored verdict.
     text: str | None = None
@@ -2673,6 +2673,8 @@ class StuckCheckOut(BaseModel):
     # False when no statements are cached at all (rows are then empty).
     has_data: bool = True
     company_type: str | None = None
+    # The statements' reporting currency (the unit of every `money` figure).
+    currency: str = "USD"
     rows: list[StuckRowOut] = []
     footer: str | None = None
 

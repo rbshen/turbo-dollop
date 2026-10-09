@@ -112,6 +112,7 @@ def test_card_assembles_every_row_from_the_cache(db):
     assert rows["cash_conversion"].status == "ok"  # 120 / 100 = 1.2
     assert rows["sbc"].status == "ok" and rows["share_count"].status == "ok"
     assert out.footer == "Nothing flagged (4 of 4 labelled rows assessed)"
+    assert out.currency == "USD" and {f.unit for r in out.rows for f in r.figures} >= {"money", "pct", "ratio"}
     price = {f.key: f for f in rows["price_context"].figures}
     assert price["overall_verdict"].text == "Pass" and price["weinstein_stage"].text == "decline"
     assert price["perf_5y_vs_spy"].value == -12.5
@@ -215,3 +216,9 @@ def test_the_card_writes_nothing(db):
     with Session(db) as session:
         after = (session.exec(__import__("sqlmodel").select(FundamentalsCache)).all(), session.get(TickerScore, "ACME").computed_at)
     assert len(before[0]) == len(after[0]) and before[1] == after[1]
+
+
+def test_money_figures_carry_the_reporting_currency(db):
+    income = [{**row, "reportedCurrency": "CNY"} for row in income_rows()]
+    seed(db, "ACME", income=income)
+    assert get_stuck_check_data("ACME").currency == "CNY"
