@@ -67,6 +67,7 @@ from data.ratios_data import get_ratios_data
 from data.saved_screener_filters import delete_saved_filter, list_saved_filters, upsert_saved_filter
 from data.segmentation_data import get_segmentation_data
 from data.speculative_growth_data import get_speculative_growth_data
+from data.stuck_check_data import get_stuck_check_data
 from data.ticker_search import search_tickers
 from data.tracked_universe import (
     load_tracked_universe,
@@ -120,6 +121,7 @@ from core.schemas import (
     RefreshResult,
     ReitDividendYieldConfigIn,
     ReitDividendYieldConfigOut,
+    StuckCheckOut,
     ScoreWeightsOut,
     SavedFilterKind,
     SavedScreenerFilterIn,
@@ -1035,6 +1037,12 @@ async def ticker_speculative_growth(ticker: str) -> SpeculativeGrowthOut:
         return await get_speculative_growth_data(ticker)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
+
+
+@app.get("/api/tickers/{ticker}/stuck-check", response_model=StuckCheckOut)
+def ticker_stuck_check(ticker: str) -> StuckCheckOut:
+    """The informational "Why might it be stuck?" card. Cache only: no FMP call, no write, feeds nothing (docs/specs/stuck-check.md)."""
+    return get_stuck_check_data(ticker)
 
 
 @app.get("/api/tickers/{ticker}/bank-capital-metrics", response_model=TickerBankCapitalMetricsOut)

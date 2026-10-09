@@ -2638,3 +2638,40 @@ class UniverseRemoveOut(BaseModel):
     status: UniverseStatusOut
     changed: bool
     message: str
+
+
+class StuckFigureOut(BaseModel):
+    key: str
+    label: str
+    value: float | None = None
+    # usd | pct | pp | ratio | multiple | count | text
+    unit: str
+    # A word that replaces or accompanies the value: "n/m", "in line", "leads", "93rd percentile", a stored verdict.
+    text: str | None = None
+
+
+class StuckRowOut(BaseModel):
+    key: str
+    number: int
+    title: str
+    # "ok" | "flagged" | "not_applicable" | "not_reported" | None (figures only, no label). Never a verdict word.
+    status: str | None = None
+    reason: str | None = None
+    figures: list[StuckFigureOut] = []
+    notes: list[str] = []
+
+
+class StuckCheckOut(BaseModel):
+    """The informational "Why might it be stuck?" card (docs/specs/stuck-check.md). Feeds nothing: not Overall, not a verdict, not
+    TickerScore, not the Screener. Live per-request read from cached data only, no FMP call."""
+
+    ticker: str
+    subtitle: str = "Context, not scored"
+    # False for an ETF/fund (the card is stocks only); `not_applicable_reason` says why.
+    applicable: bool = True
+    not_applicable_reason: str | None = None
+    # False when no statements are cached at all (rows are then empty).
+    has_data: bool = True
+    company_type: str | None = None
+    rows: list[StuckRowOut] = []
+    footer: str | None = None
