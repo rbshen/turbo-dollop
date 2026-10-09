@@ -168,6 +168,17 @@ def test_fcf_after_sbc_flags_on_a_negative_latest_year_or_a_non_positive_total()
     assert figure(latest_negative["fcf_after_sbc"], "fcf_after_sbc_5y").value > 0
 
 
+def test_fcf_after_sbc_flags_on_a_non_positive_total_even_when_the_latest_year_is_positive():
+    ys = years(10, revenue=1000.0, net_income=50.0, fcf=[100.0] * 5 + [-300.0, 100.0, 100.0, 100.0, 120.0], sbc=[50.0] * 9 + [60.0], diluted_shares=100.0)
+    row = evaluate(ys)["fcf_after_sbc"]
+    assert figure(row, "fcf_after_sbc_5y").value == -140.0  # FCF 120 minus SBC 260 over the last five years
+    assert figure(row, "fcf_after_sbc_latest").value == 60.0
+    assert row.status == FLAGGED
+    # and neither rule holds: positive total, positive latest year
+    ok = evaluate(years(10, revenue=1000.0, net_income=50.0, fcf=100.0, sbc=50.0, diluted_shares=100.0))["fcf_after_sbc"]
+    assert ok.status == OK
+
+
 # --- post-listing windows ----------------------------------------------------------------------------------------------------
 
 

@@ -135,6 +135,18 @@ describe("StuckCheckCard", () => {
     expect(price.querySelector("[class*='bg-positive'], [class*='bg-negative'], [class*='bg-caution']")).toBeNull();
   });
 
+  it("draws a stored Fail as plain 'May not pass' text with no colour, pill or amber/red class", () => {
+    const fail = DATA.rows[5].figures.map((f) => (f.key === "overall_verdict" ? { ...f, text: "Fail" } : f));
+    serve({ ...DATA, rows: DATA.rows.map((r) => (r.key === "price_context" ? { ...r, figures: fail } : r)) });
+    render(<StuckCheckCard ticker="ACME" />);
+    const price = screen.getByTestId("stuck-row-price_context");
+    const value = within(price).getByText("May not pass");
+    expect(value.tagName).toBe("DD");
+    expect(value.className).toBe("font-mono text-sm tabular-nums text-text-primary");
+    expect(price.innerHTML).not.toMatch(/not-pass|negative|warn|caution|positive|strong|pill/);
+    expect(within(price).queryByText("Fail")).toBeNull();
+  });
+
   it("shows the footer line when the endpoint sends one", () => {
     serve({ ...DATA, footer: "Nothing flagged (3 of 4 labelled rows assessed)" });
     render(<StuckCheckCard ticker="ACME" />);
