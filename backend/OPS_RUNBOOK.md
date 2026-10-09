@@ -601,6 +601,28 @@ regardless of *how* the job fails, including an uncaught exception that
 would otherwise only ever reach stderr — see "Known gaps" above for the
 incident this was built to catch.
 
+**Interrupted runs (2026-10-09).** `cron_heartbeat` catches `BaseException`, not only `Exception`, so a run that is
+stopped rather than failed also closes its row (it used to stay `running` forever; row 265, `nightly_market_breadth`,
+started 2026-09-23 15:44, was left open by an interrupted manual re-run). What is recorded, always followed by a re-raise
+of the original exception (exit code and traceback unchanged):
+
+| How the run ends | Row | `error_summary` |
+|---|---|---|
+| normal return, `SystemExit(0)` / `SystemExit(None)` | `success` (or `skipped` after `run.skip`) | the run's message |
+| ordinary exception | `failure` | `ValueError: ...` (unchanged) |
+| Ctrl-C (`KeyboardInterrupt`) | `failure` | `interrupted: KeyboardInterrupt` |
+| `sys.exit(N)`, N non-zero or a string | `failure` | `exited with code N` |
+| `kill <pid>` / service stop (SIGTERM) | `failure`, process exits 143 | `interrupted: SIGTERM (exit code 143)` |
+| `kill -9`, the OOM killer, power loss (SIGKILL) | stays `running` (cannot be caught) | none |
+
+SIGTERM is covered by a temporary handler the heartbeat installs only in the main thread and only while SIGTERM still has
+the default action (it never replaces a handler the job set, and restores the previous one on exit). The finish write is
+best effort: if it fails (locked DB, closed engine) a WARNING naming the job is logged and the original exception still
+propagates. A stale `running` row can therefore still appear after a SIGKILL; find one with
+`SELECT id, job_name, started_at FROM cronrunlog WHERE status='running' AND finished_at IS NULL`, and close it with one
+`UPDATE ... WHERE id = <id> AND status = 'running' AND finished_at IS NULL` (status `failure`, `finished_at` = `started_at`,
+so no duration is implied). Row 265 was closed that way on 2026-10-09 ("Stale row closed manually 2026-10-09: ...").
+
 `GET /api/config/cron-health` computes each job's `health_status` from its
 `CronRunLog` history: `"failed"` if the most recent row failed, `"unknown"`
 if no row exists yet, `"overdue"` if no successful run falls within that

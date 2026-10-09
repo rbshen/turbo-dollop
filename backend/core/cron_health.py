@@ -12,6 +12,9 @@ get_cron_health() (backing GET /api/config/cron-health), and
 tests/test_cron_wiring.py (which asserts this list, crontab.txt, and every
 script's actual wiring all agree)."""
 
+import logging
+import signal
+import threading
 import traceback
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -25,6 +28,8 @@ from core.db import engine
 from core.logging_config import redact_apikey
 from core.models import CronRunLog
 from core.schemas import CronHealthOut, CronJobHealthOut, CronRunOut
+
+logger = logging.getLogger(__name__)
 
 _ERROR_SUMMARY_MAX_CHARS = 500
 
@@ -252,6 +257,79 @@ class CronRunContext:
         self.message = reason
 
 
+def _is_clean_exit(exc: BaseException) -> bool:
+    """SystemExit(0) / SystemExit(None) is a normal exit (sys.exit() with no argument), not a failure."""
+    return isinstance(exc, SystemExit) and exc.code in (None, 0)
+
+
+def _failure_summary(exc: BaseException, sigterm_received: bool) -> str:
+    """CronRunLog.error_summary for a run that did not finish normally. An ordinary Exception keeps its original
+    format (_truncated_error_summary); an interrupt or non-zero exit gets a short fixed phrase."""
+    if isinstance(exc, Exception):
+        return _truncated_error_summary(exc)
+    if sigterm_received:
+        return "interrupted: SIGTERM (exit code 143)"
+    if isinstance(exc, SystemExit):
+        return redact_apikey(f"exited with code {exc.code}")[:_ERROR_SUMMARY_MAX_CHARS]
+    return redact_apikey(f"interrupted: {type(exc).__name__}")[:_ERROR_SUMMARY_MAX_CHARS]
+
+
+def _finish_row(job_name: str, row_id: int, status: str, summary: str | None) -> None:
+    """Closes the run's CronRunLog row. Best effort: a failure here (locked DB, closed engine, full disk) is logged as
+    a WARNING and swallowed, so it can never mask or replace the job's real outcome. Uses the module's own engine
+    (its connect timeout is the busy timeout); no new engine, no PRAGMA."""
+    try:
+        with Session(engine) as session:
+            row = session.get(CronRunLog, row_id)
+            if row is not None:
+                row.status = status
+                row.finished_at = datetime.now()
+                row.error_summary = summary
+                session.add(row)
+                session.commit()
+    except Exception as exc:  # noqa: BLE001 -- see docstring
+        logger.warning("cron_heartbeat(%s): could not write the %s row on exit: %s: %s", job_name, status, type(exc).__name__, exc)
+
+
+def _install_sigterm_exit(job_name: str):
+    """Python's default SIGTERM action ends the process with no cleanup, so `kill <pid>` would leave the row "running".
+    When this is the main thread and SIGTERM still has the default action, installs a temporary handler that raises
+    SystemExit(143) (the shell's 128 + SIGTERM convention), which cron_heartbeat then records and re-raises. Returns
+    (restore, sigterm_received): `restore()` puts the previous handler back (only if ours is still the live one);
+    `sigterm_received()` says whether the handler fired. Never replaces a non-default handler, never runs off the main
+    thread (signal.signal raises there), and never raises: any failure is logged and the job runs as before."""
+    fired = False
+
+    def handler(signum, frame):
+        nonlocal fired
+        if fired:  # a second SIGTERM must not interrupt the row write on the way out
+            return
+        fired = True
+        raise SystemExit(143)
+
+    def noop() -> None:
+        return None
+
+    try:
+        if threading.current_thread() is not threading.main_thread():
+            return noop, lambda: False
+        if signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL:
+            return noop, lambda: False
+        previous = signal.signal(signal.SIGTERM, handler)
+    except Exception as exc:  # noqa: BLE001 -- signal setup must never break a job
+        logger.warning("cron_heartbeat(%s): could not install the SIGTERM handler: %s: %s", job_name, type(exc).__name__, exc)
+        return noop, lambda: False
+
+    def restore() -> None:
+        try:
+            if signal.getsignal(signal.SIGTERM) is handler:
+                signal.signal(signal.SIGTERM, previous)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("cron_heartbeat(%s): could not restore the SIGTERM handler: %s: %s", job_name, type(exc).__name__, exc)
+
+    return restore, lambda: fired
+
+
 @contextmanager
 def cron_heartbeat(job_name: str) -> Iterator[CronRunContext]:
     """Wrap a cron script's job-execution call with this: writes a
@@ -268,11 +346,23 @@ def cron_heartbeat(job_name: str) -> Iterator[CronRunContext]:
     Purely additive -- on failure the original exception is always
     re-raised unchanged, so stderr/_cron.log capture and the process's
     exit code are completely unaffected. The heartbeat's own DB writes are
-    each wrapped in their own narrow try/except-and-swallow, so a
-    heartbeat write failure (e.g. the exact disk-full case this system
-    exists to catch) can never mask or alter the job's real outcome -- a
-    missing CronRunLog row just reads as "unknown" in the health endpoint,
-    which is itself informative.
+    each wrapped in their own narrow try/except-and-swallow (a WARNING is
+    logged), so a heartbeat write failure (e.g. the exact disk-full case
+    this system exists to catch) can never mask or alter the job's real
+    outcome -- a missing CronRunLog row just reads as "unknown" in the
+    health endpoint, which is itself informative.
+
+    Interrupted runs (2026-10-09). The failure path catches BaseException, not
+    only Exception, so a Ctrl-C (KeyboardInterrupt) or a non-zero SystemExit
+    closes the row as "failure" ("interrupted: KeyboardInterrupt", "exited
+    with code N") instead of leaving it "running" forever; SystemExit(0) or
+    SystemExit(None) is a normal exit and stays "success". SIGTERM (`kill
+    <pid>`, a service stop) is covered by a temporary handler that raises
+    SystemExit(143), installed only in the main thread and only while SIGTERM
+    still has the default action, and restored on exit (see
+    _install_sigterm_exit); the row reads "interrupted: SIGTERM (exit code
+    143)". SIGKILL (kill -9, the OOM killer, power loss) cannot be caught: the
+    row stays "running". The original exception is always re-raised.
 
     Creates the table defensively on every invocation (SQLModel's own
     create_all, idempotent) rather than relying on the calling script's own
@@ -295,36 +385,23 @@ def cron_heartbeat(job_name: str) -> Iterator[CronRunContext]:
         row_id = None
 
     run_context = CronRunContext()
+    # Without a row there is nothing to close, so leave the process's SIGTERM behaviour alone.
+    restore_sigterm, sigterm_received = _install_sigterm_exit(job_name) if row_id is not None else (lambda: None, lambda: False)
 
     try:
         yield run_context
-    except Exception as exc:
+    except BaseException as exc:
         if row_id is not None:
-            try:
-                with Session(engine) as session:
-                    row = session.get(CronRunLog, row_id)
-                    if row is not None:
-                        row.status = "failure"
-                        row.finished_at = datetime.now()
-                        row.error_summary = _truncated_error_summary(exc)
-                        session.add(row)
-                        session.commit()
-            except Exception:
-                pass
+            if _is_clean_exit(exc):
+                _finish_row(job_name, row_id, "skipped" if run_context.skipped else "success", run_context.message)
+            else:
+                _finish_row(job_name, row_id, "failure", _failure_summary(exc, sigterm_received()))
         raise
     else:
         if row_id is not None:
-            try:
-                with Session(engine) as session:
-                    row = session.get(CronRunLog, row_id)
-                    if row is not None:
-                        row.status = "skipped" if run_context.skipped else "success"
-                        row.finished_at = datetime.now()
-                        row.error_summary = run_context.message
-                        session.add(row)
-                        session.commit()
-            except Exception:
-                pass
+            _finish_row(job_name, row_id, "skipped" if run_context.skipped else "success", run_context.message)
+    finally:
+        restore_sigterm()
 
 
 def _run_out(row: CronRunLog) -> CronRunOut:
