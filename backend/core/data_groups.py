@@ -122,6 +122,15 @@ GROUPS: dict[str, GroupMeta] = {
     # only matters at first-time row creation -- an existing row (_seed) is never touched. The 402 safety
     # net (canary SPY, see CANARY_SYMBOL_OVERRIDES) corrects a wrong value at runtime.
     "etf_info": GroupMeta("ETF info", "Starter", True, True, ("ETF page Overview tab",)),
+    # Sector / industry average P/E (FMP /sector-pe-snapshot, /industry-pe-snapshot, /historical-sector-pe,
+    # /historical-industry-pe): the data layer for a future chart overlay (docs/specs/sector-industry-pe.md). Starter is
+    # BEST KNOWN, UNVERIFIED: FMP's docs pages 403 to our fetcher and name no plan for these four endpoints; its
+    # pricing page gives Basic/Starter 5 years of history (Premium/Ultimate 30+), which is exactly our 5-year window.
+    # The key is Ultimate, so nothing can be tested; the 402 safety net corrects a wrong value at runtime.
+    "sector_industry_pe": GroupMeta(
+        "Sector & industry P/E", "Starter", True, True,
+        ("Nightly sector/industry P/E snapshot", "Sector/industry P/E history (data layer; no UI yet)"),
+    ),
     # Shelved 2026-09-27 (see CLAUDE.md's "Institutional Ownership" entry) -- same
     # reasoning as `news`: tried against real tickers, judged low decision-value for
     # short-premium/short-term trading (13F's quarterly cadence + 45+ day reporting lag
@@ -189,6 +198,10 @@ ENDPOINT_GROUP: dict[str, str] = {
     "/institutional-ownership/symbol-positions-summary": "institutional_ownership",
     "/institutional-ownership/extract-analytics/holder": "institutional_ownership",
     "/etf/info": "etf_info",
+    "/sector-pe-snapshot": "sector_industry_pe",
+    "/industry-pe-snapshot": "sector_industry_pe",
+    "/historical-sector-pe": "sector_industry_pe",
+    "/historical-industry-pe": "sector_industry_pe",
 }
 
 # Endpoints whose 402 canary (and probe) must use a symbol other than AAPL: AAPL is not an ETF, so
@@ -231,6 +244,8 @@ PROBE_ENDPOINTS: dict[str, tuple[str, dict]] = {
     "institutional_ownership": ("/institutional-ownership/symbol-positions-summary", {"symbol": "AAPL", "year": 2020, "quarter": 1}),
     # SPY, not AAPL (the one exception to "always AAPL"): AAPL is a stock, /etf/info returns `200 []` for it.
     "etf_info": ("/etf/info", {"symbol": "SPY"}),
+    # Symbol-less, so the failing call is its own canary; a fixed past date keeps the probe stable.
+    "sector_industry_pe": ("/sector-pe-snapshot", {"date": "2024-01-02", "exchange": "NASDAQ"}),
 }
 
 # ---------------------------------------------------------------------------

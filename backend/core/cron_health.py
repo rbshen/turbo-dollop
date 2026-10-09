@@ -60,6 +60,7 @@ CRON_JOB_NAMES: list[str] = [
     "pipeline.stale_data_health_check",
     "pipeline.purge_invalid_tickers",
     "pipeline.nightly_price_target_snapshot",
+    "pipeline.nightly_sector_industry_pe",
     "pipeline.monthly_momentum_snapshot",
     "pipeline.backup_db",
 ]
@@ -96,6 +97,7 @@ _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.stale_data_health_check": _WEEKLY_HOURS,
     "pipeline.purge_invalid_tickers": _WEEKLY_HOURS,
     "pipeline.nightly_price_target_snapshot": _DAILY_HOURS,
+    "pipeline.nightly_sector_industry_pe": _DAILY_HOURS,
     "pipeline.monthly_momentum_snapshot": _MONTHLY_HOURS,
 }
 
@@ -169,6 +171,9 @@ JOB_METADATA: dict[str, JobMetadata] = {
     ),
     "pipeline.nightly_price_target_snapshot": JobMetadata(
         "Archive analyst price-target consensus", "daily", "3:10 AM", 3 * 60 + 10
+    ),
+    "pipeline.nightly_sector_industry_pe": JobMetadata(
+        "Sector / industry average P/E snapshot (FMP, NASDAQ/NYSE/AMEX)", "daily", "3:05 AM", 3 * 60 + 5
     ),
     "pipeline.monthly_momentum_snapshot": JobMetadata(
         "3/6/12mo momentum ranking snapshot", "monthly", "1st–5th, 2:50 AM", 2 * 60 + 50

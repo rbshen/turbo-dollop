@@ -451,6 +451,25 @@ class FMPClient:
         # literal path is what tests/test_data_groups_registry.py scans for.
         return await self.get("/historical-chart/1hour", {"symbol": ticker, "from": from_date, "to": to_date})
 
+    # Sector / industry average P/E (data group sector_industry_pe). Every call passes `exchange`: omitting it silently
+    # defaults to NASDAQ. Snapshots need a `date`; the historical calls need explicit from/to (the default window
+    # ends 2024-03-01). Rows: {"date", "sector"|"industry", "exchange", "pe"}; a series with no data is `[]`.
+    async def get_sector_pe_snapshot(self, on_date: str, exchange: str) -> dict | list:
+        return await self.get("/sector-pe-snapshot", {"date": on_date, "exchange": exchange})
+
+    async def get_industry_pe_snapshot(self, on_date: str, exchange: str) -> dict | list:
+        return await self.get("/industry-pe-snapshot", {"date": on_date, "exchange": exchange})
+
+    async def get_historical_sector_pe(self, sector: str, exchange: str, from_date: str, to_date: str) -> dict | list:
+        return await self.get(
+            "/historical-sector-pe", {"sector": sector, "exchange": exchange, "from": from_date, "to": to_date}
+        )
+
+    async def get_historical_industry_pe(self, industry: str, exchange: str, from_date: str, to_date: str) -> dict | list:
+        return await self.get(
+            "/historical-industry-pe", {"industry": industry, "exchange": exchange, "from": from_date, "to": to_date}
+        )
+
     async def get_revenue_product_segmentation(self, ticker: str) -> dict | list:
         return await self.get("/revenue-product-segmentation", {"symbol": ticker})
 

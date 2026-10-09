@@ -122,6 +122,7 @@ configured):
 | Nightly Sector ETF heatmap | `nightly_sector_heatmap.log` / `_cron.log` |
 | Nightly market breadth | `nightly_market_breadth.log` / `_cron.log` |
 | Nightly ETFs screener | `nightly_etf_screener.log` / `_cron.log` |
+| Nightly sector/industry P/E | `nightly_sector_industry_pe.log` / `_cron.log` |
 | Nightly corporate-events cache (earnings/dividends/splits) | `nightly_corporate_events.log` / `_cron.log` |
 | Nightly last-close cache (header price fallback) | `nightly_last_close_snapshot.log` / `_cron.log` |
 | Nightly Warren RSI/ADX/WVF entry-signal calculation | `nightly_warren_signal_calculation.log` / `_cron.log` |
@@ -323,6 +324,13 @@ edit still needs `crontab crontab.txt` from `backend/` to take effect. The
 one-time history seed is `pipeline/backfills/backfill_market_breadth.py` (see
 its docstring; it also fills the 20-day columns onto rows that predate them,
 only where NULL, and is safe to re-run).
+
+**`nightly_sector_industry_pe`** — 3:05 AM, 6 FMP calls (sector and industry snapshots for NASDAQ, NYSE, AMEX) for the last
+completed trading day, upserted into `SectorIndustryPe`; ~8 s. Skipped (a real `skipped` status) while the `sector_industry_pe`
+group or the master switch is off. Red when every call failed or no row was written (check whether FMP had published the
+session yet); one failed call is a success with `F of 6 calls failed`. Log: `nightly_sector_industry_pe.log` / `_cron.log`.
+The one-time backfill is `uv run python -m pipeline.backfills.backfill_sector_industry_pe` (idempotent, resumable, ~9 min).
+Spec: `docs/specs/sector-industry-pe.md`.
 
 **`nightly_etf_screener`** — refreshes the ETFs screener's read-model, one `EtfScreenerRow` per ETF in
 `data/tracked_universe.py::load_etf_universe` (19 at registration: the 11 sector SPDRs, SPY, QQQ, TLT, ...). Per ETF: fund facts

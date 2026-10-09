@@ -115,7 +115,7 @@ def test_job_metadata_sort_minutes_match_crontab():
 
 # The nightly chain order (2026-09-30): technical first, fundamentals later. Times
 # since the 2026-10-02 reschedule: technical 1:00-1:40, ETFs screener 1:45 (2026-10-03), fundamentals 2:00, price-target
-# 3:10, recompute 3:25, backup 3:30.
+# sector/industry P/E 3:05, price-target 3:10, recompute 3:25, backup 3:30.
 # Each consecutive pair must be scheduled strictly later than the one before,
 # so a schedule edit can't silently regress the agreed order. Hard constraints
 # (trend fills the bar cache before LP/Sector/Breadth; BB+RSI before Warren;
@@ -130,6 +130,7 @@ _NIGHTLY_CHAIN_ORDER = [
     "pipeline.nightly_market_breadth",
     "pipeline.nightly_etf_screener",
     "pipeline.nightly_fundamentals_fetch",
+    "pipeline.nightly_sector_industry_pe",
     "pipeline.nightly_price_target_snapshot",
     "pipeline.nightly_score_recompute",
     "pipeline.backup_db",
@@ -215,3 +216,12 @@ def test_etf_screener_runs_after_its_inputs_with_room_on_both_sides():
     assert etf + 10 <= _daily_minute_of_day("pipeline.backup_db")
     if "pipeline.nightly_corporate_events" not in DISABLED_CRON_JOBS:
         assert etf + 5 <= _daily_minute_of_day("pipeline.nightly_corporate_events")
+
+
+def test_sector_industry_pe_runs_after_fundamentals_and_before_the_jobs_that_follow():
+    """6 calls, ~5 s. It follows the fundamentals fetch's worst-seen run (64.5 min -> ends 3:04:30), so it never competes
+    with it for FMP or the SQLite writer, and it ends before price-target (3:10) and the recompute (3:25)."""
+    pe = _daily_minute_of_day("pipeline.nightly_sector_industry_pe")
+    assert pe >= _daily_minute_of_day("pipeline.nightly_fundamentals_fetch") + 65
+    assert pe + 5 <= _daily_minute_of_day("pipeline.nightly_price_target_snapshot")
+    assert pe + 10 <= _daily_minute_of_day("pipeline.nightly_score_recompute")

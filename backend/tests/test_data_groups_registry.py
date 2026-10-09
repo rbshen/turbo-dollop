@@ -116,7 +116,7 @@ def test_group_metadata_is_complete():
     assert list(dg.GROUPS) == [
         "fundamentals", "profile_quote", "analyst_ratings", "segmentation", "news",
         "index_membership", "corporate_events", "daily_prices", "daily_prices_long", "intraday_bars",
-        "etf_info", "institutional_ownership",
+        "etf_info", "sector_industry_pe", "institutional_ownership",
     ]
     for meta in dg.GROUPS.values():
         assert meta.default_tier in dg.TIERS

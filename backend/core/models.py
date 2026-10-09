@@ -3,6 +3,8 @@ from datetime import date, datetime
 from sqlalchemy import Index
 from sqlmodel import Field, SQLModel, UniqueConstraint
 
+date_type = date  # SectorIndustryPe has a column named `date`, which shadows the `date` type inside its class body
+
 
 class FundamentalsCache(SQLModel, table=True):
     __table_args__ = (UniqueConstraint("ticker", "statement_type", "period", name="uq_fundamentals_cache_key"),)
@@ -1081,6 +1083,24 @@ class SectorEtfReturn(SQLModel, table=True):
     base_date: date | None = None
     return_pct: float | None = None
     computed_at: datetime
+
+
+class SectorIndustryPe(SQLModel, table=True):
+    """FMP's average P/E of the listed companies in one sector or industry on one exchange, one trading day
+    (docs/specs/sector-industry-pe.md). Written by the one-time backfill (5 years) and the nightly job, both
+    UPSERT-ONLY: a row is replaced by the same key's newer value (a restatement) and never deleted because an answer
+    omitted it, so an empty or shorter FMP answer cannot lose history (this table does not go through
+    FundamentalsCache / HISTORY_KEYS). `kind`: "sector" | "industry"; `name` is FMP's own label (e.g. "Technology",
+    "Software - Application"); `exchange`: NASDAQ | NYSE | AMEX. `pe` is FMP's figure as returned, unmodified."""
+
+    __table_args__ = (UniqueConstraint("kind", "name", "exchange", "date", name="uq_sector_industry_pe_key"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    kind: str
+    name: str
+    exchange: str
+    date: date_type
+    pe: float
 
 
 class MarketBreadthSnapshot(SQLModel, table=True):

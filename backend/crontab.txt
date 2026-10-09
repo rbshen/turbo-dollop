@@ -7,7 +7,7 @@
 
 # ---------------------------------------------------------------------------
 # Nightly chain (server time = UTC): technical jobs 1:00-1:40 AM, fundamentals 2:00 AM,
-# then price-target 3:10, score recompute 3:25, backup 3:30. Schedule history: technical
+# then sector/industry P/E 3:05, price-target 3:10, score recompute 3:25, backup 3:30. Schedule history: technical
 # jobs 2:00-2:40 -> 12:00-12:40 on 2026-10-01 -> 1:00-1:40 on 2026-10-02, and fundamentals
 # 2:55 -> 2:00 the same day (the Sunday maintenance block, 12:00-12:35 AM, now runs
 # BEFORE the chain). Order reordered 2026-09-30: technical jobs first, fundamentals
@@ -15,7 +15,7 @@
 #   last close -> Weinstein + bar-cache fill -> Liquidity Zone (support/resistance)
 #   -> BB+RSI -> Warren -> Sector ETF heatmap -> Market Breadth -> ETFs screener
 #   -> (corporate events: DISABLED 2026-10-01, planned slot 1:50 AM, see below)
-#   -> FMP fundamentals -> analyst price-target -> score recompute -> SQLite backup
+#   -> FMP fundamentals -> sector/industry P/E snapshot -> analyst price-target -> score recompute -> SQLite backup
 # Nothing else runs between 1:50 and 2:00, which the planned corporate-events slot needs (the ETFs
 # screener job at 1:45 is short, ~1-3 min, and ends before 1:50).
 # Hard ordering constraints (pinned by tests/test_cron_wiring.py):
@@ -140,6 +140,13 @@
 # Ends with the statement recheck (<= 60 extra calls, ~1 min): flagged quarterly statements are
 # refetched on a bounded schedule -- docs/specs/statement-data-quality.md section 5.
 0 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_fundamentals_fetch >> /home/shen/fathom/backend/logs/nightly_fundamentals_fetch_cron.log 2>&1
+
+# 3:05 Sector / industry average-P/E snapshot (FMP /sector-pe-snapshot and /industry-pe-snapshot, 2 x 3 exchanges
+# = 6 calls, ~5 s) for the last completed trading day, upserted into SectorIndustryPe (data layer for a future chart
+# overlay; nothing reads it yet). AFTER the 2:00 fundamentals fetch (worst seen 64.5 min, ends ~3:04), BEFORE the 3:10
+# price-target snapshot and the 3:25 recompute. Skipped (a real `skipped` status) while the `sector_industry_pe`
+# group is off. See pipeline/nightly_sector_industry_pe.py and docs/specs/sector-industry-pe.md.
+5 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_sector_industry_pe >> /home/shen/fathom/backend/logs/nightly_sector_industry_pe_cron.log 2>&1
 
 # 3:10 Daily price-target-consensus snapshot (was monthly until 2026-09-26;
 # renamed from monthly_price_target_snapshot 2026-09-27). FMP has no historical

@@ -76,6 +76,12 @@ is Starter (the owner's recorded value, seeded as the code default since 2026-10
 `core/data_groups.py`), because AAPL answers `200 []`. `/etf/holdings`, `/etf/sector-weightings`,
 `/etf/country-weightings` and `/etf/asset-exposure` are deliberately not registered or called.
 
+### Sector / industry P/E endpoints (2026-10-09)
+
+`/sector-pe-snapshot`, `/industry-pe-snapshot`, `/historical-sector-pe`, `/historical-industry-pe` -> group `sector_industry_pe`
+(own table `SectorIndustryPe`, upsert-only, not `FundamentalsCache`). Tier Starter, best known and unverified; every call
+passes `exchange` and the historical calls explicit from/to. Detail: `docs/specs/sector-industry-pe.md`.
+
 ### Unwired, dead, one-shot, or shelved
 
 - **Shelved**: both `/insider-trading/*` endpoints (`insider` group seeded off; the tab itself is
@@ -720,6 +726,7 @@ different ones, the restriction clears and the next real call re-marks it.
 | `segmentation` | probe product; failing could be geographic | Low |
 | `daily_prices_long` | probe is a 2016 window, the real call a 10-year window | Low |
 | `etf_info`, `news`, `institutional_ownership` | one endpoint, probe = replay | none |
+| `sector_industry_pe` | probe is a snapshot; the real calls are snapshots and 5-year series (same family, symbol-less) | Low |
 
 ### Registry fields a later per-variant tier would need
 
