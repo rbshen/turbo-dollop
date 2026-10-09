@@ -91,10 +91,11 @@ output is byte-identical to before (pinned in `test_state_machine.py`; also chec
 - **Chart.** The RSI pane's 12 "Blue trigger" reference line exists only for the ANY-TICKER profile: `warren_reference_levels(profile)`
   omits it for the four (their Blue is not a single RSI level). The pane label and lines come from the response's `warren_levels`, so
   the frontend has no logic for it.
-- **Scope and data state (checked 2026-10-04).** None of the four is on a monitored list, so the nightly job does not process them and
-  there are no `TechnicalEntrySignal`/`WarrenSignalEvent` rows for them (so adopting the profiles left no stale rows). The Chart tab's
-  2H range computes the profiled signal on demand for them anyway (live, uncached, nothing stored). FMP returns the full 730 days of
-  `/historical-chart/1hour` for all four: 499 sessions, 494 with 7 bars and 5 half-days with 4, RTH only. **Events are insert-only, so
+- **Scope and data state (re-verified 2026-10-09).** All four are on the monitored `ETF` list (added 2026-10-04, 07:54-08:02), so the nightly job
+  processes them and each has `TechnicalEntrySignal` and `WarrenSignalEvent` rows: 65 events in all (QQQ 19, TECL 17, SPY 16, TQQQ 13), first
+  written 2026-10-04 08:48 (no BB+RSI events). The Chart tab's
+  2H range computes the profiled signal on demand as well (live, uncached, nothing stored). FMP returns the full 730 days of
+  `/historical-chart/1hour` for all four: 499 sessions, 494 with 7 bars and 5 half-days with 4, RTH only. **Events are insert-only (`_upsert` writes with `on_conflict_do_nothing`; the only delete is the age prune), so a row written before a later profile edit is never rewritten and
   there is no purge or profile-version mechanism: editing a profile's thresholds later (or adding a ticker to `TICKER_PROFILES` after it
   already has stored events) leaves the old Blue rows behind.** Not built; out of scope of the 2026-10-04 change.
 - **Volume guard (2026-10-04).** FMP's intraday volume has episodes where a few single 1-minute prints carry more shares than the whole
