@@ -103,7 +103,7 @@ def test_watchlist_bulk_add_rejects_whole_operation_when_over_the_cap(monkeypatc
     assert count == 0
 
 
-def test_thinkorswim_export_returns_csv_with_symbol_header_and_matching_tickers(monkeypatch):
+def test_thinkorswim_export_returns_bare_tickers_one_per_line_with_no_header(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     watchlist_id = _make_watchlist(engine, ticker_count=3, name="My Watchlist")
 
@@ -115,7 +115,7 @@ def test_thinkorswim_export_returns_csv_with_symbol_header_and_matching_tickers(
     assert response.headers["content-disposition"] == 'attachment; filename="my-watchlist_thinkorswim.csv"'
 
     rows = response.text.splitlines()
-    assert rows[0] == "Symbol"
+    assert "Symbol" not in rows
     with Session(engine) as session:
         expected = [
             t.ticker
@@ -123,11 +123,11 @@ def test_thinkorswim_export_returns_csv_with_symbol_header_and_matching_tickers(
                 select(WatchlistTicker).where(WatchlistTicker.watchlist_id == watchlist_id).order_by(WatchlistTicker.added_at)
             ).all()
         ]
-    assert rows[1:] == expected
-    assert len(rows) - 1 == 3
+    assert rows == expected
+    assert len(rows) == 3
 
 
-def test_thinkorswim_export_empty_watchlist_returns_header_only(monkeypatch):
+def test_thinkorswim_export_empty_watchlist_returns_an_empty_body(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     watchlist_id = _make_watchlist(engine, ticker_count=0)
 
@@ -135,7 +135,7 @@ def test_thinkorswim_export_empty_watchlist_returns_header_only(monkeypatch):
         response = client.get(f"/api/watchlists/{watchlist_id}/export/thinkorswim")
 
     assert response.status_code == 200
-    assert response.text.splitlines() == ["Symbol"]
+    assert response.text == ""
 
 
 def test_thinkorswim_export_404_for_missing_watchlist(monkeypatch):

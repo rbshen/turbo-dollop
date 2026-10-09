@@ -1292,6 +1292,21 @@ class WatchlistTickerOut(BaseModel):
     added_at: datetime
 
 
+class WatchlistExportTickerOut(BaseModel):
+    """One ticker of the multi-list export: cached profile exchange and sector (None when no profile is cached; a fund's
+    sector is always None, so it falls in the export's "Other" bucket)."""
+
+    ticker: str
+    exchange: str | None = None
+    sector: str | None = None
+
+
+class WatchlistExportListOut(BaseModel):
+    id: int
+    name: str
+    tickers: list[WatchlistExportTickerOut]
+
+
 class WatchlistOut(BaseModel):
     id: int
     name: str

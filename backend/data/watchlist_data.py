@@ -8,7 +8,7 @@ from core.db import engine
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.models import EtfScreenerRow, WatchlistTicker
-from core.schemas import EtfWatchlistRowOut, WatchlistRowOut
+from core.schemas import EtfWatchlistRowOut, WatchlistExportTickerOut, WatchlistRowOut
 from core.tickers import normalize_ticker
 from data.etf_screener_data import _row_out as etf_screener_row_out
 from data.last_close_data import get_cached_last_closes
@@ -37,15 +37,14 @@ _LIVE_FETCH_CONCURRENCY = asyncio.Semaphore(8)
 NO_CONSENSUS_RATING = "N/A"
 
 
-async def _cached_exchange(ticker: str) -> str | None:
+async def _cached_profile(ticker: str) -> dict:
     # Cache-only read of the same "profile"/"latest" cache entry get_summary
     # already populates (compute_ticker_score's own get_summary(cache_only=
     # True) call, run concurrently with this one) -- no new cache entry, no
     # live FMP call, since get_or_fetch never invokes fetch_fn when
-    # cache_only=True. Only needed to build the Export button's
-    # EXCHANGE:SYMBOL pairs; TickerScore itself doesn't carry exchange.
+    # cache_only=True. {} for a ticker with no cached profile.
     with Session(engine) as session:
-        profile = _first(
+        return _first(
             await safe_fetch(
                 "profile",
                 get_or_fetch(
@@ -59,7 +58,16 @@ async def _cached_exchange(ticker: str) -> str | None:
                 ),
             )
         )
+
+
+def _profile_exchange(profile: dict) -> str | None:
     return profile.get("exchangeShortName") or profile.get("exchange")
+
+
+async def _cached_exchange(ticker: str) -> str | None:
+    # Only needed to build the Export button's EXCHANGE:SYMBOL pairs;
+    # TickerScore itself doesn't carry exchange.
+    return _profile_exchange(await _cached_profile(ticker))
 
 
 async def _consensus_rating(ticker: str) -> str:
@@ -196,3 +204,21 @@ async def get_etf_watchlist_rows(tickers: list[WatchlistTicker]) -> list[EtfWatc
         rows.append(EtfWatchlistRowOut(ticker=name, exchange=exchange, **figures))
     return rows
 
+
+
+async def get_export_tickers(tickers: list[WatchlistTicker]) -> list[WatchlistExportTickerOut]:
+    """The multi-list export's per-ticker payload (GET /api/watchlists/export-data), in the order of `tickers`: the cached
+    profile's exchange and sector, from ONE cache-only profile read per ticker. No score, Step 1 or consensus work, no
+    FMP/network path, no write. A fund (profile isEtf/isFund) has sector None, the same rule ticker_score.py applies to
+    TickerScore.sector (an ETF's profile sector is the sponsor's, not a GICS sector), so the single-list TradingView export
+    and this one group alike and an ETF lands in "Other". A ticker with no cached profile has both None."""
+    names = [normalize_ticker(t.ticker) for t in tickers]
+    profiles = await asyncio.gather(*[_cached_profile(name) for name in names])
+    return [
+        WatchlistExportTickerOut(
+            ticker=name,
+            exchange=_profile_exchange(profile),
+            sector=None if (profile.get("isEtf") or profile.get("isFund")) else (profile.get("sector") or None),
+        )
+        for name, profile in zip(names, profiles)
+    ]

@@ -1,13 +1,11 @@
-import csv
-import io
 import json
 import re
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
-from typing import Literal
+from typing import Annotated, Literal
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
@@ -152,6 +150,7 @@ from core.schemas import (
     Universe,
     WatchlistBulkAddIn,
     WatchlistBulkAddOut,
+    WatchlistExportListOut,
     WatchlistIn,
     WatchlistOut,
     WatchlistRowOut,
@@ -181,7 +180,7 @@ from data.entry_signal_data import get_entry_signal_data
 from data.warren_signal_data import get_warren_signal_data
 from data.ticker_summary import get_summary
 from data.trend_analysis_data import get_trend_analysis_data
-from data.watchlist_data import get_etf_watchlist_rows, get_watchlist_rows
+from data.watchlist_data import get_etf_watchlist_rows, get_export_tickers, get_watchlist_rows
 from data.watchlists import (
     add_watchlist_ticker,
     bulk_add_watchlist_tickers,
@@ -1412,23 +1411,36 @@ def _slugify_watchlist_name(name: str) -> str:
     return slug or "watchlist"
 
 
+@app.get("/api/watchlists/export-data", response_model=list[WatchlistExportListOut])
+async def watchlists_export_data(ids: Annotated[list[int], Query(min_length=1)]) -> list[WatchlistExportListOut]:
+    """The multi-list export's data (docs/specs/watchlist-export.md): per requested list, in the order asked, its tickers in
+    added order with the cached profile's exchange and sector. Stored data only (data/watchlist_data.py::get_export_tickers):
+    no score computation, no FMP call, no write. An unknown id is a 404 naming it, and nothing partial is returned."""
+    with Session(engine) as session:
+        found = {w.id: w for w in session.exec(select(Watchlist).where(Watchlist.id.in_(ids))).all()}
+        missing = [i for i in dict.fromkeys(ids) if i not in found]
+        if missing:
+            raise HTTPException(status_code=404, detail=f"No watchlist with id {', '.join(str(i) for i in missing)}")
+        members = {i: list_watchlist_tickers(session, i) for i in found}
+    out: list[WatchlistExportListOut] = []
+    for i in dict.fromkeys(ids):
+        out.append(WatchlistExportListOut(id=i, name=found[i].name, tickers=await get_export_tickers(members[i])))
+    return out
+
+
 @app.get("/api/watchlists/{watchlist_id}/export/thinkorswim")
 def watchlist_export_thinkorswim(watchlist_id: int) -> Response:
+    """Bare tickers, one per line, no header row (the multi-list thinkorswim export writes the same shape)."""
     with Session(engine) as session:
         watchlist = session.get(Watchlist, watchlist_id)
         if watchlist is None:
             raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
         tickers = list_watchlist_tickers(session, watchlist_id)
 
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(["Symbol"])
-    for t in tickers:
-        writer.writerow([t.ticker])
-
+    content = "".join(f"{t.ticker}\n" for t in tickers)
     filename = f"{_slugify_watchlist_name(watchlist.name)}_thinkorswim.csv"
     return Response(
-        content=buffer.getvalue(),
+        content=content,
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
