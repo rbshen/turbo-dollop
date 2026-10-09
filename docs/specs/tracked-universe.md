@@ -78,7 +78,7 @@ re-declares the union.
   zero touch writes (before 2026-10-04 each call opened a write transaction even when the UPDATE matched nothing, because SQLite takes the write lock at the
   start of an UPDATE). **Best-effort:** neither ever raises; a database error, a lock timeout included, is logged at WARNING
   (`touch_existing_ticker_view failed for T: OperationalError: ...`), the session is rolled back and the page is unaffected. The cost is a `last_viewed_at`
-  left on its earlier date until a later call succeeds; the wipe reads that date (see "The wipe", and docs/OPS_RUNBOOK.md, "Database locking"). A tab left
+  left on its earlier date until a later call succeeds; the wipe reads that date (see "The wipe", and backend/OPS_RUNBOOK.md, "Database locking"). A tab left
   open revalidates and so counts once a day. Lock waits are bounded by the engine's `SQLITE_BUSY_TIMEOUT_SECONDS` (15 s, `core/db.py`).
 - **`added_at` / `added_source`** (`'user'` | `'grandfathered'`, both nullable): set by the Add API, cleared only by Remove. `record_ticker_view` and the touch
   never write them; a watchlist change never writes them.

@@ -769,8 +769,8 @@ API, which is what `pipeline/backup_db.py` does (the nightly backup is safe and 
     PY
 
 or stop the app and every job, then copy `fathom.db`, `fathom.db-wal` and `fathom.db-shm` together. Read-only access (`sqlite3.connect("file:backend/fathom.db?mode=ro",
-uri=True)`) is safe at any time and needs the directory to be writable (it creates `-shm`). A one-off snapshot: the same backup API call, then gzip (see
-`backend/backups/pre_wal_20261004.db.gz`, the snapshot taken before the switch).
+uri=True)`) is safe at any time and needs the directory to be writable (it creates `-shm`). A one-off snapshot: the same backup API call, then gzip (the snapshot taken before the switch,
+`pre_wal_20261004.db.gz`, was since deleted 2026-10-09 once the first weekly backup copy existed).
 
 **Check it:** `python3 -c "import sqlite3;c=sqlite3.connect('file:backend/fathom.db?mode=ro',uri=True);print(c.execute('PRAGMA journal_mode').fetchone())"` should print
 `('wal',)`; `ls -la backend/fathom.db*` shows the `-wal` size; `PRAGMA wal_checkpoint(PASSIVE)` (returns busy, log frames, checkpointed frames) is a safe manual
@@ -791,8 +791,8 @@ the app and any stuck job releases it.
 **Rollback to the old mode.** Stop the app (`./bin/stop.sh`) and make sure no job runs (`lsof backend/fathom.db` empty), then in one Python process:
 `c = sqlite3.connect("backend/fathom.db", timeout=30); c.execute("PRAGMA journal_mode=DELETE")` (it must return `delete`; it fails while any other connection is
 open) and restart. The `-wal`/`-shm` files disappear. Tested on a temp database (`tests/test_wal_compat.py`). Switching to WAL is the same call with
-`journal_mode=WAL` (also needs exclusive access: stop the app and jobs first). **Restoring an old backup** (`gunzip` one of `backend/backups/fathom_*.db.gz` or
-`pre_wal_20261004.db.gz`) gives a file in the mode it had when it was taken: backups from before 2026-10-04 are `delete`, later ones `wal`. After restoring a
+`journal_mode=WAL` (also needs exclusive access: stop the app and jobs first). **Restoring an old backup** (`gunzip` one of `backend/backups/fathom_*.db.gz`; the earlier
+`pre_wal_20261004.db.gz` was since deleted 2026-10-09) gives a file in the mode it had when it was taken: backups from before 2026-10-04 are `delete`, later ones `wal`. After restoring a
 `delete`-mode file, re-enable WAL with the call above (the startup WARNING reminds you).
 
 ## Monitored-watchlist rename (W1-W5 -> E1-E5), 2026-10-02
@@ -868,6 +868,17 @@ silently stopped updating, for over two weeks, with no alert.
 No automated alerting exists for this yet (out of scope for now) -- this
 is a manual check to run if a ticker's index membership looks stale or
 wrong in the app.
+
+## Disk space (2026-10-06 and 2026-10-09 investigations)
+
+The repo, `backend/backups`, the caches under `~/.cache`, `~/.npm` and `~/.vscode-server`, and the OS share one ext4 volume (about 25 GB). `backup_db` refuses to run
+below 1.25 x the DB size free (about 1.67 GB at a 1.33 GB DB); a refusal is a failed `pipeline.backup_db` cron job with no new restore point.
+Causes of sudden drops seen so far: a new ~650 MB VS Code server per update that stays on disk (four were present on 2026-10-09; old ones are removed by hand); ad-hoc pre-change DB snapshots
+(~150 MB each) in `backend/backups`, `~/scratch` and `$HOME`; the frontend `.next/dev` cache (about 1.4 GB, growing about 125 MB/day); the npm, uv and Playwright caches.
+Backup tiers: 3 daily + 4 weekly (`BACKUP_KEEP_DAILY`/`BACKUP_KEEP_WEEKLY`), about 150 MB each, 7 files at steady state; each weekly copy adds ~150 MB until then.
+Check: `df -h /`, `du -x --max-depth=2 -h /home/shen | sort -h | tail`, `journalctl --disk-usage`.
+Delete an ad-hoc snapshot once its change is recorded in `docs/decisions.md`. Clearing `frontend/.next/dev/cache` needs the dev servers stopped (`./bin/stop.sh`).
+`uv cache prune` is not safe while the dev backend runs (shared lock, no dry-run).
 
 ## Known gaps / outstanding items (audited 2026-08-16)
 
