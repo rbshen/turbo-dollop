@@ -1,10 +1,13 @@
+import logging
+import re
+
 from sqlmodel import Session
 
 from core.cache import get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
 from core.db import engine
 from clients.fmp_client import fmp_client
-from core.schemas import SegmentationOut
+from core.schemas import LikelyTotal, SegmentationOut
 from core.tickers import normalize_ticker
 from helpers.earnings import resolve_most_recent_earnings_date
 
@@ -12,6 +15,8 @@ from helpers.earnings import resolve_most_recent_earnings_date
 # annual-only on our FMP plan (period=quarter 402s on both segmentation
 # endpoints, confirmed empirically), so there's no TTM column to extend to.
 ANNUAL_WINDOW = 10
+
+logger = logging.getLogger(__name__)
 
 # Validated against real payloads: GOOGL and AMZN both report exactly 7
 # segments in their latest fiscal year, so this cap absorbs real cases
@@ -23,6 +28,18 @@ _OTHER_NAMES = {"other", "others"}
 
 def _is_other_name(name: str) -> bool:
     return name.strip().lower() in _OTHER_NAMES
+
+
+# Likely-total detection (warning only -- no value is ever altered). A segment
+# is flagged for a year when it equals the sum of every other positive segment
+# that year within TOTAL_TOLERANCE and at least MIN_OTHERS_PLAIN other positive
+# segments exist, or MIN_OTHERS_TOTAL_NAMED when its name also reads like a
+# total. FMP sometimes returns a consolidated/"Revenue Net" line beside its parts
+# (MEDP 2022-2023), which a stacked chart then counts twice.
+TOTAL_TOLERANCE = 0.005
+MIN_OTHERS_PLAIN = 3
+MIN_OTHERS_TOTAL_NAMED = 2
+_TOTAL_NAME = re.compile(r"total|revenue|consolidated", re.IGNORECASE)
 
 
 def _annual_year(row: dict) -> str:
@@ -107,6 +124,33 @@ def _build_segment_series(
     return years, segments, values
 
 
+def _detect_likely_totals(rows: list[dict], window: int = ANNUAL_WINDOW) -> list[LikelyTotal]:
+    """Per-year check on the raw values, before MAX_SEGMENTS ranking and the
+    "Other" rollup. Returns one entry per flagged segment with its flagged
+    fiscal years (oldest-first); [] when nothing looks like a total."""
+    if not rows:
+        return []
+
+    flagged: dict[str, list[str]] = {}
+    for row in reversed(rows[:window]):  # oldest-first
+        data = {name: _coerce_numeric(value) for name, value in (row.get("data") or {}).items()}
+        positive = {name: value for name, value in data.items() if value is not None and value > 0}
+        total_of_all = sum(positive.values())
+        for name, value in positive.items():
+            others_count = len(positive) - 1
+            others_sum = total_of_all - value
+            min_others = MIN_OTHERS_TOTAL_NAMED if _TOTAL_NAME.search(name) else MIN_OTHERS_PLAIN
+            if others_count >= min_others and abs(value - others_sum) <= TOTAL_TOLERANCE * others_sum:
+                flagged.setdefault(name, []).append(_annual_year(row))
+
+    return [LikelyTotal(segment=name, years=years) for name, years in flagged.items()]
+
+
+def _log_likely_totals(ticker: str, kind: str, likely: list[LikelyTotal]) -> None:
+    for item in likely:
+        logger.info("segmentation likely total: %s %s %r in FY %s", ticker, kind, item.segment, ", ".join(item.years))
+
+
 async def get_segmentation_data(ticker: str, cache_only: bool = False) -> SegmentationOut:
     """`cache_only=True` reads only whatever's already cached and never calls
     FMP -- same convention as get_step1_data/get_ratios_data."""
@@ -148,6 +192,11 @@ async def get_segmentation_data(ticker: str, cache_only: bool = False) -> Segmen
     product_years, product_segments, product_values = _build_segment_series(product_rows)
     geographic_years, geographic_segments, geographic_values = _build_segment_series(geographic_rows)
 
+    product_likely_totals = _detect_likely_totals(product_rows)
+    geographic_likely_totals = _detect_likely_totals(geographic_rows)
+    _log_likely_totals(ticker, "product", product_likely_totals)
+    _log_likely_totals(ticker, "geographic", geographic_likely_totals)
+
     return SegmentationOut(
         ticker=ticker,
         product_years=product_years,
@@ -156,4 +205,6 @@ async def get_segmentation_data(ticker: str, cache_only: bool = False) -> Segmen
         geographic_years=geographic_years,
         geographic_segments=geographic_segments,
         geographic_values=geographic_values,
+        product_likely_totals=product_likely_totals,
+        geographic_likely_totals=geographic_likely_totals,
     )

@@ -5,7 +5,13 @@ import pytest
 from sqlmodel import SQLModel, create_engine
 
 import data.segmentation_data as segmentation_data
-from data.segmentation_data import MAX_SEGMENTS, OTHER_LABEL, _build_segment_series, get_segmentation_data
+from data.segmentation_data import (
+    MAX_SEGMENTS,
+    OTHER_LABEL,
+    _build_segment_series,
+    _detect_likely_totals,
+    get_segmentation_data,
+)
 
 # Newest-first, matching FMP's actual payload ordering (confirmed empirically).
 TWO_YEAR_ROWS = [
@@ -135,6 +141,109 @@ def test_other_name_variants_merge_and_keep_provider_label(name):
     assert name in segments
     assert OTHER_LABEL not in segments
     assert values[name] == EXPECTED_MERGED_OTHER
+
+
+def _flags(rows):
+    return {item.segment: item.years for item in _detect_likely_totals(rows)}
+
+
+# MEDP-like (newest-first): "Revenue Net" equals the sum of the parts in 2023 and
+# 2022 only; elsewhere it is a small unrelated figure or absent.
+MEDP_LIKE_ROWS = [
+    {"fiscalYear": "2025", "date": "2025-12-31", "data": {"Oncology": 700.0, "Metabolic": 600.0, "Cardiology": 200.0, "Other": 400.0}},
+    {
+        "fiscalYear": "2023",
+        "date": "2023-12-31",
+        "data": {"Oncology": 600.0, "Metabolic": 400.0, "Cardiology": 200.0, "Other": 400.0, "Revenue Net": 1600.0},
+    },
+    {
+        "fiscalYear": "2022",
+        "date": "2022-12-31",
+        "data": {"Oncology": 500.0, "Metabolic": 300.0, "Cardiology": 150.0, "Other": 300.0, "Revenue Net": 1250.0},
+    },
+    {
+        "fiscalYear": "2021",
+        "date": "2021-12-31",
+        "data": {"Oncology": 360.0, "Metabolic": 160.0, "Cardiology": 120.0, "Other": 270.0, "Revenue Net": 34.5},
+    },
+]
+
+
+def test_likely_total_flagged_only_in_years_it_equals_the_sum():
+    assert _flags(MEDP_LIKE_ROWS) == {"Revenue Net": ["2022", "2023"]}
+
+
+def test_detection_does_not_change_built_series():
+    before = _build_segment_series(MEDP_LIKE_ROWS)
+    _detect_likely_totals(MEDP_LIKE_ROWS)
+    assert _build_segment_series(MEDP_LIKE_ROWS) == before
+    assert "Revenue Net" in before[1]  # still drawn as a segment; warning only
+
+
+def test_normal_ticker_is_not_flagged():
+    assert _detect_likely_totals(TWO_YEAR_ROWS) == []
+    assert _detect_likely_totals(EIGHT_SEGMENT_ROW) == []
+    assert _detect_likely_totals([]) == []
+
+
+def test_two_other_segments_need_a_total_looking_name():
+    named = [{"fiscalYear": "2024", "date": "2024-12-31", "data": {"A": 60.0, "B": 40.0, "Total Revenue": 100.0}}]
+    plain = [{"fiscalYear": "2024", "date": "2024-12-31", "data": {"A": 60.0, "B": 40.0, "Domains": 100.0}}]
+    assert _flags(named) == {"Total Revenue": ["2024"]}
+    assert _flags(plain) == {}
+
+
+def test_three_other_segments_flag_any_name():
+    rows = [{"fiscalYear": "2024", "date": "2024-12-31", "data": {"A": 10.0, "B": 20.0, "C": 30.0, "Sum Line": 60.0}}]
+    assert _flags(rows) == {"Sum Line": ["2024"]}
+
+
+def test_two_segment_split_is_never_flagged():
+    # Only one other segment: a "Total" beside a single part is not evidence of anything.
+    rows = [{"fiscalYear": "2024", "date": "2024-12-31", "data": {"US": 50.0, "Total Foreign Operations": 50.0}}]
+    assert _flags(rows) == {}
+
+
+def test_gddy_style_near_coincidence_is_not_flagged():
+    # GoDaddy 2021 (millions): Domains is within ~1% of the other two, but it is a
+    # real segment -- outside the 0.5% tolerance and only two others.
+    rows = [
+        {
+            "fiscalYear": "2021",
+            "date": "2021-12-31",
+            "data": {"Business Applications": 489.5, "Domains": 1323.2, "Hosting and Presence": 820.7},
+        }
+    ]
+    assert _flags(rows) == {}
+    # Even an exact match with a non-total name and only two others stays unflagged.
+    exact = [{"fiscalYear": "2021", "date": "2021-12-31", "data": {"A": 489.5, "Domains": 1310.2, "B": 820.7}}]
+    assert _flags(exact) == {}
+
+
+def test_tolerance_boundary():
+    inside = [{"fiscalYear": "2024", "date": "2024-12-31", "data": {"A": 10.0, "B": 20.0, "C": 30.0, "T": 60.2}}]  # 0.33%
+    outside = [{"fiscalYear": "2024", "date": "2024-12-31", "data": {"A": 10.0, "B": 20.0, "C": 30.0, "T": 60.4}}]  # 0.67%
+    assert _flags(inside) == {"T": ["2024"]}
+    assert _flags(outside) == {}
+
+
+def test_get_segmentation_data_exposes_likely_totals(monkeypatch):
+    _fresh_engine(monkeypatch)
+
+    async def fake_product(ticker):
+        return MEDP_LIKE_ROWS
+
+    async def fake_geographic(ticker):
+        return []
+
+    monkeypatch.setattr(segmentation_data.fmp_client, "get_revenue_product_segmentation", fake_product)
+    monkeypatch.setattr(segmentation_data.fmp_client, "get_revenue_geographic_segmentation", fake_geographic)
+
+    result = asyncio.run(get_segmentation_data("medp"))
+
+    assert [(x.segment, x.years) for x in result.product_likely_totals] == [("Revenue Net", ["2022", "2023"])]
+    assert result.geographic_likely_totals == []
+    assert "Revenue Net" in result.product_segments
 
 
 def test_get_segmentation_data_maps_product_and_geographic(monkeypatch):

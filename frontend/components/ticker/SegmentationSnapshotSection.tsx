@@ -1,5 +1,7 @@
 import { ChartLegend } from "@/components/charts/ChartLegend";
 import { RechartsPieChart } from "@/components/charts/RechartsPieChart";
+import { LikelyTotalNote } from "@/components/ticker/LikelyTotalNote";
+import type { LikelyTotal } from "@/lib/api/types";
 import { fmtTableMoney } from "@/lib/format";
 import { OTHER_COLOR, OTHER_LABEL, SEGMENT_COLORS } from "@/lib/segmentColors";
 
@@ -13,6 +15,9 @@ interface Props {
   segments: string[] | null;
   values: Record<string, number | null>;
   notDisclosedNote: string;
+  /** Segments that look like a provider total in some years (warning only);
+   * only those flagged for `year` are mentioned here. */
+  likelyTotals?: LikelyTotal[];
 }
 
 // Single-period sibling to SegmentationSection: a donut chart plus a
@@ -21,7 +26,7 @@ interface Props {
 // therefore the same segment -> color assignment) as the historical
 // section above it on the Summary tab, so a segment reads as the same
 // color in both views.
-export function SegmentationSnapshotSection({ title, headerYear, year, segments, values, notDisclosedNote }: Props) {
+export function SegmentationSnapshotSection({ title, headerYear, year, segments, values, notDisclosedNote, likelyTotals }: Props) {
   if (!segments || segments.length === 0 || year == null) {
     return (
       <div className="space-y-3 rounded-lg border border-border-card bg-surface p-5">
@@ -37,6 +42,9 @@ export function SegmentationSnapshotSection({ title, headerYear, year, segments,
     color: name === OTHER_LABEL ? OTHER_COLOR : SEGMENT_COLORS[i % SEGMENT_COLORS.length],
   }));
 
+  const flaggedThisYear = (likelyTotals ?? [])
+    .filter((item) => item.years.includes(year))
+    .map((item) => ({ segment: item.segment, years: [year] }));
   const total = segments.reduce((sum, name) => sum + (values[name] ?? 0), 0);
 
   return (
@@ -61,6 +69,7 @@ export function SegmentationSnapshotSection({ title, headerYear, year, segments,
           })}
         />
       </div>
+      <LikelyTotalNote items={flaggedThisYear} noun="shares" />
     </div>
   );
 }

@@ -2171,6 +2171,15 @@ class RatiosOut(BaseModel):
     data_quality: list[DataQualityFlag] = []
 
 
+class LikelyTotal(BaseModel):
+    """A segment whose value equals the sum of the others in `years` (fiscal
+    years, oldest-first) -- probably a provider total row. Warning only: the
+    segment's values are never changed (see segmentation_data.py)."""
+
+    segment: str
+    years: list[str]
+
+
 class SegmentationOut(BaseModel):
     """Revenue-by-business-segment and revenue-by-geography breakdowns for
     the Summary tab's two new charts (see segmentation_data.py). Annual-only
@@ -2188,6 +2197,8 @@ class SegmentationOut(BaseModel):
     geographic_years: list[str]
     geographic_segments: list[str] | None = None
     geographic_values: dict[str, list[float | None]] = {}
+    product_likely_totals: list[LikelyTotal] = []
+    geographic_likely_totals: list[LikelyTotal] = []
 
 
 class RatingBucketCounts(BaseModel):

@@ -1,5 +1,7 @@
 import { ChartLegend } from "@/components/charts/ChartLegend";
 import { RechartsStackedChart } from "@/components/charts/RechartsStackedChart";
+import { LikelyTotalNote } from "@/components/ticker/LikelyTotalNote";
+import type { LikelyTotal } from "@/lib/api/types";
 import { computeNiceTicks } from "@/lib/charts";
 import { fmtAxisMoney, pickAxisMoneyUnit } from "@/lib/format";
 import { OTHER_COLOR, OTHER_LABEL, SEGMENT_COLORS } from "@/lib/segmentColors";
@@ -10,13 +12,15 @@ interface Props {
   segments: string[] | null;
   values: Record<string, (number | null)[]>;
   notDisclosedNote: string;
+  /** Segments that look like a provider total in some years (warning only). */
+  likelyTotals?: LikelyTotal[];
   /** Revenue-by-segment/-geography is a raw statement figure --
    * reported_currency, not quote_currency (matches the Financials tab's
    * own treatment of the same underlying data). Defaults to "USD". */
   currency?: string;
 }
 
-export function SegmentationSection({ title, years, segments, values, notDisclosedNote, currency = "USD" }: Props) {
+export function SegmentationSection({ title, years, segments, values, notDisclosedNote, likelyTotals, currency = "USD" }: Props) {
   if (!segments || segments.length === 0) {
     return (
       <div className="space-y-3 rounded-lg border border-border-card bg-surface p-5">
@@ -53,6 +57,7 @@ export function SegmentationSection({ title, years, segments, values, notDisclos
       />
 
       <ChartLegend items={series} layout="row" />
+      <LikelyTotalNote items={likelyTotals} noun="bars" />
     </div>
   );
 }

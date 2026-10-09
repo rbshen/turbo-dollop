@@ -911,6 +911,13 @@ export interface RatiosOut {
   data_quality?: DataQualityFlag[];
 }
 
+/** A segment whose value equals the sum of the others in `years` (oldest-first):
+ * probably a provider total row. Warning only -- its values are unchanged. */
+export interface LikelyTotal {
+  segment: string;
+  years: string[];
+}
+
 export interface SegmentationOut {
   ticker: string;
   product_years: string[];
@@ -921,6 +928,8 @@ export interface SegmentationOut {
   geographic_years: string[];
   geographic_segments: string[] | null;
   geographic_values: Record<string, (number | null)[]>;
+  product_likely_totals: LikelyTotal[];
+  geographic_likely_totals: LikelyTotal[];
 }
 
 export interface FinancialsOut {

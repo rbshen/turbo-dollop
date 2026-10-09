@@ -58,6 +58,7 @@ export function SummaryTab({ ticker }: Props) {
               years={segmentation.product_years}
               segments={segmentation.product_segments}
               values={segmentation.product_values}
+              likelyTotals={segmentation.product_likely_totals}
               notDisclosedNote={`${ticker} does not disclose a business-segment revenue breakdown.`}
               currency={data.reported_currency ?? "USD"}
             />
@@ -66,6 +67,7 @@ export function SummaryTab({ ticker }: Props) {
               years={segmentation.geographic_years}
               segments={segmentation.geographic_segments}
               values={segmentation.geographic_values}
+              likelyTotals={segmentation.geographic_likely_totals}
               notDisclosedNote={`${ticker} does not disclose a geographic revenue breakdown.`}
               currency={data.reported_currency ?? "USD"}
             />
@@ -83,6 +85,7 @@ export function SummaryTab({ ticker }: Props) {
               year={productLatest.year}
               segments={segmentation.product_segments}
               values={productLatest.values}
+              likelyTotals={segmentation.product_likely_totals}
               notDisclosedNote={`${ticker} does not disclose a business-segment revenue breakdown.`}
             />
             <SegmentationSnapshotSection
@@ -91,6 +94,7 @@ export function SummaryTab({ ticker }: Props) {
               year={geographicLatest.year}
               segments={segmentation.geographic_segments}
               values={geographicLatest.values}
+              likelyTotals={segmentation.geographic_likely_totals}
               notDisclosedNote={`${ticker} does not disclose a geographic revenue breakdown.`}
             />
           </div>
