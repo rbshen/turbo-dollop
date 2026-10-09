@@ -158,8 +158,8 @@ The header's action cluster also holds the shared universe button (Add to / Remo
   the remove column total 1008px, Name takes the rest (192px at a 1280px window) and never goes below 140px, so the table's `min-width` is 1160px; below about 1240px of window the container scrolls sideways.
   Loading, error and empty states are the stock table's. The TradingView export uses the ETF rows' `exchange` (`EXCHANGE:SYMBOL`, a ticker with no cached exchange is skipped) and, an ETF row having no sector,
   puts every ticker under one `###Other` section. Every watchlist add/remove/bulk-add revalidates both `/watchlists/{id}/rows` and `/watchlists/{id}/etf-rows`.
-  An ETF on any other list is a stock-table row, and `WatchlistRowOut.is_etf` (from the score row) shows an "ETF" badge in the Analysis cell in place of
-  the blank score, and the Rating cell shows a dash: `data/watchlist_data.py::_compose_row` makes **no** `/grades-consensus`
+  An ETF on any other list is a stock-table row, and `WatchlistRowOut.is_etf` (from the score row) shows an "ETF" badge in the Verdict cell (a non-sortable column) in place of
+  the blank verdict, and the Rating cell shows a dash: `data/watchlist_data.py::_compose_row` makes **no** `/grades-consensus`
   call for an ETF row (FMP answers `[]` for a fund, so it was one wasted call and one empty cached row per ETF per window)
   and the row carries the `N/A` placeholder (`NO_CONSENSUS_RATING`), which sorts last. The consensus call is made after the
   row's cache-only reads because it depends on them; a ticker with no score row (no cached profile) is not known to be an

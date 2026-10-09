@@ -75,7 +75,7 @@ the steps). An exempt check (`not_supported`, such as Insurance Debt) is never w
 filters and `SCORE_FORMULA_VERSION` are untouched (stored rows were refreshed by a full recompute instead of a version bump). The Analysis card
 adds an amber line naming the cause in plain words ("Pass with caution, because Financials may not pass — ... under 70", beside the Debt line "Pass with caution, because Debt passed with a ratio in breach — ..."; the Debt line drops the "Pass with caution, because" start when the Overall is not a Pass with caution); on a Pass with caution the
 slate "X may not pass" failing-steps line is hidden, since the amber line already names those steps (it still shows on "May not pass"). Step lists read "A, B and C".
-The Watchlist Analysis tooltip names both kinds in the same words ("Pass with caution, because Debt passed with a ratio in breach and Growth Rate may not pass (under 70)").
+The Watchlist Verdict pill's tooltip (the Overall score first, then the reason) names both kinds in the same words ("Pass with caution, because Debt passed with a ratio in breach and Growth Rate may not pass (under 70)").
 There is **no cap and no
 hard-fail override**: a hard fail inside a check (Step 4 negative average ROE or ROIC) still reads Fail on that check's own card and
 still enters the blend only through its score. Step 5 has no hard fail on any path (Standard and Utility since 2026-10-07, Bank and REIT
@@ -198,7 +198,7 @@ multiplier is 0.70, exactly as if you had rated it No Moat.
 - The Overall score is the Fundamentals score x 0.70, and the verdict is read from that score like any other (there is no separate verdict
   for it). In practice an unrated ticker reads Fail.
 - The Analysis card and the ticker header show the note **"Moat not rated, scored as No moat"** (the header also puts it in the chip's
-  tooltip; the Watchlist Analysis pill carries it as its tooltip). The note shows only on a complete assessment.
+  tooltip; the Watchlist Verdict pill carries it in its tooltip). The note shows only on a complete assessment.
 - An **incomplete** assessment (a check with missing data) stays incomplete: no score, no verdict, no note. ETFs have no Moat and no
   Overall, so they are unaffected.
 - Rating the ticker (Economic Moat tab) recomputes its stored row immediately (cache only).
@@ -208,11 +208,11 @@ multiplier is 0.70, exactly as if you had rated it No Moat.
 The rule lives in two places that must agree: `backend/scoring/overall.py::compute_overall_assessment`
 and `frontend/lib/overallScore.ts::computeOverallAssessment`. Both are tested against one shared case
 file, `backend/tests/fixtures/overall_verdict_cases.json`. Display: the note in the ticker header chip, the Analysis card and the Watchlist
-Analysis pill. Sorts and the Financials / Growth / Profitability / Debt range filters read scores only and never see the verdict. The Screener's **Overall
+Verdict pill. Sorts and the Financials / Growth / Profitability / Debt range filters read scores only and never see the verdict. The Screener's **Overall
 filter** (2026-10-08, replacing the Overall score range) is the opposite: a multi-select over the stored `overall_verdict`, OR semantics, empty =
 no filter, client-side like the other criteria. Its options are Strong pass, Pass, Pass with caution, May not pass (value `Fail`, the stored key)
 and Incomplete (a row whose `overall_verdict` is null); "Pass with caution" is its own option and is not matched by "Pass", and a 91+ Overall
-stored as Pass with caution is not matched by "Strong pass". The "Overall score" sort stays. The Screener card, the Watchlist pill and the Momentum stock table's Overall verdict column draw
+stored as Pass with caution is not matched by "Strong pass". The "Overall score" sort stays. The Screener card, the Watchlist Verdict column (not sortable, default Watchlist sort is ticker A to Z; the score is in its tooltip) and the Momentum stock table's Overall verdict column draw
 `overall_verdict`.
 
 ## What happens if a check can't be completed
