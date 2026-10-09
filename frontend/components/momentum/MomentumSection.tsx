@@ -7,6 +7,7 @@ import { Section } from "@/components/ui/section";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import type { MomentumPeriod } from "@/lib/api/types";
+import { fmtEventDate } from "@/lib/chartEventMarkers";
 
 const PERIOD_OPTIONS: { value: MomentumPeriod; label: string }[] = [
   { value: "current", label: "This month" },
@@ -50,7 +51,7 @@ export function MomentumSection({ title, useData, topN, showMoatAndScore = true,
           </h2>
           {data?.as_of_date && (
             <p className="mt-1 text-xs text-text-secondary">
-              As of {new Date(data.as_of_date).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
+              As of {fmtEventDate(data.as_of_date)}
               {data.computed_at && ` · Computed ${new Date(data.computed_at).toLocaleString()}`}
             </p>
           )}
