@@ -2174,6 +2174,18 @@ export interface StuckGrowth {
   sector_peers: number;
 }
 
+export interface StuckGauge {
+  key: string;
+  label: string;
+  value: number | null;
+  /** ratio | pct */
+  unit: string;
+  line: number;
+  /** "ceiling": flagged above the line. "floor": flagged below it. */
+  direction: "ceiling" | "floor";
+  note: string | null;
+}
+
 export interface StuckRow {
   key: string;
   number: number;
@@ -2187,6 +2199,9 @@ export interface StuckRow {
   series?: StuckSeries[];
   returns?: StuckReturns | null;
   growth?: StuckGrowth | null;
+  /** One plain-English sentence with the real numbers and the windows assessed. */
+  meaning?: string | null;
+  gauges?: StuckGauge[];
 }
 
 export interface StuckCheckOut {

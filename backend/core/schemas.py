@@ -2709,6 +2709,20 @@ class StuckGrowthOut(BaseModel):
     sector_peers: int = 0
 
 
+class StuckGaugeOut(BaseModel):
+    """A figure with the line it is read against (Settings-driven), for the dashboard's gauges."""
+
+    key: str
+    label: str
+    value: float | None = None
+    unit: str  # ratio | pct
+    line: float
+    # "ceiling": flagged above the line. "floor": flagged below it.
+    direction: str
+    # Why the value is missing when it is not meaningful.
+    note: str | None = None
+
+
 class StuckRowOut(BaseModel):
     key: str
     number: int
@@ -2723,6 +2737,9 @@ class StuckRowOut(BaseModel):
     series: list[StuckSeriesOut] = []
     returns: StuckReturnsOut | None = None
     growth: StuckGrowthOut | None = None
+    # One plain-English sentence with the real numbers and the windows assessed, and the gauges (rows 1, 2, 3, 5). Null where a row has none.
+    meaning: str | None = None
+    gauges: list[StuckGaugeOut] = []
 
 
 class StuckCheckOut(BaseModel):
@@ -2978,3 +2995,4 @@ class DashboardOut(BaseModel):
     debt: DashboardDebtOut = DashboardDebtOut()
     fair_value: DashboardFairValueOut = DashboardFairValueOut(band_low=0.9, band_high=1.1)
     weinstein: DashboardWeinsteinOut = DashboardWeinsteinOut()
+
