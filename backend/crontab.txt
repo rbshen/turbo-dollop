@@ -168,6 +168,11 @@
 # pipeline/nightly_score_recompute.py). Cache-only, zero FMP calls (~25s).
 25 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_score_recompute >> /home/shen/fathom/backend/logs/nightly_score_recompute_cron.log 2>&1
 
+# 3:26 Data-quality sweep (cache only): runs the three statement checks (zero newest capex, SBC gap, net income disagreement) over every
+# tracked ticker and keeps the DataQualityFlag table equal to what holds now. After the 3:25 recompute, before the 3:28 snapshot and the 3:30
+# backup. Zero FMP and SEC calls, informational only (feeds no score). See pipeline/nightly_data_quality.py and docs/specs/data-quality.md.
+26 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_data_quality >> /home/shen/fathom/backend/logs/nightly_data_quality_cron.log 2>&1
+
 # 3:28 Daily signal snapshot (APPEND-ONLY TickerSignalSnapshot): one row per tracked ticker with the stored Overall verdict,
 # Valuation verdict, Weinstein stage and whether it is Pass-family + Undervalued that day, copied from TickerScore. MUST run
 # after the 3:25 recompute (it reads what that wrote) and before the 3:30 backup (so the backup holds it). Reads the DB only:

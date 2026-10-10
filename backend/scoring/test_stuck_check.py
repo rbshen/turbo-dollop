@@ -159,6 +159,27 @@ def test_sbc_not_reported_wmt_like_follows_into_row_3_and_drops_row_4():
     assert missing["sbc"].status == NOT_REPORTED  # missing counts like zero
 
 
+def test_one_or_two_zero_sbc_years_add_a_note_on_rows_2_and_3_and_change_nothing_else():
+    base = dict(revenue=1000.0, net_income=50.0, fcf=60.0, diluted_shares=100.0)
+    full = evaluate(years(10, sbc=[10.0] * 10, **base))
+    assert full["sbc"].notes == [] and full["fcf_after_sbc"].notes == []
+    for zeros, expect in ((1, "1 of the last 5"), (2, "2 of the last 5")):
+        sbc = [10.0] * (10 - zeros - 2) + [0.0] * zeros + [10.0] * 2
+        rows = evaluate(years(10, sbc=sbc, **base))
+        for key in ("sbc", "fcf_after_sbc"):
+            assert any(expect in n and "understated" in n for n in rows[key].notes), rows[key].notes
+        assert rows["sbc"].status == OK  # labels and the Not reported rule are unchanged
+    three = evaluate(years(10, sbc=[10.0] * 5 + [0.0] * 3 + [10.0] * 2, **base))
+    assert three["sbc"].status == NOT_REPORTED and three["sbc"].notes == []  # 3+ zeros: Not reported, no note
+
+
+def test_zero_sbc_note_is_not_added_to_an_exempt_or_not_applicable_row():
+    ys = years(10, revenue=1000.0, net_income=50.0, fcf=60.0, sbc=[10.0] * 7 + [0.0] + [10.0] * 2, diluted_shares=100.0)
+    gm = evaluate(ys, ticker="GM")  # GM is exempt on rows 1, 3 and 6
+    assert gm["fcf_after_sbc"].status == NOT_APPLICABLE and gm["fcf_after_sbc"].notes == []
+    assert any("understated" in n for n in gm["sbc"].notes)
+
+
 def test_fcf_after_sbc_flags_on_a_negative_latest_year_or_a_non_positive_total():
     latest_negative = evaluate(
         years(10, revenue=1000.0, net_income=50.0, fcf=[300.0] * 9 + [40.0], sbc=[50.0] * 9 + [60.0], diluted_shares=100.0)
@@ -225,7 +246,7 @@ def test_fly_like_no_year_since_listing():
 
 def test_unlabelled_rows_do_not_count_toward_the_footer():
     rows = list(listing_case(date(2024, 3, 21)).values())
-    assert footer_line(rows) == "Nothing flagged (1 of 4 labelled rows assessed)"  # only cash conversion is assessed
+    assert footer_line(rows) == "Nothing flagged"  # no count of assessed rows: it read as a score
 
 
 # --- exemptions --------------------------------------------------------------------------------------------------------------
@@ -264,11 +285,12 @@ def test_bank_insurance_reit_utility_skip_rows_1_and_3_but_keep_the_sbc_revenue_
 # --- share count -------------------------------------------------------------------------------------------------------------
 
 
-def test_adi_like_one_off_issuance_is_ok_with_a_note():
+def test_adi_like_one_off_issuance_is_ok_and_the_meaning_says_why():
     shares = [100.0] * 4 + [100.0, 100.0, 100.0, 100.0, 100.0, 165.0]  # the whole jump in the last year
     rows = evaluate(years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=20.0, diluted_shares=shares))
     assert rows["share_count"].status == OK
-    assert any("One-off issuance in FY2025" in n for n in rows["share_count"].notes)
+    assert "one-off issuance in FY2025" in rows["share_count"].meaning and "so it is not flagged" in rows["share_count"].meaning
+    assert not any("One-off issuance" in n for n in rows["share_count"].notes)  # said once, inline
 
 
 def test_steady_dilution_is_flagged_and_the_line_is_a_setting():
@@ -308,11 +330,11 @@ def clean_years():
     return years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=20.0, diluted_shares=100.0)
 
 
-def test_nothing_flagged_footer_counts_only_assessed_labelled_rows():
+def test_nothing_flagged_footer_has_no_count():
     rows = list(evaluate(clean_years()).values())
-    assert footer_line(rows) == "Nothing flagged (4 of 4 labelled rows assessed)"
+    assert footer_line(rows) == "Nothing flagged"
     wmt = list(evaluate(years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=0.0, diluted_shares=100.0)).values())
-    assert footer_line(wmt) == "Nothing flagged (2 of 4 labelled rows assessed)"
+    assert footer_line(wmt) == "Nothing flagged"  # rows 2 and 3 not reported: still nothing flagged, and no "k of 4"
 
 
 def test_footer_is_withheld_when_any_of_the_four_rows_is_flagged():
@@ -419,3 +441,77 @@ def test_relative_strength_words_band_and_weight_note():
 def test_relative_strength_states():
     assert relative_strength_row({6: 1.0}, None, {}, None, 2.0).status == NOT_APPLICABLE
     assert relative_strength_row({}, {6: 1.0}, {}, "XLK", 2.0).status == NOT_REPORTED
+
+
+# --- dashboard detail: gauges and the plain-English meaning line ------------------------------------------------------------------
+
+
+def test_cash_conversion_gauges_and_meaning_name_both_windows_and_the_line():
+    rows = evaluate(years(10, revenue=1000.0, net_income=100.0, fcf=112.0, sbc=20.0, diluted_shares=100.0))
+    row = rows["cash_conversion"]
+    assert [(g.key, g.direction, g.line) for g in row.gauges] == [("last_3y", "floor", 0.7), ("last_10y", "floor", 0.7)]
+    assert row.meaning == "Free cash flow was 1.12 times net income over the last 3 fiscal years and 1.12 times over the last 10. It is flagged only when both are under 0.70."
+
+
+def test_cash_conversion_meaning_when_flagged_when_the_long_window_is_not_meaningful_and_when_only_three_years_exist():
+    flagged = cash_conversion_row(years(revenue=100.0, net_income=20.0, fcf=[20.0 * 0.4] * 10), S, {})
+    assert flagged.status == FLAGGED and flagged.meaning.endswith("Both are under 0.70, so it is flagged.")
+
+    # net income under 2% of revenue over 10 years but fine over the last 3: the 10-year window is n/m, so the row cannot flag
+    net = [0.0] * 7 + [30.0] * 3
+    nm = cash_conversion_row(years(revenue=1000.0, net_income=net, fcf=[10.0] * 10), S, {})
+    assert nm.status == OK and nm.gauges[1].value is None and "not meaningful" in nm.gauges[1].note.lower()
+    assert "10-year window is not meaningful (net income was under 2% of revenue over it)" in nm.meaning
+
+    three = cash_conversion_row(years(3, revenue=100.0, net_income=20.0, fcf=22.0), S, {})
+    assert len(three.gauges) == 1 and "only 3 fiscal years of cash flow are cached" in three.meaning
+
+
+def test_sbc_gauges_use_the_settings_lines_and_the_meaning_has_the_real_numbers():
+    rows = evaluate(years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=40.0, diluted_shares=100.0))
+    sbc = rows["sbc"]
+    assert [(g.key, g.line, g.direction) for g in sbc.gauges] == [("sbc_5y_pct_revenue", 8.0, "ceiling"), ("sbc_5y_pct_fcf", 30.0, "ceiling")]
+    assert sbc.meaning == "Stock-based compensation was 4.0% of revenue (limit 8%) and 33.3% of free cash flow (limit 30%) over the last 5 fiscal years. It is flagged because one of them is over its limit."
+    custom = evaluate(years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=40.0, diluted_shares=100.0), settings=replace(S, sbc_fcf_pct=50.0))["sbc"]
+    assert custom.gauges[1].line == 50.0 and custom.status == OK
+
+
+def test_sbc_meaning_when_free_cash_flow_share_is_not_meaningful_and_when_the_fcf_half_is_exempt():
+    nm = evaluate(years(10, revenue=1000.0, net_income=100.0, fcf=-5.0, sbc=40.0, diluted_shares=100.0))["sbc"]
+    assert nm.gauges[1].value is None and "counts as over the line" in nm.gauges[1].note
+    assert "not meaningful" in nm.meaning and nm.status == FLAGGED
+    ibkr = evaluate(years(10, revenue=1000.0, net_income=200.0, fcf=-500.0, sbc=50.0, diluted_shares=lambda i: 100 * 1.07**i), ticker="IBKR")["sbc"]
+    assert [g.key for g in ibkr.gauges] == ["sbc_5y_pct_revenue"] and "free cash flow" not in ibkr.meaning  # Settings exemption unchanged
+
+
+def test_fcf_after_sbc_gauges_have_a_floor_at_zero():
+    ok = evaluate(years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=20.0, diluted_shares=100.0))["fcf_after_sbc"]
+    assert [(g.line, g.direction) for g in ok.gauges] == [(0.0, "floor"), (0.0, "floor")]
+    assert ok.meaning == "After stock-based compensation, free cash flow was 10.0% of revenue over the last 5 fiscal years and 10.0% in the latest year. It is flagged if either is zero or negative."
+    bad = evaluate(years(10, revenue=1000.0, net_income=100.0, fcf=10.0, sbc=20.0, diluted_shares=100.0))["fcf_after_sbc"]
+    assert bad.status == FLAGGED and bad.gauges[0].value < 0 and "so it is flagged" not in bad.meaning and "flagged because one of them is zero or negative" in bad.meaning
+
+
+def test_short_listing_history_gets_a_latest_year_meaning_and_no_gauge():
+    rows = listing_case(date(2024, 3, 21))
+    assert rows["sbc"].status is None and rows["sbc"].gauges == []
+    assert "too few years since the listing to label it" in rows["sbc"].meaning
+
+
+def test_share_count_meaning_for_each_outcome():
+    flagged = evaluate(years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=20.0, diluted_shares=lambda i: 100 * 1.03**i))["share_count"]
+    assert flagged.gauges[0].line == 2.0 and flagged.meaning.endswith("above the 2% line, so it is flagged.")
+    shrink = evaluate(years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=20.0, diluted_shares=lambda i: 100 * 0.98**i))["share_count"]
+    assert "shrank" in shrink.meaning and shrink.status == OK
+    reit = evaluate(years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=20.0, diluted_shares=lambda i: 100 * 1.07**i), company_type="REIT/Property Developer")["share_count"]
+    assert reit.status is None and reit.meaning.endswith("there is no label for this company type.")
+
+
+def test_trend_rows_carry_a_meaning_with_the_real_numbers():
+    ys = years(10, revenue=lambda i: 100 * 1.1**i, operating_income=lambda i: 10.0 + i, roic_pct=lambda i: 8.0 + i)
+    rows = evaluate(ys, sector_cagrs=[3.0, 5.0, 8.0, 12.0, 15.0, 2.0])
+    assert rows["margins"].meaning.startswith("Operating margin averaged ") and "% a year." in rows["margins"].meaning
+    assert rows["growth"].meaning == "Revenue grew 10.0% a year over 5 years; the sector median is 6.5% and it grew faster than 67% of the 6 tracked stocks in its sector."
+    assert rows["roic"].meaning.startswith("Return on invested capital went from 13.0% to 17.0% across the last 5 fiscal years")
+    few = evaluate(ys)["growth"]
+    assert few.meaning.endswith("too few tracked stocks in its sector for a median.")

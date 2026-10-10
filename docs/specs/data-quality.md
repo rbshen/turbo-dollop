@@ -66,3 +66,42 @@ EMR, CARR, DLTR) disagree by construction. It is a different statement of the sa
   revenue (0.2% and 0.5% give the same three tickers; 1% drops SYY, 2% leaves MU); the prior-year count (1, 2 or 3) changes nothing.
 - **Noise to know about:** the SBC check fires on 15% of the universe (FMP reads the newest year's SBC as 0 for many tickers; the Refresh healed KKR's). It is accurate, not a false
   positive, but it is the bulk of any list. `definition` net income flags are 41 more rows that need no action.
+
+## The store, the job and the surfaces (phase 1, 2026-10-10)
+
+**Table `DataQualityFlag`** (`core/models.py`; the stored, informational one. Not the pydantic `core.schemas.DataQualityFlag` of the read-time statement markers, which is never
+stored): unique on `(ticker, check, field, fiscal_year)`; `fmp_value`, `comparison_value`, `kind`, `detail`, `found_at`, `last_seen_at`, `reviewed_at`. Registered in
+`data/ticker_data_registry.py` as a WIPE table (derived from the cache and rebuilt nightly).
+
+**`data/data_quality_data.py::sync_flags`.** Runs the checks over the whole tracked universe (`load_tracked_universe`) from the cached statements and makes the table equal to what
+holds now, then commits once: a new finding is inserted (`found_at = last_seen_at = now`); a finding that still holds keeps `found_at` and `reviewed_at`, moves `last_seen_at` and takes
+the fresh values (a changed `kind` is a different finding: `found_at` resets and the review is dropped); a flag whose condition is gone is **deleted** (a flag that comes back later is a
+new row, un-reviewed); the flags of a ticker that left the universe are deleted. A ticker with no cached annual income statement, or whose check raised, is left exactly as it was (counted as
+`no_data` / `errors`). Idempotent: a second run changes only `last_seen_at`. No FMP call, no SEC call.
+
+**Job `pipeline/nightly_data_quality.py`**, **3:26 AM**: after the 3:25 score recompute, before the 3:28 signal snapshot and the 3:30 backup (`tests/test_cron_wiring.py` pins it). About 3 s
+over 582 tickers. `cron_heartbeat("pipeline.nightly_data_quality")`, `CRON_JOB_NAMES`, `_EXPECTED_CADENCE_HOURS` (daily), `JOB_METADATA`, `crontab.txt`. Message `N open flags (A new, C cleared)
+over S tickers[, K without cached statements][, E failed]`; red (the existing `failure` state, `check_failure_threshold`) when 5% or more of the tickers that had data raised, from 25 tickers up, or all
+did. A failed run shows in Settings > Scheduled jobs, which is where job health lives (the old site-wide health banner was retired). Editing `crontab.txt` changes nothing on the running box: it
+must be reinstalled (`crontab crontab.txt` from `backend/`).
+
+**API.** `GET /api/data-quality/flags?scope=watchlisted|all` (open, un-reviewed, newest finding first, plus `open_watchlisted` / `open_all`); `POST /api/data-quality/flags/{id}/review` ("Mark
+reviewed", idempotent, 404 for a flag that was cleared meanwhile); `GET /api/tickers/{t}/data-quality` (the ticker's open flags in note order: line missing, opposite signs, large gap, zero between,
+zero in newest year, definition difference). Reads and the review touch only this table.
+
+**Settings > Data quality** (`DataQualitySection`, directly after Scheduled jobs; design: `docs/design-system.md`, "Data quality flags"): a plain table, newest first (ticker, check and field with the
+sentence, fiscal year, FMP value, compared value, kind in amber text with the found date, a ghost "Mark reviewed" button), "N open" in the header, an empty state, and a segmented control
+**Watchlisted** (default) / **All tickers**. Reviewed flags leave the list. No banner, no pill, no interruption.
+
+**Financials tab note** (`DataQualityFlagsNote`): at the top of the tab, up to three `text-xs text-warn` lines (the flag's sentence, e.g. "FY2026 capex is 0 in the newest row, so free cash flow may
+be overstated"; several SBC years read as one line; more than three findings end in "N more in Settings > Data quality."), gone when there is nothing open or everything is reviewed. It changes nothing else
+on the page.
+
+**Stuck-check card** (`scoring/stuck_check.py::sbc_rows`): when stock-based compensation is zero or missing in 1 or 2 of the last five fiscal years the card counts, rows 2 and 3 gain the note "Stock-based
+compensation is missing in N of the last 5 fiscal years, so the totals are understated". Labels, figures and the Not reported rule (3 or more zero years) are unchanged; no note on a Not applicable, Not
+reported or short-window row.
+
+## Out of scope (phase 1)
+
+No score, verdict, label or `TickerScore` column reads a flag. The zero-capex score guard (treating such a row like a placeholder) is a separate decision. No SEC call, no SEC job, no pruning of the
+`sec_company_facts` cache, no compact SEC projection. No auto-refresh of a flagged ticker: a manual Refresh (19 FMP calls) is the owner's action (see the Refresh test above).

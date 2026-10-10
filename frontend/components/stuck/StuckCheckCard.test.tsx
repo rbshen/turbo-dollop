@@ -107,11 +107,11 @@ describe("StuckCheckCard", () => {
     const flagged = within(screen.getByTestId("stuck-row-sbc")).getByText("Flagged");
     expect(flagged.className).toMatch(/warn/);
     expect(flagged.className).not.toMatch(/negative|not-pass/);
-    expect(within(screen.getByTestId("stuck-row-cash_conversion")).getByText("OK").className).not.toMatch(/warn|negative|positive/);
+    expect(within(screen.getByTestId("stuck-row-cash_conversion")).getByText("Not flagged").className).not.toMatch(/warn|negative|positive/);
     expect(within(screen.getByTestId("stuck-row-fcf_after_sbc")).getByText("Not reported")).toBeInTheDocument();
     expect(within(screen.getByTestId("stuck-row-share_count")).getByText("Not applicable")).toBeInTheDocument();
     const yieldRow = screen.getByTestId("stuck-row-shareholder_yield");
-    for (const label of ["OK", "Flagged", "Not applicable", "Not reported"]) expect(within(yieldRow).queryByText(label)).toBeNull();
+    for (const label of ["Not flagged", "Flagged", "Not applicable", "Not reported"]) expect(within(yieldRow).queryByText(label)).toBeNull();
   });
 
   it("shows reasons, notes and figures, formatted", () => {
@@ -123,6 +123,20 @@ describe("StuckCheckCard", () => {
     expect(screen.getByText("n/m")).toBeInTheDocument();
     expect(screen.getByText("+3.2 pp · leads")).toBeInTheDocument();
     expect(screen.getByText(/12% of its sector's tracked market cap/)).toBeInTheDocument();
+  });
+
+  it("shows the missing stock-compensation note on rows 2 and 3 beside their unchanged labels", () => {
+    const note = "Stock-based compensation is missing in 1 of the last 5 fiscal years, so the totals are understated";
+    serve({
+      ...DATA,
+      rows: DATA.rows.map((r) => (r.key === "sbc" || r.key === "fcf_after_sbc" ? { ...r, status: "ok", reason: null, notes: [...r.notes, note] } : r)),
+    });
+    render(<StuckCheckCard ticker="ACME" />);
+    for (const key of ["sbc", "fcf_after_sbc"]) {
+      const rowEl = screen.getByTestId(`stuck-row-${key}`);
+      expect(within(rowEl).getByText(note)).toBeInTheDocument();
+      expect(within(rowEl).getByText("Not flagged")).toBeInTheDocument();
+    }
   });
 
   it("shows the stored price values in the app's display words, as neutral text", () => {

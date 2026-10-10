@@ -179,6 +179,20 @@ class GrowthDetail:
 
 
 @dataclass
+class Gauge:
+    """One figure with the line it is read against, for the dashboard's gauges. `direction` is "ceiling" (flagged above the line) or "floor"
+    (flagged below it). A value of None with a `note` is a figure that is not meaningful (it still counts as over the line where the row says so)."""
+
+    key: str
+    label: str
+    value: float | None
+    unit: str  # ratio | pct
+    line: float
+    direction: str
+    note: str | None = None
+
+
+@dataclass
 class StuckRow:
     key: str
     number: int
@@ -190,6 +204,9 @@ class StuckRow:
     series: list[Series] = field(default_factory=list)
     returns: ReturnsDetail | None = None
     growth: GrowthDetail | None = None
+    # One plain-English sentence with the real numbers and the windows assessed (the dashboard shows it under the row), and the gauges.
+    meaning: str | None = None
+    gauges: list[Gauge] = field(default_factory=list)
 
 
 @dataclass
@@ -296,16 +313,38 @@ def cash_conversion_row(years: list[FiscalYear], settings: StuckSettings, exempt
     short = _conversion(usable[-CASH_CONVERSION_SHORT_YEARS:])
     long = _conversion(usable[-CASH_CONVERSION_LONG_YEARS:])
     row.figures = [Figure("last_3y", "Last 3 fiscal years", short, "ratio", None if short is not None else "n/m")]
+    line = settings.cash_conversion_line
+    row.gauges = [Gauge("last_3y", "Last 3 fiscal years", short, "ratio", line, "floor")]
+    long_years = min(len(usable), CASH_CONVERSION_LONG_YEARS)
     if len(usable) > CASH_CONVERSION_SHORT_YEARS:  # otherwise the long window IS the short one
-        label = f"Last {min(len(usable), CASH_CONVERSION_LONG_YEARS)} fiscal years"
+        label = f"Last {long_years} fiscal years"
         row.figures.append(Figure("last_10y", label, long, "ratio", None if long is not None else "n/m"))
+        row.gauges.append(
+            Gauge("last_10y", label, long, "ratio", line, "floor", None if long is not None else "Not meaningful: net income was under 2% of revenue over it")
+        )
     if short is None:
         row.status, row.reason = NOT_APPLICABLE, "Net income is under 2% of revenue over the last 3 fiscal years"
+        row.gauges = []
         return row
-    line = settings.cash_conversion_line
     # Flag only when BOTH windows sit below the line: a capex build-out shows in the last 3y but not the 10y (MSFT 0.66 / 0.82).
     row.status = FLAGGED if long is not None and short < line and long < line else OK
+    row.meaning = _cash_conversion_meaning(short, long, long_years, len(usable), line, row.status == FLAGGED)
     return row
+
+
+def _cash_conversion_meaning(short: float, long: float | None, long_years: int, usable: int, line: float, flagged: bool) -> str:
+    text = f"Free cash flow was {short:.2f} times net income over the last 3 fiscal years"
+    if usable <= CASH_CONVERSION_SHORT_YEARS:
+        return f"{text}; only {usable} fiscal years of cash flow are cached, so that is the one window assessed (flagged below {line:.2f})."
+    if long is None:
+        return (
+            f"{text}. The {long_years}-year window is not meaningful (net income was under {NET_INCOME_FLOOR_PCT_OF_REVENUE:.0f}% of revenue over it), "
+            f"so it cannot be flagged; it is flagged only when both windows are under {line:.2f}."
+        )
+    text += f" and {long:.2f} times over the last {long_years}"
+    if flagged:
+        return f"{text}. Both are under {line:.2f}, so it is flagged."
+    return f"{text}. It is flagged only when both are under {line:.2f}."
 
 
 # --- rows 2-4: stock-based compensation --------------------------------------------------------------------------------------
@@ -349,6 +388,8 @@ def sbc_rows(
         note = f"Only {len(window)} fiscal year{'s' if len(window) != 1 else ''} since the listing: latest year shown, no label"
         if sbc_row.status is None:
             sbc_row.figures, sbc_row.notes = latest_figures(), [note]
+            if _has(latest.sbc) and _has(latest.revenue) and latest.revenue:
+                sbc_row.meaning = f"Stock-based compensation was {latest.sbc / latest.revenue * 100:.1f}% of revenue in the latest fiscal year; there are too few years since the listing to label it."
         if after_row.status is None:
             fcf, sbc = latest.fcf, latest.sbc
             after_row.figures = [
@@ -359,6 +400,8 @@ def sbc_rows(
                     Figure("fcf_after_sbc_latest_pct_revenue", "Latest fiscal year, % of revenue", _pct(fcf - sbc, latest.revenue), "pct")
                 )
             after_row.notes = [note]
+            if _has(fcf) and _has(sbc) and _has(latest.revenue) and latest.revenue:
+                after_row.meaning = f"After stock-based compensation, free cash flow was {(fcf - sbc) / latest.revenue * 100:.1f}% of revenue in the latest fiscal year; there are too few years since the listing to label it."
         return sbc_row, after_row, None
 
     zero_years = sum(1 for y in last5 if not _has(y.sbc) or y.sbc == 0)
@@ -393,6 +436,30 @@ def sbc_rows(
         # n/m (FCF zero/negative, or the share above 100%) counts as exceeding the threshold.
         over_fcf = fcf_applicable and (pct_fcf_nm or raw_pct_fcf > settings.sbc_fcf_pct)
         sbc_row.status = FLAGGED if over_revenue or over_fcf else OK
+        sbc_row.gauges = [
+            Gauge("sbc_5y_pct_revenue", f"{len(paired)}-year total, % of revenue", pct_revenue, "pct", settings.sbc_revenue_pct, "ceiling")
+        ]
+        parts = [f"{pct_revenue:.1f}% of revenue (limit {settings.sbc_revenue_pct:g}%)"] if pct_revenue is not None else []
+        if fcf_applicable:
+            sbc_row.gauges.append(
+                Gauge(
+                    "sbc_5y_pct_fcf",
+                    f"{len(last5)}-year total, % of free cash flow",
+                    None if pct_fcf_nm else raw_pct_fcf,
+                    "pct",
+                    settings.sbc_fcf_pct,
+                    "ceiling",
+                    "Not meaningful: free cash flow was zero, negative or smaller than the stock-based compensation, which counts as over the line" if pct_fcf_nm else None,
+                )
+            )
+            parts.append(
+                "a share of free cash flow that is not meaningful (free cash flow was zero, negative or smaller than it), which counts as over the limit"
+                if pct_fcf_nm
+                else f"{raw_pct_fcf:.1f}% of free cash flow (limit {settings.sbc_fcf_pct:g}%)"
+            )
+        sbc_row.meaning = f"Stock-based compensation was {' and '.join(parts)} over the last {len(last5)} fiscal years." + (
+            " It is flagged because one of them is over its limit." if sbc_row.status == FLAGGED else ""
+        )
 
     if after_row.status is None:
         fcf_sbc_pairs = [y for y in last5 if _has(y.fcf) and _has(y.sbc)]
@@ -415,6 +482,20 @@ def sbc_rows(
             after_row.status, after_row.reason = NOT_REPORTED, "Free cash flow is missing"
         else:
             after_row.status = FLAGGED if total_after <= 0 or (latest_after is not None and latest_after < 0) else OK
+            total_pct = _pct(total_after, revenue_after)
+            latest_pct = _pct(latest_after, latest.revenue) if latest_after is not None and _has(latest.revenue) else None
+            after_row.gauges = [Gauge("fcf_after_sbc_5y_pct_revenue", f"{len(fcf_sbc_pairs)}-year total, % of revenue", total_pct, "pct", 0.0, "floor")]
+            if latest_pct is not None:
+                after_row.gauges.append(Gauge("fcf_after_sbc_latest_pct_revenue", "Latest fiscal year, % of revenue", latest_pct, "pct", 0.0, "floor"))
+            bits = [f"{total_pct:.1f}% of revenue over the last {len(fcf_sbc_pairs)} fiscal years"] if total_pct is not None else []
+            if latest_pct is not None:
+                bits.append(f"{latest_pct:.1f}% in the latest year")
+            after_row.meaning = (
+                f"After stock-based compensation, free cash flow was {' and '.join(bits)}. "
+                + ("It is flagged because one of them is zero or negative." if after_row.status == FLAGGED else "It is flagged if either is zero or negative.")
+                if bits
+                else None
+            )
 
     buyback_row = None
     if "4" not in exempt and pct_revenue is not None and pct_revenue >= BUYBACK_SBC_GATE_PCT_OF_REVENUE and sbc_row.status != NOT_APPLICABLE:
@@ -424,6 +505,12 @@ def sbc_rows(
             buyback_row.figures = [Figure("buybacks_multiple", "Gross buybacks vs SBC", None, "text", "No buybacks")]
         else:
             buyback_row.figures = [Figure("buybacks_multiple", "Gross buybacks vs SBC", total_buybacks / total_sbc, "multiple")]
+    if 0 < zero_years < SBC_NOT_REPORTED_MIN_ZERO_YEARS:
+        # 1 or 2 zero years leave the card's labels and its Not reported rule as they were; the note only says the sums are short.
+        note = f"Stock-based compensation is missing in {zero_years} of the last {len(last5)} fiscal years, so the totals are understated"
+        for r in (sbc_row, after_row):
+            if r.status in (OK, FLAGGED):
+                r.notes.append(note)
     return sbc_row, after_row, buyback_row
 
 
@@ -450,6 +537,9 @@ def share_count_row(
     span = max(span, 1)
     cagr = (last[1] / first[1]) ** (1 / span) - 1
     row.figures = [Figure("share_cagr", f"Diluted shares, {span}-year change per year", cagr * 100, "pct")]
+    row.gauges = [Gauge("share_cagr", f"Diluted shares, {span}-year change per year", cagr * 100, "pct", settings.share_growth_pct, "ceiling")]
+    verb = "grew" if cagr >= 0 else "shrank"
+    base_text = f"The diluted share count {verb} {abs(cagr * 100):.1f}% a year over {span} years"
 
     steps = [math.log(points[i][1] / points[i - 1][1]) for i in range(1, len(points))]
     total = math.log(last[1] / first[1])
@@ -459,17 +549,21 @@ def share_count_row(
     if company_type in SHARE_COUNT_NEUTRAL_TYPES:
         row.status = None
         row.notes.append("Issuance is the business model for this company type: figure shown, no label")
+        row.meaning = f"{base_text}; there is no label for this company type."
         return row
     if cagr * 100 > settings.share_growth_pct:
         if one_off:
             row.status = OK
-            row.notes.append(
-                f"One-off issuance in FY{points[biggest + 1][0].fiscal_year} carries {steps[biggest] / total * 100:.0f}% of the dilution"
+            row.meaning = (
+                f"{base_text}, above the {settings.share_growth_pct:g}% line, but one-off issuance in FY{points[biggest + 1][0].fiscal_year} "
+                f"carries {steps[biggest] / total * 100:.0f}% of the dilution, so it is not flagged."
             )
         else:
             row.status = FLAGGED
+            row.meaning = f"{base_text}, above the {settings.share_growth_pct:g}% line, so it is flagged."
     else:
         row.status = OK
+        row.meaning = f"{base_text}; it is flagged above {settings.share_growth_pct:g}% a year."
     return row
 
 
@@ -521,6 +615,10 @@ def margins_row(years: list[FiscalYear], company_type: str | None, exempt: dict[
     operating = [y.operating_income / y.revenue * 100 for y in last]
     row.figures = _margin_figures("operating_margin", "Operating margin", operating)
     row.series = [Series("operating_margin", "Operating margin", "pct", [SeriesPoint(y.fiscal_year, v) for y, v in zip(last, operating)])]
+    row.meaning = (
+        f"Operating margin averaged {_mean(operating[:3]):.1f}% over the first 3 of the last 5 fiscal years and {_mean(operating[-3:]):.1f}% over the last 3, "
+        f"a change of {_slope(operating):+.1f}% a year."
+    )
     if company_type == "Bank":
         row.notes.append("Gross margin not shown: FMP gross profit is not a real margin for banks")
     elif all(_has(y.gross_profit) for y in last):
@@ -577,10 +675,15 @@ def growth_row(years: list[FiscalYear], sector_cagrs: list[float], exempt: dict[
         below = sum(1 for c in sector_cagrs if c < cagr)
         percentile = round(below / len(sector_cagrs) * 100)
         detail.sector_median, detail.percentile = median, float(percentile)
+        row.meaning = (
+            f"Revenue grew {cagr:.1f}% a year over {GROWTH_YEARS} years; the sector median is {median:.1f}% and it grew faster than {percentile}% of "
+            f"the {len(sector_cagrs)} tracked stocks in its sector."
+        )
         row.figures.append(Figure("sector_median_cagr", "Sector median", median, "pct"))
         row.figures.append(Figure("sector_percentile", "Within its sector", float(percentile), "count", f"{ordinal(percentile)} percentile"))
     else:
         row.notes.append("Too few sector peers for a median")
+        row.meaning = f"Revenue grew {cagr:.1f}% a year over {GROWTH_YEARS} years; too few tracked stocks in its sector for a median."
     prior, latest = years[-2], years[-1]
     if _has(prior.revenue) and prior.revenue > 0 and _has(latest.revenue):
         latest_growth = (latest.revenue / prior.revenue - 1) * 100
@@ -621,6 +724,10 @@ def roic_row(years: list[FiscalYear], company_type: str | None, exempt: dict[str
     row.series = [
         Series("roic", "Return on invested capital", "pct", [SeriesPoint(y.fiscal_year, y.roic_pct if _has(y.roic_pct) and y.roic_pct != 0.0 else None) for y in last])
     ]
+    row.meaning = (
+        f"Return on invested capital went from {points[0]:.1f}% to {points[-1]:.1f}% across the last {len(points)} fiscal years, "
+        f"{_slope(points):+.1f}% a year."
+    )
     row.figures = [
         Figure("roic_first", "Earliest year", points[0], "pct"),
         Figure("roic_latest", "Latest year", points[-1], "pct"),
@@ -723,13 +830,11 @@ LABELLED_ROW_KEYS = ("cash_conversion", "sbc", "fcf_after_sbc", "share_count")
 
 
 def footer_line(rows: list[StuckRow]) -> str | None:
-    """"Nothing flagged (k of 4 labelled rows assessed)" when none of rows 1, 2, 3, 5 is Flagged; None otherwise. k counts those
-    four rows whose status is OK or Flagged (Not applicable, Not reported and an unlabelled row do not count)."""
-    labelled = [r for r in rows if r.key in LABELLED_ROW_KEYS]
-    if any(r.status == FLAGGED for r in labelled):
+    """"Nothing flagged" when none of rows 1, 2, 3, 5 is Flagged; None otherwise. (The "k of 4 assessed" count was dropped 2026-10-10: it read as
+    a score.)"""
+    if any(r.status == FLAGGED for r in rows if r.key in LABELLED_ROW_KEYS):
         return None
-    assessed = sum(1 for r in labelled if r.status == OK)
-    return f"Nothing flagged ({assessed} of 4 labelled rows assessed)"
+    return "Nothing flagged"
 
 
 def evaluate_fundamental_rows(

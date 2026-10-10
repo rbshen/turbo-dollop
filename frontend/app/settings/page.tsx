@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 
 import { PageContainer } from "@/components/layout/PageContainer";
+import { DataQualitySection } from "@/components/settings/DataQualitySection";
 import { DiscountRateSettingsForm } from "@/components/settings/DiscountRateSettingsForm";
 import { FmpDataGroupsSection } from "@/components/settings/FmpDataGroupsSection";
 import { LiquidityZoneSettingsForm } from "@/components/settings/LiquidityZoneSettingsForm";
@@ -22,6 +23,7 @@ import { cn } from "@/lib/utils";
 // health-summary card moved into FMP data groups, 2026-09-30).
 const SECTIONS = [
   { key: "scheduled-jobs", label: "Scheduled jobs", Component: StatusSection },
+  { key: "data-quality", label: "Data quality", Component: DataQualitySection },
   { key: "fmp-data-groups", label: "FMP data groups", Component: FmpDataGroupsSection },
   { key: "discount-rate", label: "Discount rate by country", Component: DiscountRateSettingsForm },
   { key: "score-weighting", label: "Score weighting", Component: ScoreWeightingForm },

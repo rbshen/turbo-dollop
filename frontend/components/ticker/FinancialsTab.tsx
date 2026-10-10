@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { NotLandedLine } from "@/components/shared/DataQualityNote";
+import { DataQualityFlagsNote } from "@/components/ticker/DataQualityFlagsNote";
 import { FinancialsStatementTable } from "@/components/ticker/FinancialsStatementTable";
 import { HistoricalTrendsGrid } from "@/components/ticker/HistoricalTrendsGrid";
 import { SegmentedControl } from "@/components/ui/segmented-control";
@@ -63,6 +64,8 @@ export function FinancialsTab({ ticker }: Props) {
 
   return (
     <div className="space-y-6 py-6">
+      <DataQualityFlagsNote ticker={ticker} />
+
       <div className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-widest text-text-secondary">Historical Trends</h2>
         <HistoricalTrendsGrid ticker={ticker} />

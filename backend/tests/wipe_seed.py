@@ -9,6 +9,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from core.models import (
     CorporateEvent,
     CorporateEventFetch,
+    DataQualityFlag,
     EtfScreenerRow,
     FundamentalsCache,
     GrowthCatalystNote,
@@ -85,6 +86,7 @@ def seed_wipe_tables(engine, ticker: str, view_days_ago: float | None = None, no
         s.add(LongHistoryBars(ticker=ticker, bar_time=datetime(2026, 11, 13), open=1, high=1, low=1, close=1, volume=1, fetched_at=now))
         s.add(PriceTargetSnapshot(ticker=ticker, snapshot_date=date(2026, 11, 13), fetched_at=now))
         s.add(TickerSignalSnapshot(ticker=ticker, snapshot_date=date(2026, 11, 13)))
+        s.add(DataQualityFlag(ticker=ticker, check="sbc_gap", field="stockBasedCompensation", fiscal_year="2025", kind="zero_newest", detail="x", found_at=now, last_seen_at=now))
         s.add(CorporateEvent(ticker=ticker, event_type="earnings", event_date=date(2026, 11, 1)))
         s.add(CorporateEventFetch(ticker=ticker, event_type="earnings", fetched_at=now))
         if view_days_ago is not None:

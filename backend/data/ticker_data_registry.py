@@ -32,6 +32,7 @@ from sqlmodel import SQLModel
 from core.models import (
     CorporateEvent,
     CorporateEventFetch,
+    DataQualityFlag,
     EtfMomentumSnapshot,
     EtfScreenerRow,
     FundamentalsCache,
@@ -123,6 +124,7 @@ _ORDERED: tuple[TickerTable, ...] = (
     _t(LongHistoryBars, TableClass.WIPE, "on-demand ~10-year daily history"),
     _t(PriceTargetSnapshot, TableClass.WIPE, "nightly price-target snapshots (history that cannot be re-created)"),
     _t(TickerSignalSnapshot, TableClass.WIPE, "daily signal log (append-only history; a wiped ticker is out of the universe and no longer logged)"),
+    _t(DataQualityFlag, TableClass.WIPE, "open data-quality flags (derived from the cache; rebuilt nightly, so a wiped ticker simply has none)"),
     _t(CorporateEvent, TableClass.WIPE, "earnings/dividend/split cache (its nightly job is disabled: not rebuilt by cron)"),
     _t(CorporateEventFetch, TableClass.WIPE, "per-(ticker, event_type) last-fetch marker for CorporateEvent"),
     # --- WIPE: the state itself, last ---------------------------------------------------------------------------

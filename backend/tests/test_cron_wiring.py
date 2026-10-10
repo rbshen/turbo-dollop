@@ -133,6 +133,7 @@ _NIGHTLY_CHAIN_ORDER = [
     "pipeline.nightly_sector_industry_pe",
     "pipeline.nightly_price_target_snapshot",
     "pipeline.nightly_score_recompute",
+    "pipeline.nightly_data_quality",
     "pipeline.nightly_signal_snapshot",
     "pipeline.backup_db",
 ]
@@ -226,6 +227,15 @@ def test_sector_industry_pe_runs_after_fundamentals_and_before_the_jobs_that_fol
     assert pe >= _daily_minute_of_day("pipeline.nightly_fundamentals_fetch") + 65
     assert pe + 5 <= _daily_minute_of_day("pipeline.nightly_price_target_snapshot")
     assert pe + 10 <= _daily_minute_of_day("pipeline.nightly_score_recompute")
+
+
+def test_data_quality_sweep_runs_after_the_recompute_and_before_the_snapshot():
+    """Cache only (~3 s over 582 tickers, zero FMP calls): after the 3:25 recompute so it reads the night's finished cache writes, and ended
+    before the 3:28 snapshot and the 3:30 backup so the backup holds the night's flags."""
+    sweep = _daily_minute_of_day("pipeline.nightly_data_quality")
+    assert sweep >= _daily_minute_of_day("pipeline.nightly_score_recompute") + 1
+    assert sweep + 1 <= _daily_minute_of_day("pipeline.nightly_signal_snapshot")
+    assert sweep + 2 <= _daily_minute_of_day("pipeline.backup_db")
 
 
 def test_signal_snapshot_runs_after_the_recompute_and_before_the_backup():
