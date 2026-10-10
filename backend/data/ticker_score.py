@@ -13,6 +13,7 @@ from data.entry_signal_data import DEFAULT_SIGNAL_TYPE, DEFAULT_TIMEFRAME, is_en
 from data.last_close_data import get_cached_last_close
 from core.models import MoatScoreConfig
 from data.moat import CONFIG_KEY as MOAT_CONFIG_KEY, get_ticker_moat, resolve_moat_multiplier
+from scoring.step3 import classify_valuation_verdict
 from scoring.overall import SCORE_FORMULA_VERSION, StepSnapshot, compute_overall_assessment
 from data.step1_data import get_step1_data
 from data.step2_data import get_step2_data
@@ -59,19 +60,27 @@ def _snapshot(key: str, result, has_error: bool) -> StepSnapshot:
 
 
 def _screener_price_and_market_cap(
-    ticker: str, quote_price: float | None, quote_market_cap: float | None
+    last_close: float | None, quote_price: float | None, quote_market_cap: float | None
 ) -> tuple[float | None, float | None]:
     """The Screener's Quote and Mkt cap follow the nightly last close (docs/decisions.md 2026-10-10), like the Watchlist and the
     P/E: the price is the cached last close, and the quote's market cap is scaled by last_close / quote_price (the quote's
     market cap is for the quote's price). No cached close -> the quote values as they are. A missing or zero quote price
     cannot give a ratio, so the market cap stays unscaled (the price is still the close)."""
-    cached = get_cached_last_close(ticker)
-    if cached is None:
+    if last_close is None:
         return quote_price, quote_market_cap
-    last_close = cached[0]
     if quote_market_cap is not None and quote_price:
         quote_market_cap = quote_market_cap * last_close / quote_price
     return last_close, quote_market_cap
+
+
+def _screener_valuation_verdict(last_close: float | None, fair_value_price: float | None, summary_verdict: str | None) -> str | None:
+    """The stored valuation verdict compares fair value with the nightly last close, the price the Screener and Watchlist show
+    (docs/decisions.md 2026-10-10, follow-up). Same band as Step 3 (scoring.step3.classify_valuation_verdict); fair value and
+    every score are untouched. No cached close, or no positive fair value (a PASS, a suppressed result), keeps the summary's
+    verdict, which was computed against the cached quote. A custom valuation is covered: fair_value_price is already its value."""
+    if last_close is None or not fair_value_price or fair_value_price <= 0:
+        return summary_verdict
+    return classify_valuation_verdict(last_close / fair_value_price - 1)
 
 
 # TickerScore columns written by other jobs, never overwritten by a score upsert.
@@ -166,7 +175,10 @@ async def compute_ticker_score(
     # returned; only this persisted/displayed field is suppressed).
     sector = summary.sector if company_type != "ETF" else None
 
-    last_price, market_cap = _screener_price_and_market_cap(ticker, summary.price, summary.market_cap)
+    cached_close = get_cached_last_close(ticker)
+    last_close = cached_close[0] if cached_close is not None else None
+    last_price, market_cap = _screener_price_and_market_cap(last_close, summary.price, summary.market_cap)
+    valuation_verdict = _screener_valuation_verdict(last_close, summary.fair_value_price, summary.fair_value_verdict)
 
     row = TickerScore(
         ticker=ticker,
@@ -194,7 +206,7 @@ async def compute_ticker_score(
         beta=summary.beta,
         quote_currency=summary.quote_currency,
         reported_currency=summary.reported_currency,
-        valuation_verdict=summary.fair_value_verdict,
+        valuation_verdict=valuation_verdict,
         valuation_source=summary.valuation_source,
         growth_rate=step2.growth_rate if step2 else None,
         computed_at=datetime.now(),

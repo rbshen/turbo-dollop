@@ -69,6 +69,7 @@ def _summary(
     pe_ratio=30.0,
     price=None,
     market_cap=3_000_000_000_000.0,
+    fair_value_price=None,
 ):
     return TickerSummaryOut(
         company_name=company_name,
@@ -82,6 +83,7 @@ def _summary(
         pe_ratio=pe_ratio,
         beta=1.2,
         fair_value_verdict=fair_value_verdict,
+        fair_value_price=fair_value_price,
         valuation_source=valuation_source,
         perf_5y_vs_spy_pct=perf_5y_vs_spy_pct,
         perf_5y_vs_spy_status=perf_5y_vs_spy_status,
@@ -171,6 +173,54 @@ def test_a_missing_or_zero_quote_price_leaves_the_market_cap_unscaled(monkeypatc
     row = _row_with_quote(monkeypatch, last_close=80.0, quote_price=quote_price, quote_market_cap=1_000.0)
     assert row.last_price == 80.0  # the price is still the close
     assert row.market_cap == 1_000.0  # no ratio to scale by
+
+
+def _verdict_row(monkeypatch, last_close, fair_value_price, summary_verdict, valuation_source="auto"):
+    _fresh_engine(monkeypatch)
+    _patch_all(
+        monkeypatch,
+        summary=_summary(
+            price=100.0, fair_value_price=fair_value_price, fair_value_verdict=summary_verdict, valuation_source=valuation_source
+        ),
+    )
+    monkeypatch.setattr(
+        ticker_score, "get_cached_last_close", lambda ticker: None if last_close is None else (last_close, date(2026, 10, 9))
+    )
+    return asyncio.run(compute_ticker_score("AAPL", persist=False))
+
+
+@pytest.mark.parametrize(
+    "last_close, fair_value, summary_verdict, expected",
+    [
+        # ZS: the quote (216.81) read -13.5% (undervalued), the close (233.73) reads -6.7% against fair value 250.55.
+        (233.73, 250.55, "undervalued", "fair"),
+        # BG: the quote (107.33) read +12.5% (overvalued), the close (102.73) reads +7.7% against 95.37.
+        (102.73, 95.37, "overvalued", "fair"),
+        (80.0, 100.0, "fair", "undervalued"),  # a flip the other way: -20%
+        (130.0, 100.0, "fair", "overvalued"),  # +30%
+        (80.0, 100.0, "undervalued", "undervalued"),  # close present, verdict unchanged
+    ],
+)
+def test_the_stored_valuation_verdict_compares_fair_value_with_the_last_close(monkeypatch, last_close, fair_value, summary_verdict, expected):
+    row = _verdict_row(monkeypatch, last_close, fair_value, summary_verdict)
+    assert row.valuation_verdict == expected
+
+
+def test_without_a_cached_close_the_summary_valuation_verdict_is_kept(monkeypatch):
+    assert _verdict_row(monkeypatch, None, 250.55, "undervalued").valuation_verdict == "undervalued"
+
+
+@pytest.mark.parametrize("fair_value", [None, 0.0, -5.0])
+def test_without_a_positive_fair_value_the_summary_valuation_verdict_is_kept(monkeypatch, fair_value):
+    # PASS / suppressed result: no fair value, so no verdict to recompute (a stray verdict stays as the summary had it).
+    assert _verdict_row(monkeypatch, 80.0, fair_value, None).valuation_verdict is None
+    assert _verdict_row(monkeypatch, 80.0, fair_value, "fair").valuation_verdict == "fair"
+
+
+def test_a_custom_valuation_is_recomputed_against_the_close_too(monkeypatch):
+    # fair_value_price is the custom valuation's value when one is active; the source label is untouched.
+    row = _verdict_row(monkeypatch, 60.09, 65.09, "undervalued", valuation_source="custom")
+    assert (row.valuation_verdict, row.valuation_source) == ("fair", "custom")  # TRMB: -11.6% at the quote, -7.7% at the close
 
 
 def test_computes_and_upserts_a_full_row(monkeypatch):
