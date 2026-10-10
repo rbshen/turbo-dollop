@@ -30,18 +30,18 @@ How every chart is coloured, drawn and worded. Companion to `docs/design-system.
 ## Chrome, the same on every chart
 
 - **Background** is `page`.
-- **Axis text** `text-secondary`, 12px `figure-sm` mono. **Axis lines and pane separators** `border-card`.
+- **Axis text** `text-secondary`, mono (`font-mono`, 13px `text-xs`). **Axis lines and pane separators** `border-card`.
 - **Gridlines:** none. Trend bars have no axes at all.
 - **Tooltip:** `surface` fill, `border-card` outline, `radius-md`, `shadow-popover`. Labels `text-secondary`, values `text-primary` in mono, always with a sign on a change (+1.26%, −7.49%).
 - **Active range or toggle:** `surface-2` fill and `text-primary`, neutral and never brand blue. A choose-one range is a SegmentedControl; an independent overlay is a Switch, or an `outline` `sm` Button with `aria-pressed` where a row of them has no room for switches (the Chart tab's overlay toggles).
-- **Legend:** `caption` in `text-secondary`, a 6px dot in the series colour. Non-interactive.
+- **Legend:** a `text-xs` line (13px) in `text-secondary`, a 6px dot in the series colour. Non-interactive.
 
 ## States
 
 | State | What shows |
 | --- | --- |
 | Loading | A `surface-2` block in the chart's own shape and height, pulsing. |
-| Empty | A `caption` in `text-tertiary` ("No data for this period") inside the chart's own space. A trend tile with no data stays visible with this caption instead of vanishing. |
+| Empty | A `text-xs` line in `text-tertiary` ("No data for this period") inside the chart's own space. A trend tile with no data stays visible with this caption instead of vanishing. |
 | Error | One short line in `negative`. |
 
 ## Not decided / left as built
@@ -52,7 +52,7 @@ The Chart tab (candlestick) colour palette was deliberately kept as-is rather th
 
 ## Dashboard primitives (2026-10-10)
 
-Five small, dependency-free visuals for the Dashboard tab (`docs/specs/dashboard.md`), in `components/charts/`. They are plain `div`/`svg`, no recharts, no `lightweight-charts`, and every colour is a token (never a hex or an `oklch()` literal). **No tooltips**: every figure a visual encodes is also written beside it in text. Sentence case throughout; captions are 12px `text-tertiary`. Each has a `role="img"` and an `aria-label` that says the same thing as the visible text. Every state below is drawn in `/styleguide` ("Dashboard chart primitives"). Single-series bars on the tab still use `MiniBarChart` (thick bars, no axis, hover value); these primitives cover what a bar cannot.
+Six small, dependency-free visuals for the Dashboard tab (`docs/specs/dashboard.md`), in `components/charts/`. They are plain `div`/`svg`, no recharts, no `lightweight-charts`, and every colour is a token (never a hex or an `oklch()` literal). **No tooltips**: every figure a visual encodes is also written beside it in text. Sentence case throughout; "caption" and "figure-sm" are not names in the code (corrected 2026-10-10): a caption is a `text-xs` line (13px, `--text-xs` in `app/globals.css`) in `text-tertiary`, a figure is `font-mono text-xs tabular-nums`; captions are `text-xs` (13px) in `text-tertiary`. Each has a `role="img"` and an `aria-label` that says the same thing as the visible text. Every state below is drawn in `/styleguide` ("Dashboard chart primitives"). Single-series bars on the tab still use `MiniBarChart` (thick bars, no axis, hover value); these primitives cover what a bar cannot.
 
 | Primitive | Reads as | Props that matter |
 | --- | --- | --- |
@@ -61,6 +61,7 @@ Five small, dependency-free visuals for the Dashboard tab (`docs/specs/dashboard
 | `StageTimeline` | The last 12 months of Weinstein stage, week by week | `weeks`, `since`, `sinceIsLowerBound`, `unavailableReason` |
 | `PriceRangeBar` | The price against the fair-value band (0.9x to 1.1x) | `price`, `fairValue`, `bandLow`, `bandHigh`, `unavailableReason` |
 | `Sparkline` | A plain line, e.g. the 5-year price | `values`, `startLabel`, `endLabel`, `format` |
+| `TierScale` | A 0-to-max scale with labelled tier lines and a neutral fill (the growth rate against the 5, 10 and 15% bands) | `value`, `max`, `bands`, `format`, `caption` |
 
 Plus one layout helper, `VisualRow`: label and pill on the left, the visual on the right; **below 36rem of its own width (the `sm` breakpoint of a full-width card) the pill and label stack above the visual**. It uses a container query, so it follows the width of the card, not the window.
 
@@ -76,9 +77,17 @@ The colour of a visual is part of what it says, so the rules are strict:
 
 ### Geometry and behaviour
 
-- **ThresholdGauge.** An 8px track (`surface-2`, fully rounded), the fill from the left edge to the value, a 2px tick for each line, the value at the right in 12px mono tabular `text-primary`, and one caption line below in 12px `text-tertiary` naming the lines in words ("Passes at 3.0x or lower · hard limit 4.0x"). `ceiling` and `floor` differ only in which side of the line is safe (and so which side the amber zone sits on): the track always runs from 0 to a scale chosen so both lines and the value fit, and a value past the scale is clamped with a "›" after the label. When `passLine` equals `hardLimit` (REIT gearing, Bank CET1 and NPL) there is one tick and no zone. A null value draws an empty track with "No data"; `notApplicable` replaces the whole visual with the reason in `text-tertiary`.
+- **ThresholdGauge.** An 8px track (`surface-2`, fully rounded), the fill from the left edge to the value, a 2px tick for each line, the value at the right in 13px mono tabular (`font-mono text-xs tabular-nums`) `text-primary`, and one caption line below in `text-xs` `text-tertiary` naming the lines in words ("Passes at 3.0x or lower · hard limit 4.0x"). `ceiling` and `floor` differ only in which side of the line is safe (and so which side the amber zone sits on): the track always runs from 0 to a scale chosen so both lines and the value fit, and a value past the scale is clamped with a "›" after the label. When `passLine` equals `hardLimit` (REIT gearing, Bank CET1 and NPL) there is one tick and no zone. A null value draws an empty track with "No data"; `notApplicable` replaces the whole visual with the reason in `text-tertiary`.
 - **DivergingBar.** A centre axis (`border-card`), the in-line band as a `surface-2` rectangle centred on it, the bar from the axis to the value. The scale is symmetric (`-scale` to `+scale`) and set by the caller so a stack of bars shares one (`divergingScale()` picks it); a bar past the scale is clamped with an end cap. The label is the signed value with the unit, e.g. "+3.1%", titled "ahead of / behind benchmark" in the table that holds it, and the stock's and the benchmark's own returns sit next to it ("stock +12.1% · XLK +9.0%") so a gap cannot be read as a return. Inside the band the bar is neutral and the word is "in line".
 - **StageTimeline.** One horizontal strip, 12px tall, one segment per run of equal stage with width proportional to its weeks and a 1px gap between runs. The current stage's start is marked with a tick above the strip and the date written under it ("Since 12 Mar 2026", or "Since at least ..." with the data-starts caveat when the date is a lower bound, as in the header tooltip, `formatWeinsteinSince`). A line of text under the strip names the stages shown. Unavailable (fewer weeks cached than the engine needs): the strip is replaced by the reason in `text-tertiary`.
 - **PriceRangeBar.** A track with the fair-value band shaded (`surface-2`, `border-card` edges), a tick at the fair value, and the price as a taller `text-primary` marker with its label above. The captions under the track read "0.9x $90.00", "Fair value $100.00", "1.1x $110.00", and a sentence says where the price sits ("Price is 10.0% below fair value"). The track scale is chosen so the price is always on it. No fair value: the bar is replaced by the reason ("No fair value: no valuation method applies") and the price in words.
-- **Sparkline.** An `svg` polyline, 1.5px, `series-1`, `vector-effect: non-scaling-stroke`, no axes, no fill, 40px high; a dot marks the last point; the first and last labels sit under the ends in 12px `text-tertiary`. Under two points it shows "No price history" instead.
+- **Sparkline.** An `svg` polyline, 1.5px, `series-1`, `vector-effect: non-scaling-stroke`, no axes, no fill, 40px high; a dot marks the last point; the first and last labels sit under the ends in 13px `text-xs` `text-tertiary`. Under two points it shows "No price history" instead.
 - **Narrow width.** Every primitive is fluid (100% of its container, no fixed pixel width) and keeps its captions on their own lines. In a `VisualRow` the label and pill stack above the visual under 36rem.
+
+### Where the Dashboard uses them (2026-10-10)
+
+`ThresholdGauge` takes a few extras for the sections that need them: a track that extends left of zero for a negative value (the fill runs between zero and the value), `extraTicks` (the Profitability tiers: the pass line is the "good" cut-off 12, the hard limit the "marginal" cut-off 8, the "excellent" cut-off 15 an extra tick), and a `caption` string that replaces the default wording. The default caption is for the **scored** Debt and Profitability gauges ("Passes at 3.00x or lower · hard limit 4.00x"); the **context** gauges in "Why might it be stuck?" say where the row flags instead ("Flagged above 8.0%", "Flagged below 0.70x", "Flagged at zero or below") and have one line only, so they never draw a monitor zone. Two gauges that share a line (the two cash-conversion windows) say it once, under the pair.
+
+`DivergingBar` is used only for gaps against a benchmark (relative strength against the sector ETF and SPY; revenue growth against the sector median): the value is written in `%` (never `pp`), the stock's and the benchmark's own returns sit beside it, the band is the Settings "sector in-line band", and all the bars of a stack share one scale (`divergingScale`).
+
+The mini bars (Financials; operating margin and ROIC in the stuck section) are `MiniBarChart` with no `valueFormat`, so no tooltip: the latest figure and the span are written under them. A series that is not scored (CFO for a Bank, Insurance, REIT or Commodity company) is drawn in `text-tertiary` instead of `series-1` and labelled "not scored".

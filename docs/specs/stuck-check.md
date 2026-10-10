@@ -1,27 +1,32 @@
-# "Why might it be stuck?" card (stuck check)
+# "Why might it be stuck?" section (stuck check)
 
-An informational card at the bottom of the Analysis tab, for every stock (never an ETF/fund page): earnings quality, capital allocation,
-price context and the fundamentals trend for a ticker that scores well and still does not move. **Context, not scored.** Built from
-`docs/why-stuck-panel-investigation-2026-10-09.md` (its thresholds were simulated there); this spec is the rules as built.
+An informational section, the last of the **Dashboard** tab (docs/specs/dashboard.md), for every stock (never an ETF/fund page): relative
+strength, earnings quality and capital allocation, and the fundamentals trend for a ticker that scores well and still does not move.
+**Context, not scored.** It was the last card of the Analysis tab until 2026-10-10 and was moved, not copied: the Analysis tab no longer has it.
+Built from `docs/why-stuck-panel-investigation-2026-10-09.md` (its thresholds were simulated there); this spec is the rules as built.
 
 Code: `scoring/stuck_check.py` (pure, no I/O: rows, labels, thresholds), `data/stuck_check_data.py` (assembles the inputs from cache),
 `GET /api/tickers/{ticker}/stuck-check` (cache only), `data/stuck_check_settings.py` + `GET/PUT /api/config/stuck-check` +
-`POST .../reset` (Settings), `components/stuck/StuckCheckCard.tsx`, `lib/stuckCheck.ts`, `lib/hooks/useStuckCheck.ts`. The daily log:
+`POST .../reset` (Settings), `components/dashboard/StuckSection.tsx`, `lib/stuckCheck.ts`, `lib/hooks/useStuckCheck.ts`. The section makes its own
+`/stuck-check` call, mounted when scrolled into view (`LazyMount`), and is never fed by the Dashboard endpoint. The daily log:
 `core/models.py::TickerSignalSnapshot`, `data/signal_snapshot_data.py`, `pipeline/nightly_signal_snapshot.py`,
 `scoring/good_undervalued.py`.
 
 ## Hard rules
 
-- **The card feeds nothing**: not Overall, not any step or verdict, not `TickerScore`, not the Screener; no badge, no summary count, no
-  header pill. Subtitle: "Context, not scored".
-- **Labels only**, four of them: **OK**, **Flagged**, **Not applicable**, **Not reported**. Flagged is a plain amber tag (`Status`
-  tone `warn`, compact); the other three are quiet neutral tags. No red, and no "May not pass" / "Review" / "Pass" wording as a label.
-  A figures-only row has no label.
+- **The section feeds nothing**: not Overall, not any step or verdict, not `TickerScore`, not the Screener; no badge, no summary count, no
+  header pill. Subtitle: "Context, not scored". It is drawn apart from the scored sections (own heading, stronger rule), has no score and no
+  verdict pill, and its only colour is amber on Flagged and the diverging green/red on a gap against a benchmark.
+- **Labels only**, four of them: **Not flagged**, **Flagged**, **Not applicable**, **Not reported** (the first was "OK" until 2026-10-10; it is
+  neutral on purpose, never green, because it is not a pass). The stored key is `not_flagged` (it was `ok`). Flagged is a plain amber tag
+  (`Status` tone `warn`); Not flagged a neutral `Badge`. No red, and no "May not pass" / "Review" / "Pass" wording as a label. A figures-only
+  row has no label. Not-applicable and Not-reported rows are not drawn as rows: their reasons (and every row note) are merged into one note at
+  the bottom of the earnings-quality group, identical reasons merged into one sentence.
 - **Cache only, no FMP call, nothing written.** It reads `FundamentalsCache` (cleaned through the shared statement loader, completed
   fiscal years only), the stored `TickerScore` row and `SharedBarsCache`. Works with every FMP data group off; `GroupOffBadge` for
-  `daily_prices` shows on the card when the bars are not refreshing (the Analysis tab's own badge covers `fundamentals`).
-- **Price rows are read, never recomputed**: Overall verdict, Valuation verdict, Weinstein stage and its since-date, 5Y vs SPY come
-  straight from the stored `TickerScore` row.
+  `daily_prices` shows on the section when the bars are not refreshing (the Dashboard tab's own badge covers `fundamentals`).
+- **No price rows.** Overall verdict, Valuation verdict, Weinstein stage and 5Y vs SPY (the old row 7, "Price context", read from the stored
+  `TickerScore` row) were removed 2026-10-10: the Dashboard's verdict strip shows the same values from the header's own hooks.
 - Out, deliberately: segment revenue, the business-threat note, a Screener filter, a flag count on `TickerScore`, momentum rank, Mansfield
   RS (the investigation proposed some of these; later rounds).
 
@@ -37,16 +42,20 @@ years" means the N newest completed fiscal years the cache holds.
 | 2 | Stock-based compensation | latest FY $ and % of revenue; the 5-year total % of revenue; 5-year total % of FCF ("n/m" when 5-year FCF is zero/negative or the share exceeds 100%) | Flagged if the 5-year % of revenue > SBC-revenue line (8) **or** the % of FCF > SBC-FCF line (30); n/m counts as over. Not reported when SBC is zero/missing in 3+ of the last 5 FYs |
 | 3 | FCF after SBC | 5-year total and latest FY, in $ and % of revenue | Flagged if the 5-year total <= 0 or the latest FY < 0. Not reported follows row 2 |
 | 4 | Buybacks vs SBC | gross buybacks as a multiple of SBC over the window, or "No buybacks" | figure only; the row is shown only when SBC >= 5% of revenue over the window (and the window has 3+ FYs) |
-| 5 | Share count | change per year of diluted shares over the post-listing window (last 6 FYs at most, min 3) | Flagged if > share-growth line (2%/yr). If one FY carries >= the one-off line (60%) of the cumulative dilution: **OK** with the note "One-off issuance in FY20XX carries N% of the dilution". REIT/Utility: figure, no label |
+| 5 | Share count | change per year of diluted shares over the post-listing window (last 6 FYs at most, min 3) | Flagged if > share-growth line (2%/yr). If one FY carries >= the one-off line (60%) of the cumulative dilution: **Not flagged**, and the meaning line says "one-off issuance in FY20XX carries N% of the dilution, so it is not flagged". REIT/Utility: figure, no label |
 | 6 | Shareholder yield | dividends + net buybacks, and that as % of 5-year FCF ("n/m" when FCF <= 0) | figure only |
-| 7 | Price context | Overall verdict, Valuation verdict, Weinstein stage (+ since date, lower-bound caveat), 5Y vs SPY | figures only, neutral text |
-| 8 | Relative strength | return minus the sector ETF over 6M and 12M (headline), 1M and 3M, plus 6M and 12M vs SPY | figures only; each figure carries "in line" (within the band, default +/-2 pp), "leads" or "trails". Note when the stock is over 10% of its sector's tracked market cap |
-| 9 | Margins | operating margin first-3y average vs last-3y average over the last 5 FYs, and the slope per year; gross margin the same | figures only |
-| 10 | Growth | 5-year revenue CAGR vs the sector median, and the percentile ("93rd percentile"); latest FY growth, and vs the stock's own CAGR | figures only. Note when the CAGR base year is a COVID trough |
+| 8 | Relative strength | return minus the sector ETF and minus SPY over 1M, 3M, 6M and 12M, with the stock's and each benchmark's own return (`returns`) | drawn as diverging bars in %; "in line" within the band (default +/-2 percentage points, written "%"), ahead or behind outside it. Note when the stock is over 10% of its sector's tracked market cap. The old `figures` (6M and 12M headline) remain in the payload |
+| 9 | Margins | operating margin first-3y average vs last-3y average over the last 5 FYs, and the slope per year (gross margin was dropped 2026-10-10) | figures only; `series` for the mini bars |
+| 10 | Growth | 5-year revenue CAGR vs the sector median, and the percentile ("93rd percentile"); latest-FY growth and growth vs the stock's own CAGR were dropped 2026-10-10 | figures only; `growth` for the bar. Note when the CAGR base year is a COVID trough |
 | 12 | ROIC trend | earliest and latest of the last 5 FYs, slope per year | figures only; Standard types only |
 
-(Row 11 was dropped.) **Footer:** "Nothing flagged (k of 4 labelled rows assessed)" when none of rows 1, 2, 3, 5 is Flagged; k counts
-those four rows that are OK or Flagged (Not applicable, Not reported and an unlabelled row do not count). Nothing when any is Flagged.
+(Rows 7 and 11 were dropped; the others keep their numbers, which are stable keys, not positions.) **Footer:** "Nothing flagged" when none of
+rows 1, 2, 3, 5 is Flagged, with no count (the earlier "(k of 4 labelled rows assessed)" read as a score and was removed 2026-10-10). Nothing when any
+is Flagged.
+
+Rows 1, 2, 3, 5, 9, 10 and 12 also carry a `meaning`: one plain-English sentence with the real numbers and the windows assessed (row 1 says when the
+10-year window is not meaningful because net income was under 2% of revenue), and rows 1, 2, 3, 5 carry `gauges` (a figure and the Settings line it
+is read against). Percentage points are written "%" in every sentence.
 
 ### Details that are interpretations of the brief
 
@@ -59,8 +68,6 @@ questions in the build report.
 - **One-off share** is measured on the log change of the share count: the largest single-year step / the whole window's step.
 - **Percentile** = share of the sector's tracked stocks with a strictly lower 5-year CAGR; the median and percentile need 5+ tracked
   sector stocks with 6 FYs of revenue.
-- **Gross margin is not shown** when its last-3-year average is at or above 99% (FMP reports about 100%, `financials.md` "Known
-  weaknesses"; there is no per-ticker "unreliable" list in that file) and for Banks (FMP's gross-profit break, Step 1's margin exemption).
 - **Return windows** are calendar months back from the last bar on or before a common end date (the oldest of the stock's, the sector
   ETF's and SPY's last cached bar); a window the cache does not reach back to is blank.
 - **Net buybacks** = minus FMP's `netCommonStockIssuance`; dividends = `netDividendsPaid` (else `commonDividendsPaid`).
@@ -114,11 +121,13 @@ good_undervalued_since_for`) return the smoothed since-date: it starts on the fi
 `smoothing_days` **consecutive trading-day** snapshots out of the state (weekend and holiday snapshots and missing snapshots count as
 neither). No UI reads it yet. The log starts the day the job first runs, so an older state is reported from the first logged day.
 
-## Dashboard payload (additive, 2026-10-10)
+## Dashboard payload (2026-10-10)
 
-For the Dashboard tab (docs/specs/dashboard.md) the endpoint also returns, per row and additively, `series` (per-fiscal-year points on rows 9, 10, 12), `returns`
-(row 8: stock, sector ETF and SPY returns for all four windows, the ETF symbol and the in-line band) and `growth` (row 10: CAGR, sector median, percentile,
-peer count). The rows, figures and labels above are unchanged. The return windows are split-adjusted **price** returns: dividends are not included.
+For the Dashboard (docs/specs/dashboard.md) each row also carries, additively: `series` (per-fiscal-year points on rows 9, 10, 12), `returns` (row 8: stock,
+sector ETF and SPY returns for all four windows, the ETF symbol and the in-line band), `growth` (row 10: CAGR, sector median, percentile, peer count),
+`meaning` (one plain-English sentence, rows 1, 2, 3, 5, 9, 10, 12) and `gauges` (rows 1, 2, 3, 5: the figure and the Settings line it is read against, a
+value of null with a `note` where it is not meaningful). The return windows are split-adjusted **price** returns: dividends are not included.
+With no cached statements the endpoint returns no rows and the section says so (`has_data` false).
 
 ## Open follow-ups
 

@@ -1,9 +1,9 @@
 # Dashboard tab (backend read)
 
 A ticker-page tab, key `dashboard`, label "Dashboard" (not `overview`: the ETF page owns that key), planned second after Summary, not shown on the ETF page.
-It consolidates the verdicts, the five scored steps with a small visual each, price and valuation, and the "Why might it be stuck?" card, so the
-owner does not switch tabs. **Presentation only**: no scoring, threshold, Settings value or snapshot-log change. This spec covers the backend
-read (phase 1) and the chart primitives (phase 2, `docs/design-system-charts.md`); the tab itself is phase 3 and 4.
+It consolidates the verdicts, the five scored steps with a small visual each, price and valuation, and the "Why might it be stuck?" section (moved here
+from the Analysis tab), so the owner does not switch tabs. **Presentation only**: no scoring, threshold, Settings value or snapshot-log change. Built in four
+phases: the backend read, the chart primitives (`docs/design-system-charts.md`), the tab, and the move of the stuck card.
 
 ## Sources
 
@@ -72,3 +72,18 @@ completed FYs), `returns` and `growth`.
 | 12 ROIC | `series`: `roic` per FY (null where FMP has no figure) |
 
 Phase 4 removes Price context row 7 and the figures the redesign drops (gross margin, latest-FY growth, growth vs own CAGR).
+
+## The tab (`components/ticker/DashboardTab.tsx`)
+
+Registered in `lib/tickerTabs.ts` as `dashboard`, second after Summary (Summary stays the default; no URL state), lazy-mounted like the other tabs, absent from the
+ETF variant, data-group badge `profile_quote`, `fundamentals`, `daily_prices` (`lib/dataGroups.ts::TAB_GROUPS`). A delisted ticker (`/universe` status) gets one plain line
+on top. Each section loads and fails on its own.
+
+| Section | Source | What it draws |
+| --- | --- | --- |
+| A. Verdicts ("As in the header") | `useTickerScore`, `useTickerSummary`, `useTrendAnalysis` and the header's own `AssessmentChipView`, `FairValuePill`, `WeinsteinStagePill`, `PerfVsSpyPill` | Overall, Valuation, Weinstein stage with the since date (and the data-starts caveat when it is a lower bound) as inline text, 5 years vs SPY. A missing piece is a neutral word ("Not scored", "No fair value", "No stage yet", "No data") |
+| B. Five steps ("Scored") | `/dashboard` | One row per step with the **stored** score and verdict pill (`lib/dashboard.ts::stepPill`; the live `verdict` of the same payload is never drawn, so the page agrees with the header and the Screener; missing or insufficient_data is the neutral "Not scored"). Financials: three mini bars (revenue, net income, CFO) for 5 completed fiscal years, CFO marked "not scored" for Bank, Insurance, REIT and Commodity. Growth: the rate on a 0-20% `TierScale` with the 5/10/15% lines (from the endpoint) and the analyst count. Economic moat: the type pill ("Not rated" when unset), the multiplier, the 5-year price sparkline with the endpoint's label and span (type only when there is no series). Profitability: ROE and ROIC gauges on the **scored average** against the tier cut-offs (negative-equity ROE shows its basis note, an exempt ROIC its reason). Debt: a gauge per ratio from the endpoint's pass line and hard limit (amber zone between them for Standard and Utility; single-line gauges for Bank CET1 and NPL and REIT gearing; "Not applicable" with the reason for Insurance and a no-deposit bank) |
+| C. Price and valuation ("Not part of the score") | the header's summary (price, fair value) + `/dashboard` (band, reasons, stage weeks) | `PriceRangeBar` with the price and fair value of the **header's summary** so it agrees with the valuation pill (the endpoint's cached quote is the fallback only); no fair value says why in plain words. `StageTimeline` for the last 12 months; unavailable shows the reason and the since date only |
+| D. Why might it be stuck? ("Context, not scored") | its own `/stuck-check`, mounted when scrolled into view | See `docs/specs/stuck-check.md`. Relative strength as diverging bars (1M, 3M, 6M, 12M against the sector ETF, then SPY, with both returns beside each gap); earnings quality and capital allocation (rows 1, 2, 3, 5 with gauges, a Not flagged or Flagged tag and a meaning line; rows 4 and 6 figures only; the not-applicable reasons as one note); fundamentals trend (operating margin and ROIC mini bars, revenue growth against the sector median with the percentile); footer "Nothing flagged" |
+
+Reused header components keep their native `title` hover text; everything the Dashboard draws itself has none.
