@@ -18,6 +18,7 @@ from core.models import FundamentalsCache, TickerScore
 from core.schemas import (
     StuckCheckOut,
     StuckFigureOut,
+    StuckGaugeOut,
     StuckGrowthOut,
     StuckReturnsOut,
     StuckReturnWindowOut,
@@ -217,6 +218,8 @@ def _row_out(row: StuckRow) -> StuckRowOut:
         if row.returns
         else None,
         growth=StuckGrowthOut(**vars(row.growth)) if row.growth else None,
+        meaning=row.meaning,
+        gauges=[StuckGaugeOut(**vars(g)) for g in row.gauges],
         key=row.key,
         number=row.number,
         title=row.title,

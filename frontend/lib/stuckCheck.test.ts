@@ -49,7 +49,7 @@ describe("formatFigure", () => {
 
 describe("labels and groups", () => {
   it("has exactly the four labels, none of them a verdict word", () => {
-    expect(Object.values(STATUS_LABEL)).toEqual(["OK", "Flagged", "Not applicable", "Not reported"]);
+    expect(Object.values(STATUS_LABEL)).toEqual(["Not flagged", "Flagged", "Not applicable", "Not reported"]);
   });
 
   it("splits rows into the three groups by number and drops nothing", () => {

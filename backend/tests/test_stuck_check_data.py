@@ -111,7 +111,7 @@ def test_card_assembles_every_row_from_the_cache(db):
     assert [r.number for r in out.rows] == sorted(r.number for r in out.rows)
     assert rows["cash_conversion"].status == "ok"  # 120 / 100 = 1.2
     assert rows["sbc"].status == "ok" and rows["share_count"].status == "ok"
-    assert out.footer == "Nothing flagged (4 of 4 labelled rows assessed)"
+    assert out.footer == "Nothing flagged"
     assert out.currency == "USD" and {f.unit for r in out.rows for f in r.figures} >= {"money", "pct", "ratio"}
     price = {f.key: f for f in rows["price_context"].figures}
     assert price["overall_verdict"].text == "Pass" and price["weinstein_stage"].text == "decline"
@@ -310,3 +310,15 @@ def test_growth_without_enough_peers_has_a_cagr_and_no_median(db):
     seed(db, "ACME")
     growth = rows_of(get_stuck_check_data("ACME"))["growth"]
     assert growth.growth.cagr_5y == pytest.approx(0.0) and growth.growth.sector_median is None and growth.growth.percentile is None
+
+
+def test_rows_carry_the_meaning_line_and_gauges_through_the_endpoint(db):
+    seed(db, "ACME")
+    body = TestClient(main.app).get("/api/tickers/acme/stuck-check").json()
+    rows = {r["key"]: r for r in body["rows"]}
+    cash = rows["cash_conversion"]
+    assert cash["meaning"].startswith("Free cash flow was 1.20 times net income over the last 3 fiscal years")
+    assert [(g["key"], g["line"], g["direction"]) for g in cash["gauges"]] == [("last_3y", 0.7, "floor"), ("last_10y", 0.7, "floor")]
+    assert rows["sbc"]["gauges"][0]["line"] == 8.0 and rows["share_count"]["gauges"][0]["direction"] == "ceiling"
+    assert rows["margins"]["meaning"] and rows["roic"]["meaning"]
+    assert rows["relative_strength"]["meaning"] is None and rows["relative_strength"]["gauges"] == []

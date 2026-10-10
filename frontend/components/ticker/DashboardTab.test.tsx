@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { dashboard, debtStandard, scoreRow, summaryRow, trendRow } from "@/components/dashboard/testData";
@@ -20,17 +20,22 @@ vi.mock("@/lib/hooks/useTickerScore", () => ({ useTickerScore: () => state.score
 vi.mock("@/lib/hooks/useTickerSummary", () => ({ useTickerSummary: () => state.summary }));
 vi.mock("@/lib/hooks/useTrendAnalysis", () => ({ useTrendAnalysis: () => state.trend }));
 vi.mock("@/lib/hooks/useUniverse", () => ({ useUniverseStatus: () => state.universe }));
-vi.mock("@/lib/hooks/useStuckCheck", () => ({ useStuckCheck: () => ({ data: undefined, error: undefined, isLoading: true }) }));
+const { stuckHook } = vi.hoisted(() => ({ stuckHook: vi.fn(() => ({ data: undefined, error: undefined, isLoading: true })) }));
+vi.mock("@/lib/hooks/useStuckCheck", () => ({ useStuckCheck: stuckHook }));
 vi.mock("@/lib/hooks/useDataGroups", () => ({ useDataGroups: () => ({ data: undefined }) }));
 
 beforeEach(() => {
+  stuckHook.mockClear();
   state.dash = { data: dashboard(), isLoading: false };
   state.score = { data: scoreRow(), isLoading: false };
   state.summary = { data: summaryRow() };
   state.trend = { data: trendRow(), isLoading: false };
   state.universe = {};
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const row = (name: string) => screen.getByTestId(`step-row-${name}`);
 const pillOf = (name: string) => within(row(name)).getByTestId("step-pill");
@@ -302,5 +307,37 @@ describe("states: loading, error, no data, delisted, independence", () => {
     const price = screen.getByTestId("dashboard-price");
     expect(steps.querySelectorAll("[title]")).toHaveLength(0);
     expect(price.querySelectorAll("[title]")).toHaveLength(0);
+  });
+});
+
+describe("Section D is separate and lazy", () => {
+  it("makes its own /stuck-check call only once it is scrolled into view; the scored sections never wait on it", () => {
+    let trigger: (entries: Array<{ isIntersecting: boolean }>) => void = () => {};
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(cb: typeof trigger) {
+          trigger = cb;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    render(<DashboardTab ticker="ACME" />);
+    expect(screen.getByTestId("dashboard-steps")).toBeInTheDocument();
+    expect(stuckHook).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("dashboard-stuck")).not.toBeInTheDocument();
+
+    act(() => trigger([{ isIntersecting: true }]));
+    expect(stuckHook).toHaveBeenCalledWith("ACME");
+    expect(screen.getByTestId("dashboard-stuck")).toBeInTheDocument();
+  });
+
+  it("is a section of its own, after the scored ones, labelled 'Context, not scored'", () => {
+    render(<DashboardTab ticker="ACME" />);
+    const sections = ["dashboard-verdicts", "dashboard-steps", "dashboard-price", "dashboard-stuck"].map((id) => screen.getByTestId(id));
+    sections.slice(0, -1).forEach((el, i) => expect(el.compareDocumentPosition(sections[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy());
+    expect(within(sections[3]).getByText("Context, not scored")).toBeInTheDocument();
+    expect(within(sections[1]).getByText("Scored")).toBeInTheDocument();
   });
 });
