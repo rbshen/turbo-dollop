@@ -31,7 +31,7 @@ from scoring.weights import (
     validate_weights,
     weights_to_dict,
 )
-from tests.test_ticker_score import _step1, _step2, _step4, _step5, _summary
+from tests.test_ticker_score import _speculative_growth, _step1, _step2, _step4, _step5, _summary
 
 
 def _engine(monkeypatch):
@@ -281,6 +281,7 @@ def _patch_steps(monkeypatch, seen):
     monkeypatch.setattr(ticker_score, "get_step4_data", make("step4", _step4()))
     monkeypatch.setattr(ticker_score, "get_step5_data", make("step5", _step5()))
     monkeypatch.setattr(ticker_score, "get_summary", make("summary", _summary()))
+    monkeypatch.setattr(ticker_score, "get_speculative_growth_data", make("speculative_growth", _speculative_growth()))
 
 
 def test_compute_uses_the_saved_weights_once_and_stamps_the_version(monkeypatch):

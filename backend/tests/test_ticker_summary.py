@@ -971,6 +971,10 @@ def test_get_summary_degrades_gracefully_on_transient_profile_error(monkeypatch)
     async def fake_get_active_valuation(ticker, cache_only=False, step2_out=None):
         return FAKE_STEP3_OUT
 
+    async def fake_quote(ticker):
+        return FAKE_QUOTE
+
+    _patch_all_but_quote(monkeypatch, fake_quote)  # every other fetch answers from the fakes; only /profile fails
     monkeypatch.setattr(ticker_summary.fmp_client, "get_profile", failing_profile)
     monkeypatch.setattr(ticker_summary, "get_active_valuation", fake_get_active_valuation)
 
@@ -1154,6 +1158,11 @@ def test_get_summary_serves_the_cached_last_close_when_profile_quote_is_off(monk
     _dg.set_group_enabled("profile_quote", False)
     _cached_close(monkeypatch, 123.45)
 
+    async def unused_quote(ticker):  # the gate never reaches it; the fakes keep the other fetches off the network
+        return FAKE_QUOTE
+
+    _patch_all_but_quote(monkeypatch, unused_quote)
+
     assert asyncio.run(get_summary("aapl")).price == 123.45
 
 
@@ -1214,6 +1223,11 @@ def test_get_summary_keeps_the_stale_cached_quote_price_when_no_last_close_is_ca
         session.commit()
     _dg.set_group_enabled("profile_quote", False)
     _cached_close(monkeypatch, None)
+
+    async def unused_quote(ticker):  # the gate never reaches it; the fakes keep the other fetches off the network
+        return FAKE_QUOTE
+
+    _patch_all_but_quote(monkeypatch, unused_quote)
 
     assert asyncio.run(get_summary("aapl")).price == 111.0
 

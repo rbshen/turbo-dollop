@@ -106,7 +106,15 @@ def test_refresh_then_subsequent_fetch_hits_fmp_again(monkeypatch):
         # this test focused on the cache-clear/refetch behavior itself.
         return [{"sector": "Financial Services", "industry": "Banks - Diversified"}]
 
+    async def fake_balance_sheet(ticker, period, limit):
+        return []
+
     monkeypatch.setattr(step5_data.fmp_client, "get_profile", fake_profile)
+    async def fake_as_reported(ticker, period, limit):
+        return []
+
+    monkeypatch.setattr(step5_data.fmp_client, "get_balance_sheet_statement", fake_balance_sheet)
+    monkeypatch.setattr(step5_data.fmp_client, "get_financial_statement_full_as_reported", fake_as_reported)
 
     asyncio.run(get_step5_data("aapl"))
     assert call_count["profile"] == 1
@@ -135,16 +143,8 @@ def test_fmp_failure_right_after_refresh_degrades_gracefully_not_a_crash(monkeyp
     async def failing_fetch(*args, **kwargs):
         raise httpx.HTTPError("FMP is down")
 
-    for method in (
-        "get_profile",
-        "get_quote",
-        "get_price_change",
-        "get_ratios",
-        "get_analyst_estimates",
-        "get_earnings",
-        "get_balance_sheet_statement",
-        "get_income_statement",
-    ):
+    # Every client method fails: whichever fetch the summary path reaches, FMP is "down" and none can touch the network.
+    for method in [name for name in dir(ticker_summary.fmp_client) if name.startswith("get_")]:
         monkeypatch.setattr(ticker_summary.fmp_client, method, failing_fetch)
 
     clear_ticker_cache("AAPL")
