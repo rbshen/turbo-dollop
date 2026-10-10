@@ -263,7 +263,10 @@ def _default_last_close_cache(monkeypatch):
     test calling get_summary() with a failing/absent quote would otherwise see whatever the
     real DB holds. Defaults to "nothing cached"; a test that cares patches
     ticker_summary.get_cached_last_close itself."""
+    import data.ticker_score as ticker_score
+
     monkeypatch.setattr(ticker_summary, "get_cached_last_close", lambda ticker: None)
+    monkeypatch.setattr(ticker_score, "get_cached_last_close", lambda ticker: None)  # the Screener row's price (same default)
 
 
 @pytest.fixture(autouse=True)

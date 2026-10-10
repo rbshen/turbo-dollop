@@ -10,6 +10,7 @@ from core.db import engine
 from core.models import TechnicalEntrySignal, TickerScore, TrendAnalysis
 from core.tickers import normalize_ticker
 from data.entry_signal_data import DEFAULT_SIGNAL_TYPE, DEFAULT_TIMEFRAME, is_entry_signal_active
+from data.last_close_data import get_cached_last_close
 from core.models import MoatScoreConfig
 from data.moat import CONFIG_KEY as MOAT_CONFIG_KEY, get_ticker_moat, resolve_moat_multiplier
 from scoring.overall import SCORE_FORMULA_VERSION, StepSnapshot, compute_overall_assessment
@@ -55,6 +56,22 @@ def _snapshot(key: str, result, has_error: bool) -> StepSnapshot:
         score=result.score if result is not None else None,
         verdict=result.verdict if result is not None else None,
     )
+
+
+def _screener_price_and_market_cap(
+    ticker: str, quote_price: float | None, quote_market_cap: float | None
+) -> tuple[float | None, float | None]:
+    """The Screener's Quote and Mkt cap follow the nightly last close (docs/decisions.md 2026-10-10), like the Watchlist and the
+    P/E: the price is the cached last close, and the quote's market cap is scaled by last_close / quote_price (the quote's
+    market cap is for the quote's price). No cached close -> the quote values as they are. A missing or zero quote price
+    cannot give a ratio, so the market cap stays unscaled (the price is still the close)."""
+    cached = get_cached_last_close(ticker)
+    if cached is None:
+        return quote_price, quote_market_cap
+    last_close = cached[0]
+    if quote_market_cap is not None and quote_price:
+        quote_market_cap = quote_market_cap * last_close / quote_price
+    return last_close, quote_market_cap
 
 
 # TickerScore columns written by other jobs, never overwritten by a score upsert.
@@ -149,6 +166,8 @@ async def compute_ticker_score(
     # returned; only this persisted/displayed field is suppressed).
     sector = summary.sector if company_type != "ETF" else None
 
+    last_price, market_cap = _screener_price_and_market_cap(ticker, summary.price, summary.market_cap)
+
     row = TickerScore(
         ticker=ticker,
         company_name=summary.company_name,
@@ -169,8 +188,8 @@ async def compute_ticker_score(
         moat_multiplier=overall.moat_multiplier,
         overall_score=overall.score,
         overall_verdict=overall.verdict,
-        market_cap=summary.market_cap,
-        last_price=summary.price,
+        market_cap=market_cap,
+        last_price=last_price,
         pe_ratio=summary.pe_ratio,
         beta=summary.beta,
         quote_currency=summary.quote_currency,

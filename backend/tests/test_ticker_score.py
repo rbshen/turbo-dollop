@@ -67,6 +67,8 @@ def _summary(
     exchange="NASDAQ",
     is_etf=False,
     pe_ratio=30.0,
+    price=None,
+    market_cap=3_000_000_000_000.0,
 ):
     return TickerSummaryOut(
         company_name=company_name,
@@ -75,7 +77,8 @@ def _summary(
         industry=industry,
         exchange=exchange,
         is_etf=is_etf,
-        market_cap=3_000_000_000_000.0,
+        price=price,
+        market_cap=market_cap,
         pe_ratio=pe_ratio,
         beta=1.2,
         fair_value_verdict=fair_value_verdict,
@@ -140,6 +143,34 @@ def _patch_all(
         ),
     )
     return calls
+
+
+def _row_with_quote(monkeypatch, last_close, quote_price, quote_market_cap):
+    _fresh_engine(monkeypatch)
+    _patch_all(monkeypatch, summary=_summary(price=quote_price, market_cap=quote_market_cap))
+    monkeypatch.setattr(
+        ticker_score, "get_cached_last_close", lambda ticker: None if last_close is None else (last_close, date(2026, 10, 9))
+    )
+    return asyncio.run(compute_ticker_score("AAPL", persist=False))
+
+
+def test_the_screener_price_is_the_last_close_and_the_market_cap_is_scaled_to_it(monkeypatch):
+    # The quote (a stale 100.0, cap 1,000) against a nightly close of 80.0: price 80.0, cap 1,000 x 80 / 100 = 800.
+    row = _row_with_quote(monkeypatch, last_close=80.0, quote_price=100.0, quote_market_cap=1_000.0)
+    assert row.last_price == 80.0
+    assert row.market_cap == pytest.approx(800.0)
+
+
+def test_without_a_cached_last_close_the_screener_keeps_the_quote_values(monkeypatch):
+    row = _row_with_quote(monkeypatch, last_close=None, quote_price=100.0, quote_market_cap=1_000.0)
+    assert (row.last_price, row.market_cap) == (100.0, 1_000.0)
+
+
+@pytest.mark.parametrize("quote_price", [None, 0.0])
+def test_a_missing_or_zero_quote_price_leaves_the_market_cap_unscaled(monkeypatch, quote_price):
+    row = _row_with_quote(monkeypatch, last_close=80.0, quote_price=quote_price, quote_market_cap=1_000.0)
+    assert row.last_price == 80.0  # the price is still the close
+    assert row.market_cap == 1_000.0  # no ratio to scale by
 
 
 def test_computes_and_upserts_a_full_row(monkeypatch):
