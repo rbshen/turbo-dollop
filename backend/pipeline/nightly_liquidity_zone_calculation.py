@@ -39,9 +39,8 @@ from core.data_groups import job_skip_reason
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from data.liquidity_zone_data import LOOKBACK_DAYS, compute_and_store_liquidity_zones, sweep_stale_liquidity_zones
-from data.watchlists import MONITORED_WATCHLIST_PATTERN, list_monitored_tickers
+from data.watchlists import MONITORED_WATCHLIST_PATTERN, list_monitored_tickers_with_delisted
 from helpers.liquidity_zone_config import get_liquidity_zone_settings, to_engine_settings
-from pipeline.stale_data_health_check import load_delisted_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_liquidity_zone_calculation.log"
 
@@ -64,16 +63,11 @@ async def main() -> dict:
         return {"skipped": True, "skip_reason": skip_reason}
 
     with Session(engine) as session:
-        tickers, matched_names = list_monitored_tickers(session)
+        tickers, matched_names, skipped_delisted = list_monitored_tickers_with_delisted(session)
         settings = to_engine_settings(get_liquidity_zone_settings(session))
-        delisted = load_delisted_tickers(session)
 
     if not matched_names:
         logger.warning("No watchlist matching %s exists.", MONITORED_WATCHLIST_PATTERN.pattern)
-
-    skipped_delisted = sorted(set(tickers) & delisted)
-    if skipped_delisted:
-        tickers = [t for t in tickers if t not in delisted]
 
     if not tickers:
         logger.error("No tickers found across %s -- nothing to process.", matched_names or MONITORED_WATCHLIST_PATTERN.pattern)

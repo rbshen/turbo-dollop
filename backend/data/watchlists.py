@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 from core.models import EtfScreenerRow, SavedScreenerFilter, Watchlist, WatchlistTicker
 from core.tickers import normalize_ticker
 from data.etf_data import known_etf_tickers
+from data.tracked_universe import load_delisted_flagged
 
 
 def list_watchlists(session: Session) -> list[Watchlist]:
@@ -90,17 +91,20 @@ def list_monitored_watchlists(session: Session) -> list[Watchlist]:
     return sorted(matched, key=lambda w: _natural_name_key(w.name))
 
 
-def list_monitored_tickers(session: Session) -> tuple[list[str], list[str]]:
+def list_monitored_tickers_with_delisted(session: Session) -> tuple[list[str], list[str], list[str]]:
     """Union of tickers across every monitored watchlist (visited in natural name order),
     deduped (first-seen order preserved) so a ticker on more than one list is only
-    returned once. Shared by nightly_liquidity_zone_calculation.py,
+    returned once, **minus every delisted-flagged ticker** (TickerScore.delisted_at: out of
+    every job, CLAUDE.md "Tracked universe"). Shared by nightly_liquidity_zone_calculation.py,
     nightly_entry_signal_calculation.py, nightly_warren_signal_calculation.py and the
     daily-bars backfill.
 
-    Returns (tickers, matched_names) so callers can log which watchlists were actually
-    included -- there is no notion of a "missing" name, only however many (zero or more)
-    watchlists happen to match right now."""
+    Returns (tickers, matched_names, skipped_delisted): the matched names so callers can log
+    which watchlists were actually included -- there is no notion of a "missing" name, only
+    however many (zero or more) watchlists happen to match right now -- and the sorted
+    delisted tickers that were left out, for a job that reports the count."""
     matched = list_monitored_watchlists(session)
+    delisted = load_delisted_flagged(session)
     seen: set[str] = set()
     tickers: list[str] = []
     for watchlist in matched:
@@ -108,7 +112,15 @@ def list_monitored_tickers(session: Session) -> tuple[list[str], list[str]]:
             if row.ticker not in seen:
                 seen.add(row.ticker)
                 tickers.append(row.ticker)
-    return tickers, [w.name for w in matched]
+    skipped = sorted(set(tickers) & delisted)
+    return [t for t in tickers if t not in delisted], [w.name for w in matched], skipped
+
+
+def list_monitored_tickers(session: Session) -> tuple[list[str], list[str]]:
+    """(tickers, matched_names) of list_monitored_tickers_with_delisted, for a caller that does not
+    report the delisted count. A delisted-flagged ticker is never returned."""
+    tickers, matched_names, _skipped = list_monitored_tickers_with_delisted(session)
+    return tickers, matched_names
 
 
 def create_watchlist(session: Session, name: str) -> Watchlist:

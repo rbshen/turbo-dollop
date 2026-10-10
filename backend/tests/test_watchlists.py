@@ -4,12 +4,13 @@ from pathlib import Path
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from core.models import SavedScreenerFilter, Watchlist, WatchlistTicker
+from core.models import SavedScreenerFilter, TickerScore, Watchlist, WatchlistTicker
 from data.watchlists import (
     MONITORED_WATCHLIST_PATTERN,
     delete_watchlist,
     is_monitored_watchlist_name,
     list_monitored_tickers,
+    list_monitored_tickers_with_delisted,
     list_monitored_watchlists,
 )
 
@@ -109,6 +110,19 @@ def test_no_matching_watchlists_returns_empty_tickers_and_empty_matched_names():
 
     assert tickers == []
     assert matched == []
+
+
+def test_a_delisted_flagged_ticker_on_a_monitored_watchlist_is_left_out():
+    engine = _fresh_engine()
+    _seed_watchlist(engine, "E1", ["AAPL", "AVB"])
+    _seed_watchlist(engine, "E2", ["AVB", "MSFT"])  # on two lists: still left out, and reported once
+    with Session(engine) as session:
+        session.add(TickerScore(ticker="AVB", overall_score=60, computed_at=datetime.now(), delisted_at=datetime.now()))
+        session.add(TickerScore(ticker="AAPL", overall_score=60, computed_at=datetime.now()))  # a row with no flag stays
+        session.commit()
+
+        assert list_monitored_tickers(session) == (["AAPL", "MSFT"], ["E1", "E2"])
+        assert list_monitored_tickers_with_delisted(session) == (["AAPL", "MSFT"], ["E1", "E2"], ["AVB"])
 
 
 def test_no_job_module_keeps_its_own_copy_of_the_watchlist_pattern():

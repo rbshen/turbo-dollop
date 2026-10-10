@@ -11,7 +11,7 @@ import data.entry_signal_data as entry_signal_data
 import pipeline.nightly_entry_signal_calculation as nightly_entry_signal
 from analysis.entry_signal.engine import compute_entry_signal
 from core.cron_health import CronRunContext
-from core.models import SharedBarsCache, TechnicalEntrySignal, Watchlist, WatchlistTicker
+from core.models import SharedBarsCache, TechnicalEntrySignal, TickerScore, Watchlist, WatchlistTicker
 
 
 def _fake_bars() -> pd.DataFrame:
@@ -93,6 +93,23 @@ def test_main_processes_the_union_of_e1_and_e2_deduped(monkeypatch, tmp_path):
     assert sorted(store_calls) == ["AAPL", "GOOG", "MSFT"]  # each processed exactly once
     assert summary["processed"] == 3
     assert summary["failed"] == 0
+
+
+def test_main_skips_a_ticker_flagged_as_delisted(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_watchlist(engine, "E1", ["AAPL", "AVB"])
+    with Session(engine) as session:
+        session.add(TickerScore(ticker="AVB", overall_score=60, computed_at=datetime.now(), delisted_at=datetime.now()))
+        session.commit()
+
+    batch_calls = _patch_batch_fetch(monkeypatch, {"AAPL": _fake_bars(), "AVB": _fake_bars()})
+    store_calls = _patch_store(monkeypatch)
+
+    summary = asyncio.run(nightly_entry_signal.main())
+
+    assert set(batch_calls[0][0]) == {"AAPL"}
+    assert store_calls == ["AAPL"]
+    assert summary["processed"] == 1
 
 
 def test_main_also_includes_a_watchlists_named_e10_and_etf(monkeypatch, tmp_path):
