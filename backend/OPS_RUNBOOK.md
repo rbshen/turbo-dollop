@@ -56,8 +56,9 @@ groups (fundamentals, news, ...) can be toggled in Settings > FMP data groups; `
 FMP preflight is skipped when the master or `profile_quote` is off, and a 402
 there only warns. A nightly job whose group is off records a **skipped** run
 (blue dot in Scheduled Jobs, "Skipped since <date>") -- if a job shows skipped
-for longer than you intended, a group is still off. See CLAUDE.md's "Data groups"
-section for the full mechanism, the 402 safety net and what degrades.
+for longer than you intended, a group is still off. See
+docs/specs/fmp-data-and-bar-cache.md, "Data groups: pausing FMP", for the full mechanism, the 402 safety
+net and what degrades (CLAUDE.md keeps only the standing rules).
 
 **FMP plan-restriction / key problems:** a group showing "Restricted by FMP" was
 canary-confirmed to return HTTP 402 (re-checked weekly by

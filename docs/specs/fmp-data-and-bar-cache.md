@@ -45,8 +45,8 @@ group), `ENDPOINT_GROUP_OVERRIDES_USED` (endpoints reached by two groups via an 
 `group=`), `PROBE_ENDPOINTS` (canary per group), `STATEMENT_TYPE_GROUP` (cache-key gate).
 `tests/test_data_groups_registry.py` fails if any FMP endpoint or cached `statement_type` used
 in the code is unmapped, so this inventory can't silently drift from the code without CI
-noticing — an unmapped endpoint fails closed by design (see `CLAUDE.md`'s "Data groups"
-section).
+noticing — an unmapped endpoint fails closed by design (see the "Data groups: pausing
+FMP" section at the top of this document; `CLAUDE.md` keeps the standing rule).
 
 **36 distinct endpoint paths total** (35 fully gated by a single group; `/quote`, `/earnings`,
 and `/historical-price-eod/full` are each reached by two groups via an explicit override).
