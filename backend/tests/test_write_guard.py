@@ -1,32 +1,65 @@
-"""Regression test for conftest.py's _forbid_writes_to_real_db fixture --
-confirms the guard actually fires on a real write attempt against the real
-core.db.engine, rather than trusting the fixture is wired correctly on
-faith. Does not (and must not) actually commit anything: the guard raises
-before the statement reaches SQLite."""
-
-from datetime import datetime
+"""The conftest write guard (`_forbid_write`) blocks writes AND schema changes on the real fathom.db engine only.
+Never touches the real file: the behaviour is proven on a temp-file engine that carries the same listener."""
 
 import pytest
-from sqlmodel import Session
+from sqlalchemy import create_engine, event, inspect, text
 
-from core.db import engine
-from core.models import GrowthCatalystNote
-
-
-def test_write_guard_fires_on_a_real_write_attempt():
-    with Session(engine) as session:
-        session.add(
-            GrowthCatalystNote(ticker="__WRITE_GUARD_TEST__", notes="should never persist", updated_at=datetime.now())
-        )
-        with pytest.raises(RuntimeError, match="attempted to write to the REAL core.db.engine"):
-            session.commit()
-    # Confirm nothing was actually written despite the attempt.
-    with Session(engine) as verify_session:
-        assert verify_session.get(GrowthCatalystNote, "__WRITE_GUARD_TEST__") is None
+from core.db import engine as real_engine
+from conftest import _forbid_write  # the module pytest loaded (tests/ is on sys.path), so the identity matches the listener
 
 
-def test_write_guard_does_not_block_reads():
-    with Session(engine) as session:
-        # A plain SELECT against the real engine must not raise -- the
-        # guard only blocks writes, never reads.
-        session.get(GrowthCatalystNote, "AAPL")
+def _guarded_engine(tmp_path):
+    path = tmp_path / "guarded.db"
+    engine = create_engine(f"sqlite:///{path}")
+    with engine.begin() as conn:  # built before the listener is attached, like the real file
+        conn.execute(text("CREATE TABLE t (id INTEGER PRIMARY KEY, keep TEXT, extra TEXT)"))
+        conn.execute(text("INSERT INTO t (keep, extra) VALUES ('a', 'b')"))
+    event.listen(engine, "before_cursor_execute", _forbid_write)
+    return engine
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "ALTER TABLE t DROP COLUMN extra",
+        "  alter table t add column z TEXT",
+        "DROP TABLE t",
+        "CREATE TABLE u (id INTEGER)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix ON t (keep)",
+        "REINDEX",
+        "VACUUM",
+    ],
+)
+def test_schema_changes_on_a_guarded_engine_fail_and_leave_the_file_untouched(tmp_path, statement):
+    engine = _guarded_engine(tmp_path)
+    with pytest.raises(RuntimeError, match="SCHEMA change"):
+        with engine.begin() as conn:
+            conn.execute(text(statement))
+    assert [c["name"] for c in inspect(engine).get_columns("t")] == ["id", "keep", "extra"]
+    assert inspect(engine).get_table_names() == ["t"]
+
+
+@pytest.mark.parametrize("statement", ["INSERT INTO t (keep) VALUES ('x')", "UPDATE t SET keep='y'", "DELETE FROM t"])
+def test_row_writes_on_a_guarded_engine_still_fail(tmp_path, statement):
+    with pytest.raises(RuntimeError, match="write to the REAL"):
+        with _guarded_engine(tmp_path).begin() as conn:
+            conn.execute(text(statement))
+
+
+def test_reads_on_a_guarded_engine_still_work(tmp_path):
+    engine = _guarded_engine(tmp_path)
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT keep FROM t")).scalar() == "a"
+        assert conn.execute(text("PRAGMA table_info(t)")).fetchall()
+
+
+def test_an_unguarded_in_memory_engine_can_still_create_and_alter_tables():
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE t (id INTEGER, extra TEXT)"))
+        conn.execute(text("ALTER TABLE t DROP COLUMN extra"))
+    assert [c["name"] for c in inspect(engine).get_columns("t")] == ["id"]
+
+
+def test_the_session_guard_is_attached_to_the_real_engine():
+    assert event.contains(real_engine, "before_cursor_execute", _forbid_write)

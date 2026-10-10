@@ -35,10 +35,20 @@ from core.db import engine as real_engine
 from core.models import DataSourceHealth
 
 _WRITE_PREFIXES = ("INSERT", "UPDATE", "DELETE", "REPLACE")
+# Schema changes are blocked too (2026-10-10): the guard used to let ALTER TABLE ... DROP COLUMN through, so a test that booted the
+# app (lifespan -> init_db) against the real file dropped real columns. Only the real engine carries this listener; an in-memory
+# or temp-file test engine can still create and alter its own tables.
+_DDL_PREFIXES = ("ALTER", "DROP", "CREATE", "REINDEX", "VACUUM")
 
 
 def _forbid_write(conn, cursor, statement, parameters, context, executemany):
     normalized = statement.strip().upper()
+    if normalized.startswith(_DDL_PREFIXES):
+        raise RuntimeError(
+            "A test attempted a SCHEMA change on the REAL core.db.engine "
+            f"(statement: {statement[:200]!r}). Something ran init_db() or a migration against fathom.db -- "
+            "isolate its engine (see CLAUDE.md's \"Ad-hoc reproduction scripts must not touch the real database\")."
+        )
     if normalized.startswith(_WRITE_PREFIXES):
         raise RuntimeError(
             "A test attempted to write to the REAL core.db.engine "
