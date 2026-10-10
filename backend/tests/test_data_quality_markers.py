@@ -11,6 +11,7 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine, delete
 
 import core.db as core_db
+from conftest import real_engine as _real_core_engine  # core.db.engine itself is isolated per test (conftest._isolate_core_db_engine)
 import data.financials_data as financials_data
 import data.ratios_data as ratios_data
 import data.step4_data as step4_data
@@ -28,7 +29,7 @@ CASH_FLOW_ANNUAL_TYPE = ("cash_flow_statement", "annual")
 def engine(monkeypatch):
     test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(test_engine)
-    real = core_db.engine
+    real = _real_core_engine
     for module in list(sys.modules.values()):
         if module is not core_db and getattr(module, "engine", None) is real:
             monkeypatch.setattr(module, "engine", test_engine)

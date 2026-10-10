@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import core.db as core_db
+from conftest import real_engine as _real_core_engine  # core.db.engine itself is isolated per test (conftest._isolate_core_db_engine)
 from clients.fmp_client import FMPClient, fmp_client
 from core.exceptions import TickerNotFoundError
 from core.models import FundamentalsCache
@@ -39,7 +40,7 @@ def _install(monkeypatch, profile):
     FMPClient get_* method. Returns (engine, Counter of calls by method name)."""
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     SQLModel.metadata.create_all(engine)
-    real_engine = core_db.engine
+    real_engine = _real_core_engine
     for module in list(sys.modules.values()):
         if module is not core_db and getattr(module, "engine", None) is real_engine:
             monkeypatch.setattr(module, "engine", engine)

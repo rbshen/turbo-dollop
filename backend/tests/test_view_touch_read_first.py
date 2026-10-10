@@ -15,6 +15,7 @@ from sqlalchemy.exc import OperationalError
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import core.db as db
+from conftest import real_engine as _real_core_engine  # core.db.engine itself is isolated per test (conftest._isolate_core_db_engine)
 import core.main as main
 import data.tracked_universe as tu
 from core.models import TickerView
@@ -206,7 +207,7 @@ def test_the_summary_route_on_a_ticker_from_yesterday_writes_the_view_exactly_on
 
 def test_the_real_engine_waits_the_named_constant_for_a_lock():
     assert db.SQLITE_BUSY_TIMEOUT_SECONDS == 15
-    raw = db.engine.raw_connection()  # a pure read of the connection setting; the write guard allows it
+    raw = _real_core_engine.raw_connection()  # a pure read of the connection setting; the write guard allows it
     try:
         assert raw.execute("PRAGMA busy_timeout").fetchone()[0] == db.SQLITE_BUSY_TIMEOUT_SECONDS * 1000
     finally:

@@ -15,6 +15,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import core.db as core_db
+from conftest import real_engine as _real_core_engine  # core.db.engine itself is isolated per test (conftest._isolate_core_db_engine)
 import core.main as main
 import data.tracked_universe as tu
 import data.watchlist_data as watchlist_data
@@ -32,7 +33,7 @@ FROZEN_AT = datetime(2026, 10, 3, 3, 25)
 def env(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     SQLModel.metadata.create_all(engine)
-    real = core_db.engine
+    real = _real_core_engine
     for module in list(sys.modules.values()):
         if module is not core_db and getattr(module, "engine", None) is real:
             monkeypatch.setattr(module, "engine", engine)
