@@ -443,6 +443,20 @@ class Step5Out(BaseModel):
     debt_to_ebitda_series: list[float | None] = []
 
 
+class ScoredRatioOut(BaseModel):
+    """The average a Profitability ratio (ROE or ROIC) was tiered on (scoring/step4.py::scored_ratio_summary): not the latest value.
+    Display only; null `average` with a `basis` says why there is none."""
+
+    # "average" | "negative_equity" (ROE only: tiered on net income because equity was negative in some period)
+    basis: str
+    average: float | None = None
+    minimum: float | None = None
+    points_used: int = 0
+    points_total: int = 0
+    recovery_excluded: int = 0
+    spike_excluded: bool = False
+
+
 class Step4Out(BaseModel):
     # years/roe/roic/revenue/accounts_receivable/ccc AND
     # score/verdict/hard_fail/components all now share the same 10yr+TTM
@@ -495,6 +509,10 @@ class Step4Out(BaseModel):
     # {} when score is None (insufficient_data) -- never a fabricated weight
     # for a component that was never actually scored.
     weights: dict[str, float] = {}
+    # The averages the ROE / ROIC tiers were read from (display only, the dashboard's "scored value"); None when that ratio
+    # was not scored (insufficient data, or ROIC exempt).
+    roe_scored: ScoredRatioOut | None = None
+    roic_scored: ScoredRatioOut | None = None
     # Informational only -- never changes score/verdict (see CLAUDE.md's
     # Step 4 deviations). None unless ROE is "excellent"/"good" while ROIC
     # is "marginal" (a "fail" ROIC already hard-fails on its own).
@@ -2650,6 +2668,47 @@ class StuckFigureOut(BaseModel):
     text: str | None = None
 
 
+class StuckSeriesPointOut(BaseModel):
+    label: str  # fiscal year
+    value: float | None = None
+
+
+class StuckSeriesOut(BaseModel):
+    """A per-fiscal-year series (chronological, last 5 completed fiscal years) for a small chart. Additive to `figures`."""
+
+    key: str
+    label: str
+    unit: str  # pct | pp
+    points: list[StuckSeriesPointOut] = []
+
+
+class StuckReturnWindowOut(BaseModel):
+    months: int  # 1 | 3 | 6 | 12
+    # Split-adjusted price returns in percent (no dividends), calendar months back from a common end date.
+    stock_pct: float | None = None
+    sector_pct: float | None = None
+    spy_pct: float | None = None
+
+
+class StuckReturnsOut(BaseModel):
+    """Row 8's raw returns: the stock's own, the sector ETF's and SPY's for every window."""
+
+    sector_etf: str
+    benchmark: str = "SPY"
+    # The in-line band in percentage points (Settings > Why might it be stuck?).
+    band_pp: float
+    windows: list[StuckReturnWindowOut] = []
+
+
+class StuckGrowthOut(BaseModel):
+    """Row 10's headline numbers; median and percentile are null with too few tracked sector peers."""
+
+    cagr_5y: float
+    sector_median: float | None = None
+    percentile: float | None = None
+    sector_peers: int = 0
+
+
 class StuckRowOut(BaseModel):
     key: str
     number: int
@@ -2659,6 +2718,11 @@ class StuckRowOut(BaseModel):
     reason: str | None = None
     figures: list[StuckFigureOut] = []
     notes: list[str] = []
+    # Additive detail for the dashboard's small charts (the figures above are unchanged): per-fiscal-year series on rows 9, 10
+    # and 12, the raw returns on row 8, the headline numbers on row 10. Empty / null where the row has none.
+    series: list[StuckSeriesOut] = []
+    returns: StuckReturnsOut | None = None
+    growth: StuckGrowthOut | None = None
 
 
 class StuckCheckOut(BaseModel):
@@ -2752,3 +2816,163 @@ class StuckCheckSettingsOut(BaseModel):
     bounds: dict[str, StuckCheckBoundsOut]
     row_options: list[StuckCheckRowOptionOut]
     updated_at: datetime
+
+
+# --- Dashboard tab (docs/specs/dashboard.md): one cache-only read of everything the five scored steps and the price/valuation
+# sections draw. Presentation only: every score and verdict is what the step functions return, nothing is recomputed here. ---
+
+
+class DashboardStepHeadOut(BaseModel):
+    """The words a step's pill shows. `score`/`verdict` are the step function's own result (cache only), `stored_*` the TickerScore
+    row's; the two differ only when the stored row is stale. `verdict` keeps the stored key ("Fail", never "May not pass")."""
+
+    score: int | None = None
+    verdict: str | None = None
+    stored_score: int | None = None
+    stored_verdict: str | None = None
+
+
+class DashboardYearsOut(BaseModel):
+    years: list[str] = []  # completed fiscal years, oldest first, at most 5 (no TTM)
+    revenue: list[float | None] = []
+    net_income: list[float | None] = []
+    cfo: list[float | None] = []
+
+
+class DashboardFinancialsOut(DashboardStepHeadOut):
+    available: bool = False
+    # Which of the three charted series are SCORED for this company type: Bank / Insurance / REIT / Commodity are scored on revenue and
+    # net income only (CFO shown, not scored); Standard and Utility score all three.
+    scored_revenue: bool = True
+    scored_net_income: bool = True
+    scored_cfo: bool = True
+    cfo_exempt_reason: str | None = None  # "Bank" | "Insurance" | "Property Developer" | "Commodity Company"
+    series: DashboardYearsOut = DashboardYearsOut()
+
+
+class DashboardGrowthOut(DashboardStepHeadOut):
+    available: bool = False
+    growth_rate: float | None = None  # analyst-estimate CAGR, percent
+    target_analyst_count: int | None = None
+    basis: str | None = None  # "eps" | "revenue"
+    base_fiscal_year: str | None = None
+    target_fiscal_year: str | None = None
+
+
+class DashboardPricePointOut(BaseModel):
+    day: date
+    close: float
+
+
+class DashboardMoatOut(BaseModel):
+    """Economic Moat is a manual rating that multiplies the score, not a scored step: no score or verdict here."""
+
+    moat: str | None = None  # "no_moat" | "narrow_moat" | "wide_moat" | None (not rated, scored as No moat)
+    rated: bool = False
+    multiplier: float | None = None
+    # Weekly closes (the last bar of each week) from the nightly cached daily bars, newest last. Empty when nothing is cached.
+    price_series: list[DashboardPricePointOut] = []
+    price_years_covered: float | None = None  # the span the series really covers; the label says "5-year" only when close to it
+    price_label: str = "5-year price"
+    price_unavailable_reason: str | None = None
+
+
+class DashboardTierCutoffsOut(BaseModel):
+    excellent: float
+    good: float
+    marginal: float
+    min_year: float  # the worst single year must clear this for excellent / good
+
+
+class DashboardRatioSeriesOut(BaseModel):
+    exempt_reason: str | None = None  # set when the ratio does not apply to this company type (ROIC: Bank, Insurance, Utility, REIT)
+    years: list[str] = []  # the last 5 completed fiscal years
+    values: list[float | None] = []  # percent, for context
+    scored: ScoredRatioOut | None = None  # the average the tier was read from
+
+
+class DashboardProfitabilityOut(DashboardStepHeadOut):
+    available: bool = False
+    roe: DashboardRatioSeriesOut = DashboardRatioSeriesOut()
+    roic: DashboardRatioSeriesOut = DashboardRatioSeriesOut()
+    # The tier cut-offs both ratios share (scoring/step4.py), in percent.
+    cutoffs: DashboardTierCutoffsOut | None = None
+
+
+class DashboardDebtRatioOut(BaseModel):
+    key: str  # current_ratio | debt_to_ebitda | debt_servicing_ratio | gearing_ratio | cet1_ratio | npl_ratio
+    label: str
+    unit: str  # "x" | "pct"
+    direction: str  # "floor" (higher is safer) | "ceiling" (lower is safer)
+    value: float | None = None
+    adjusted_value: float | None = None  # current ratio net of deferred revenue, when it differs
+    tier: str | None = None  # the scorer's label (excellent, good, borderline_fail, ...)
+    points: int | None = None
+    excluded: bool = False  # present but not counted in the blend (Debt Servicing with non-positive cash flow)
+    note: str | None = None
+    # The line the ratio passes at, and the hard limit beyond it. Between the two is the monitor zone (a breach a tiebreaker can
+    # still rescue). Equal when the ratio has one line only (REIT gearing, Bank CET1 and NPL): no monitor zone.
+    pass_line: float
+    hard_limit: float
+
+
+class DashboardDebtOut(DashboardStepHeadOut):
+    available: bool = False
+    # "scored" | "not_applicable" (Insurance, ETF, an excluded Bank) | "partial" (Bank with one of CET1 / NPL missing) | "insufficient_data"
+    status: str = "insufficient_data"
+    status_reason: str | None = None
+    ratios: list[DashboardDebtRatioOut] = []
+    unrescued_breaches: list[str] = []
+    pass_with_caution: bool = False
+
+
+class DashboardFairValueOut(BaseModel):
+    available: bool = False
+    # Why there is no fair value: "pass_method" (no valuation method applies) | "insufficient_data" | "no_price" | "not_scored" | None
+    unavailable_reason: str | None = None
+    unavailable_detail: str | None = None
+    fair_value_price: float | None = None
+    verdict: str | None = None  # undervalued | fair | overvalued (as the header pill)
+    method: str | None = None
+    source: str | None = None  # "auto" | "custom"
+    price: float | None = None
+    currency: str = "USD"  # the quote currency price and fair_value_price are in
+    # The verdict band as multiples of fair value (scoring/step3.py thresholds): under `band_low` reads undervalued, over `band_high` overvalued.
+    band_low: float
+    band_high: float
+    # price / fair value - 1, percent (negative = price below fair value)
+    discount_premium_pct: float | None = None
+
+
+class DashboardStageWeekOut(BaseModel):
+    week: date  # the Monday the weekly bar is labelled with
+    stage: str | None = None  # base | advance | top | decline | None before the machine is seeded
+
+
+class DashboardWeinsteinOut(BaseModel):
+    available: bool = False
+    unavailable_reason: str | None = None
+    weeks_available: int = 0
+    weeks_required: int = 0
+    stage: str | None = None
+    since_date: date | None = None
+    since_is_lower_bound: bool = False
+    weeks: list[DashboardStageWeekOut] = []  # the last ~12 months, oldest first
+    ma_label: str | None = None  # e.g. "EMA30"
+
+
+class DashboardOut(BaseModel):
+    ticker: str
+    applicable: bool = True
+    not_applicable_reason: str | None = None  # "Stocks only" for an ETF / fund
+    # False when the ticker has no cached profile at all (nothing to build the sections from).
+    has_data: bool = True
+    company_type: str | None = None
+    currency: str = "USD"  # the reporting currency of the money series in Financials
+    financials: DashboardFinancialsOut = DashboardFinancialsOut()
+    growth: DashboardGrowthOut = DashboardGrowthOut()
+    moat: DashboardMoatOut = DashboardMoatOut()
+    profitability: DashboardProfitabilityOut = DashboardProfitabilityOut()
+    debt: DashboardDebtOut = DashboardDebtOut()
+    fair_value: DashboardFairValueOut = DashboardFairValueOut(band_low=0.9, band_high=1.1)
+    weinstein: DashboardWeinsteinOut = DashboardWeinsteinOut()

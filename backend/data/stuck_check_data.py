@@ -15,7 +15,16 @@ from sqlmodel import Session, select
 from clients.shared_bars_cache import read_cached_daily_bars_batch
 from core.db import engine
 from core.models import FundamentalsCache, TickerScore
-from core.schemas import StuckCheckOut, StuckFigureOut, StuckRowOut
+from core.schemas import (
+    StuckCheckOut,
+    StuckFigureOut,
+    StuckGrowthOut,
+    StuckReturnsOut,
+    StuckReturnWindowOut,
+    StuckRowOut,
+    StuckSeriesOut,
+    StuckSeriesPointOut,
+)
 from core.tickers import normalize_ticker
 from data.market_breadth_data import SECTOR_TO_ETF
 from data.stuck_check_settings import load_stuck_settings
@@ -158,7 +167,7 @@ def sector_context(session: Session, sector: str) -> _SectorContext:
 
 
 def trailing_returns_pct(close: pd.Series, end: pd.Timestamp) -> dict[int, float | None]:
-    """Total return in percent over 1/3/6/12 calendar months ending at the last bar on or before `end`; None when the cached history
+    """Split-adjusted price return in percent (dividends are not included) over 1/3/6/12 calendar months ending at the last bar on or before `end`; None when the cached history
     does not reach back far enough for a window."""
     close = close[close.index <= end].dropna()
     result: dict[int, float | None] = {m: None for m in RELATIVE_STRENGTH_WINDOWS}
@@ -195,6 +204,19 @@ def _relative_strength(ticker: str, sector: str | None, band_pp: float, weight_p
 
 def _row_out(row: StuckRow) -> StuckRowOut:
     return StuckRowOut(
+        series=[
+            StuckSeriesOut(key=s.key, label=s.label, unit=s.unit, points=[StuckSeriesPointOut(label=p.label, value=p.value) for p in s.points])
+            for s in row.series
+        ],
+        returns=StuckReturnsOut(
+            sector_etf=row.returns.sector_etf,
+            benchmark=row.returns.benchmark,
+            band_pp=row.returns.band_pp,
+            windows=[StuckReturnWindowOut(**vars(w)) for w in row.returns.windows],
+        )
+        if row.returns
+        else None,
+        growth=StuckGrowthOut(**vars(row.growth)) if row.growth else None,
         key=row.key,
         number=row.number,
         title=row.title,

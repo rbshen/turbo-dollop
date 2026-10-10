@@ -180,6 +180,30 @@ def test_standard_company_full_pipeline(monkeypatch):
     assert result.weights == {"roe": 0.25, "roic": 0.35, "revenue_vs_ar": 0.20, "ccc": 0.20}
 
 
+def test_scored_averages_are_the_series_the_tiers_were_read_from(monkeypatch):
+    """Display only (the dashboard's scored value): roe_scored / roic_scored must summarise the exact cleaned series that was scored."""
+    from scoring.step4 import scored_ratio_summary
+
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch)
+
+    result = asyncio.run(get_step4_data("aapl"))
+
+    assert result.roe_scored is not None and result.roe_scored.basis == "average"
+    expected = scored_ratio_summary([v for v in result.roe if v is not None])
+    assert result.roe_scored.average == expected.average and result.roe_scored.points_total == expected.points_total
+    assert result.roic_scored is not None and result.roic_scored.points_used >= 1
+
+
+def test_scored_averages_are_absent_when_roic_is_exempt(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch, sector="Financial Services", industry="Banks - Diversified")
+
+    result = asyncio.run(get_step4_data("jpm"))
+
+    assert result.roic_scored is None and result.roe_scored is not None
+
+
 # TEAM Defect B shape (2026-08-16 investigation): the latest quarter (a Q4
 # matching the fixture's own most recent annual fiscal year, "2025") is a
 # content-duplicate of the annual row for revenue/netIncome/costOfRevenue --

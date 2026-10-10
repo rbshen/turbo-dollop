@@ -67,6 +67,7 @@ from data.ratios_data import get_ratios_data
 from data.saved_screener_filters import delete_saved_filter, list_saved_filters, upsert_saved_filter
 from data.segmentation_data import get_segmentation_data
 from data.speculative_growth_data import get_speculative_growth_data
+from data.dashboard_data import get_dashboard_data
 from data.stuck_check_data import get_stuck_check_data
 from data.stuck_check_settings import (
     get_stuck_settings_row,
@@ -127,6 +128,7 @@ from core.schemas import (
     RefreshResult,
     ReitDividendYieldConfigIn,
     ReitDividendYieldConfigOut,
+    DashboardOut,
     StuckCheckOut,
     StuckCheckSettingsIn,
     StuckCheckSettingsOut,
@@ -1106,6 +1108,12 @@ async def ticker_speculative_growth(ticker: str) -> SpeculativeGrowthOut:
 def ticker_stuck_check(ticker: str) -> StuckCheckOut:
     """The informational "Why might it be stuck?" card. Cache only: no FMP call, no write, feeds nothing (docs/specs/stuck-check.md)."""
     return get_stuck_check_data(ticker)
+
+
+@app.get("/api/tickers/{ticker}/dashboard", response_model=DashboardOut)
+async def ticker_dashboard(ticker: str) -> DashboardOut:
+    """The Dashboard tab's step blocks, fair-value block and Weinstein stage series. Cache only: no FMP call, no write (docs/specs/dashboard.md)."""
+    return await get_dashboard_data(ticker)
 
 
 @app.get("/api/tickers/{ticker}/bank-capital-metrics", response_model=TickerBankCapitalMetricsOut)

@@ -114,6 +114,12 @@ good_undervalued_since_for`) return the smoothed since-date: it starts on the fi
 `smoothing_days` **consecutive trading-day** snapshots out of the state (weekend and holiday snapshots and missing snapshots count as
 neither). No UI reads it yet. The log starts the day the job first runs, so an older state is reported from the first logged day.
 
+## Dashboard payload (additive, 2026-10-10)
+
+For the Dashboard tab (docs/specs/dashboard.md) the endpoint also returns, per row and additively, `series` (per-fiscal-year points on rows 9, 10, 12), `returns`
+(row 8: stock, sector ETF and SPY returns for all four windows, the ETF symbol and the in-line band) and `growth` (row 10: CAGR, sector median, percentile,
+peer count). The rows, figures and labels above are unchanged. The return windows are split-adjusted **price** returns: dividends are not included.
+
 ## Open follow-ups
 
 - **IBKR and GM in Step 1 (Financials).** The exemptions above stop the card from drawing a cash-flow conclusion for these two, but

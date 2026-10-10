@@ -222,3 +222,91 @@ def test_money_figures_carry_the_reporting_currency(db):
     income = [{**row, "reportedCurrency": "CNY"} for row in income_rows()]
     seed(db, "ACME", income=income)
     assert get_stuck_check_data("ACME").currency == "CNY"
+
+
+# --- additive dashboard fields (docs/specs/dashboard.md): the existing figures are unchanged, new detail rides beside them -------
+
+
+def _bars_frame(growth):
+    idx = pd.bdate_range(date.today() - timedelta(days=440), periods=300)
+    return pd.DataFrame({"close": [100 * (1 + growth) ** i for i in range(len(idx))]}, index=idx)
+
+
+def test_relative_strength_returns_all_four_windows_for_stock_sector_and_spy(db, monkeypatch):
+    monkeypatch.setattr(
+        stuck_data, "read_cached_daily_bars_batch",
+        lambda tickers, days, reference=None: {"ACME": _bars_frame(0.002), "XLK": _bars_frame(0.001), "SPY": _bars_frame(0.0005)},
+    )
+    seed(db, "ACME")
+    row = rows_of(get_stuck_check_data("ACME"))["relative_strength"]
+    detail = row.returns
+    assert detail.sector_etf == "XLK" and detail.benchmark == "SPY" and detail.band_pp == 2.0
+    assert [w.months for w in detail.windows] == [1, 3, 6, 12]
+    one_month = detail.windows[0]
+    assert one_month.stock_pct > one_month.sector_pct > one_month.spy_pct > 0  # SPY 1M and 3M are present too
+    assert all(w.spy_pct is not None for w in detail.windows)
+    # the gap in the existing figures is the same arithmetic as the returns next to it
+    gap = {f.key: f.value for f in row.figures}["vs_sector_6m"]
+    six = detail.windows[2]
+    assert gap == pytest.approx(six.stock_pct - six.sector_pct)
+
+
+def test_relative_strength_returns_are_blank_where_the_cache_does_not_reach(db, monkeypatch):
+    short = _bars_frame(0.002).iloc[-60:]  # ~3 months of bars
+    monkeypatch.setattr(stuck_data, "read_cached_daily_bars_batch", lambda tickers, days, reference=None: {"ACME": short, "XLK": short, "SPY": short})
+    seed(db, "ACME")
+    windows = {w.months: w for w in rows_of(get_stuck_check_data("ACME"))["relative_strength"].returns.windows}
+    assert windows[1].stock_pct is not None and windows[12].stock_pct is None and windows[12].spy_pct is None
+
+
+def test_relative_strength_has_no_returns_when_not_applicable_or_not_reported(db):
+    seed(db, "ACME", profile={"sector": "Mystery"})
+    assert rows_of(get_stuck_check_data("ACME"))["relative_strength"].returns is None
+    seed(db, "NOBARS")  # bars stubbed empty
+    assert rows_of(get_stuck_check_data("NOBARS"))["relative_strength"].returns is None
+
+
+def test_margins_and_roic_rows_carry_per_year_series_for_the_last_five_fiscal_years(db):
+    seed(db, "ACME", metrics=metrics_rows(roic=lambda i: 0.0 if i == 6 else 0.05 + i / 100))
+    rows = rows_of(get_stuck_check_data("ACME"))
+    margin = rows["margins"].series[0]
+    assert margin.key == "operating_margin" and [p.label for p in margin.points] == ["2021", "2022", "2023", "2024", "2025"]
+    assert all(p.value == pytest.approx(15.0) for p in margin.points)
+    roic = rows["roic"].series[0]
+    assert roic.key == "roic" and [p.label for p in roic.points] == ["2021", "2022", "2023", "2024", "2025"]
+    assert roic.points[0].value == pytest.approx(10.0) and roic.points[1].value is None  # 2022: an exact zero is FMP's "no figure", blank
+    assert roic.points[-1].value == pytest.approx(14.0)
+    assert [f.key for f in rows["margins"].figures][:3] == ["operating_margin_first3", "operating_margin_last3", "operating_margin_slope"]  # unchanged
+
+
+def test_series_are_empty_for_a_not_applicable_or_not_reported_row(db):
+    seed(db, "ACME", profile={"industry": "Banks - Diversified", "sector": "Financial Services"})
+    assert rows_of(get_stuck_check_data("ACME"))["roic"].series == []
+    short = income_rows()[:3]
+    seed(db, "THIN", income=short, cash=cash_rows()[:3], metrics=metrics_rows()[:3])
+    thin = rows_of(get_stuck_check_data("THIN"))
+    assert thin["margins"].series == [] and thin["growth"].series == [] and thin["growth"].growth is None
+
+
+def test_growth_row_carries_the_cagr_median_percentile_and_year_on_year_series(db):
+    seed(db, "ACME", income=income_rows(revenue=lambda i: 100 * 1.2**i), score={"market_cap": 400.0})
+    for n in range(6):
+        seed(db, f"P{n}", income=income_rows(revenue=lambda i, n=n: 100 * (1.02 + 0.02 * n) ** i), score={"market_cap": 100.0})
+    from core.models import TickerView
+
+    with Session(db) as session:
+        for t in ["ACME"] + [f"P{n}" for n in range(6)]:
+            session.add(TickerView(ticker=t, last_viewed_at=date.today(), added_at=datetime.now()))
+        session.commit()
+    stuck_data.invalidate_sector_cache()
+    growth = rows_of(get_stuck_check_data("ACME"))["growth"]
+    assert growth.growth.cagr_5y == pytest.approx(20.0) and growth.growth.sector_median == pytest.approx(8.0)
+    assert growth.growth.percentile == 86.0 and growth.growth.sector_peers == 7
+    yoy = growth.series[0]
+    assert yoy.key == "revenue_growth" and len(yoy.points) == 5 and all(p.value == pytest.approx(20.0) for p in yoy.points)
+
+
+def test_growth_without_enough_peers_has_a_cagr_and_no_median(db):
+    seed(db, "ACME")
+    growth = rows_of(get_stuck_check_data("ACME"))["growth"]
+    assert growth.growth.cagr_5y == pytest.approx(0.0) and growth.growth.sector_median is None and growth.growth.percentile is None

@@ -135,6 +135,50 @@ class Figure:
 
 
 @dataclass
+class SeriesPoint:
+    label: str  # fiscal year
+    value: float | None
+
+
+@dataclass
+class Series:
+    """A per-fiscal-year series for a small chart (chronological, the last 5 completed fiscal years). Additive to `figures`."""
+
+    key: str
+    label: str
+    unit: str  # pct | pp
+    points: list[SeriesPoint]
+
+
+@dataclass
+class ReturnWindow:
+    months: int
+    stock_pct: float | None
+    sector_pct: float | None
+    spy_pct: float | None
+
+
+@dataclass
+class ReturnsDetail:
+    """Row 8's raw returns for all four windows, so the stock's and the benchmarks' own returns can sit next to each gap."""
+
+    sector_etf: str
+    benchmark: str
+    band_pp: float
+    windows: list[ReturnWindow]
+
+
+@dataclass
+class GrowthDetail:
+    """Row 10's headline numbers in one place (the bar reads these). Median and percentile are None with fewer than MIN_SECTOR_PEERS."""
+
+    cagr_5y: float
+    sector_median: float | None
+    percentile: float | None
+    sector_peers: int
+
+
+@dataclass
 class StuckRow:
     key: str
     number: int
@@ -143,6 +187,9 @@ class StuckRow:
     reason: str | None = None
     figures: list[Figure] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    series: list[Series] = field(default_factory=list)
+    returns: ReturnsDetail | None = None
+    growth: GrowthDetail | None = None
 
 
 @dataclass
@@ -473,6 +520,7 @@ def margins_row(years: list[FiscalYear], company_type: str | None, exempt: dict[
         return row
     operating = [y.operating_income / y.revenue * 100 for y in last]
     row.figures = _margin_figures("operating_margin", "Operating margin", operating)
+    row.series = [Series("operating_margin", "Operating margin", "pct", [SeriesPoint(y.fiscal_year, v) for y, v in zip(last, operating)])]
     if company_type == "Bank":
         row.notes.append("Gross margin not shown: FMP gross profit is not a real margin for banks")
     elif all(_has(y.gross_profit) for y in last):
@@ -508,12 +556,27 @@ def growth_row(years: list[FiscalYear], sector_cagrs: list[float], exempt: dict[
         row.status, row.reason = NOT_REPORTED, "Fewer than 6 fiscal years of revenue"
         return row
     row.figures = [Figure("revenue_cagr_5y", "Revenue growth, 5-year CAGR", cagr, "pct")]
+    detail = GrowthDetail(cagr_5y=cagr, sector_median=None, percentile=None, sector_peers=len(sector_cagrs))
+    row.growth = detail
+    recent = years[-(GROWTH_YEARS + 1):]
+    row.series = [
+        Series(
+            "revenue_growth",
+            "Revenue growth, year on year",
+            "pct",
+            [
+                SeriesPoint(cur.fiscal_year, (cur.revenue / prev.revenue - 1) * 100 if _has(prev.revenue) and prev.revenue > 0 and _has(cur.revenue) else None)
+                for prev, cur in zip(recent, recent[1:])
+            ],
+        )
+    ]
     if len(sector_cagrs) >= MIN_SECTOR_PEERS:
         ordered = sorted(sector_cagrs)
         mid = len(ordered) // 2
         median = ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2
         below = sum(1 for c in sector_cagrs if c < cagr)
         percentile = round(below / len(sector_cagrs) * 100)
+        detail.sector_median, detail.percentile = median, float(percentile)
         row.figures.append(Figure("sector_median_cagr", "Sector median", median, "pct"))
         row.figures.append(Figure("sector_percentile", "Within its sector", float(percentile), "count", f"{ordinal(percentile)} percentile"))
     else:
@@ -554,6 +617,10 @@ def roic_row(years: list[FiscalYear], company_type: str | None, exempt: dict[str
     if len(points) < MIN_LABELLED_YEARS:
         row.status, row.reason = NOT_REPORTED, "Fewer than 3 fiscal years of ROIC"
         return row
+    last = years[-MARGIN_YEARS:]
+    row.series = [
+        Series("roic", "Return on invested capital", "pct", [SeriesPoint(y.fiscal_year, y.roic_pct if _has(y.roic_pct) and y.roic_pct != 0.0 else None) for y in last])
+    ]
     row.figures = [
         Figure("roic_first", "Earliest year", points[0], "pct"),
         Figure("roic_latest", "Latest year", points[-1], "pct"),
@@ -637,6 +704,12 @@ def relative_strength_row(
     for months in (6, 12):
         d = diff(stock, spy, months)
         row.figures.append(Figure(f"vs_spy_{months}m", f"vs SPY, {labels[months]}", d, "pp", _word(d, band_pp)))
+    row.returns = ReturnsDetail(
+        sector_etf=sector_etf,
+        benchmark="SPY",
+        band_pp=band_pp,
+        windows=[ReturnWindow(m, stock.get(m), sector.get(m), spy.get(m)) for m in RELATIVE_STRENGTH_WINDOWS],
+    )
     if sector_weight_pct is not None and sector_weight_pct > WEIGHT_NOTE_PCT_OF_SECTOR:
         row.notes.append(
             f"This stock is {sector_weight_pct:.0f}% of its sector's tracked market cap, so the sector ETF partly measures the stock itself"
