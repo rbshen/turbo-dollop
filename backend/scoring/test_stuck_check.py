@@ -157,27 +157,6 @@ def test_sbc_not_reported_wmt_like_follows_into_row_3_and_drops_row_4():
     assert missing["sbc"].status == NOT_REPORTED  # missing counts like zero
 
 
-def test_one_or_two_zero_sbc_years_add_a_note_on_rows_2_and_3_and_change_nothing_else():
-    base = dict(revenue=1000.0, net_income=50.0, fcf=60.0, diluted_shares=100.0)
-    full = evaluate(years(10, sbc=[10.0] * 10, **base))
-    assert full["sbc"].notes == [] and full["fcf_after_sbc"].notes == []
-    for zeros, expect in ((1, "1 of the last 5"), (2, "2 of the last 5")):
-        sbc = [10.0] * (10 - zeros - 2) + [0.0] * zeros + [10.0] * 2
-        rows = evaluate(years(10, sbc=sbc, **base))
-        for key in ("sbc", "fcf_after_sbc"):
-            assert any(expect in n and "understated" in n for n in rows[key].notes), rows[key].notes
-        assert rows["sbc"].status == NOT_FLAGGED  # labels and the Not reported rule are unchanged
-    three = evaluate(years(10, sbc=[10.0] * 5 + [0.0] * 3 + [10.0] * 2, **base))
-    assert three["sbc"].status == NOT_REPORTED and three["sbc"].notes == []  # 3+ zeros: Not reported, no note
-
-
-def test_zero_sbc_note_is_not_added_to_an_exempt_or_not_applicable_row():
-    ys = years(10, revenue=1000.0, net_income=50.0, fcf=60.0, sbc=[10.0] * 7 + [0.0] + [10.0] * 2, diluted_shares=100.0)
-    gm = evaluate(ys, ticker="GM")  # GM is exempt on rows 1, 3 and 6
-    assert gm["fcf_after_sbc"].status == NOT_APPLICABLE and gm["fcf_after_sbc"].notes == []
-    assert any("understated" in n for n in gm["sbc"].notes)
-
-
 def test_fcf_after_sbc_flags_on_a_negative_latest_year_or_a_non_positive_total():
     latest_negative = evaluate(
         years(10, revenue=1000.0, net_income=50.0, fcf=[300.0] * 9 + [40.0], sbc=[50.0] * 9 + [60.0], diluted_shares=100.0)

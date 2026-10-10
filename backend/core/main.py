@@ -69,7 +69,6 @@ from data.segmentation_data import get_segmentation_data
 from data.speculative_growth_data import get_speculative_growth_data
 from data.dashboard_data import get_dashboard_data
 from data.stuck_check_data import get_stuck_check_data
-from data.data_quality_data import count_open, list_flags, mark_reviewed, ticker_note_flags
 from data.stuck_check_settings import (
     get_stuck_settings_row,
     reset_stuck_settings,
@@ -90,8 +89,6 @@ from data.universe_membership import (
     remove_from_universe,
 )
 from core.schemas import (
-    DataQualityFlagOut,
-    DataQualityFlagsOut,
     UniverseAddOut,
     UniverseRemoveOut,
     UniverseStatusOut,
@@ -1111,37 +1108,6 @@ async def ticker_speculative_growth(ticker: str) -> SpeculativeGrowthOut:
 def ticker_stuck_check(ticker: str) -> StuckCheckOut:
     """The informational "Why might it be stuck?" card. Cache only: no FMP call, no write, feeds nothing (docs/specs/stuck-check.md)."""
     return get_stuck_check_data(ticker)
-
-
-@app.get("/api/data-quality/flags", response_model=DataQualityFlagsOut)
-def data_quality_flags(scope: Literal["watchlisted", "all"] = "watchlisted") -> DataQualityFlagsOut:
-    """Open cache-only data-quality flags for Settings > Data quality, newest finding first. Feeds nothing (docs/specs/data-quality.md)."""
-    with Session(engine) as session:
-        flags = list_flags(session, scope)
-        open_watchlisted, open_all = count_open(session)
-    return DataQualityFlagsOut(
-        scope=scope,
-        flags=[DataQualityFlagOut(**f.model_dump()) for f in flags],
-        open_watchlisted=open_watchlisted,
-        open_all=open_all,
-    )
-
-
-@app.post("/api/data-quality/flags/{flag_id}/review", response_model=DataQualityFlagOut)
-def review_data_quality_flag(flag_id: int) -> DataQualityFlagOut:
-    """"Mark reviewed": hides the flag from the ticker-page note and the open list until the nightly job clears it. Idempotent."""
-    with Session(engine) as session:
-        row = mark_reviewed(session, flag_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="No such flag (it may have been cleared)")
-        return DataQualityFlagOut(**row.model_dump())
-
-
-@app.get("/api/tickers/{ticker}/data-quality", response_model=list[DataQualityFlagOut])
-def ticker_data_quality(ticker: str) -> list[DataQualityFlagOut]:
-    """The ticker's open, un-reviewed data-quality flags for the Financials-tab note, most important first. A read of the stored table."""
-    with Session(engine) as session:
-        return [DataQualityFlagOut(**f.model_dump()) for f in ticker_note_flags(session, ticker)]
 
 
 @app.get("/api/tickers/{ticker}/dashboard", response_model=DashboardOut)

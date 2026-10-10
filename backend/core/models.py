@@ -592,33 +592,6 @@ class TickerSignalSnapshot(SQLModel, table=True):
     score_computed_at: datetime | None = None
 
 
-class DataQualityFlag(SQLModel, table=True):
-    """One open data-quality flag on a ticker's cached FMP statements (scoring/data_quality.py, data/data_quality_data.py, nightly
-    pipeline/nightly_data_quality.py; docs/specs/data-quality.md). Informational: it feeds no score, verdict, label or TickerScore column.
-    Unique per (ticker, check, field, fiscal_year). The nightly job upserts what currently holds (`last_seen_at` moves, `found_at` and
-    `reviewed_at` stay) and deletes a row whose condition no longer holds, so a flag that comes back later is a new row. `reviewed_at` is
-    set by the Settings "Mark reviewed" button and hides the flag from the ticker-page note. Not the same thing as the pydantic
-    `core.schemas.DataQualityFlag` (the read-time statement-quality markers of docs/specs/statement-data-quality.md, never stored)."""
-
-    __table_args__ = (
-        UniqueConstraint("ticker", "check", "field", "fiscal_year", name="uq_data_quality_flag"),
-        Index("ix_data_quality_flag_ticker", "ticker"),
-    )
-
-    id: int | None = Field(default=None, primary_key=True)
-    ticker: str
-    check: str
-    field: str
-    fiscal_year: str
-    fmp_value: float | None = None
-    comparison_value: float | None = None
-    kind: str
-    detail: str
-    found_at: datetime
-    last_seen_at: datetime
-    reviewed_at: datetime | None = None
-
-
 class StuckCheckSettings(SQLModel, table=True):
     """Thresholds for the informational "Why might it be stuck?" card (scoring/stuck_check.py::StuckSettings) -- ONE global singleton
     row, lazy-seeded from the code defaults, edited via /settings > Why might it be stuck? (data/stuck_check_settings.py). Nothing

@@ -503,12 +503,6 @@ def sbc_rows(
             buyback_row.figures = [Figure("buybacks_multiple", "Gross buybacks vs SBC", None, "text", "No buybacks")]
         else:
             buyback_row.figures = [Figure("buybacks_multiple", "Gross buybacks vs SBC", total_buybacks / total_sbc, "multiple")]
-    if 0 < zero_years < SBC_NOT_REPORTED_MIN_ZERO_YEARS:
-        # 1 or 2 zero years leave the card's labels and its Not reported rule as they were; the note only says the sums are short.
-        note = f"Stock-based compensation is missing in {zero_years} of the last {len(last5)} fiscal years, so the totals are understated"
-        for r in (sbc_row, after_row):
-            if r.status in (NOT_FLAGGED, FLAGGED):
-                r.notes.append(note)
     return sbc_row, after_row, buyback_row
 
 

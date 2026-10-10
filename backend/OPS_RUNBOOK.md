@@ -123,7 +123,6 @@ configured):
 | Nightly market breadth | `nightly_market_breadth.log` / `_cron.log` |
 | Nightly ETFs screener | `nightly_etf_screener.log` / `_cron.log` |
 | Nightly sector/industry P/E | `nightly_sector_industry_pe.log` / `_cron.log` |
-| Nightly data-quality sweep (cache-only statement checks) | `nightly_data_quality.log` / `_cron.log` |
 | Nightly signal snapshot (Overall / Valuation / Weinstein / Pass + Undervalued log) | `nightly_signal_snapshot.log` / `_cron.log` |
 | Nightly corporate-events cache (earnings/dividends/splits) | `nightly_corporate_events.log` / `_cron.log` |
 | Nightly last-close cache (header price fallback) | `nightly_last_close_snapshot.log` / `_cron.log` |
@@ -333,13 +332,6 @@ group or the master switch is off. Red when every call failed or no row was writ
 session yet); one failed call is a success with `F of 6 calls failed`. Log: `nightly_sector_industry_pe.log` / `_cron.log`.
 The one-time backfill is `uv run python -m pipeline.backfills.backfill_sector_industry_pe` (idempotent, resumable, ~9 min).
 Spec: `docs/specs/sector-industry-pe.md`.
-
-**`nightly_data_quality`** — 3:26 AM, after the 3:25 score recompute and before the 3:28 snapshot. Runs the three cache-only statement checks
-(zero newest capex, SBC gap, income-statement vs cash-flow net income) over every tracked ticker and makes the `DataQualityFlag` table equal what
-holds now (new flags added, still-true flags keep their found/reviewed state, no-longer-true flags deleted); ~3 s, zero FMP and SEC calls, idempotent.
-Message `N open flags (A new, C cleared) over S tickers[, K without cached statements][, E failed]`; red when 5% or more of the tickers that had
-data raised (from 25 tickers), or all did. The list is read in Settings > Data quality. It feeds no score. After editing `crontab.txt`, reinstall it
-(`crontab crontab.txt` from `backend/`) and check `crontab -l`. Log: `nightly_data_quality.log` / `_cron.log`. Spec: `docs/specs/data-quality.md`.
 
 **`nightly_signal_snapshot`** — 3:28 AM, after the 3:25 score recompute and before the 3:30 backup. Appends one `TickerSignalSnapshot`
 row per tracked ticker (Overall verdict, Valuation verdict, Weinstein stage, and whether it is Pass-family + Undervalued) copied from the

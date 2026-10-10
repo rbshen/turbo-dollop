@@ -42,7 +42,6 @@ _ERROR_SUMMARY_MAX_CHARS = 500
 CRON_JOB_NAMES: list[str] = [
     "pipeline.nightly_fundamentals_fetch",
     "pipeline.nightly_score_recompute",
-    "pipeline.nightly_data_quality",
     "pipeline.nightly_signal_snapshot",
     "pipeline.nightly_trend_calculation",
     "pipeline.nightly_corporate_events",
@@ -80,7 +79,6 @@ _MONTHLY_HOURS = 24 * 35
 _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.nightly_fundamentals_fetch": _DAILY_HOURS,
     "pipeline.nightly_score_recompute": _DAILY_HOURS,
-    "pipeline.nightly_data_quality": _DAILY_HOURS,
     "pipeline.nightly_signal_snapshot": _DAILY_HOURS,
     "pipeline.nightly_trend_calculation": _DAILY_HOURS,
     "pipeline.nightly_corporate_events": _DAILY_HOURS,
@@ -130,9 +128,6 @@ JOB_METADATA: dict[str, JobMetadata] = {
     ),
     "pipeline.nightly_score_recompute": JobMetadata(
         "Recompute 5-step scores, full universe", "daily", "3:25 AM", 3 * 60 + 25
-    ),
-    "pipeline.nightly_data_quality": JobMetadata(
-        "Data-quality flags from the cached statements (zero capex, SBC gap, net income disagreement), tracked universe", "daily", "3:26 AM", 3 * 60 + 26
     ),
     "pipeline.nightly_signal_snapshot": JobMetadata(
         "Daily signal log: Overall, Valuation, Weinstein stage, Pass + Undervalued, tracked universe", "daily", "3:28 AM", 3 * 60 + 28

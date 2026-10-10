@@ -9,7 +9,6 @@ vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(n
 
 // The sections fetch their own data; this test is about the nav only.
 vi.mock("@/components/settings/StatusSection", () => ({ StatusSection: () => <p>scheduled jobs content</p> }));
-vi.mock("@/components/settings/DataQualitySection", () => ({ DataQualitySection: () => <p>data quality content</p> }));
 vi.mock("@/components/settings/FmpDataGroupsSection", () => ({ FmpDataGroupsSection: () => <p>fmp content</p> }));
 vi.mock("@/components/settings/DiscountRateSettingsForm", () => ({ DiscountRateSettingsForm: () => <p>discount content</p> }));
 vi.mock("@/components/settings/ScoreWeightingForm", () => ({ ScoreWeightingForm: () => <p>weighting content</p> }));
@@ -30,7 +29,6 @@ describe("Settings nav", () => {
     const labels = screen.getAllByRole("button").map((b) => b.textContent);
     expect(labels).toEqual([
       "Scheduled jobs",
-      "Data quality",
       "FMP data groups",
       "Discount rate by country",
       "Score weighting",
@@ -54,12 +52,6 @@ describe("Settings nav", () => {
 });
 
 describe("Settings deep link", () => {
-  it("opens Data quality for ?section=data-quality", () => {
-    nav.section = "data-quality";
-    render(<SettingsPage />);
-    expect(screen.getByText("data quality content")).toBeInTheDocument();
-  });
-
   it("opens Score weighting for ?section=score-weighting (the link from the Overall card and the Moat tab)", () => {
     nav.section = "score-weighting";
     render(<SettingsPage />);

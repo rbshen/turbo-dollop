@@ -13,7 +13,8 @@ Three classes:
 
 `newssentimentcache` has no SQLModel class: it is a leftover of the Alpha Vantage News-Sentiment feature (added in
 68dc559, removed entirely in c81e9b6, which deleted the model but not the live table, 3 rows). It is registered here
-as a WIPE table with its own DDL (`legacy_ddl`) so a temp DB can be built with it and the guard sees it.
+as a WIPE table with its own DDL (`legacy_ddl`) so a temp DB can be built with it and the guard sees it. `dataqualityflag` is the
+same case (the data-quality feature, removed 2026-10-10: model deleted, 163 rows left in the live table).
 
 `unclassified_ticker_tables(engine)` is the guard: every table in a real schema with a ticker-like column
 (name contains "ticker" or "symbol") must be classified here or in `NOT_A_TICKER_KEY` (a documented non-key
@@ -32,7 +33,6 @@ from sqlmodel import SQLModel
 from core.models import (
     CorporateEvent,
     CorporateEventFetch,
-    DataQualityFlag,
     EtfMomentumSnapshot,
     EtfScreenerRow,
     FundamentalsCache,
@@ -120,11 +120,22 @@ _ORDERED: tuple[TickerTable, ...] = (
             "raw_json VARCHAR NOT NULL, PRIMARY KEY (ticker))"
         ),
     ),
+    TickerTable(
+        "dataqualityflag",
+        "ticker",
+        TableClass.WIPE,
+        "legacy: data-quality flags (feature removed 2026-10-10, model deleted, live table left behind)",
+        legacy_ddl=(
+            'CREATE TABLE dataqualityflag (id INTEGER NOT NULL, ticker VARCHAR NOT NULL, "check" VARCHAR NOT NULL, field VARCHAR NOT NULL, '
+            "fiscal_year VARCHAR NOT NULL, fmp_value FLOAT, comparison_value FLOAT, kind VARCHAR NOT NULL, detail VARCHAR NOT NULL, "
+            "found_at DATETIME NOT NULL, last_seen_at DATETIME NOT NULL, reviewed_at DATETIME, PRIMARY KEY (id), "
+            'CONSTRAINT uq_data_quality_flag UNIQUE (ticker, "check", field, fiscal_year))'
+        ),
+    ),
     _t(SharedBarsCache, TableClass.WIPE, "shared daily/60m bars cache (the largest table)"),
     _t(LongHistoryBars, TableClass.WIPE, "on-demand ~10-year daily history"),
     _t(PriceTargetSnapshot, TableClass.WIPE, "nightly price-target snapshots (history that cannot be re-created)"),
     _t(TickerSignalSnapshot, TableClass.WIPE, "daily signal log (append-only history; a wiped ticker is out of the universe and no longer logged)"),
-    _t(DataQualityFlag, TableClass.WIPE, "open data-quality flags (derived from the cache; rebuilt nightly, so a wiped ticker simply has none)"),
     _t(CorporateEvent, TableClass.WIPE, "earnings/dividend/split cache (its nightly job is disabled: not rebuilt by cron)"),
     _t(CorporateEventFetch, TableClass.WIPE, "per-(ticker, event_type) last-fetch marker for CorporateEvent"),
     # --- WIPE: the state itself, last ---------------------------------------------------------------------------

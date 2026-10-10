@@ -2174,18 +2174,6 @@ export interface StuckGrowth {
   sector_peers: number;
 }
 
-export interface StuckGauge {
-  key: string;
-  label: string;
-  value: number | null;
-  /** ratio | pct */
-  unit: string;
-  line: number;
-  /** "ceiling": flagged above the line. "floor": flagged below it. */
-  direction: "ceiling" | "floor";
-  note: string | null;
-}
-
 export interface StuckRow {
   key: string;
   number: number;
@@ -2199,9 +2187,6 @@ export interface StuckRow {
   series?: StuckSeries[];
   returns?: StuckReturns | null;
   growth?: StuckGrowth | null;
-  /** One plain-English sentence with the real numbers and the windows assessed. */
-  meaning?: string | null;
-  gauges?: StuckGauge[];
 }
 
 export interface StuckCheckOut {
@@ -2349,33 +2334,4 @@ export interface DashboardOut {
   debt: DashboardDebt;
   fair_value: DashboardFairValue;
   weinstein: DashboardWeinstein;
-}
-
-// One open cache-only data-quality flag (backend core/schemas.py::DataQualityFlagOut, docs/specs/data-quality.md): a finding about a
-// ticker's cached FMP statements. Informational; feeds no score. Not the read-time `DataQualityFlag` above.
-export type DataQualityCheck = "zero_newest_capex" | "sbc_gap" | "net_income_disagreement";
-export type DataQualityKind = "zero_line" | "zero_between" | "zero_newest" | "sign_differs" | "large_gap" | "definition";
-
-export interface DataQualityFlagOut {
-  id: number;
-  ticker: string;
-  check: DataQualityCheck;
-  field: string;
-  fiscal_year: string;
-  fmp_value: number | null;
-  comparison_value: number | null;
-  kind: DataQualityKind;
-  detail: string;
-  found_at: string;
-  last_seen_at: string;
-  reviewed_at: string | null;
-}
-
-export type DataQualityScope = "watchlisted" | "all";
-
-export interface DataQualityFlagsOut {
-  scope: DataQualityScope;
-  flags: DataQualityFlagOut[];
-  open_watchlisted: number;
-  open_all: number;
 }
