@@ -119,7 +119,7 @@ never stored.
 
 `pipeline/nightly_liquidity_zone_calculation.py`, **1:15 AM** server time (UTC), a dedicated job rather than
 part of `nightly_entry_signal_calculation.py`, even though both are scoped to the same deduped monitored-
-watchlist union (`data/watchlists.py::list_monitored_tickers`; lists named `E<number>` or `ETF`). It is separate because every
+watchlist union (`data/watchlists.py::list_monitored_tickers`; lists named `E<number>` or `ETF`; the helper drops delisted-flagged tickers for all three jobs). It is separate because every
 pipeline script maps 1:1 to one feature, because it needs a different data group (`daily_prices`, versus
 BB+RSI's `intraday_bars`), and because separate `cron_heartbeat` names keep failure attribution clean (an
 FMP outage affecting Liquidity Zones must not read as a BB+RSI health failure or vice versa). It sits right after the

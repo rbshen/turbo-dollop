@@ -329,6 +329,15 @@ column all read one value, `TickerScore.pe_ratio` (`TickerSummaryOut.pe_ratio`,
   currency is unknown the standard rule is used.
 - Nothing new is fetched: the nightly cache-only recompute fills it from cached rows.
 
+## Screener Quote and Mkt cap (2026-10-10)
+
+`TickerScore.last_price` (the Screener's **Quote**) is the nightly `TickerLastClose` close, and `TickerScore.market_cap` (**Mkt cap**)
+is the quote's market cap scaled by last close / quote price, so the Screener, the Watchlist and the P/E share one price. With no
+`TickerLastClose` row the cached quote price and market cap are stored as they are; with a missing or zero quote price the market cap
+is not scaled. The Quote and Mkt cap range filters and sorts read the same two columns. The Valuation verdict still compares fair
+value with the cached quote price. Values reach stored rows at the next recompute (the nightly one runs after the 1:00 last-close job).
+Rationale: docs/decisions.md, 2026-10-10.
+
 Before 2026-09-30 this was FMP's annual `priceToEarningsRatio` (fiscal-year-end price over
 fiscal-year EPS), which sat next to a TTM PEG on the header — a mixed basis. The **Ratios tab is
 deliberately unchanged**: it shows FMP's annual P/E history plus FMP's TTM P/E column, so its

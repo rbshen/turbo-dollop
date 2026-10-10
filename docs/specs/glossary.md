@@ -107,4 +107,4 @@ close divided by trailing-twelve-month earnings per share. It is blank ("—") w
 zero, negative or unavailable — a loss-making company has no meaningful P/E. For a US-listed
 company that reports in a different currency (an ADR), FMP's own trailing P/E is used instead. The
 Ratios tab's P/E rows are FMP's own annual and TTM figures and can differ. See
-[Overview](overview.md), "P/E basis".
+[Overview](overview.md), "P/E basis". The Screener's Quote and Mkt cap use the same close ([Overview](overview.md), "Screener Quote and Mkt cap").
