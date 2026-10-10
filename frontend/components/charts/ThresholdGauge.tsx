@@ -39,7 +39,7 @@ export function ThresholdGauge({ value, passLine, hardLimit, direction, format, 
   return (
     <div
       role="img"
-      aria-label={`${label}: ${valueText}. ${captionText}. ${stateText}.`}
+      aria-label={`${label}: ${valueText}, ${stateText}. ${captionText}.`}
       data-state={g.state ?? "missing"}
       className={cn("flex flex-col gap-1.5", className)}
     >

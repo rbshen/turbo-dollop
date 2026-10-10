@@ -31,6 +31,7 @@ import { ExportMenu } from "@/components/watchlist/ExportMenu";
 import { pnlClass } from "@/lib/format";
 import { FmpSettingsMock } from "./FmpSettingsMock";
 import { FormControlsReference } from "./FormControlsReference";
+import { ChartPrimitivesReference } from "./ChartPrimitivesReference";
 import { PillReference } from "./PillReference";
 import { ScreenerResultsControlsMock } from "./ScreenerResultsControlsMock";
 import { ScreenerSidebarMock } from "./ScreenerSidebarMock";
@@ -306,6 +307,10 @@ export default function StyleguidePage() {
 
       <Section title="Chart">
         <SampleBarChart />
+      </Section>
+
+      <Section title="Dashboard chart primitives">
+        <ChartPrimitivesReference />
       </Section>
     </PageContainer>
   );
