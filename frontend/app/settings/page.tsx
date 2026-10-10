@@ -11,7 +11,6 @@ import { MoatSettingsForm } from "@/components/settings/MoatSettingsForm";
 import { ReitDividendYieldSettingsForm } from "@/components/settings/ReitDividendYieldSettingsForm";
 import { ScoreWeightingForm } from "@/components/settings/ScoreWeightingForm";
 import { StatusSection } from "@/components/settings/StatusSection";
-import { StuckCheckSettingsForm } from "@/components/settings/StuckCheckSettingsForm";
 import { WeinsteinSettingsForm } from "@/components/settings/WeinsteinSettingsForm";
 import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
@@ -25,7 +24,6 @@ const SECTIONS = [
   { key: "fmp-data-groups", label: "FMP data groups", Component: FmpDataGroupsSection },
   { key: "discount-rate", label: "Discount rate by country", Component: DiscountRateSettingsForm },
   { key: "score-weighting", label: "Score weighting", Component: ScoreWeightingForm },
-  { key: "stuck-check", label: "Why might it be stuck?", Component: StuckCheckSettingsForm },
   { key: "economic-moat", label: "Economic moat", Component: MoatSettingsForm },
   { key: "reit", label: "REIT", Component: ReitDividendYieldSettingsForm },
   { key: "liquidity", label: "Liquidity", Component: LiquidityZoneSettingsForm },

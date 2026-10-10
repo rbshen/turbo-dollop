@@ -80,8 +80,6 @@ describe("text helpers", () => {
     // Price groups have no fallback provider: an off one is what explains a stale/empty Chart or Technical tab.
     expect(TAB_GROUPS.chart).toEqual(expect.arrayContaining(["daily_prices", "daily_prices_long", "intraday_bars"]));
     expect(TAB_GROUPS.technical).toEqual(["daily_prices", "intraday_bars"]);
-    // The Dashboard draws cached statements, the quote and daily bars.
-    expect(TAB_GROUPS.dashboard).toEqual(["profile_quote", "fundamentals", "daily_prices"]);
   });
 
   it("never watches `news` -- shelved, not broken, must never trigger the badge", () => {

@@ -12,7 +12,6 @@ vi.mock("@/components/settings/StatusSection", () => ({ StatusSection: () => <p>
 vi.mock("@/components/settings/FmpDataGroupsSection", () => ({ FmpDataGroupsSection: () => <p>fmp content</p> }));
 vi.mock("@/components/settings/DiscountRateSettingsForm", () => ({ DiscountRateSettingsForm: () => <p>discount content</p> }));
 vi.mock("@/components/settings/ScoreWeightingForm", () => ({ ScoreWeightingForm: () => <p>weighting content</p> }));
-vi.mock("@/components/settings/StuckCheckSettingsForm", () => ({ StuckCheckSettingsForm: () => <p>stuck content</p> }));
 vi.mock("@/components/settings/MoatSettingsForm", () => ({ MoatSettingsForm: () => <p>moat content</p> }));
 vi.mock("@/components/settings/ReitDividendYieldSettingsForm", () => ({ ReitDividendYieldSettingsForm: () => <p>reit content</p> }));
 vi.mock("@/components/settings/LiquidityZoneSettingsForm", () => ({ LiquidityZoneSettingsForm: () => <p>liquidity content</p> }));
@@ -32,7 +31,6 @@ describe("Settings nav", () => {
       "FMP data groups",
       "Discount rate by country",
       "Score weighting",
-      "Why might it be stuck?",
       "Economic moat",
       "REIT",
       "Liquidity",
@@ -56,12 +54,6 @@ describe("Settings deep link", () => {
     nav.section = "score-weighting";
     render(<SettingsPage />);
     expect(screen.getByText("weighting content")).toBeInTheDocument();
-  });
-
-  it("opens Why might it be stuck? for ?section=stuck-check", () => {
-    nav.section = "stuck-check";
-    render(<SettingsPage />);
-    expect(screen.getByText("stuck content")).toBeInTheDocument();
   });
 
   it("opens the section named by ?section=", () => {
