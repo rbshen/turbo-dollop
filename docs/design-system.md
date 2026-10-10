@@ -440,11 +440,3 @@ changing any of this. The popover is built entirely on named tokens
 (no hover border). Used by
 `FundamentalFilters.tsx` and `TechnicalFilters.tsx` for every Screener multi-select filter. The
 5c-era "left deliberately unstyled" state (see `docs/decisions.md`) is fully superseded.
-
-## Dashboard tab (2026-10-10)
-
-The ticker page's second tab (key `dashboard`, label "Dashboard"; `overview` is the ETF page's key). Hairline `Section` rows, **no boxed card**, sentence case, `%` and never `pp`, no tooltips of its own (the header pills it reuses keep their native `title`), loading as pulsing `surface-2` blocks in the shape of the content. Four sections, in order, each with a `SectionHeading` (title and a quiet tag): **Verdicts** ("As in the header": the header's own pills, so they always agree), **Five steps** ("Scored"), **Price and valuation** ("Not part of the score") and **Why might it be stuck?** ("Context, not scored", set apart by a `border-border-card` rule and a larger gap).
-
-**Colour on this tab.** Neutral grey by default. Amber only for a breach (a gauge past its pass line, "In breach", a ratio that cannot be calculated) and for Flagged. Green and red only on diverging bars and the stage strip. A scored step shows its stored score and a verdict pill (`stepPill`: the stored verdict through `verdictLabel` / `debtVerdictDisplay`, so "May not pass" in slate and "Pass, ratio in breach" in `caution`; a missing or insufficient_data verdict is the neutral "Not scored"). The context section shows no pill that reads as a verdict: its tags are **Not flagged** (neutral `Badge`, deliberately not green; it was "OK") and **Flagged** (the plain `warn` `Status`).
-
-**Rows.** A `VisualRow`: the label and pill on the left, the visual on the right; below 36rem of the row's own width the pill and label stack above the visual. Section B's row order is Financials, Growth, Economic moat (its pill is the moat type or a neutral "Not rated"; no score: Moat is a multiplier), Profitability, Debt. Each section degrades independently (an unavailable block shows one quiet `text-xs` line saying why).
