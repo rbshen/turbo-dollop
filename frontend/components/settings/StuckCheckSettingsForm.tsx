@@ -156,7 +156,7 @@ function StuckForm({ data, saver }: { data: StuckCheckSettingsOut; saver: Settin
   return (
     <SettingsSection
       title="Why might it be stuck?"
-      intro="Thresholds for the Why might it be stuck? card at the bottom of a ticker's Analysis tab. The card is context only: it never changes a score, a verdict or the Screener. A change applies the next time a ticker page loads, with no recompute."
+      intro="Thresholds for the Why might it be stuck? section at the bottom of a ticker's Dashboard tab. The section is context only: it never changes a score, a verdict or the Screener. A change applies the next time a ticker page loads, with no recompute."
     >
       {GROUPS.map((group) => (
         <SettingsGroup key={group.title} title={group.title}>

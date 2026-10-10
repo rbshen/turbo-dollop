@@ -2136,7 +2136,7 @@ export interface StuckFigure {
   text: string | null;
 }
 
-export type StuckStatus = "ok" | "flagged" | "not_applicable" | "not_reported";
+export type StuckStatus = "not_flagged" | "flagged" | "not_applicable" | "not_reported";
 
 export interface StuckSeriesPoint {
   /** Fiscal year. */

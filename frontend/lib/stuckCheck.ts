@@ -1,62 +1,23 @@
-// Display helpers for the "Why might it be stuck?" card (docs/specs/stuck-check.md). Pure. The card feeds nothing and uses no verdict
-// colour: statuses are plain labels and figures are neutral text.
+// Display helpers for the "Why might it be stuck?" Dashboard section (docs/specs/stuck-check.md). Pure. The section feeds nothing and uses no
+// verdict colour: statuses are plain labels and figures are neutral text.
 import type { StuckFigure, StuckRow, StuckStatus } from "@/lib/api/types";
 import { fmtCompactMoney, fmtPlainPct } from "@/lib/format";
-import { verdictDisplay } from "@/lib/tierColor";
-import { WEINSTEIN_STAGE_LABEL, type WeinsteinStage } from "@/lib/weinsteinStage";
 
 export const STATUS_LABEL: Record<StuckStatus, string> = {
-  // "Not flagged" (2026-10-10), neutral: it is not a green "pass". The stored key stays "ok".
-  ok: "Not flagged",
+  // "Not flagged" (2026-10-10, was "OK"), drawn neutral: it is not a green "pass".
+  not_flagged: "Not flagged",
   flagged: "Flagged",
   not_applicable: "Not applicable",
   not_reported: "Not reported",
 };
 
-/** Row groups, by row number: rows 1-6 earnings quality and capital allocation, 7-8 price, 9-12 the fundamentals trend. */
-export const STUCK_GROUPS: { key: string; title: string; numbers: number[] }[] = [
-  { key: "quality", title: "Earnings quality and capital allocation", numbers: [1, 2, 3, 4, 5, 6] },
-  { key: "price", title: "Price", numbers: [7, 8] },
-  { key: "trend", title: "Fundamentals trend", numbers: [9, 10, 12] },
-];
-
-export function rowsForGroup(rows: StuckRow[], numbers: number[]): StuckRow[] {
-  return rows.filter((r) => numbers.includes(r.number));
-}
-
-const VALUATION_LABEL: Record<string, string> = { undervalued: "Undervalued", fair: "Fairvalued", overvalued: "Overvalued" };
-const SPY_STATUS_LABEL: Record<string, string> = {
-  outperform: "outperform",
-  underperform: "underperform",
-  match: "in line",
-  no_data: "no data",
-};
-
-function signed(n: number, decimals: number, suffix: string): string {
+const SIGNED = (n: number, decimals: number, suffix: string): string => {
   const sign = n > 0 ? "+" : n < 0 ? "−" : "";
   return `${sign}${Math.abs(n).toFixed(decimals)}${suffix}`;
-}
-
-/** The text a stored-value figure (row 7) shows: the app's own display words, never recomputed. */
-function storedText(figure: StuckFigure): string | null {
-  const text = figure.text;
-  if (text == null) return null;
-  switch (figure.key) {
-    case "overall_verdict":
-      return verdictDisplay(text);
-    case "valuation_verdict":
-      return VALUATION_LABEL[text] ?? text;
-    case "weinstein_stage":
-      return WEINSTEIN_STAGE_LABEL[text as WeinsteinStage] ?? text;
-    case "perf_5y_vs_spy":
-      return SPY_STATUS_LABEL[text] ?? text;
-    default:
-      return text;
-  }
-}
+};
 
 export function formatFigure(figure: StuckFigure, currency = "USD"): string {
-  const text = storedText(figure);
+  const text = figure.text;
   if (figure.unit === "text" || figure.unit === "count") return text ?? (figure.value == null ? "—" : String(Math.round(figure.value)));
   if (figure.value == null) return text ?? "—";
   const n = figure.value;
@@ -69,7 +30,7 @@ export function formatFigure(figure: StuckFigure, currency = "USD"): string {
       base = fmtPlainPct(n, 1);
       break;
     case "pp":
-      base = signed(n, 1, " pp");
+      base = SIGNED(n, 1, "%"); // percentage points are written as "%" in the UI (2026-10-10)
       break;
     case "ratio":
       base = n.toFixed(2);
@@ -91,6 +52,9 @@ export function isShownRow(row: StuckRow): boolean {
   return row.status !== "not_applicable" && row.status !== "not_reported";
 }
 
+// "Share count" reads "share count" mid-sentence; an acronym ("FCF after ...") keeps its capitals.
+const lowerFirst = (t: string): string => (/^[A-Z][a-z]/.test(t) ? t.charAt(0).toLowerCase() + t.slice(1) : t);
+
 /** One note for a group: every Not-applicable / Not-reported reason and every row note, identical wording merged ("Cash conversion and FCF
  * after stock-based compensation: Free cash flow is not comparable for a bank."), in row order. */
 export function collapseNotes(rows: StuckRow[]): string[] {
@@ -108,7 +72,7 @@ export function collapseNotes(rows: StuckRow[]): string[] {
   }
   return Array.from(byText, ([text, titles]) => {
     if (titles.length === 0) return `${text}.`;
-    const joined = titles.length === 1 ? titles[0] : `${titles.slice(0, -1).join(", ")} and ${titles[titles.length - 1].toLowerCase()}`;
+    const joined = titles.length === 1 ? titles[0] : `${titles.slice(0, -1).join(", ")} and ${lowerFirst(titles[titles.length - 1])}`;
     return `${joined}: ${text}.`;
   });
 }

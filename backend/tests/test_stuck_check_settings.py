@@ -126,7 +126,7 @@ def test_a_save_changes_the_next_card_load_with_no_recompute(client, engine):
         put("cash_flow_statement", [{"fiscalYear": str(y), "date": f"{y}-12-31", "netCashProvidedByOperatingActivities": 400.0, "capitalExpenditure": -10.0, "stockBasedCompensation": 60.0} for y in years][::-1])
         session.commit()
     sbc = lambda: next(r for r in client.get("/api/tickers/ACME/stuck-check").json()["rows"] if r["key"] == "sbc")["status"]  # noqa: E731
-    assert sbc() == "ok"  # 6% of revenue, 15% of FCF
+    assert sbc() == "not_flagged"  # 6% of revenue, 15% of FCF
     client.put(URL, json={**VALID, "sbc_revenue_pct": 5})
     assert sbc() == "flagged"
     client.put(URL, json={**VALID, "sbc_revenue_pct": 5, "exemptions": [{"ticker": "ACME", "reason": "x", "rows": ["2"]}]})

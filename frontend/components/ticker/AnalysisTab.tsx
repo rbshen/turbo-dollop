@@ -3,7 +3,6 @@ import { Step1Card } from "@/components/step1/Step1Card";
 import { Step2Card } from "@/components/step2/Step2Card";
 import { Step4Card } from "@/components/step4/Step4Card";
 import { Step5Card } from "@/components/step5/Step5Card";
-import { StuckCheckCard } from "@/components/stuck/StuckCheckCard";
 
 interface Props {
   ticker: string;
@@ -21,8 +20,6 @@ export function AnalysisTab({ ticker }: Props) {
       <Step2Card ticker={ticker} />
       <Step4Card ticker={ticker} />
       <Step5Card ticker={ticker} />
-      {/* Informational context, not scored: feeds nothing (docs/specs/stuck-check.md). */}
-      <StuckCheckCard ticker={ticker} />
     </div>
   );
 }

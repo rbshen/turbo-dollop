@@ -109,13 +109,11 @@ def test_card_assembles_every_row_from_the_cache(db):
     rows = rows_of(out)
     assert out.subtitle == "Context, not scored" and out.applicable and out.has_data
     assert [r.number for r in out.rows] == sorted(r.number for r in out.rows)
-    assert rows["cash_conversion"].status == "ok"  # 120 / 100 = 1.2
-    assert rows["sbc"].status == "ok" and rows["share_count"].status == "ok"
+    assert rows["cash_conversion"].status == "not_flagged"  # 120 / 100 = 1.2
+    assert rows["sbc"].status == "not_flagged" and rows["share_count"].status == "not_flagged"
     assert out.footer == "Nothing flagged"
     assert out.currency == "USD" and {f.unit for r in out.rows for f in r.figures} >= {"money", "pct", "ratio"}
-    price = {f.key: f for f in rows["price_context"].figures}
-    assert price["overall_verdict"].text == "Pass" and price["weinstein_stage"].text == "decline"
-    assert price["perf_5y_vs_spy"].value == -12.5
+    assert "price_context" not in rows  # row 7 was removed 2026-10-10: the dashboard's verdict strip shows those values from the header's hooks
     assert rows["relative_strength"].status == "not_reported"  # bars stubbed empty
     assert rows["roic"].figures[0].value == pytest.approx(12.0)
 
@@ -137,7 +135,7 @@ def test_etf_gets_no_card_and_no_data_is_a_graceful_state(db):
     etf = get_stuck_check_data("SPY")
     assert not etf.applicable and etf.rows == []
     empty = get_stuck_check_data("NOPE")
-    assert empty.applicable and not empty.has_data and empty.rows[0].key == "price_context"
+    assert empty.applicable and not empty.has_data and empty.rows == []  # no statements: no rows, the empty-state text applies
 
 
 def test_sector_peers_give_the_median_percentile_and_weight_note(db, monkeypatch):
@@ -204,7 +202,7 @@ def test_endpoint_returns_the_card_and_never_calls_fmp(db, monkeypatch):
     seed(db, "ACME")
     body = TestClient(main.app).get("/api/tickers/acme/stuck-check").json()
     assert body["ticker"] == "ACME" and body["subtitle"] == "Context, not scored"
-    assert {r["key"] for r in body["rows"]} >= {"cash_conversion", "sbc", "price_context", "relative_strength", "roic"}
+    assert {r["key"] for r in body["rows"]} >= {"cash_conversion", "sbc", "relative_strength", "roic"}
     assert body["footer"].startswith("Nothing flagged")
 
 

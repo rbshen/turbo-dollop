@@ -1,12 +1,12 @@
 """The "Why might it be stuck?" card: pure scoring/labelling functions (no I/O). docs/specs/stuck-check.md.
 
 Informational only: nothing here feeds Overall, a verdict, TickerScore or the Screener. A row carries a figure set and, for the four
-labelled rows (cash conversion, SBC, FCF after SBC, share count), one of OK / Flagged / Not applicable / Not reported; every other
+labelled rows (cash conversion, SBC, FCF after SBC, share count), one of Not flagged / Flagged / Not applicable / Not reported; every other
 row is figures only (status None). "Flagged" is a plain tag: never a verdict word, never red.
 
 The split mirrors scoring/speculative_growth.py: this module takes plain per-fiscal-year numbers (`FiscalYear`, chronological, oldest
 first, completed fiscal years only) and the thresholds (`StuckSettings`), and returns `StuckRow`s. data/stuck_check_data.py assembles
-the inputs from the cleaned cached statements and the stored price values.
+the inputs from the cleaned cached statements and the cached daily bars.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import math
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-OK = "ok"
+NOT_FLAGGED = "not_flagged"
 FLAGGED = "flagged"
 NOT_APPLICABLE = "not_applicable"
 NOT_REPORTED = "not_reported"
@@ -59,7 +59,6 @@ WEIGHT_NOTE_PCT_OF_SECTOR = 10.0
 COVID_BASE_DROP_PCT = 15.0
 COVID_FYE_FROM = date(2020, 3, 1)
 COVID_FYE_TO = date(2021, 3, 31)
-GROSS_MARGIN_UNRELIABLE_AT_PCT = 99.0  # FMP gross profit ~= revenue: financials.md, "Known weaknesses"
 MARGIN_YEARS = 5
 GROWTH_YEARS = 5
 MIN_SECTOR_PEERS = 5
@@ -115,7 +114,6 @@ class FiscalYear:
     revenue: float | None = None
     net_income: float | None = None
     operating_income: float | None = None
-    gross_profit: float | None = None
     fcf: float | None = None
     sbc: float | None = None
     buybacks: float | None = None
@@ -327,7 +325,7 @@ def cash_conversion_row(years: list[FiscalYear], settings: StuckSettings, exempt
         row.gauges = []
         return row
     # Flag only when BOTH windows sit below the line: a capex build-out shows in the last 3y but not the 10y (MSFT 0.66 / 0.82).
-    row.status = FLAGGED if long is not None and short < line and long < line else OK
+    row.status = FLAGGED if long is not None and short < line and long < line else NOT_FLAGGED
     row.meaning = _cash_conversion_meaning(short, long, long_years, len(usable), line, row.status == FLAGGED)
     return row
 
@@ -435,7 +433,7 @@ def sbc_rows(
         over_revenue = pct_revenue is not None and pct_revenue > settings.sbc_revenue_pct
         # n/m (FCF zero/negative, or the share above 100%) counts as exceeding the threshold.
         over_fcf = fcf_applicable and (pct_fcf_nm or raw_pct_fcf > settings.sbc_fcf_pct)
-        sbc_row.status = FLAGGED if over_revenue or over_fcf else OK
+        sbc_row.status = FLAGGED if over_revenue or over_fcf else NOT_FLAGGED
         sbc_row.gauges = [
             Gauge("sbc_5y_pct_revenue", f"{len(paired)}-year total, % of revenue", pct_revenue, "pct", settings.sbc_revenue_pct, "ceiling")
         ]
@@ -481,7 +479,7 @@ def sbc_rows(
         if not fcf_sbc_pairs:
             after_row.status, after_row.reason = NOT_REPORTED, "Free cash flow is missing"
         else:
-            after_row.status = FLAGGED if total_after <= 0 or (latest_after is not None and latest_after < 0) else OK
+            after_row.status = FLAGGED if total_after <= 0 or (latest_after is not None and latest_after < 0) else NOT_FLAGGED
             total_pct = _pct(total_after, revenue_after)
             latest_pct = _pct(latest_after, latest.revenue) if latest_after is not None and _has(latest.revenue) else None
             after_row.gauges = [Gauge("fcf_after_sbc_5y_pct_revenue", f"{len(fcf_sbc_pairs)}-year total, % of revenue", total_pct, "pct", 0.0, "floor")]
@@ -509,7 +507,7 @@ def sbc_rows(
         # 1 or 2 zero years leave the card's labels and its Not reported rule as they were; the note only says the sums are short.
         note = f"Stock-based compensation is missing in {zero_years} of the last {len(last5)} fiscal years, so the totals are understated"
         for r in (sbc_row, after_row):
-            if r.status in (OK, FLAGGED):
+            if r.status in (NOT_FLAGGED, FLAGGED):
                 r.notes.append(note)
     return sbc_row, after_row, buyback_row
 
@@ -553,7 +551,7 @@ def share_count_row(
         return row
     if cagr * 100 > settings.share_growth_pct:
         if one_off:
-            row.status = OK
+            row.status = NOT_FLAGGED
             row.meaning = (
                 f"{base_text}, above the {settings.share_growth_pct:g}% line, but one-off issuance in FY{points[biggest + 1][0].fiscal_year} "
                 f"carries {steps[biggest] / total * 100:.0f}% of the dilution, so it is not flagged."
@@ -562,7 +560,7 @@ def share_count_row(
             row.status = FLAGGED
             row.meaning = f"{base_text}, above the {settings.share_growth_pct:g}% line, so it is flagged."
     else:
-        row.status = OK
+        row.status = NOT_FLAGGED
         row.meaning = f"{base_text}; it is flagged above {settings.share_growth_pct:g}% a year."
     return row
 
@@ -619,14 +617,6 @@ def margins_row(years: list[FiscalYear], company_type: str | None, exempt: dict[
         f"Operating margin averaged {_mean(operating[:3]):.1f}% over the first 3 of the last 5 fiscal years and {_mean(operating[-3:]):.1f}% over the last 3, "
         f"a change of {_slope(operating):+.1f}% a year."
     )
-    if company_type == "Bank":
-        row.notes.append("Gross margin not shown: FMP gross profit is not a real margin for banks")
-    elif all(_has(y.gross_profit) for y in last):
-        gross = [y.gross_profit / y.revenue * 100 for y in last]
-        if _mean(gross[-3:]) >= GROSS_MARGIN_UNRELIABLE_AT_PCT:
-            row.notes.append("Gross margin not shown: FMP reports about 100%, not a real goods margin")
-        else:
-            row.figures += _margin_figures("gross_margin", "Gross margin", gross)
     return row
 
 
@@ -684,11 +674,6 @@ def growth_row(years: list[FiscalYear], sector_cagrs: list[float], exempt: dict[
     else:
         row.notes.append("Too few sector peers for a median")
         row.meaning = f"Revenue grew {cagr:.1f}% a year over {GROWTH_YEARS} years; too few tracked stocks in its sector for a median."
-    prior, latest = years[-2], years[-1]
-    if _has(prior.revenue) and prior.revenue > 0 and _has(latest.revenue):
-        latest_growth = (latest.revenue / prior.revenue - 1) * 100
-        row.figures.append(Figure("latest_growth", "Latest fiscal year growth", latest_growth, "pct"))
-        row.figures.append(Figure("latest_vs_cagr", "Latest year vs own 5-year CAGR", latest_growth - cagr, "pp"))
     base = years[-(GROWTH_YEARS + 1)]
     before_base = years[-(GROWTH_YEARS + 2)] if len(years) >= GROWTH_YEARS + 2 else None
     if (
@@ -733,42 +718,6 @@ def roic_row(years: list[FiscalYear], company_type: str | None, exempt: dict[str
         Figure("roic_latest", "Latest year", points[-1], "pct"),
         Figure("roic_slope", "Trend per year", _slope(points), "pp"),
     ]
-    return row
-
-
-# --- row 7: price rows (stored values) ---------------------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class StoredPriceValues:
-    """Read straight from the TickerScore row; nothing here is recomputed."""
-
-    overall_verdict: str | None = None
-    valuation_verdict: str | None = None
-    weinstein_stage: str | None = None
-    weinstein_since: date | None = None
-    weinstein_since_is_lower_bound: bool | None = None
-    perf_5y_vs_spy_status: str | None = None
-    perf_5y_vs_spy_pct: float | None = None
-
-
-def price_context_row(stored: StoredPriceValues | None) -> StuckRow:
-    row = StuckRow("price_context", 7, "Price context", None)
-    if stored is None:
-        row.status, row.reason = NOT_REPORTED, "No stored score for this ticker yet"
-        return row
-    row.figures = [
-        Figure("overall_verdict", "Overall verdict", None, "text", stored.overall_verdict),
-        Figure("valuation_verdict", "Valuation verdict", None, "text", stored.valuation_verdict),
-        Figure("weinstein_stage", "Weinstein stage", None, "text", stored.weinstein_stage),
-        Figure("perf_5y_vs_spy", "5Y vs SPY", stored.perf_5y_vs_spy_pct, "pp", stored.perf_5y_vs_spy_status),
-    ]
-    if stored.weinstein_since is not None:
-        row.figures.append(
-            Figure("weinstein_since", "Stage since", None, "text", stored.weinstein_since.isoformat())
-        )
-        if stored.weinstein_since_is_lower_bound:
-            row.notes.append("The stage-since date is a lower bound (older than the history window)")
     return row
 
 
@@ -845,7 +794,7 @@ def evaluate_fundamental_rows(
     settings: StuckSettings,
     sector_cagrs: list[float],
 ) -> list[StuckRow]:
-    """Rows 1-6, 9, 10 and 12 (chronological `years`, completed fiscal years). Rows 7 and 8 come from `price_context_row` and
+    """Rows 1-6, 9, 10 and 12 (chronological `years`, completed fiscal years). Row 8 comes from
     `relative_strength_row`; the data module orders all of them."""
     exempt = exempt_rows(ticker, company_type, settings)
     window = post_listing_years(years, ipo_date)
@@ -872,9 +821,8 @@ __all__ = [
     "Figure",
     "FiscalYear",
     "NOT_APPLICABLE",
+    "NOT_FLAGGED",
     "NOT_REPORTED",
-    "OK",
-    "StoredPriceValues",
     "StuckResult",
     "StuckRow",
     "StuckSettings",

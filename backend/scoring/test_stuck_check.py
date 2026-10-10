@@ -10,9 +10,8 @@ from scoring.stuck_check import (
     FLAGGED,
     NOT_APPLICABLE,
     NOT_REPORTED,
-    OK,
+    NOT_FLAGGED,
     FiscalYear,
-    StoredPriceValues,
     StuckRow,
     cash_conversion_row,
     evaluate_fundamental_rows,
@@ -22,7 +21,6 @@ from scoring.stuck_check import (
     margins_row,
     ordinal,
     post_listing_years,
-    price_context_row,
     relative_strength_row,
     roic_row,
     shareholder_yield_row,
@@ -63,7 +61,7 @@ def test_cash_conversion_msft_like_last3_low_but_10y_fine_does_not_flag():
     row = cash_conversion_row(years(revenue=100.0, net_income=20.0, fcf=fcf), S, {})
     assert figure(row, "last_3y").value == 0.66 or abs(figure(row, "last_3y").value - 0.66) < 1e-9
     assert abs(figure(row, "last_10y").value - 0.82) < 1e-9
-    assert row.status == OK
+    assert row.status == NOT_FLAGGED
 
 
 def test_cash_conversion_amzn_like_and_de_like_flag_when_both_windows_are_low():
@@ -82,7 +80,7 @@ def test_cash_conversion_net_income_under_two_percent_of_revenue_is_not_applicab
 
 def test_cash_conversion_line_is_a_setting():
     ys = years(revenue=100.0, net_income=20.0, fcf=15.0)  # 0.75 in both windows
-    assert cash_conversion_row(ys, S, {}).status == OK
+    assert cash_conversion_row(ys, S, {}).status == NOT_FLAGGED
     assert cash_conversion_row(ys, replace(S, cash_conversion_line=0.8), {}).status == FLAGGED
 
 
@@ -113,7 +111,7 @@ def test_true_catch_crwd_like_flags_sbc_and_share_count_and_withholds_the_footer
     assert figure(rows["sbc"], "sbc_5y_pct_revenue").value == 22.0
     assert abs(figure(rows["sbc"], "sbc_5y_pct_fcf").value - 78.57) < 0.01
     assert rows["share_count"].status == FLAGGED
-    assert rows["fcf_after_sbc"].status == OK  # FCF after SBC is still positive
+    assert rows["fcf_after_sbc"].status == NOT_FLAGGED  # FCF after SBC is still positive
     assert rows["cash_conversion"].status == NOT_APPLICABLE  # net income negative
     assert footer_line(list(rows.values())) is None
 
@@ -142,7 +140,7 @@ def test_sbc_share_above_100_percent_of_fcf_is_nm():
 
 def test_sbc_thresholds_are_settings():
     ys = years(10, revenue=1000.0, net_income=100.0, fcf=500.0, sbc=60.0, diluted_shares=100.0)  # 6% of revenue, 12% of FCF
-    assert evaluate(ys)["sbc"].status == OK
+    assert evaluate(ys)["sbc"].status == NOT_FLAGGED
     assert evaluate(ys, settings=replace(S, sbc_revenue_pct=5.0))["sbc"].status == FLAGGED
     assert evaluate(ys, settings=replace(S, sbc_fcf_pct=10.0))["sbc"].status == FLAGGED
 
@@ -154,7 +152,7 @@ def test_sbc_not_reported_wmt_like_follows_into_row_3_and_drops_row_4():
     assert rows["fcf_after_sbc"].status == NOT_REPORTED
     assert "buybacks_vs_sbc" not in rows
     two_zeros = evaluate(years(10, revenue=1000.0, net_income=50.0, fcf=60.0, sbc=[0.0] * 7 + [10.0] * 3, diluted_shares=100.0))
-    assert two_zeros["sbc"].status == OK  # last five: 2 zeros
+    assert two_zeros["sbc"].status == NOT_FLAGGED  # last five: 2 zeros
     missing = evaluate(years(10, revenue=1000.0, net_income=50.0, fcf=60.0, sbc=[None] * 8 + [10.0] * 2, diluted_shares=100.0))
     assert missing["sbc"].status == NOT_REPORTED  # missing counts like zero
 
@@ -168,7 +166,7 @@ def test_one_or_two_zero_sbc_years_add_a_note_on_rows_2_and_3_and_change_nothing
         rows = evaluate(years(10, sbc=sbc, **base))
         for key in ("sbc", "fcf_after_sbc"):
             assert any(expect in n and "understated" in n for n in rows[key].notes), rows[key].notes
-        assert rows["sbc"].status == OK  # labels and the Not reported rule are unchanged
+        assert rows["sbc"].status == NOT_FLAGGED  # labels and the Not reported rule are unchanged
     three = evaluate(years(10, sbc=[10.0] * 5 + [0.0] * 3 + [10.0] * 2, **base))
     assert three["sbc"].status == NOT_REPORTED and three["sbc"].notes == []  # 3+ zeros: Not reported, no note
 
@@ -197,7 +195,7 @@ def test_fcf_after_sbc_flags_on_a_non_positive_total_even_when_the_latest_year_i
     assert row.status == FLAGGED
     # and neither rule holds: positive total, positive latest year
     ok = evaluate(years(10, revenue=1000.0, net_income=50.0, fcf=100.0, sbc=50.0, diluted_shares=100.0))["fcf_after_sbc"]
-    assert ok.status == OK
+    assert ok.status == NOT_FLAGGED
 
 
 # --- post-listing windows ----------------------------------------------------------------------------------------------------
@@ -257,7 +255,7 @@ def test_ibkr_and_gm_seed_exemptions():
     ibkr = evaluate(ys, ticker="IBKR")
     for key in ("cash_conversion", "fcf_after_sbc", "share_count", "shareholder_yield"):
         assert ibkr[key].status == NOT_APPLICABLE and "Broker" in ibkr[key].reason
-    assert ibkr["sbc"].status == OK  # % of revenue still assessed; the %-of-FCF half is exempt
+    assert ibkr["sbc"].status == NOT_FLAGGED  # % of revenue still assessed; the %-of-FCF half is exempt
     assert not any(f.key == "sbc_5y_pct_fcf" for f in ibkr["sbc"].figures)
     gm = evaluate(ys, ticker="gm")
     assert [gm[k].status for k in ("cash_conversion", "fcf_after_sbc", "shareholder_yield")] == [NOT_APPLICABLE] * 3
@@ -278,7 +276,7 @@ def test_bank_insurance_reit_utility_skip_rows_1_and_3_but_keep_the_sbc_revenue_
         rows = evaluate(ys, company_type=company_type)
         assert rows["cash_conversion"].status == NOT_APPLICABLE
         assert rows["fcf_after_sbc"].status == NOT_APPLICABLE
-        assert rows["sbc"].status == OK  # 3% of revenue; negative FCF is not held against a type whose FCF is not comparable
+        assert rows["sbc"].status == NOT_FLAGGED  # 3% of revenue; negative FCF is not held against a type whose FCF is not comparable
         assert not any(f.key == "sbc_5y_pct_fcf" for f in rows["sbc"].figures)
 
 
@@ -288,7 +286,7 @@ def test_bank_insurance_reit_utility_skip_rows_1_and_3_but_keep_the_sbc_revenue_
 def test_adi_like_one_off_issuance_is_ok_and_the_meaning_says_why():
     shares = [100.0] * 4 + [100.0, 100.0, 100.0, 100.0, 100.0, 165.0]  # the whole jump in the last year
     rows = evaluate(years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=20.0, diluted_shares=shares))
-    assert rows["share_count"].status == OK
+    assert rows["share_count"].status == NOT_FLAGGED
     assert "one-off issuance in FY2025" in rows["share_count"].meaning and "so it is not flagged" in rows["share_count"].meaning
     assert not any("One-off issuance" in n for n in rows["share_count"].notes)  # said once, inline
 
@@ -296,13 +294,13 @@ def test_adi_like_one_off_issuance_is_ok_and_the_meaning_says_why():
 def test_steady_dilution_is_flagged_and_the_line_is_a_setting():
     ys = years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=20.0, diluted_shares=lambda i: 100 * 1.03**i)
     assert evaluate(ys)["share_count"].status == FLAGGED
-    assert evaluate(ys, settings=replace(S, share_growth_pct=4.0))["share_count"].status == OK
+    assert evaluate(ys, settings=replace(S, share_growth_pct=4.0))["share_count"].status == NOT_FLAGGED
 
 
 def test_one_off_line_is_a_setting():
     shares = [100.0] * 8 + [110.0, 160.0]  # 2nd-to-last small, last big: the big one is ~79% of the log dilution
     ys = years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=20.0, diluted_shares=shares)
-    assert evaluate(ys)["share_count"].status == OK
+    assert evaluate(ys)["share_count"].status == NOT_FLAGGED
     assert evaluate(ys, settings=replace(S, one_off_pct=90.0))["share_count"].status == FLAGGED
 
 
@@ -315,7 +313,7 @@ def test_reit_and_utility_share_count_is_a_figure_with_no_label():
 
 def test_shrinking_share_count_is_ok():
     ys = years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=20.0, diluted_shares=lambda i: 100 * 0.97**i)
-    assert evaluate(ys)["share_count"].status == OK
+    assert evaluate(ys)["share_count"].status == NOT_FLAGGED
 
 
 def test_missing_share_counts_are_not_reported():
@@ -352,20 +350,13 @@ def test_shareholder_yield_is_a_figure_only_and_nm_on_non_positive_fcf():
     assert figure(shareholder_yield_row(years(10, fcf=-1.0, dividends=1.0, net_buybacks=1.0), {}), "shareholder_yield_pct_fcf").text == "n/m"
 
 
-def test_margins_first_vs_last_three_years_with_slope_and_gross_margin_secondary():
-    ys = years(5, revenue=100.0, operating_income=[10.0, 12.0, 14.0, 16.0, 18.0], gross_profit=50.0)
+def test_margins_first_vs_last_three_years_with_slope():
+    ys = years(5, revenue=100.0, operating_income=[10.0, 12.0, 14.0, 16.0, 18.0])
     row = margins_row(ys, "Standard", {})
     assert figure(row, "operating_margin_first3").value == 12.0
     assert figure(row, "operating_margin_last3").value == 16.0
     assert abs(figure(row, "operating_margin_slope").value - 2.0) < 1e-9
-    assert figure(row, "gross_margin_last3").value == 50.0
-
-
-def test_gross_margin_is_dropped_near_100_percent_and_for_banks():
-    near_100 = margins_row(years(5, revenue=100.0, operating_income=10.0, gross_profit=100.0), "Standard", {})
-    assert not any(f.key.startswith("gross") for f in near_100.figures) and near_100.notes
-    bank = margins_row(years(5, revenue=100.0, operating_income=10.0, gross_profit=40.0), "Bank", {})
-    assert not any(f.key.startswith("gross") for f in bank.figures)
+    assert not any(f.key.startswith("gross") for f in row.figures)  # gross margin was dropped from the payload (2026-10-10)
 
 
 def test_growth_cagr_percentile_and_ordinals():
@@ -374,7 +365,7 @@ def test_growth_cagr_percentile_and_ordinals():
     assert abs(figure(row, "revenue_cagr_5y").value - 20.0) < 1e-9
     assert figure(row, "sector_median_cagr").value == 11.0
     assert figure(row, "sector_percentile").text == "83rd percentile"  # 5 of 6 peers below
-    assert abs(figure(row, "latest_vs_cagr").value) < 1e-9
+    assert not any(f.key in ("latest_growth", "latest_vs_cagr") for f in row.figures)  # dropped from the payload (2026-10-10)
     assert [ordinal(n) for n in (1, 2, 3, 4, 11, 12, 13, 21, 93, 100)] == ["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "93rd", "100th"]
 
 
@@ -407,19 +398,7 @@ def test_roic_drops_exact_zeros_and_is_standard_only():
     assert roic_row(years(5, roic_pct=[0.0, 0.0, 0.0, 5.0, 6.0]), "Standard", {}).status == NOT_REPORTED
 
 
-# --- price rows --------------------------------------------------------------------------------------------------------------
-
-
-def test_price_context_passes_the_stored_values_through_untouched():
-    row = price_context_row(
-        StoredPriceValues("Pass with caution", "undervalued", "decline", date(2026, 3, 2), True, "underperform", -14.2)
-    )
-    assert row.status is None
-    assert figure(row, "overall_verdict").text == "Pass with caution"
-    assert figure(row, "weinstein_stage").text == "decline"
-    assert figure(row, "perf_5y_vs_spy").value == -14.2 and figure(row, "perf_5y_vs_spy").text == "underperform"
-    assert figure(row, "weinstein_since").text == "2026-03-02" and row.notes
-    assert price_context_row(None).status == NOT_REPORTED
+# --- relative strength -------------------------------------------------------------------------------------------------------
 
 
 def test_relative_strength_words_band_and_weight_note():
@@ -460,7 +439,7 @@ def test_cash_conversion_meaning_when_flagged_when_the_long_window_is_not_meanin
     # net income under 2% of revenue over 10 years but fine over the last 3: the 10-year window is n/m, so the row cannot flag
     net = [0.0] * 7 + [30.0] * 3
     nm = cash_conversion_row(years(revenue=1000.0, net_income=net, fcf=[10.0] * 10), S, {})
-    assert nm.status == OK and nm.gauges[1].value is None and "not meaningful" in nm.gauges[1].note.lower()
+    assert nm.status == NOT_FLAGGED and nm.gauges[1].value is None and "not meaningful" in nm.gauges[1].note.lower()
     assert "10-year window is not meaningful (net income was under 2% of revenue over it)" in nm.meaning
 
     three = cash_conversion_row(years(3, revenue=100.0, net_income=20.0, fcf=22.0), S, {})
@@ -473,7 +452,7 @@ def test_sbc_gauges_use_the_settings_lines_and_the_meaning_has_the_real_numbers(
     assert [(g.key, g.line, g.direction) for g in sbc.gauges] == [("sbc_5y_pct_revenue", 8.0, "ceiling"), ("sbc_5y_pct_fcf", 30.0, "ceiling")]
     assert sbc.meaning == "Stock-based compensation was 4.0% of revenue (limit 8%) and 33.3% of free cash flow (limit 30%) over the last 5 fiscal years. It is flagged because one of them is over its limit."
     custom = evaluate(years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=40.0, diluted_shares=100.0), settings=replace(S, sbc_fcf_pct=50.0))["sbc"]
-    assert custom.gauges[1].line == 50.0 and custom.status == OK
+    assert custom.gauges[1].line == 50.0 and custom.status == NOT_FLAGGED
 
 
 def test_sbc_meaning_when_free_cash_flow_share_is_not_meaningful_and_when_the_fcf_half_is_exempt():
@@ -502,7 +481,7 @@ def test_share_count_meaning_for_each_outcome():
     flagged = evaluate(years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=20.0, diluted_shares=lambda i: 100 * 1.03**i))["share_count"]
     assert flagged.gauges[0].line == 2.0 and flagged.meaning.endswith("above the 2% line, so it is flagged.")
     shrink = evaluate(years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=20.0, diluted_shares=lambda i: 100 * 0.98**i))["share_count"]
-    assert "shrank" in shrink.meaning and shrink.status == OK
+    assert "shrank" in shrink.meaning and shrink.status == NOT_FLAGGED
     reit = evaluate(years(10, revenue=1000.0, net_income=100.0, fcf=120.0, sbc=20.0, diluted_shares=lambda i: 100 * 1.07**i), company_type="REIT/Property Developer")["share_count"]
     assert reit.status is None and reit.meaning.endswith("there is no label for this company type.")
 

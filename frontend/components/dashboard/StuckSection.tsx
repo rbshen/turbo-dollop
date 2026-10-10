@@ -259,7 +259,6 @@ function Body({ data }: { data: StuckCheckOut }) {
   const bandPp = rs?.returns?.band_pp ?? 2;
   return (
     <div className="space-y-6">
-      {!data.has_data && <p className="text-sm text-text-secondary">No cached financial statements for this ticker yet, so only relative strength can be shown.</p>}
       <RelativeStrength row={rs} />
       <QualityGroup rows={rowsByNumber([1, 2, 3, 4, 5, 6])} currency={data.currency} />
       <TrendGroup rows={rowsByNumber([9, 10, 12])} bandPp={bandPp} />

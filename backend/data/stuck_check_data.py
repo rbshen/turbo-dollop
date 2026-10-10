@@ -1,8 +1,7 @@
-"""Assembles the "Why might it be stuck?" card from cached data only (docs/specs/stuck-check.md): no FMP call, no write, feeds nothing.
+"""Assembles the "Why might it be stuck?" section from cached data only (docs/specs/stuck-check.md): no FMP call, no write, feeds nothing.
 
-Fundamental rows read the cleaned cached statements (`helpers/statement_view.build_statement_view`, completed fiscal years), the
-price rows read the stored `TickerScore` values (never recomputed), and relative strength reads cached daily bars. The labelling
-rules are scoring/stuck_check.py; thresholds come from `load_stuck_settings` with the code defaults as the fallback.
+Fundamental rows read the cleaned cached statements (`helpers/statement_view.build_statement_view`, completed fiscal years), and
+relative strength reads cached daily bars. The labelling rules are scoring/stuck_check.py; thresholds come from `load_stuck_settings` with the code defaults as the fallback.
 """
 
 import json
@@ -35,12 +34,10 @@ from scoring.stuck_check import (
     RELATIVE_STRENGTH_WINDOWS,
     SUBTITLE,
     FiscalYear,
-    StoredPriceValues,
     StuckRow,
     StuckSettings,
     evaluate_fundamental_rows,
     footer_line,
-    price_context_row,
     relative_strength_row,
     revenue_cagr_pct,
 )
@@ -105,7 +102,6 @@ def build_fiscal_years(income: list[dict], cash_flow: list[dict], key_metrics: l
                 revenue=_num(row.get("revenue")),
                 net_income=_num(row.get("netIncome")),
                 operating_income=_num(row.get("operatingIncome")),
-                gross_profit=_num(row.get("grossProfit")),
                 fcf=cfo + capex if cfo is not None and capex is not None else None,
                 sbc=_num(cf.get("stockBasedCompensation")),
                 buybacks=abs(repurchased) if repurchased is not None else None,
@@ -247,21 +243,9 @@ def get_stuck_check_data(ticker: str, settings: StuckSettings | None = None) -> 
         sector = profile.get("sector") or (score.sector if score else None)
         context = sector_context(session, sector) if sector else _SectorContext([], {})
 
-    stored = (
-        StoredPriceValues(
-            overall_verdict=score.overall_verdict,
-            valuation_verdict=score.valuation_verdict,
-            weinstein_stage=score.weinstein_stage,
-            weinstein_since=score.weinstein_stage_since_date,
-            weinstein_since_is_lower_bound=score.weinstein_stage_since_is_lower_bound,
-            perf_5y_vs_spy_status=score.perf_5y_vs_spy_status,
-            perf_5y_vs_spy_pct=score.perf_5y_vs_spy_pct,
-        )
-        if score is not None
-        else None
-    )
     if not years:
-        return StuckCheckOut(ticker=ticker, has_data=False, company_type=company_type, rows=[_row_out(price_context_row(stored))])
+        # No cached statements: no rows, and the dashboard's empty-state text applies.
+        return StuckCheckOut(ticker=ticker, has_data=False, company_type=company_type, rows=[])
 
     total_cap = sum(context.market_caps.values())
     own_cap = context.market_caps.get(ticker) or (score.market_cap if score else None)
@@ -271,7 +255,6 @@ def get_stuck_check_data(ticker: str, settings: StuckSettings | None = None) -> 
 
     rows = evaluate_fundamental_rows(years, company_type, ticker, ipo_date, settings, context.cagrs)
     footer = footer_line(rows)
-    rows.append(price_context_row(stored))
     rows.append(_relative_strength(ticker, sector, settings.sector_band_pp, weight_pct))
     rows.sort(key=lambda r: r.number)
     return StuckCheckOut(

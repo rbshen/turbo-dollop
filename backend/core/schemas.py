@@ -2727,7 +2727,7 @@ class StuckRowOut(BaseModel):
     key: str
     number: int
     title: str
-    # "ok" | "flagged" | "not_applicable" | "not_reported" | None (figures only, no label). Never a verdict word.
+    # "not_flagged" | "flagged" | "not_applicable" | "not_reported" | None (figures only, no label). Never a verdict word.
     status: str | None = None
     reason: str | None = None
     figures: list[StuckFigureOut] = []

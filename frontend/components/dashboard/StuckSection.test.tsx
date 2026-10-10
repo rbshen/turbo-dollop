@@ -51,7 +51,7 @@ function data(over: Partial<StuckCheckOut> = {}): StuckCheckOut {
         key: "cash_conversion",
         number: 1,
         title: "Cash conversion",
-        status: "ok",
+        status: "not_flagged",
         meaning: "Free cash flow was 1.12 times net income over the last 3 fiscal years and 0.98 times over the last 10. It is flagged only when both are under 0.70.",
         gauges: [
           { key: "last_3y", label: "Last 3 fiscal years", value: 1.12, unit: "ratio", line: 0.7, direction: "floor", note: null },
@@ -281,7 +281,7 @@ describe("footer and states", () => {
     expect(screen.queryByTestId("stuck-footer")).toBeNull();
   });
 
-  it("loading, error, ETF, empty and no-statements states degrade on their own", () => {
+  it("loading, error, ETF and the empty (no statements: no rows) states degrade on their own", () => {
     put(undefined, { isLoading: true });
     const { unmount } = render(<StuckSection ticker="ACME" />);
     expect(screen.getAllByTestId("skeleton").length).toBeGreaterThan(0);
@@ -302,11 +302,6 @@ describe("footer and states", () => {
     expect(screen.getByText("Nothing is cached for this ticker yet, so there is nothing to show.")).toBeInTheDocument();
     empty.unmount();
 
-    put(data({ has_data: false, rows: [row({ key: "relative_strength", number: 8, title: "Relative strength", returns: RETURNS })] }));
-    render(<StuckSection ticker="NEW" />);
-    expect(screen.getByText(/No cached financial statements for this ticker yet/)).toBeInTheDocument();
-    expect(screen.getByTestId("stuck-relative-strength")).toBeInTheDocument();
-    expect(screen.queryByTestId("stuck-quality")).toBeNull();
   });
 });
 

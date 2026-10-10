@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { StuckFigure, StuckRow } from "@/lib/api/types";
-import { formatFigure, rowsForGroup, STATUS_LABEL, STUCK_GROUPS } from "@/lib/stuckCheck";
+import { collapseNotes, formatFigure, gaugeCaption, isShownRow, STATUS_LABEL } from "@/lib/stuckCheck";
 
 const fig = (over: Partial<StuckFigure>): StuckFigure => ({ key: "k", label: "L", value: null, unit: "pct", text: null, ...over });
 
@@ -9,9 +9,9 @@ describe("formatFigure", () => {
   it.each([
     [{ unit: "pct", value: 22.14 }, "22.1%"],
     [{ unit: "pct", value: -3.06 }, "-3.1%"],
-    [{ unit: "pp", value: 1.34 }, "+1.3 pp"],
-    [{ unit: "pp", value: -36.5 }, "−36.5 pp"],
-    [{ unit: "pp", value: 0 }, "0.0 pp"],
+    [{ unit: "pp", value: 1.34 }, "+1.3%"],
+    [{ unit: "pp", value: -36.5 }, "−36.5%"],
+    [{ unit: "pp", value: 0 }, "0.0%"],
     [{ unit: "ratio", value: 0.66 }, "0.66"],
     [{ unit: "multiple", value: 2.5 }, "2.5×"],
     [{ unit: "money", value: 1_096_679_000 }, "$1.10B"],
@@ -29,33 +29,60 @@ describe("formatFigure", () => {
   it("shows the word alone when there is no value, and beside the figure when there is one", () => {
     expect(formatFigure(fig({ value: null, text: "n/m" }))).toBe("n/m");
     expect(formatFigure(fig({ value: null, text: null }))).toBe("—");
-    expect(formatFigure(fig({ unit: "pp", value: 107.07, text: "leads" }))).toBe("+107.1 pp · leads");
+    expect(formatFigure(fig({ unit: "pp", value: 107.07, text: "leads" }))).toBe("+107.1% · leads");
     expect(formatFigure(fig({ unit: "text", value: null, text: "No buybacks" }))).toBe("No buybacks");
     expect(formatFigure(fig({ unit: "count", value: 93, text: "93rd percentile" }))).toBe("93rd percentile");
   });
+});
 
-  it("draws the stored row-7 values in the app's own display words, never recomputed", () => {
-    const text = (key: string, value: string) => formatFigure(fig({ key, unit: "text", text: value }));
-    expect(text("overall_verdict", "Pass with caution")).toBe("Pass with caution");
-    expect(text("overall_verdict", "Fail")).toBe("May not pass"); // the app-wide display word for a stored Fail
-    expect(text("valuation_verdict", "undervalued")).toBe("Undervalued");
-    expect(text("valuation_verdict", "fair")).toBe("Fairvalued");
-    expect(text("weinstein_stage", "decline")).toBe("Stage 4 · Decline");
-    expect(text("weinstein_since", "2026-03-02")).toBe("2026-03-02");
-    expect(formatFigure(fig({ key: "perf_5y_vs_spy", unit: "pp", value: -12.5, text: "underperform" }))).toBe("−12.5 pp · underperform");
-    expect(formatFigure(fig({ key: "perf_5y_vs_spy", unit: "pp", value: 0.2, text: "match" }))).toBe("+0.2 pp · in line");
+const row = (over: Partial<StuckRow> & Pick<StuckRow, "title">): StuckRow =>
+  ({ key: over.title, number: 1, status: null, reason: null, figures: [], notes: [], ...over }) as StuckRow;
+
+describe("labels", () => {
+  it("has exactly the four labels, none of them a verdict word, and 'Not flagged' replaces 'OK'", () => {
+    expect(Object.values(STATUS_LABEL)).toEqual(["Not flagged", "Flagged", "Not applicable", "Not reported"]);
+    expect(Object.values(STATUS_LABEL)).not.toContain("OK");
   });
 });
 
-describe("labels and groups", () => {
-  it("has exactly the four labels, none of them a verdict word", () => {
-    expect(Object.values(STATUS_LABEL)).toEqual(["Not flagged", "Flagged", "Not applicable", "Not reported"]);
+describe("collapseNotes", () => {
+  it("isShownRow hides only Not applicable and Not reported rows", () => {
+    expect(["not_flagged", "flagged", null].map((status) => isShownRow(row({ title: "x", status: status as StuckRow["status"] })))).toEqual([true, true, true]);
+    expect(["not_applicable", "not_reported"].map((status) => isShownRow(row({ title: "x", status: status as StuckRow["status"] })))).toEqual([false, false]);
   });
 
-  it("splits rows into the three groups by number and drops nothing", () => {
-    const rows = [1, 2, 3, 5, 6, 7, 8, 9, 10, 12].map((number) => ({ number }) as StuckRow);
-    const grouped = STUCK_GROUPS.map((g) => rowsForGroup(rows, g.numbers).map((r) => r.number));
-    expect(grouped).toEqual([[1, 2, 3, 5, 6], [7, 8], [9, 10, 12]]);
-    expect(grouped.flat()).toHaveLength(rows.length);
+  it("merges rows with the same reason into one sentence and keeps distinct reasons separate", () => {
+    const notes = collapseNotes([
+      row({ title: "Cash conversion", status: "not_applicable", reason: "Free cash flow is not comparable for a bank" }),
+      row({ title: "FCF after stock-based compensation", status: "not_applicable", reason: "Free cash flow is not comparable for a bank" }),
+      row({ title: "Share count", status: "not_applicable", reason: "Fewer than 3 fiscal years since the listing" }),
+    ]);
+    expect(notes).toEqual([
+      "Cash conversion and FCF after stock-based compensation: Free cash flow is not comparable for a bank.",
+      "Share count: Fewer than 3 fiscal years since the listing.",
+    ]);
+  });
+
+  it("names three rows with a comma list, includes row notes, and drops a row that is shown from the reasons", () => {
+    const notes = collapseNotes([
+      row({ title: "A", status: "not_reported", reason: "Cash flow is missing" }),
+      row({ title: "B", status: "not_reported", reason: "Cash flow is missing" }),
+      row({ title: "Cash flow row", status: "not_reported", reason: "Cash flow is missing" }),
+      row({ title: "Shown", status: "not_flagged", reason: "ignored", notes: ["Only 2 fiscal years since the listing: latest year shown, no label"] }),
+    ]);
+    expect(notes).toEqual(["A, B and cash flow row: Cash flow is missing.", "Only 2 fiscal years since the listing: latest year shown, no label."]);
+  });
+
+  it("returns nothing when there is nothing to say", () => {
+    expect(collapseNotes([row({ title: "x", status: "flagged" })])).toEqual([]);
+  });
+});
+
+describe("gaugeCaption", () => {
+  it("says where the row flags", () => {
+    const pct = (n: number) => `${n}%`;
+    expect(gaugeCaption("ceiling", 8, pct)).toBe("Flagged above 8%");
+    expect(gaugeCaption("floor", 0.7, (n) => n.toFixed(2))).toBe("Flagged below 0.70");
+    expect(gaugeCaption("floor", 0, pct)).toBe("Flagged at zero or below");
   });
 });
