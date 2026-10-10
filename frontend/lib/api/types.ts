@@ -1632,7 +1632,7 @@ export interface TechnicalEntrySignalOut {
   // "warren" only -- how many stop-outs have occurred since the last Blue
   // trigger (the count gray_suppressed is thresholded on).
   stop_count: number | null;
-  source: string; // "fmp" (legacy rows may read "yahoo")
+  source: string; // always "fmp"
   // Timestamp of the last candle actually evaluated, fired or not --
   // updates every nightly run regardless of outcome, so this can
   // legitimately be a more recent date than fired_at.
@@ -1664,7 +1664,7 @@ export interface LiquidityZoneOut {
   last_price: number;
   as_of: string;
   computed_at: string;
-  source: string; // "fmp" (legacy rows may read "yahoo")
+  source: string; // "fmp"; a row not recomputed since Yahoo's removal may still read "yahoo"
   // Already the nearest-N, correct-side-of-price, clustered zones -- an
   // empty array means genuinely zero currently-valid zones on that side
   // (sparse history, or price has never pulled back far enough to form

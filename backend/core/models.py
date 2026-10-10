@@ -73,11 +73,11 @@ class SharedBarsCache(SQLModel, table=True):
     close: float
     volume: int
     fetched_at: datetime
-    # Provenance of the write: "fmp" (legacy rows: "yahoo" | NULL -- a row from before this column existed,
-    # or any "1d" row -- only "60m" reads it). The FMP intraday source replaces a ticker's
-    # whole "60m" history unless every cached row is "fmp", so FMP bars are never layered on
-    # Yahoo history (a mixed-source seam inside Warren's replay window). Nullable: the
-    # ADD COLUMN sweep does no backfill, so every pre-existing row reads NULL == "not FMP".
+    # Provenance of the write: always "fmp" for a new row. A row from before Yahoo was removed (P6b) may still read
+    # "yahoo", and NULL means it predates this column, or is any "1d" row -- only "60m" reads it. The FMP intraday
+    # source replaces a ticker's whole "60m" history unless every cached row is "fmp", so FMP bars are never layered
+    # on older non-FMP history (a mixed-source seam inside Warren's replay window). Nullable: the ADD COLUMN sweep
+    # does no backfill, so every pre-existing row reads NULL == "not FMP".
     source: str | None = None
 
 
@@ -269,7 +269,7 @@ class TechnicalEntrySignal(SQLModel, table=True):
     # whenever fired_at is None, and also whenever ATR itself is NaN on
     # that bar (e.g. too little history for a 14-period ATR).
     stop_price: float | None = None
-    source: str  # "fmp" (legacy rows may read "yahoo")
+    source: str  # always "fmp"
     # Timestamp of the last candle actually evaluated this run (fired or
     # not) -- unlike fired_at above, this updates every nightly run
     # regardless of outcome, so every Watchlist ticker still gets a
@@ -415,7 +415,7 @@ class LiquidityZoneAnalysis(SQLModel, table=True):
     resistance_zones_json: str
     broken_support_json: str | None = None
     broken_resistance_json: str | None = None
-    source: str  # "fmp" (legacy rows may read "yahoo")
+    source: str  # "fmp"; a row not recomputed since Yahoo's removal (P6b) may still read "yahoo"
     computed_at: datetime  # when the nightly job produced this row
 
 
@@ -772,7 +772,7 @@ class TickerScore(SQLModel, table=True):
     # market_cap. Nullable per this table's usual no-backfill-migration
     # convention (_add_missing_columns) -- a row computed before this field
     # existed reads NULL until the next nightly recompute, same rollout gap
-    # as country/speculative_growth_qualifies.
+    # as speculative_growth_qualifies.
     last_price: float | None = None
     pe_ratio: float | None = None
     beta: float | None = None

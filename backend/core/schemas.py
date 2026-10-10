@@ -1467,7 +1467,7 @@ class TechnicalEntrySignalOut(BaseModel):
     signal_kind: str | None = None  # "warren" only -- one of analysis.warren_signal.types.SIGNAL_KINDS
     gray_suppressed: bool | None = None  # "warren" only
     stop_count: int | None = None  # "warren" only
-    source: str  # "fmp" (legacy rows may read "yahoo")
+    source: str  # always "fmp"
     as_of: datetime
     computed_at: datetime
 

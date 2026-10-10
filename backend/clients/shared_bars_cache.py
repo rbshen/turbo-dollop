@@ -442,7 +442,7 @@ def _write_rows(
     read-side shape). Both fetch paths (clients/daily_bar_sources.py) lowercase
     at their own boundary before reaching here.
 
-    `source` is provenance ("fmp"; legacy rows may read "yahoo" or NULL), only meaningful for "60m" rows (see
+    `source` is provenance ("fmp"; a row from before Yahoo's removal reads "yahoo" or NULL), only meaningful for "60m" rows (see
     SharedBarsCache.source); "1d" callers leave it None.
 
     `requested_from` (the first date the fetch asked for) opts a `replace=True` write into history protection
