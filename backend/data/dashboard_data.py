@@ -55,6 +55,7 @@ from data.ticker_summary import get_summary
 from data.trend_analysis_data import WEINSTEIN_LOOKBACK_DAYS
 from helpers.weinstein_config import load_weinstein_params
 from scoring.classification import classify_company_type
+from scoring.step2 import MAGNITUDE_HIGH, MAGNITUDE_MODEST, MAGNITUDE_SOLID
 from scoring.step3 import VALUATION_OVERVALUED_THRESHOLD, VALUATION_UNDERVALUED_THRESHOLD
 from scoring.step4 import ROE_EXCELLENT_AVG, ROE_GOOD_AVG, ROE_MARGINAL_AVG, ROE_MIN_YEAR_CONSISTENCY
 from scoring.step5 import (
@@ -113,11 +114,15 @@ def financials_block(step1: Step1Out | None, head: dict) -> DashboardFinancialsO
     )
 
 
+GROWTH_BANDS = [MAGNITUDE_MODEST, MAGNITUDE_SOLID, MAGNITUDE_HIGH]
+
+
 def growth_block(step2: Step2Out | None, head: dict) -> DashboardGrowthOut:
     if step2 is None:
-        return DashboardGrowthOut(**head)
+        return DashboardGrowthOut(**head, bands=GROWTH_BANDS)
     return DashboardGrowthOut(
         **head,
+        bands=GROWTH_BANDS,
         available=step2.growth_rate is not None,
         growth_rate=step2.growth_rate,
         target_analyst_count=step2.target_analyst_count,

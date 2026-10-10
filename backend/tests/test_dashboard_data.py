@@ -170,11 +170,12 @@ def test_growth_passes_the_stored_cagr_and_analyst_count():
     s2 = Step2Out(ticker="ACME", growth_rate=14.2, target_analyst_count=23, basis="eps", base_fiscal_year="2025", target_fiscal_year="2028", score=90, verdict="Strong Pass", weights={})
     block = dd.growth_block(s2, {})
     assert block.available and block.growth_rate == 14.2 and block.target_analyst_count == 23 and block.basis == "eps"
+    assert block.bands == [5.0, 10.0, 15.0]  # the magnitude tier lines from scoring/step2.py
 
 
 def test_growth_without_estimates_is_unavailable():
     block = dd.growth_block(Step2Out(ticker="ACME", verdict="insufficient_data", weights={}), {})
-    assert not block.available and block.growth_rate is None
+    assert not block.available and block.growth_rate is None and block.bands == [5.0, 10.0, 15.0]
 
 
 # --- Moat --------------------------------------------------------------------------------------------------------------------

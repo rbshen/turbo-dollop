@@ -2857,6 +2857,8 @@ class DashboardGrowthOut(DashboardStepHeadOut):
     basis: str | None = None  # "eps" | "revenue"
     base_fiscal_year: str | None = None
     target_fiscal_year: str | None = None
+    # The magnitude tier lines in percent, ascending (modest, solid, high; scoring/step2.py): the scale the growth rate is drawn against.
+    bands: list[float] = []
 
 
 class DashboardPricePointOut(BaseModel):

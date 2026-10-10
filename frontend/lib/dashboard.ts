@@ -66,3 +66,8 @@ export function fairValueUnavailableText(fv: Pick<DashboardFairValue, "unavailab
 export function growthBasisText(basis: string | null): string {
   return basis === "eps" ? "EPS" : basis === "revenue" ? "revenue" : "analyst";
 }
+
+/** "Oct 2021" from an ISO date (the Sparkline's end captions). */
+export function fmtMonthYear(iso: string): string {
+  return new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+}
