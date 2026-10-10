@@ -330,7 +330,8 @@ def test_step_functions_read_the_saved_weights_when_none_are_passed(monkeypatch)
     engine = _engine(monkeypatch)
     captured = {}
 
-    async def no_data(*a, **k):
+    async def no_data(label, coro):
+        coro.close()  # the stub stands in for safe_fetch, which would have awaited it; close it so it is not left un-awaited
         return {}
 
     monkeypatch.setattr(step1_data, "safe_fetch", no_data)
