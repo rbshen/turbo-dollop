@@ -96,6 +96,7 @@ Scoring methodology and feature-specific detail live in `docs/specs/*.md` and `d
 
 ## Workflow rules
 
+- **Testing scales with what changed.** Frontend changes always run the full vitest plus typecheck and lint. Backend changes run targeted tests when isolated (one scoring function, endpoint or job) and the full suite when a shared file changes: `conftest` or fixtures, models/schema/db migrations, shared helpers (the cache layer, the FMP client, the universe loaders), scoring constants / `SCORE_FORMULA_VERSION` / weights, or the cron registries. Docs-only changes run no tests. Run the full backend suite once before any push.
 - **Plan Mode by default.** Propose a plan and wait for confirmation before writing code for each phase.
 - **Confirm before committing.** Stop and confirm with the user before committing each phase's work, and again before pushing — push only after explicit confirmation.
 - **One commit per logical change.**

@@ -33,8 +33,13 @@ and the app never mixes them into one number.
 
 ## Reading the result
 
-Once a fair value per share is calculated, Fathom compares it to the stock's live price and
-labels the result **Undervalued**, **Fair Valued**, or **Overvalued**.
+Once a fair value per share is calculated, Fathom compares it to the stock's price and
+labels the result **Undervalued**, **Fair Valued**, or **Overvalued**. Which price depends on the
+surface: the ticker header's pill uses the **live quote**, the Valuation tab uses the **cached quote**
+(refreshed whenever the header loads, otherwise up to 7 days old), and the stored verdict the Screener
+and the Watchlist show uses the **nightly last close** (since 2026-10-10, so it matches the Quote
+column beside it). The same fair value can therefore read a different label on two surfaces when the
+price sits near a band edge; that is by design.
 
 ## The Manual Calculation panel — and saving it as a Custom Valuation
 

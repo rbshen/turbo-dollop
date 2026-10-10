@@ -1101,6 +1101,18 @@ Also decided: two text sets keyed by the Blue profile (the shortened "profiled" 
 
 **Why.** Measured on 596 Screener rows: 39 differed from the last close by more than 5%, the worst by 21%. The cached quote row refreshes on a 7-day window, so the Quote and Mkt cap columns sat beside a P/E and a Watchlist price that already used the previous close. Examples before/after (stored -> dry computation): TMUS 171.31 -> 148.58, CCI 68.89 -> 79.64, MRNA 197.00 -> 225.00, FLY 23.32 -> 20.00.
 
-**Effect and rollout.** `SCORE_FORMULA_VERSION` is unchanged (no score moves). Stored rows keep the old values until the next score recompute; the nightly one (3:25) follows the last-close job (1:00), so tonight's run fills them. **Not changed:** the ticker header (live quote when available), and the Valuation verdict (`valuation_verdict`, Step 3), which still compares fair value with the cached quote price.
+**Effect and rollout.** `SCORE_FORMULA_VERSION` is unchanged (no score moves). Stored rows keep the old values until the next score recompute; the nightly one (3:25) follows the last-close job (1:00), so tonight's run fills them. **Not changed:** the ticker header (live quote when available). *(The Valuation verdict clause that stood here, "still compares fair value with the cached quote price", is superseded by "Screener valuation verdict follows the nightly last close" below.)*
 
 **Also (same day).** `data/watchlists.py::list_monitored_tickers` drops delisted-flagged tickers, so the Warren and BB+RSI jobs skip them as the liquidity-zone job already did (its own special case became redundant; `list_monitored_tickers_with_delisted` also returns the skipped ones for its `skipped_delisted_count`). No flagged ticker is on a watchlist today. And `tests/conftest.py` now blocks real outbound HTTP in every test (`_forbid_real_http`).
+
+### 2026-10-10 — Screener valuation verdict follows the nightly last close
+
+**Follow-up to** "Screener Quote and Mkt cap follow the nightly last close" above; it replaces that entry's "Not changed" sentence about the Valuation verdict.
+
+**Decision.** `data/ticker_score.py::compute_ticker_score` stores `TickerScore.valuation_verdict` as `classify_valuation_verdict(last_close / summary.fair_value_price - 1)` (`scoring/step3.py`, the unchanged -10% / +10% band) whenever the cached nightly close and a positive fair value both exist. With no cached close, or no positive fair value (a PASS, a suppressed result), the summary's verdict is kept as it was. A saved custom valuation is covered because `fair_value_price` is already its value; `valuation_source` is untouched. Fair value, every score and the Overall are unchanged, and `SCORE_FORMULA_VERSION` is not bumped (a label only).
+
+**Why.** After the Quote and Mkt cap change, the Screener card showed the close beside a verdict computed against a cached quote that is a median 1.4 days old (p90 4.3, max 10.4). Read-only simulation over the 582 tracked stocks: 545 have a verdict, and **7 of 545 change** (overvalued to fair 2, fair to undervalued 2, undervalued to fair 3; one is a custom valuation): ZS (undervalued to fair), BG, TRMB, LOW, SPGI, RF, WDAY. The distribution barely moves (undervalued 257 to 256, fair 71 to 74, overvalued 217 to 215). PARA, FLY, TMUS and MRNA keep their verdicts.
+
+**Stays different, by design.** The ticker header pill uses the live quote (the header force-fetches it), and the Valuation tab uses the cached quote row (up to 7 days old). The stored Screener and Watchlist verdict uses the nightly close. Intraday-vs-close differences between them are the same ones the price already has. Overall, Pass with caution, saved Screener views and the Watchlist/Screener sorts do not read the price used here.
+
+**Rollout.** Stored rows keep the old verdicts until the next score recompute; the nightly one (3:25) follows the last-close job (1:00).
