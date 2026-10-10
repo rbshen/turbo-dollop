@@ -31,7 +31,9 @@ describe("PillReference", () => {
 
   it("draws a stored Fail as the slate May not pass, a 72 Pass in green, and no amber Pass", () => {
     render(<PillReference />);
-    for (const pill of screen.getAllByText("May not pass")) {
+    for (const word of screen.getAllByText("May not pass")) {
+      // The word can sit in an inner span.truncate (the Watchlist verdict pill): judge the pill, the nearest filled ancestor.
+      const pill = word.closest("[class*='bg-']") ?? word;
       expect(pill.className).toContain("text-not-pass");
       expect(pill.className).not.toMatch(/negative|warn|caution/);
     }
