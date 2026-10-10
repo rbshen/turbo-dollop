@@ -68,6 +68,9 @@ _OBSOLETE_COLUMNS: list[tuple[str, str]] = [
     ("moatscoreconfig", "narrow_moat_score"),
     ("moatscoreconfig", "no_moat_score"),
     ("tickerscore", "moat_score"),
+    # The Review status was retired (2026-10-08) and its four nullable columns left unused in the file; dropped at the next start
+    # (2026-10-10). Nothing reads or writes them.
+    *[("tickerscore", col) for col in ("review_status", "review_reasons", "conviction", "data_quality_flags")],
 ]
 
 

@@ -270,11 +270,12 @@ def test_an_old_tickerview_table_gains_the_added_columns_and_keeps_its_rows(monk
     assert rows == [("AAPL", "2026-10-02 07:00:52.930737", None, None), ("QQQ", "2026-10-03 02:16:16.264082", None, None)]
 
 
-def test_a_tickerscore_table_keeps_the_four_retired_review_columns_unused(monkeypatch):
-    """The Review status was retired (2026-10-08): review_status / review_reasons / conviction / data_quality_flags are no
-    longer on the model but stay as nullable physical columns in the live DB. The startup sweeps must leave them (and their
-    values) alone, and reading and writing the model must still work around them."""
+def test_the_four_retired_review_columns_are_dropped_from_tickerscore(monkeypatch):
+    """The Review status was retired (2026-10-08) and its columns -- review_status / review_reasons / conviction /
+    data_quality_flags -- dropped at the next start (2026-10-10). The drop must leave every other column and value alone, be
+    idempotent, and reading and writing the model must still work afterwards."""
     engine = _fresh_engine(monkeypatch)
+    retired = {"review_status", "review_reasons", "conviction", "data_quality_flags"}
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -285,15 +286,17 @@ def test_a_tickerscore_table_keeps_the_four_retired_review_columns_unused(monkey
         conn.execute(text("INSERT INTO tickerscore VALUES ('AAPL', 76, 'Pass', '2026-10-05 02:00:00', 'review_unclear', '[]', 'high', NULL)"))
 
     _drop_obsolete_columns()
+    _drop_obsolete_columns()  # idempotent
+    _add_missing_columns()  # must not bring them back: the model no longer defines them
     _add_missing_columns()
-    _add_missing_columns()  # idempotent
 
     with engine.connect() as conn:
         columns = {row[1] for row in conn.execute(text("PRAGMA table_info(tickerscore)"))}
-        legacy = conn.execute(text("SELECT review_status, review_reasons, conviction, data_quality_flags FROM tickerscore")).one()
-    assert {"review_status", "review_reasons", "conviction", "data_quality_flags"} <= columns
-    assert tuple(legacy) == ("review_unclear", "[]", "high", None)
-    assert not {"review_status", "review_reasons", "conviction", "data_quality_flags"} & set(TickerScore.model_fields)
+        kept = conn.execute(text("SELECT ticker, overall_score, overall_verdict FROM tickerscore")).one()
+    assert not retired & columns
+    assert not retired & set(TickerScore.model_fields)
+    assert {"ticker", "overall_score", "overall_verdict", "computed_at"} <= columns
+    assert tuple(kept) == ("AAPL", 76, "Pass")
 
     with Session(engine) as session:
         row = session.exec(select(TickerScore).where(TickerScore.ticker == "AAPL")).one()
