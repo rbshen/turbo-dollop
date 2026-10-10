@@ -11,6 +11,7 @@ import {
   priceRangeGeometry,
   sparklineGeometry,
   stageSincePosition,
+  tierScaleGeometry,
 } from "@/lib/chartGeometry";
 
 describe("gaugeState", () => {
@@ -60,8 +61,20 @@ describe("gaugeGeometry", () => {
     expect(g.zone!.leftPct).toBeCloseTo(35);
     expect(g.zone!.widthPct).toBeCloseTo(15);
   });
-  it("a negative value draws an empty fill, not a negative width", () => {
-    expect(gaugeGeometry(-3, 3, 4, "ceiling").fillPct).toBe(0);
+  it("a negative value extends the track to the left and fills between the value and zero", () => {
+    const g = gaugeGeometry(-3, 3, 4, "ceiling");
+    expect(g.scaleMin).toBeCloseTo(-3.45);
+    expect(g.fillLeftPct).toBeCloseTo(4.76, 1); // the value sits just inside the left edge
+    expect(g.fillLeftPct! + g.fillPct!).toBeCloseTo(((0 - g.scaleMin) / (g.scaleMax - g.scaleMin)) * 100); // and the fill ends at zero
+    expect(g.fillLeftPct! + g.fillPct!).toBeLessThan(g.passPct);
+  });
+  it("a line at zero (FCF after stock comp) scales from the value", () => {
+    const g = gaugeGeometry(8, 0, 0, "floor");
+    expect(g.scaleMax).toBe(12);
+    expect(g.passPct).toBe(0);
+    expect(g.state).toBe("ok");
+    expect(gaugeGeometry(-2, 0, 0, "floor").state).toBe("breach");
+    expect(gaugeGeometry(null, 0, 0, "floor").scaleMax).toBe(1);
   });
 });
 
@@ -148,5 +161,16 @@ describe("sparkline", () => {
     expect(sparklineGeometry([1, null, 3]).points).toBe("0.00,100.00 100.00,0.00");
     expect(sparklineGeometry([1]).points).toBeNull();
     expect(sparklineGeometry([]).last).toBeNull();
+  });
+});
+
+describe("tier scale", () => {
+  it("places the tier lines on a 0-20 scale and clamps", () => {
+    const g = tierScaleGeometry(12, 20, [5, 10, 15]);
+    expect(g.fillPct).toBe(60);
+    expect(g.ticks.map((t) => t.pct)).toEqual([25, 50, 75]);
+    expect(tierScaleGeometry(35, 20, [5]).overflow).toBe(true);
+    expect(tierScaleGeometry(-4, 20, [5]).fillPct).toBe(0);
+    expect(tierScaleGeometry(null, 20, [5]).fillPct).toBeNull();
   });
 });

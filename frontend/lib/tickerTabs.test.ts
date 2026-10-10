@@ -3,9 +3,10 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_ETF_TICKER_TAB, DEFAULT_TICKER_TAB, ETF_TICKER_TABS, TICKER_TABS } from "@/lib/tickerTabs";
 
 describe("tickerTabs", () => {
-  it("has exactly the 9 tabs, in display order", () => {
+  it("has exactly the 10 tabs, in display order", () => {
     expect(TICKER_TABS.map((t) => t.key)).toEqual([
       "summary",
+      "dashboard",
       "financials",
       "ratios",
       "analysis",
@@ -33,6 +34,11 @@ describe("tickerTabs", () => {
     }
   });
 
+  it("puts Dashboard second, after Summary, labelled 'Dashboard' (the key 'overview' is the ETF page's)", () => {
+    expect(TICKER_TABS[1]).toEqual({ key: "dashboard", label: "Dashboard" });
+    expect(TICKER_TABS.map((t) => t.key)).not.toContain("overview");
+  });
+
   it("defaults to the Summary tab", () => {
     expect(DEFAULT_TICKER_TAB).toBe("summary");
     expect(TICKER_TABS.some((t) => t.key === DEFAULT_TICKER_TAB)).toBe(true);
@@ -43,7 +49,7 @@ describe("tickerTabs", () => {
     expect(DEFAULT_ETF_TICKER_TAB).toBe("overview");
     // The stock page's tab set is untouched by the ETF branch.
     expect(TICKER_TABS.map((t) => t.key)).not.toContain("overview");
-    for (const stockOnly of ["financials", "ratios", "analysis", "valuation", "moat", "analystRatings"]) {
+    for (const stockOnly of ["dashboard", "financials", "ratios", "analysis", "valuation", "moat", "analystRatings"]) {
       expect(ETF_TICKER_TABS.map((t) => t.key)).not.toContain(stockOnly);
     }
   });

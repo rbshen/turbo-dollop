@@ -7,6 +7,7 @@ import { GroupOffBadge } from "@/components/shared/GroupOffBadge";
 import { AnalysisTab } from "@/components/ticker/AnalysisTab";
 import { AnalystRatingsTab } from "@/components/ticker/AnalystRatingsTab";
 import { ChartTab } from "@/components/ticker/ChartTab";
+import { DashboardTab } from "@/components/ticker/DashboardTab";
 import { EtfTickerPage } from "@/components/ticker/EtfTickerPage";
 import { EconomicMoatTab } from "@/components/ticker/EconomicMoatTab";
 import { FinancialsTab } from "@/components/ticker/FinancialsTab";
@@ -75,6 +76,7 @@ export function TickerTabsContainer({ ticker }: Props) {
       <PageContainer className="space-y-2 pb-12">
         <GroupOffBadge groups={TAB_GROUPS[tab] ?? []} />
         {tab === "summary" && <SummaryTab ticker={ticker} />}
+        {tab === "dashboard" && <DashboardTab ticker={ticker} />}
         {tab === "financials" && <FinancialsTab ticker={ticker} />}
         {tab === "ratios" && <RatiosTab ticker={ticker} />}
         {tab === "analysis" && <AnalysisTab ticker={ticker} />}

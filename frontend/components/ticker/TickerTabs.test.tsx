@@ -8,7 +8,7 @@ import { TICKER_TABS } from "@/lib/tickerTabs";
 afterEach(cleanup);
 
 describe("TickerTabs", () => {
-  it("renders all 9 tabs in order via the shared Tabs primitive", () => {
+  it("renders all 10 tabs in order via the shared Tabs primitive", () => {
     render(<TickerTabs active="summary" onChange={() => {}} />);
     expect(screen.getAllByRole("tab").map((el) => el.textContent)).toEqual(TICKER_TABS.map((t) => t.label));
   });

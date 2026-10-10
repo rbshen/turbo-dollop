@@ -1,6 +1,7 @@
 export type TickerTab =
   | "overview"
   | "summary"
+  | "dashboard"
   | "financials"
   | "ratios"
   | "analysis"
@@ -16,7 +17,7 @@ export interface TickerTabDef {
 }
 
 // Order here is the display order in the tab bar, per user direction:
-// Summary, Financials, Ratios, Analysis, Valuation, Economic Moat,
+// Summary, Dashboard, Financials, Ratios, Analysis, Valuation, Economic Moat,
 // Analyst Ratings, Technical, Chart. Technical is second-to-last -- an
 // independent, read-only lens layered on top of the core Fundamentals 1-5/Overall
 // Assessment scoring, rather than part of that blend. Chart sits right
@@ -37,6 +38,9 @@ export interface TickerTabDef {
 // TickerTabsContainer.
 export const TICKER_TABS: TickerTabDef[] = [
   { key: "summary", label: "Summary" },
+  // Second, after Summary, which stays the default. "overview" is the ETF page's key, so this one is "dashboard"
+  // (docs/specs/dashboard.md); the ETF variant below does not list it.
+  { key: "dashboard", label: "Dashboard" },
   { key: "financials", label: "Financials" },
   { key: "ratios", label: "Ratios" },
   { key: "analysis", label: "Analysis" },

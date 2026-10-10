@@ -65,6 +65,8 @@ export function asOfText(group: DataGroupOut): string {
 export const TAB_GROUPS: Record<string, readonly string[]> = {
   overview: ["etf_info"],
   summary: ["profile_quote", "fundamentals", "segmentation"],
+  // The step blocks read cached statements, the price is the quote, and the price sparkline, stage strip and relative strength read daily bars.
+  dashboard: ["profile_quote", "fundamentals", "daily_prices"],
   financials: ["fundamentals"],
   ratios: ["fundamentals"],
   analysis: ["fundamentals"],

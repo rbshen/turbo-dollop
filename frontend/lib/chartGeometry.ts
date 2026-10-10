@@ -20,18 +20,20 @@ export function gaugeState(value: number, passLine: number, hardLimit: number, d
 /** The track runs 0 to this maximum: far enough that both lines and the value fit, without letting one extreme value squash the lines. */
 export function gaugeScaleMax(value: number | null, passLine: number, hardLimit: number, direction: GaugeDirection): number {
   const v = value !== null && Number.isFinite(value) ? Math.max(value, 0) : 0;
-  if (direction === "ceiling") {
-    const far = Math.max(passLine, hardLimit);
-    return Math.max(far * 1.5, Math.min(v * 1.1, far * 3));
-  }
   const far = Math.max(passLine, hardLimit);
+  // A line at zero (e.g. free cash flow after stock comp must stay above 0) has no multiple to scale from: use the value, else 1.
+  if (far <= 0) return v > 0 ? v * 1.5 : 1;
+  if (direction === "ceiling") return Math.max(far * 1.5, Math.min(v * 1.1, far * 3));
   return Math.max(far * 2, Math.min(v * 1.1, far * 4));
 }
 
 export interface GaugeGeometry {
+  scaleMin: number;
   scaleMax: number;
   state: GaugeState | null;
-  /** Fill width, 0-100 (null when there is no value). */
+  /** Fill from `fillLeftPct` for `fillPct` (null when there is no value). The fill runs between zero and the value, so a negative value
+   * draws to the left of zero on a track that has room for it. */
+  fillLeftPct: number | null;
   fillPct: number | null;
   /** True when the value is past the end of the track (the fill is clamped; the label gets a "›"). */
   overflow: boolean;
@@ -41,16 +43,26 @@ export interface GaugeGeometry {
   zone: { leftPct: number; widthPct: number } | null;
 }
 
+/** A value under zero extends the track to the left (15% headroom) so a negative ratio is drawn, not clipped; otherwise the track starts at 0. */
+export function gaugeScaleMin(value: number | null): number {
+  return value !== null && Number.isFinite(value) && value < 0 ? value * 1.15 : 0;
+}
+
 export function gaugeGeometry(value: number | null, passLine: number, hardLimit: number, direction: GaugeDirection): GaugeGeometry {
   const scaleMax = gaugeScaleMax(value, passLine, hardLimit, direction);
-  const pct = (v: number) => clampPct((v / scaleMax) * 100);
+  const scaleMin = gaugeScaleMin(value);
+  const pct = (v: number) => clampPct(((v - scaleMin) / (scaleMax - scaleMin)) * 100);
   const hasValue = value !== null && Number.isFinite(value);
   const lo = Math.min(passLine, hardLimit);
   const hi = Math.max(passLine, hardLimit);
+  const zeroPct = pct(0);
+  const valuePct = hasValue ? pct(value) : 0;
   return {
+    scaleMin,
     scaleMax,
     state: hasValue ? gaugeState(value, passLine, hardLimit, direction) : null,
-    fillPct: hasValue ? pct(value) : null,
+    fillLeftPct: hasValue ? Math.min(zeroPct, valuePct) : null,
+    fillPct: hasValue ? Math.abs(valuePct - zeroPct) : null,
     overflow: hasValue && value > scaleMax,
     passPct: pct(passLine),
     limitPct: pct(hardLimit),
@@ -201,5 +213,24 @@ export function sparklineGeometry(values: Array<number | null | undefined>): Spa
   return {
     points: coords.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" "),
     last: { xPct: lastCoord[0], yPct: lastCoord[1] },
+  };
+}
+
+// --- Tier scale -----------------------------------------------------------------------------------------------------------------
+
+export interface TierScaleGeometry {
+  /** Fill from the left edge, 0-100 (null without a value; a negative value fills nothing). */
+  fillPct: number | null;
+  overflow: boolean;
+  ticks: Array<{ value: number; pct: number }>;
+}
+
+/** A plain 0-to-`max` scale with tier lines (the growth rate against the 5/10/15% bands). */
+export function tierScaleGeometry(value: number | null, max: number, bands: number[]): TierScaleGeometry {
+  const hasValue = value !== null && Number.isFinite(value);
+  return {
+    fillPct: hasValue ? clampPct((Math.max(value, 0) / max) * 100) : null,
+    overflow: hasValue && value > max,
+    ticks: bands.map((v) => ({ value: v, pct: clampPct((v / max) * 100) })),
   };
 }
