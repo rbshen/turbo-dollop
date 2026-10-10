@@ -123,7 +123,6 @@ configured):
 | Nightly market breadth | `nightly_market_breadth.log` / `_cron.log` |
 | Nightly ETFs screener | `nightly_etf_screener.log` / `_cron.log` |
 | Nightly sector/industry P/E | `nightly_sector_industry_pe.log` / `_cron.log` |
-| Nightly signal snapshot (Overall / Valuation / Weinstein / Pass + Undervalued log) | `nightly_signal_snapshot.log` / `_cron.log` |
 | Nightly corporate-events cache (earnings/dividends/splits) | `nightly_corporate_events.log` / `_cron.log` |
 | Nightly last-close cache (header price fallback) | `nightly_last_close_snapshot.log` / `_cron.log` |
 | Nightly Warren RSI/ADX/WVF entry-signal calculation | `nightly_warren_signal_calculation.log` / `_cron.log` |
@@ -332,14 +331,6 @@ group or the master switch is off. Red when every call failed or no row was writ
 session yet); one failed call is a success with `F of 6 calls failed`. Log: `nightly_sector_industry_pe.log` / `_cron.log`.
 The one-time backfill is `uv run python -m pipeline.backfills.backfill_sector_industry_pe` (idempotent, resumable, ~9 min).
 Spec: `docs/specs/sector-industry-pe.md`.
-
-**`nightly_signal_snapshot`** — 3:28 AM, after the 3:25 score recompute and before the 3:30 backup. Appends one `TickerSignalSnapshot`
-row per tracked ticker (Overall verdict, Valuation verdict, Weinstein stage, and whether it is Pass-family + Undervalued) copied from the
-stored `TickerScore` row; database only, zero FMP calls, ~1-2 s. Append-only and idempotent: a re-run the same day inserts nothing and
-never updates a row. Message `N written, A already logged, S skipped (no stored score)`; red only when nothing at all could be logged
-for a non-empty universe (an empty or unreadable `TickerScore`). About 582 rows a day, ~25 MB a year including indexes (measured at
-119 bytes a row). No retention rule: the rows are the history. Nothing reads it yet except the pure since-date helper
-(`scoring/good_undervalued.py`). Log: `nightly_signal_snapshot.log` / `_cron.log`. Spec: `docs/specs/stuck-check.md`.
 
 **`nightly_etf_screener`** — refreshes the ETFs screener's read-model, one `EtfScreenerRow` per ETF in
 `data/tracked_universe.py::load_etf_universe` (19 at registration: the 11 sector SPDRs, SPY, QQQ, TLT, ...). Per ETF: fund facts

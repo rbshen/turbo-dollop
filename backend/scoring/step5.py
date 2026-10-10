@@ -27,11 +27,6 @@ DEBT_EBITDA_COMFORTABLE = 3.0
 DEBT_EBITDA_SEVERE = 4.0
 DSR_COMFORTABLE = 30.0
 DSR_SEVERE = 40.0
-# Single-line limits (no borderline zone): REIT gearing passes up to and including this %, Bank NPL fails from this %, Bank CET1
-# fails below this %. Named so the dashboard reads the same numbers the scorers use (data/dashboard_data.py).
-GEARING_LIMIT_PCT = 45.0
-NPL_LIMIT_PCT = 5.0
-CET1_FLOOR_PCT = 10.0
 # --- Severe-zone graduated display (2026-08-13) ------------------------------
 # Debt/EBITDA and DSR's Severe zone was a flat 0 no matter how far beyond
 # the Severe boundary a ratio sat -- a company at 4.04x Debt/EBITDA
@@ -482,7 +477,7 @@ def score_gearing(value_pct: float) -> RatioResult:
         return RatioResult("excellent", 100, False)
     if value_pct <= 40.0:
         return RatioResult("good", 85, False)
-    if value_pct <= GEARING_LIMIT_PCT:
+    if value_pct <= 45.0:
         return RatioResult("approaching_limit", 70, False)
     return RatioResult("fail", 0, True)
 
@@ -497,7 +492,7 @@ def score_npl(value_pct: float) -> RatioResult:
     a CET1 value is available (see score_step5_bank) -- still a standalone
     partial signal on its own otherwise (a Bank ticker with no CET1 entered
     yet still shows this alone, see step5_data.py)."""
-    if value_pct >= NPL_LIMIT_PCT:
+    if value_pct >= 5.0:
         return RatioResult("fail", 0, True)
     if value_pct >= 3.0:
         return RatioResult("acceptable", 70, False)
@@ -514,7 +509,7 @@ def score_npl(value_pct: float) -> RatioResult:
 # not a reversion to either prior set.
 def score_cet1(value_pct: float) -> RatioResult:
     """Mirrors score_npl's excellent/good/acceptable/fail 4-tier shape."""
-    if value_pct < CET1_FLOOR_PCT:
+    if value_pct < 10.0:
         return RatioResult("fail", 0, True)
     if value_pct < 12.0:
         return RatioResult("acceptable", 70, False)

@@ -67,14 +67,6 @@ from data.ratios_data import get_ratios_data
 from data.saved_screener_filters import delete_saved_filter, list_saved_filters, upsert_saved_filter
 from data.segmentation_data import get_segmentation_data
 from data.speculative_growth_data import get_speculative_growth_data
-from data.dashboard_data import get_dashboard_data
-from data.stuck_check_data import get_stuck_check_data
-from data.stuck_check_settings import (
-    get_stuck_settings_row,
-    reset_stuck_settings,
-    save_stuck_settings,
-    settings_of as stuck_settings_of,
-)
 from data.ticker_search import search_tickers
 from data.tracked_universe import (
     load_tracked_universe,
@@ -128,10 +120,6 @@ from core.schemas import (
     RefreshResult,
     ReitDividendYieldConfigIn,
     ReitDividendYieldConfigOut,
-    DashboardOut,
-    StuckCheckOut,
-    StuckCheckSettingsIn,
-    StuckCheckSettingsOut,
     ScoreWeightsOut,
     SavedFilterKind,
     SavedScreenerFilterIn,
@@ -450,61 +438,6 @@ def reset_score_weights_config() -> ScoreWeightsOut:
 
     _save_then_recompute(save, "reset")
     return _score_weights_payload()
-
-
-def _stuck_check_settings_out(row) -> StuckCheckSettingsOut:
-    from scoring.stuck_check import DEFAULT_STUCK_SETTINGS, EXEMPTABLE_ROW_LABELS, STUCK_BOUNDS, StuckSettings
-
-    def view(settings: StuckSettings) -> dict:
-        return {
-            "sbc_revenue_pct": settings.sbc_revenue_pct,
-            "sbc_fcf_pct": settings.sbc_fcf_pct,
-            "cash_conversion_line": settings.cash_conversion_line,
-            "share_growth_pct": settings.share_growth_pct,
-            "one_off_pct": settings.one_off_pct,
-            "sector_band_pp": settings.sector_band_pp,
-            "smoothing_days": settings.smoothing_days,
-            "exemptions": [{"ticker": e.ticker, "reason": e.reason, "rows": list(e.rows)} for e in settings.exemptions],
-        }
-
-    return StuckCheckSettingsOut(
-        **view(stuck_settings_of(row)),
-        defaults=view(DEFAULT_STUCK_SETTINGS),
-        bounds={name: {"min": low, "max": high} for name, (low, high) in STUCK_BOUNDS.items()},
-        row_options=[{"key": key, "label": label} for key, label in EXEMPTABLE_ROW_LABELS.items()],
-        updated_at=row.updated_at,
-    )
-
-
-@app.get("/api/config/stuck-check", response_model=StuckCheckSettingsOut)
-def stuck_check_settings_config() -> StuckCheckSettingsOut:
-    with Session(engine) as session:
-        return _stuck_check_settings_out(get_stuck_settings_row(session))
-
-
-@app.put("/api/config/stuck-check", response_model=StuckCheckSettingsOut)
-def update_stuck_check_settings(body: StuckCheckSettingsIn) -> StuckCheckSettingsOut:
-    """Informational card only: a save changes nothing stored, so no recompute and no weights_version bump."""
-    from scoring.stuck_check import Exemption, StuckSettings
-
-    settings = StuckSettings(
-        sbc_revenue_pct=body.sbc_revenue_pct,
-        sbc_fcf_pct=body.sbc_fcf_pct,
-        cash_conversion_line=body.cash_conversion_line,
-        share_growth_pct=body.share_growth_pct,
-        one_off_pct=body.one_off_pct,
-        sector_band_pp=body.sector_band_pp,
-        smoothing_days=body.smoothing_days,
-        exemptions=tuple(Exemption(e.ticker, e.reason, tuple(e.rows)) for e in body.exemptions),
-    )
-    with Session(engine) as session:
-        return _stuck_check_settings_out(save_stuck_settings(session, settings))
-
-
-@app.post("/api/config/stuck-check/reset", response_model=StuckCheckSettingsOut)
-def reset_stuck_check_settings() -> StuckCheckSettingsOut:
-    with Session(engine) as session:
-        return _stuck_check_settings_out(reset_stuck_settings(session))
 
 
 @app.get("/api/config/reit-dividend-yield", response_model=ReitDividendYieldConfigOut)
@@ -1102,18 +1035,6 @@ async def ticker_speculative_growth(ticker: str) -> SpeculativeGrowthOut:
         return await get_speculative_growth_data(ticker)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
-
-
-@app.get("/api/tickers/{ticker}/stuck-check", response_model=StuckCheckOut)
-def ticker_stuck_check(ticker: str) -> StuckCheckOut:
-    """The informational "Why might it be stuck?" card. Cache only: no FMP call, no write, feeds nothing (docs/specs/stuck-check.md)."""
-    return get_stuck_check_data(ticker)
-
-
-@app.get("/api/tickers/{ticker}/dashboard", response_model=DashboardOut)
-async def ticker_dashboard(ticker: str) -> DashboardOut:
-    """The Dashboard tab's step blocks, fair-value block and Weinstein stage series. Cache only: no FMP call, no write (docs/specs/dashboard.md)."""
-    return await get_dashboard_data(ticker)
 
 
 @app.get("/api/tickers/{ticker}/bank-capital-metrics", response_model=TickerBankCapitalMetricsOut)

@@ -7,7 +7,7 @@ from core.db import engine
 from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.first import _first
 from clients.fmp_client import fmp_client
-from core.schemas import OutlierWarning, ScoredRatioOut, Step4Out
+from core.schemas import OutlierWarning, Step4Out
 from core.tickers import normalize_ticker
 from data.score_weights import load_score_weights
 from scoring.classification import classify_company_type
@@ -22,7 +22,6 @@ from scoring.step4 import (
     income_recovery_detail,
     RatioResult,
     real_ratio_points,
-    scored_ratio_summary,
     recovery_excluded_prefix_length,
     score_revenue_vs_ar,
     score_roe,
@@ -829,15 +828,6 @@ async def get_step4_data(ticker: str, cache_only: bool = False, weights: ScoreWe
     if "ar" in result_weights:
         result_weights["revenue_vs_ar"] = result_weights.pop("ar")
 
-    # Display only: the average each tier was read from, off the exact cleaned series that was scored.
-    if any(e is not None and e < 0 for e in equity_clean):
-        roe_scored = ScoredRatioOut(basis="negative_equity")
-    else:
-        roe_summary = scored_ratio_summary(roe_clean)
-        roe_scored = ScoredRatioOut(basis="average", **roe_summary._asdict()) if roe_summary else None
-    roic_summary = scored_ratio_summary(roic_clean) if roic_result is not None else None
-    roic_scored = ScoredRatioOut(basis="average", **roic_summary._asdict()) if roic_summary else None
-
     return Step4Out(
         ticker=ticker,
         years=years,
@@ -845,8 +835,6 @@ async def get_step4_data(ticker: str, cache_only: bool = False, weights: ScoreWe
         roe=roe,
         roic=None if roic_exempt else roic,
         roic_exempt_reason=roic_exempt_reason,
-        roe_scored=roe_scored,
-        roic_scored=roic_scored,
         revenue=revenue,
         accounts_receivable=accounts_receivable,
         long_term_debt=long_term_debt,

@@ -569,47 +569,6 @@ class WeinsteinSettings(SQLModel, table=True):
     updated_at: datetime
 
 
-class TickerSignalSnapshot(SQLModel, table=True):
-    """The daily signal log (data/signal_snapshot_data.py, pipeline/nightly_signal_snapshot.py, 3:28 AM, after the score recompute):
-    one APPEND-ONLY row per (ticker, snapshot_date) copied from the stored TickerScore row -- Overall verdict, Valuation verdict,
-    Weinstein stage and whether the ticker was Pass-family and Undervalued that day. Nothing recomputes here and nothing reads it
-    yet except the pure since-date helper (scoring/good_undervalued.py); it feeds no score. `snapshot_date` is the date the job ran
-    (the state the app showed that day). A re-run the same day inserts nothing (first write wins). `score_computed_at` is the
-    source row's own timestamp, so a snapshot of a stale row (a failed recompute) stays recognisable."""
-
-    __table_args__ = (
-        UniqueConstraint("ticker", "snapshot_date", name="uq_ticker_signal_snapshot"),
-        Index("ix_ticker_signal_snapshot_date", "snapshot_date"),
-    )
-
-    id: int | None = Field(default=None, primary_key=True)
-    ticker: str
-    snapshot_date: date
-    overall_verdict: str | None = None
-    valuation_verdict: str | None = None
-    weinstein_stage: str | None = None
-    good_and_undervalued: bool = False
-    score_computed_at: datetime | None = None
-
-
-class StuckCheckSettings(SQLModel, table=True):
-    """Thresholds for the informational "Why might it be stuck?" card (scoring/stuck_check.py::StuckSettings) -- ONE global singleton
-    row, lazy-seeded from the code defaults, edited via /settings > Why might it be stuck? (data/stuck_check_settings.py). Nothing
-    here feeds a score: changes apply on the next ticker-page load (no recompute, no weights_version). `exemptions_json` is the
-    hand-maintained ticker exemption list: [{"ticker", "reason", "rows": [row keys]}]."""
-
-    key: str = Field(primary_key=True, default="default")
-    updated_at: datetime
-    sbc_revenue_pct: float
-    sbc_fcf_pct: float
-    cash_conversion_line: float
-    share_growth_pct: float
-    one_off_pct: float
-    sector_band_pp: float
-    smoothing_days: int
-    exemptions_json: str
-
-
 class ScoreWeightSettings(SQLModel, table=True):
     """The adjustable score weights (scoring/weights.py) -- ONE global singleton row, lazy-seeded from DEFAULT_WEIGHTS, edited
     via /settings > Score weighting (data/score_weights.py). Same shape as MoatScoreConfig/WeinsteinSettings: typed whole-number

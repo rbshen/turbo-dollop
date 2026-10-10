@@ -409,36 +409,6 @@ def score_roe(roe: list[float], equity: list[float | None], net_income: list[flo
     return RatioResult(label, _cap_for_negative_latest(valid, points), hard_fail)
 
 
-class ScoredRatioSummary(NamedTuple):
-    """What the ROE/ROIC tiering actually averaged (display only; the scorers below are the source of truth and do not call this)."""
-
-    average: float  # the spike-robust average of the points that survived the recovery-aware exclusion: the number the tier reads
-    minimum: float  # the series minimum among them (the min-year consistency check)
-    points_used: int
-    points_total: int  # real points before any exclusion (None and exact 0.0 dropped)
-    recovery_excluded: int  # oldest points dropped as an already-recovered dip
-    spike_excluded: bool  # the series maximum was left out of the average as an anomalous high year
-
-
-def scored_ratio_summary(values: list[float | None]) -> ScoredRatioSummary | None:
-    """The average score_roe / score_roic tier on, from the same steps in the same order (real_ratio_points, then
-    recovery_excluded_prefix_length, then _spike_robust_avg). None when no real point exists. Not valid for the ROE
-    negative-equity branch, which tiers on net income instead of an average."""
-    valid = real_ratio_points(values)
-    if not valid:
-        return None
-    scoring_values = valid[recovery_excluded_prefix_length(valid):]
-    average = _spike_robust_avg(scoring_values)
-    return ScoredRatioSummary(
-        average=average,
-        minimum=min(scoring_values),
-        points_used=len(scoring_values),
-        points_total=len(valid),
-        recovery_excluded=len(valid) - len(scoring_values),
-        spike_excluded=len(scoring_values) >= 3 and abs(average - float(np.mean(scoring_values))) > 1e-12,
-    )
-
-
 def score_roic(roic: list[float]) -> RatioResult:
     valid = real_ratio_points(roic)
     if not valid:
