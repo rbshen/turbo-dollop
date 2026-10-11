@@ -9,7 +9,8 @@ Three classes:
               `TickerView` row and is therefore still a candidate (retryable).
   PROTECTING  rows DEFINE a protection (index membership, watchlist entry, user-entered data). Never deleted by the
               wipe; a ticker with any such row is never a candidate.
-  KEEP        has a per-ticker key but is not the wipe's to touch (shared, or keyed by seeds only).
+  KEEP        has a per-ticker key but is not the wipe's to touch (shared, keyed by seeds only, or frozen history such as the
+              weekly opportunity lists). A KEEP table with no ticker column (`opportunityrun`) is in `KEEP_NON_TICKER_TABLES`.
 
 `newssentimentcache` has no SQLModel class: it is a leftover of the Alpha Vantage News-Sentiment feature (added in
 68dc559, removed entirely in c81e9b6, which deleted the model but not the live table, 3 rows). It is registered here
@@ -43,6 +44,8 @@ from core.models import (
     LongHistoryBars,
     MomentumSnapshot,
     NewsCache,
+    OpportunityRun,
+    OpportunitySnapshotRow,
     PriceTargetSnapshot,
     RecheckState,
     SectorEtfReturn,
@@ -164,7 +167,18 @@ _ORDERED: tuple[TickerTable, ...] = (
         "frozen monthly ETF momentum rankings (a past month's full ranked list; wiping an ETF would rewrite its ranks)",
     ),
     _t(SectorEtfReturn, TableClass.KEEP, "11 sector ETFs only, all ETF_SEED_TICKERS (protected as seeds)"),
+    _t(
+        OpportunitySnapshotRow,
+        TableClass.KEEP,
+        "frozen weekly opportunity lists (a past run's rows and the inputs it saw; insert-only history that cannot be re-created)",
+    ),
 )
+
+# KEEP tables that carry NO ticker key, so they cannot sit in `REGISTRY` (every entry there names its `ticker` column and the
+# schema test checks it). Classified here so the classification is still explicit: the wipe never touches them.
+KEEP_NON_TICKER_TABLES: dict[str, str] = {
+    OpportunityRun.__tablename__: "the weekly opportunity run header (rules hash, as-of date, summary); parent of opportunitysnapshotrow",
+}
 
 REGISTRY: dict[str, TickerTable] = {entry.name: entry for entry in _ORDERED}
 WIPE_TABLES: tuple[TickerTable, ...] = tuple(e for e in _ORDERED if e.table_class is TableClass.WIPE)

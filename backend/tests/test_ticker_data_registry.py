@@ -92,7 +92,7 @@ def test_classes_are_disjoint_and_complete():
     keep = {n for n, e in reg.REGISTRY.items() if e.table_class is reg.TableClass.KEEP}
     assert wipe | protecting | keep == set(reg.REGISTRY)
     assert protecting == {"indexconstituent", "watchlistticker", "tickermoat", "tickercustomvaluation", "tickerbankcapitalmetrics", "growthcatalystnote"}
-    assert keep == {"sectoretfreturn", "etfmomentumsnapshot"}
+    assert keep == {"sectoretfreturn", "etfmomentumsnapshot", "opportunitysnapshotrow"}
 
 
 def test_only_fundamentalscache_has_a_keep_predicate_and_it_names_forex_rate():
@@ -125,3 +125,15 @@ def test_a_growth_note_keeps_a_ticker_in_the_universe_as_manual():
         session.add(FundamentalsCache(ticker="NOTED", statement_type="profile", period="latest", fetched_at=NOW, raw_json="{}"))
         session.commit()
         assert tu.classify_known_tickers(session, NOW)["NOTED"] == tu.MANUAL
+
+
+def test_the_opportunity_tables_are_keep_and_never_wiped(init_db_engine):
+    """Both opportunity tables are KEEP: the snapshot row (ticker-keyed) in the registry, the run header (no ticker column) in
+    KEEP_NON_TICKER_TABLES. Neither is a wipe table, and both exist in the real schema."""
+    assert reg.REGISTRY["opportunitysnapshotrow"].table_class is reg.TableClass.KEEP
+    assert set(reg.KEEP_NON_TICKER_TABLES) == {"opportunityrun"}
+    wipe = {e.name for e in reg.WIPE_TABLES}
+    assert not wipe & ({"opportunitysnapshotrow"} | set(reg.KEEP_NON_TICKER_TABLES))
+    tables = set(inspect(init_db_engine).get_table_names())
+    assert {"opportunitysnapshotrow", "opportunityrun"} <= tables
+    assert reg.unclassified_ticker_tables(init_db_engine) == []

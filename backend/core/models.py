@@ -1443,3 +1443,65 @@ class RecheckState(SQLModel, table=True):
     days_to_heal_from_anchor: int | None = None
     rules_tripped: str = ""  # comma list of every rule tripped at the last evaluation
     episodes: int = 1
+
+
+class OpportunityRun(SQLModel, table=True):
+    """One weekly run of the opportunity agent (pipeline/weekly_opportunity_snapshot.py, data/opportunity_data.py, rules in
+    scoring/opportunity_rules.py): two frozen lists (Momentum, Reversal) built from STORED data only, as of the last completed
+    XNYS session. Spec: docs/specs/opportunities.md. Insert-only: a run is never updated; `--force` deletes the run (and its
+    snapshot rows) and inserts a fresh one in a single transaction.
+
+    Unique on (kind, as_of_date): re-running the same as-of date is a no-op. `rules_hash` is the sha256 of the canonical rule
+    definitions (scoring/opportunity_rules.py::rules_hash) and `rules_version` the human version of the same set, so a later
+    threshold change is visible on old runs. `score_formula_version` / `weights_version` record which Overall formula and
+    weight set the stored TickerScore rows being tiered were scored with (TickerScore is overwritten nightly).
+    `summary_json` holds the run's counts per list/tier/rule_id, the ranked-universe sizes, the market context (latest
+    MarketBreadthSnapshot, sector-ETF stages) and the data-quality counters (gate drops, stale stage rows, stale score rows)."""
+
+    __table_args__ = (UniqueConstraint("kind", "as_of_date", name="uq_opportunity_run_kind_date"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    kind: str  # "weekly"
+    as_of_date: date = Field(index=True)  # the last completed XNYS session the lists are as of
+    last_bar_date: date  # the newest daily bar date seen across the universe (equals as_of_date on a healthy run)
+    universe_size: int  # tickers considered (tracked stocks + ETF universe, before the gate)
+    rules_hash: str
+    rules_version: str
+    score_formula_version: int
+    weights_version: int | None = None
+    created_at: datetime
+    summary_json: str = "{}"
+
+
+class OpportunitySnapshotRow(SQLModel, table=True):
+    """One ticker on one list of one OpportunityRun, with a FROZEN copy of the inputs it was judged on (TickerScore and
+    TrendAnalysis are overwritten nightly, so a later read of them says nothing about what the run saw). Insert-only; unique
+    on (run_id, list_name, ticker): a ticker on both lists has one row per list.
+
+    `list_name` is "momentum" or "reversal"; `tier` is "quality" | "momentum_only" | "etf"; `rule_ids_json` the versioned rule ids
+    it hit (scoring/opportunity_rules.py); `tags_json` the stored (never filtering) tags; `list_order` its 1-based position in the
+    list as drawn. The sortable inputs are real columns; everything else is `inputs_json`."""
+
+    __table_args__ = (UniqueConstraint("run_id", "list_name", "ticker", name="uq_opportunity_snapshot_row"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    run_id: int = Field(index=True)
+    list_name: str  # "momentum" | "reversal"
+    ticker: str = Field(index=True)
+    tier: str
+    list_order: int
+    rule_ids_json: str
+    tags_json: str = "{}"
+    overall_score: int | None = None
+    steps_score: float | None = None
+    overall_verdict: str | None = None
+    weinstein_stage: str | None = None
+    vs_ma_pct: float | None = None
+    ma_slope_pct: float | None = None
+    mansfield_rs: float | None = None
+    momentum_rank: int | None = None
+    close: float | None = None
+    atr: float | None = None
+    adv_usd: float | None = None
+    sector: str | None = None
+    inputs_json: str = "{}"
