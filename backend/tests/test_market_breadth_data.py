@@ -133,6 +133,29 @@ def test_gate_failure_names_the_missing_tickers(monkeypatch):
         _run(tickers)
 
 
+def test_sp500_gate_failure_records_that_the_sectors_were_skipped(monkeypatch, caplog):
+    engine = _fresh_engine(monkeypatch)
+    tickers = _tickers(10)
+    sector_tickers = {"SECA": tickers[:5], "SECB": tickers[5:]}
+    _patch_bars(monkeypatch, {t: _frame() for t in tickers[:5]})
+    with caplog.at_level("WARNING", logger=mbd.logger.name):
+        with pytest.raises(mbd.InsufficientCoverageError, match=r"sp500 refused, 2 sectors not evaluated"):
+            asyncio.run(mbd.compute_and_store_market_breadth(tickers, completed_date=COMPLETED, sector_tickers=sector_tickers))
+    assert "sp500 refused" in caplog.text and "2 sector(s) not evaluated" in caplog.text
+    assert _rows(engine) == []
+    with Session(engine) as session:
+        assert [log.universe for log in session.exec(select(MarketBreadthGateLog)).all()] == ["sp500"]
+
+
+def test_sp500_gate_failure_without_sector_tickers_has_no_sector_note(monkeypatch):
+    _fresh_engine(monkeypatch)
+    tickers = _tickers(10)
+    _patch_bars(monkeypatch, {t: _frame() for t in tickers[:5]})
+    with pytest.raises(mbd.InsufficientCoverageError) as exc:
+        _run(tickers)
+    assert "not evaluated" not in str(exc.value)
+
+
 def test_no_tickers_or_no_bars_raises(monkeypatch):
     engine = _fresh_engine(monkeypatch)
     with pytest.raises(RuntimeError, match="empty universe"):

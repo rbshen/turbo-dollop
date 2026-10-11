@@ -407,8 +407,15 @@ async def compute_and_store_market_breadth(
     rule = _gate_rule(with_bar, len(tickers), floor_missing=None)
     _log_gate_check(UNIVERSE, anchor.date(), len(tickers), with_bar, missing, passed=rule is not None, passed_via=rule)
     if rule is None:
+        # The sp500 gate short-circuits _process_sectors, so say so: in the log and in the
+        # raised message (which cron_heartbeat stores as the failed CronRunLog message, capped at 500
+        # chars, so the note leads the message).
+        sectors_note = ""
+        if sector_tickers:
+            sectors_note = f"sp500 refused, {len(sector_tickers)} sectors not evaluated. "
+            logger.warning("Market breadth: sp500 refused on %s, %d sector(s) not evaluated.", anchor.date(), len(sector_tickers))
         raise InsufficientCoverageError(
-            f"Market breadth: only {with_bar}/{len(tickers)} constituents ({with_bar / len(tickers):.1%}) have a bar on "
+            f"Market breadth: {sectors_note}only {with_bar}/{len(tickers)} constituents ({with_bar / len(tickers):.1%}) have a bar on "
             f"{anchor.date()}, below the {MIN_COVERAGE:.0%} coverage gate -- not saving a skewed row. "
             f"Missing: {missing[:MISSING_SAMPLE]}{' ...' if len(missing) > MISSING_SAMPLE else ''}"
         )
