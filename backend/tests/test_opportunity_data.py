@@ -95,7 +95,7 @@ def world(monkeypatch):
         # Momentum-only, ranked high but 60 weeks in Advance
         stock("MOMOLD", 0.0033, "Fail", tr=trend("MOMOLD", weeks=60))
         # Fillers that fill out the ranked universe
-        for i, drift in enumerate((0.0005, 0.0004, 0.0003, 0.0002, 0.0001, 0.00005)):
+        for i, drift in enumerate((0.0005, 0.0004, 0.0003, 0.0002)):
             stock(f"FILL{i}", drift, "Fail", tr=trend(f"FILL{i}", stage="top", slope=-0.2))
         # Reversal: Quality base (B1) with no coverage by any signal job
         stock("NOCOV", 0.0002, "Pass", tr=trend("NOCOV", stage="base", slope=0.1, rs=-1.0))
@@ -103,6 +103,13 @@ def world(monkeypatch):
         stock("SIG", 0.0002, "Strong Pass", tr=trend("SIG", stage="decline", slope=-0.5, rs=-1.0))
         stock("SIGOLD", 0.0002, "Pass", tr=trend("SIGOLD", stage="decline", slope=-0.5, rs=-1.0))
         monitored += ["SIG", "SIGOLD"]
+        # Stage split: a fresh Advance (8 weeks) with a recovering chart -> Reversal via B2; the same chart at 9 weeks is an established
+        # uptrend -> Momentum with the deep-pullback tag; a fresh Advance with a shallow chart and a Top stage are on neither list
+        stock("FRESH8", 0.0, "Pass", bars=recovering(), tr=trend("FRESH8", weeks=8))
+        stock("FRESH9", 0.0, "Pass", bars=recovering(), tr=trend("FRESH9", weeks=9))
+        stock("FRESHNO", 0.0002, "Pass", tr=trend("FRESHNO", weeks=4))
+        stock("TOPQ", 0.0002, "Pass", tr=trend("TOPQ", stage="top", slope=0.2))
+        stock("PEND", 0.0002, "Pass", tr=trend("PEND", stage="top", slope=0.2, weinstein_pending_direction="advance"))
         # Reversal: Momentum-only price structure (B2): 40% drawdown that has based and turned up
         stock("RECOV", 0.0, "Fail", bars=recovering(), tr=trend("RECOV", stage="base", slope=0.1, rs=-1.0))
         # Gate drops
@@ -174,21 +181,21 @@ def test_momentum_list_by_tier(world):
 def test_the_ranked_universe_excludes_spy_and_every_gate_drop_and_ranks_etfs_apart(world):
     run = od.compute_run(AS_OF, NOW)
     ranked = run.summary["ranked_universe"]
-    # stocks that pass the gate: QUAL MOM1 MOMEXT MOMSLOW MOMOLD FILL0-5 NOCOV SIG SIGOLD RECOV INCOMP = 16
-    assert ranked == {"stocks": 16, "etfs": 5, "leveraged_etfs": 2}  # ETFA-ETFE ordinary (no SPY), ETFX/ETFY leveraged
+    # stocks that pass the gate: QUAL MOM1 MOMEXT MOMSLOW MOMOLD FILL0-3 NOCOV SIG SIGOLD RECOV INCOMP FRESH8 FRESH9 FRESHNO TOPQ PEND = 19
+    assert ranked == {"stocks": 19, "etfs": 5, "leveraged_etfs": 2}  # ETFA-ETFE ordinary (no SPY), ETFX/ETFY leveraged
 
 
 def test_gate_drop_reasons_are_counted(world):
     run = od.compute_run(AS_OF, NOW)
     assert run.gate_drops == {"excluded": 1, "short_history": 1, "stale_bar": 1, "illiquid": 1, "delisted": 1, "no_bars": 1}
-    assert run.summary["gate_passed"] == 16 + 5 + 2
+    assert run.summary["gate_passed"] == 19 + 5 + 2
     all_tickers = {r["ticker"] for r in run.rows}
     assert not all_tickers & {"SHORT", "STALE", "ILLIQ", "DELIST", "NOBARS", "SPY"}
 
 
 def test_the_momentum_only_top_quintile_cut_is_computed_on_the_ranked_stocks(world):
     run = od.compute_run(AS_OF, NOW)
-    cut = -(-16 // 5)  # ceil(16 / 5) = 4
+    cut = -(-19 // 5)  # ceil(19 / 5) = 4
     mom = rows_of(run, "momentum")
     for ticker, row in mom.items():
         if row["tier"] == "momentum_only":
@@ -269,11 +276,31 @@ def test_a_row_freezes_its_inputs_and_tags(world):
     assert tags["sector"]["etf"] == "XLK" and tags["sector"]["breadth"]["pct_above_sma50"] == 47.0
 
 
-def test_the_other_list_is_tagged_on_both_sides(world):
+def test_no_ticker_is_ever_on_both_lists(world):
+    run = od.compute_run(AS_OF, NOW)
+    tickers = [r["ticker"] for r in run.rows]
+    assert len(tickers) == len(set(tickers)), sorted(t for t in set(tickers) if tickers.count(t) > 1)
+    assert not set(rows_of(run, "momentum")) & set(rows_of(run, "reversal"))
+    assert all("also_on" not in r["tags"] for r in run.rows)
+
+
+def test_trend_stage_decides_the_list(world):
     run = od.compute_run(AS_OF, NOW)
     mom, rev = rows_of(run, "momentum"), rows_of(run, "reversal")
-    for ticker in set(mom) & set(rev):
-        assert mom[ticker]["tags"]["also_on"] == "reversal" and rev[ticker]["tags"]["also_on"] == "momentum"
+    assert "FRESH8" in rev and rev["FRESH8"]["rule_ids"] == [rules.RULE_B2] and "FRESH8" not in mom  # 8 weeks = fresh
+    assert "FRESH9" in mom and "FRESH9" not in rev  # 9 weeks = established
+    assert mom["FRESH9"]["tags"]["deep_pullback"] is True and rev["FRESH8"]["tags"].get("deep_pullback") is None
+    assert "deep_pullback" not in mom["QUAL"]["tags"]
+    for neither in ("FRESHNO", "TOPQ"):
+        assert neither not in mom and neither not in rev, neither
+    assert rev["PEND"]["rule_ids"] == [rules.RULE_B1] and "PEND" not in mom  # Top with a pending Advance
+    assert run.summary["deep_pullback"] == 1
+    assert run.summary["stage_split"]["neither"] >= 2
+
+
+def test_an_established_advance_with_a_deep_drawdown_is_momentum_not_reversal(world):
+    run = od.compute_run(AS_OF, NOW)
+    assert "FRESH9" not in rows_of(run, "reversal") and "FRESH9" in rows_of(run, "momentum")
 
 
 def test_list_order_is_one_based_and_momentum_is_sorted_by_composite(world):
@@ -286,7 +313,7 @@ def test_list_order_is_one_based_and_momentum_is_sorted_by_composite(world):
 
 def test_the_summary_counts_per_list_tier_and_rule(world):
     summary = od.compute_run(AS_OF, NOW).summary
-    assert summary["counts"]["momentum"]["quality"][rules.RULE_A] == 1
+    assert summary["counts"]["momentum"]["quality"][rules.RULE_A] == 2  # QUAL and FRESH9
     assert summary["counts"]["reversal"]["momentum_only"][rules.RULE_B2] == 1
     assert summary["list_totals"]["momentum"] == sum(t["total"] for t in summary["counts"]["momentum"].values())
     assert summary["quality_not_covered"] >= 1 and summary["rs_benchmark"] is None
@@ -346,7 +373,7 @@ def test_persist_creates_a_run_with_its_rows_and_hash(world):
         stored = s.exec(select(OpportunityRun)).one()
         assert (stored.kind, stored.as_of_date, stored.last_bar_date) == ("weekly", AS_OF, AS_OF)
         assert stored.rules_hash == rules.rules_hash() and stored.rules_version == rules.RULES_VERSION
-        assert stored.score_formula_version == 6 and stored.universe_size == 21 + 8  # 21 stocks, 8 ETFs (SPY included)
+        assert stored.score_formula_version == 6 and stored.universe_size == 24 + 8  # 24 stocks, 8 ETFs (SPY included)
         rows = s.exec(select(OpportunitySnapshotRow).where(OpportunitySnapshotRow.run_id == stored.id)).all()
         assert len(rows) == len(run.rows)
         assert json.loads(next(r for r in rows if r.ticker == "MOM1").rule_ids_json) == [rules.RULE_A]
@@ -414,6 +441,12 @@ def test_the_database_rejects_a_duplicate_run_or_row(world):
     with Session(world) as s:
         row = s.exec(select(OpportunitySnapshotRow)).first()
         s.add(OpportunitySnapshotRow(run_id=row.run_id, list_name=row.list_name, ticker=row.ticker, tier="etf", list_order=99, rule_ids_json="[]"))
+        with pytest.raises(IntegrityError):
+            s.commit()
+    with Session(world) as s:  # unique across BOTH lists: the other list's name does not make the same ticker a new row
+        row = s.exec(select(OpportunitySnapshotRow)).first()
+        other = "reversal" if row.list_name == "momentum" else "momentum"
+        s.add(OpportunitySnapshotRow(run_id=row.run_id, list_name=other, ticker=row.ticker, tier="etf", list_order=99, rule_ids_json="[]"))
         with pytest.raises(IntegrityError):
             s.commit()
 

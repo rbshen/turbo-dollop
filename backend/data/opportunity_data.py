@@ -337,11 +337,12 @@ def compute_run(as_of: date | None = None, now: datetime | None = None) -> Compu
 
     # --- evaluate the rules
     tiers = {t: rules.tier_for(features[t]) for t in passed}
-    momentum_hits = {t: rules.momentum_rule_ids(features[t], tiers[t]) for t in passed}
-    reversal_hits = {t: rules.reversal_rule_ids(features[t], tiers[t]) for t in passed}
-    exchanges = _exchanges_for(sorted({t for t in passed if momentum_hits[t] or reversal_hits[t]}))
+    # One placement per ticker: trend stage decides the list (scoring/opportunity_rules.py::assign_list), so the lists cannot overlap.
+    placements = {t: rules.place(features[t], tiers[t]) for t in passed}
+    listed = {t: p for t, p in placements.items() if p.list_name is not None}
+    exchanges = _exchanges_for(sorted(listed))
 
-    def build_row(t: str, list_name: str, rule_ids: list[str]) -> dict:
+    def build_row(t: str, list_name: str, rule_ids: list[str], deep_pullback: bool) -> dict:
         f, tier = features[t], tiers[t]
         p = f.price
         score, trend = scores.get(t), trends.get(t)
@@ -352,7 +353,6 @@ def compute_run(as_of: date | None = None, now: datetime | None = None) -> Compu
             if sector_key
             else None
         )
-        other = reversal_hits[t] if list_name == rules.LIST_MOMENTUM else momentum_hits[t]
         info = rank_info.get(t, {})
         inputs = {
             "company_name": (score.company_name if score is not None else None) or etf_names.get(t),
@@ -387,7 +387,7 @@ def compute_run(as_of: date | None = None, now: datetime | None = None) -> Compu
             "ticker": t,
             "tier": tier,
             "rule_ids": rule_ids,
-            "tags": rules.build_tags(f, tier, list_name, other, market, sector_tag),
+            "tags": rules.build_tags(f, tier, list_name, deep_pullback, market, sector_tag),
             "composite": info.get("composite"),
             "overall_score": f.overall_score,
             "steps_score": f.steps_score,
@@ -404,8 +404,15 @@ def compute_run(as_of: date | None = None, now: datetime | None = None) -> Compu
             "inputs": inputs,
         }
 
-    momentum_rows = _sorted_momentum([build_row(t, rules.LIST_MOMENTUM, momentum_hits[t]) for t in passed if momentum_hits[t]])
-    reversal_rows = _sorted_reversal([build_row(t, rules.LIST_REVERSAL, reversal_hits[t]) for t in passed if reversal_hits[t]])
+    momentum_rows = _sorted_momentum(
+        [build_row(t, rules.LIST_MOMENTUM, p.rule_ids, p.deep_pullback) for t, p in listed.items() if p.list_name == rules.LIST_MOMENTUM]
+    )
+    reversal_rows = _sorted_reversal(
+        [build_row(t, rules.LIST_REVERSAL, p.rule_ids, False) for t, p in listed.items() if p.list_name == rules.LIST_REVERSAL]
+    )
+    overlap = {r["ticker"] for r in momentum_rows} & {r["ticker"] for r in reversal_rows}
+    if overlap:  # unreachable while assign_list is the only router; a refusal beats freezing a contradictory run
+        raise OpportunityRunRefused(f"a ticker landed on both lists: {sorted(overlap)}. Nothing written.")
     rows = []
     for ordered in (momentum_rows, reversal_rows):
         for order, row in enumerate(ordered, start=1):
@@ -429,6 +436,12 @@ def compute_run(as_of: date | None = None, now: datetime | None = None) -> Compu
         "stale_score_rows": stale_scores,
         "quality_not_covered": sum(1 for t in quality_passed if features[t].signal_status == rules.SIGNAL_NOT_COVERED),
         "quality_total": len(quality_passed),
+        "deep_pullback": sum(1 for r in momentum_rows if r["tags"].get("deep_pullback")),
+        "stage_split": {
+            "momentum_stage": sum(1 for t in passed if rules.assign_list(features[t]) == rules.LIST_MOMENTUM),
+            "reversal_stage": sum(1 for t in passed if rules.assign_list(features[t]) == rules.LIST_REVERSAL),
+            "neither": sum(1 for t in passed if rules.assign_list(features[t]) is None),
+        },
         "rs_benchmark": rs_benchmark,
         "market": market_context,
         "limits": {"signal_window_start": _signal_window_start(as_of).isoformat()},

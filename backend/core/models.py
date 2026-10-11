@@ -1476,13 +1476,13 @@ class OpportunityRun(SQLModel, table=True):
 class OpportunitySnapshotRow(SQLModel, table=True):
     """One ticker on one list of one OpportunityRun, with a FROZEN copy of the inputs it was judged on (TickerScore and
     TrendAnalysis are overwritten nightly, so a later read of them says nothing about what the run saw). Insert-only; unique
-    on (run_id, list_name, ticker): a ticker on both lists has one row per list.
+    on (run_id, ticker): a ticker is on AT MOST ONE list per run (rules v2: trend stage decides the list).
 
     `list_name` is "momentum" or "reversal"; `tier` is "quality" | "momentum_only" | "etf"; `rule_ids_json` the versioned rule ids
     it hit (scoring/opportunity_rules.py); `tags_json` the stored (never filtering) tags; `list_order` its 1-based position in the
     list as drawn. The sortable inputs are real columns; everything else is `inputs_json`."""
 
-    __table_args__ = (UniqueConstraint("run_id", "list_name", "ticker", name="uq_opportunity_snapshot_row"),)
+    __table_args__ = (UniqueConstraint("run_id", "ticker", name="uq_opportunity_snapshot_row"),)
 
     id: int | None = Field(default=None, primary_key=True)
     run_id: int = Field(index=True)

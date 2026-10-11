@@ -57,7 +57,7 @@ def test_latest_returns_the_newest_run_with_both_lists_in_order(engine):
     with TestClient(app) as client:
         body = client.get("/api/opportunities/latest").json()
     assert body["as_of_date"] == "2026-10-09" and body["kind"] == "weekly" and body["universe_size"] == 600
-    assert body["rules_hash"] == rules.rules_hash() and body["rules_version"] == "1"
+    assert body["rules_hash"] == rules.rules_hash() and body["rules_version"] == rules.RULES_VERSION == "2"
     assert body["score_formula_version"] == 6 and body["weights_version"] == 2
     assert [r["ticker"] for r in body["momentum"]] == ["AAA", "BBB"] and [r["ticker"] for r in body["reversal"]] == ["CCC"]
     assert body["rule_labels"][rules.RULE_B2] == "Price structure"

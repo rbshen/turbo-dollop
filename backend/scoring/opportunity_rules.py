@@ -28,7 +28,7 @@ import pandas as pd
 
 from analysis.trend_structure.weinstein import WeinsteinParams, compute_stage_series, resample_to_weekly
 
-RULES_VERSION = "1"
+RULES_VERSION = "2"
 
 LIST_MOMENTUM = "momentum"
 LIST_REVERSAL = "reversal"
@@ -38,10 +38,10 @@ TIER_MOMENTUM_ONLY = "momentum_only"
 TIER_ETF = "etf"
 
 # --- versioned rule ids ------------------------------------------------------------------------------------------------
-RULE_A = "A.momentum_trend.v1"
-RULE_B1 = "B1.base_or_pending_advance.v1"
-RULE_B2 = "B2.price_structure.v1"
-RULE_B3 = "B3.entry_signal.v1"
+RULE_A = "A.momentum_trend.v2"
+RULE_B1 = "B1.base_or_pending_advance.v2"
+RULE_B2 = "B2.price_structure.v2"
+RULE_B3 = "B3.entry_signal.v2"
 RULE_IDS = (RULE_A, RULE_B1, RULE_B2, RULE_B3)
 # What the Reversal tab shows in the "Rule" column, and the Momentum tab's tooltip.
 RULE_LABELS = {
@@ -75,6 +75,7 @@ MOMENTUM_ONLY_MAX_RETURN_3M = 0.30
 MOMENTUM_ONLY_MAX_RETURN_12M = 1.50
 MOMENTUM_ONLY_TOP_FRACTION = Fraction(1, 5)  # top quintile of the ranked stock universe (exact: ceil(575 x 0.2) in floats is 116)
 ETF_TOP_FRACTION = Fraction(1, 3)  # top third of the ETF's own group (ordinary ETFs, or leveraged ETFs, ranked separately)
+FRESH_ADVANCE_MAX_WEEKS = 8  # the one cutoff: Advance for <= this many weeks is a fresh (Reversal-side) advance, for more it is established (Momentum)
 LATE_TREND_WEEKS = 52  # tag only: "late trend" at >= this many weeks in Advance
 
 # --- list B, Reversal ----------------------------------------------------------------------------------------------------
@@ -145,6 +146,14 @@ def rules_definition() -> dict:
             },
             "etf": {"top_fraction_of_own_group": str(ETF_TOP_FRACTION), "leveraged_ranked_separately": True},
             "late_trend_weeks_tag": LATE_TREND_WEEKS,
+            "min_weeks_in_advance_exclusive": FRESH_ADVANCE_MAX_WEEKS,
+        },
+        "list_assignment": {
+            "momentum": "stage advance and weeks_in_advance > fresh_advance_max_weeks",
+            "reversal": "stage decline or base, or pending_direction advance, or stage advance with weeks_in_advance <= fresh_advance_max_weeks",
+            "neither": "stage top (unless pending advance), no fresh stage row, unknown weeks in advance",
+            "fresh_advance_max_weeks": FRESH_ADVANCE_MAX_WEEKS,
+            "deep_pullback_tag": "a Momentum row that passes the B2 price-structure test",
         },
         "B1": {"tiers": [TIER_QUALITY], "stage": "base", "or_pending_direction": "advance"},
         "B2": {
@@ -316,10 +325,30 @@ def _top_cut(group_size: int | None, fraction: Fraction) -> int | None:
     return None if not group_size else math.ceil(group_size * fraction)
 
 
+def assign_list(f: Features) -> str | None:
+    """The ONE list a ticker can be on, decided by trend stage alone (so the lists are mutually exclusive by construction):
+
+      Momentum  stage Advance for MORE than FRESH_ADVANCE_MAX_WEEKS weeks (an established uptrend).
+      Reversal  stage Decline or Base, or a pending Advance (pending_direction), or stage Advance for at most
+                FRESH_ADVANCE_MAX_WEEKS weeks (a fresh advance).
+      None      stage Top (unless it has a pending Advance), no stage row, or an Advance whose age is unknown.
+
+    Established Advance wins over a pending Advance flag. Being assigned a list is necessary, not sufficient: the list's own
+    rules still have to hit (`momentum_rule_ids`, `reversal_rule_ids`)."""
+    if f.stage == "advance":
+        if f.weeks_in_advance is None:
+            return None
+        return LIST_MOMENTUM if f.weeks_in_advance > FRESH_ADVANCE_MAX_WEEKS else LIST_REVERSAL
+    if f.stage in ("decline", "base") or f.pending_direction == "advance":
+        return LIST_REVERSAL
+    return None
+
+
 def momentum_rule_ids(f: Features, tier: str) -> list[str]:
-    """List A. [RULE_A] when the ticker qualifies, else []. Any unknown input (no stage row, no rank, no 3m/12m return, no weeks
-    in Advance) fails the rule that needs it: an unrankable ticker is never on the Momentum list."""
-    if f.stage != "advance" or f.ma_slope_pct is None or f.mansfield_rs is None or f.vs_ma_pct is None:
+    """List A. [RULE_A] when the ticker is assigned to Momentum (established Advance) and qualifies, else []. Any unknown input
+    (no stage row, no rank, no 3m/12m return, no weeks in Advance) fails the rule that needs it: an unrankable ticker is never
+    on the Momentum list."""
+    if assign_list(f) != LIST_MOMENTUM or f.ma_slope_pct is None or f.mansfield_rs is None or f.vs_ma_pct is None:
         return []
     if not (f.ma_slope_pct > 0 and f.mansfield_rs > 0 and f.vs_ma_pct < A_VS_MA_CEILING_PCT[tier]):
         return []
@@ -358,8 +387,11 @@ def price_structure_ok(f: Features, tier: str) -> bool:
 
 
 def reversal_rule_ids(f: Features, tier: str) -> list[str]:
-    """List B. Each rule that fires keeps its own id. B1 and B3 are Quality only; B3 needs a `fired` signal (a not-covered ticker
-    has none and is never shown as "no signal")."""
+    """List B, only for a ticker assigned to Reversal (`assign_list`): B2 is no longer evaluated for a ticker in an established
+    Advance or in Top. Each rule that fires keeps its own id. B1 and B3 are Quality only; B3 needs a `fired` signal (a not-covered
+    ticker has none and is never shown as "no signal")."""
+    if assign_list(f) != LIST_REVERSAL:
+        return []
     ids: list[str] = []
     if tier == TIER_QUALITY and (f.stage == "base" or f.pending_direction == "advance"):
         ids.append(RULE_B1)
@@ -368,6 +400,29 @@ def reversal_rule_ids(f: Features, tier: str) -> list[str]:
     if tier == TIER_QUALITY and f.signal_status == SIGNAL_FIRED and f.stage in B3_STAGES:
         ids.append(RULE_B3)
     return ids
+
+
+@dataclass(frozen=True)
+class Placement:
+    """Where one gate-passing ticker landed: `list_name` is None when it is on neither list."""
+
+    list_name: str | None
+    rule_ids: list[str]
+    deep_pullback: bool = False
+
+
+def place(f: Features, tier: str) -> Placement:
+    """The single placement of a ticker: at most one list, with the rules that hit. A Momentum row whose chart also passes the B2
+    price-structure test (the tier's own drawdown threshold) is flagged `deep_pullback` -- the case a later daily routine will
+    use -- instead of being listed on Reversal."""
+    assigned = assign_list(f)
+    if assigned == LIST_MOMENTUM:
+        ids = momentum_rule_ids(f, tier)
+        return Placement(LIST_MOMENTUM, ids, deep_pullback=price_structure_ok(f, tier)) if ids else Placement(None, [])
+    if assigned == LIST_REVERSAL:
+        ids = reversal_rule_ids(f, tier)
+        return Placement(LIST_REVERSAL, ids) if ids else Placement(None, [])
+    return Placement(None, [])
 
 
 # --- tags (stored, never filters) -----------------------------------------------------------------------------------------
@@ -402,7 +457,7 @@ def build_tags(
     f: Features,
     tier: str,
     list_name: str,
-    other_list_rules: list[str],
+    deep_pullback: bool,
     market: dict | None,
     sector: dict | None,
 ) -> dict:
@@ -416,8 +471,8 @@ def build_tags(
         tags["held_back_by_moat"] = True
     if tier == TIER_MOMENTUM_ONLY:
         tags["why_not_quality"] = why_not_quality(f)
-    if other_list_rules:
-        tags["also_on"] = LIST_REVERSAL if list_name == LIST_MOMENTUM else LIST_MOMENTUM
+    if deep_pullback and list_name == LIST_MOMENTUM:
+        tags["deep_pullback"] = True
     if tier == TIER_QUALITY:
         tags["signal_status"] = f.signal_status
     if market is not None:

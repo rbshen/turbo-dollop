@@ -219,18 +219,104 @@ def test_each_reversal_rule_keeps_its_own_id():
     assert r.reversal_rule_ids(f, r.TIER_QUALITY) == [r.RULE_B1, r.RULE_B2, r.RULE_B3]
 
 
+# --- one list per ticker: trend stage decides ----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("weeks, expected", [(8, r.LIST_REVERSAL), (9, r.LIST_MOMENTUM), (1, r.LIST_REVERSAL), (60, r.LIST_MOMENTUM), (None, None)])
+def test_the_fresh_advance_cutoff_is_exactly_eight_weeks(weeks, expected):
+    assert r.FRESH_ADVANCE_MAX_WEEKS == 8
+    assert r.assign_list(feats(stage="advance", weeks_in_advance=weeks)) == expected
+
+
+@pytest.mark.parametrize("stage, pending, expected", [
+    ("decline", None, r.LIST_REVERSAL), ("base", None, r.LIST_REVERSAL), ("top", None, None), (None, None, None),
+    ("top", "advance", r.LIST_REVERSAL), ("decline", "advance", r.LIST_REVERSAL), ("top", "decline", None), ("base", "decline", r.LIST_REVERSAL),
+])
+def test_assign_list_by_stage(stage, pending, expected):
+    assert r.assign_list(feats(stage=stage, pending_direction=pending, weeks_in_advance=None)) == expected
+
+
+def test_an_established_advance_wins_over_a_pending_advance_flag():
+    assert r.assign_list(feats(stage="advance", weeks_in_advance=20, pending_direction="advance")) == r.LIST_MOMENTUM
+
+
+def test_fresh_advance_at_8_weeks_is_never_on_momentum_even_when_every_a_rule_passes():
+    assert r.momentum_rule_ids(feats(weeks_in_advance=8), r.TIER_QUALITY) == []
+    assert r.momentum_rule_ids(feats(weeks_in_advance=9), r.TIER_QUALITY) == [r.RULE_A]
+
+
+def test_fresh_advance_is_on_reversal_only_through_b2():
+    deep = feats(weeks_in_advance=8, price=price(drawdown_pct=35.0))
+    shallow = feats(weeks_in_advance=8, price=price(drawdown_pct=5.0))
+    assert r.place(deep, r.TIER_QUALITY) == r.Placement(r.LIST_REVERSAL, [r.RULE_B2])
+    assert r.place(shallow, r.TIER_QUALITY) == r.Placement(None, [])  # fresh advance without B2: on neither list
+    assert r.place(feats(weeks_in_advance=9, price=price(drawdown_pct=5.0)), r.TIER_QUALITY).list_name == r.LIST_MOMENTUM
+
+
+def test_b2_is_not_evaluated_for_an_established_advance_or_for_top():
+    assert r.reversal_rule_ids(feats(stage="advance", weeks_in_advance=40), r.TIER_QUALITY) == []
+    assert r.reversal_rule_ids(feats(stage="top", weeks_in_advance=None), r.TIER_QUALITY) == []
+    assert r.price_structure_ok(feats(stage="top"), r.TIER_QUALITY)  # the chart test itself still passes; the stage keeps it off the list
+
+
+def test_top_stage_is_on_neither_list_even_with_a_fired_signal_and_a_perfect_chart():
+    f = feats(stage="top", weeks_in_advance=None, signal_status=r.SIGNAL_FIRED)
+    assert r.place(f, r.TIER_QUALITY) == r.Placement(None, [])
+
+
+def test_a_pending_advance_from_top_is_a_quality_b1_reversal():
+    f = feats(stage="top", pending_direction="advance", weeks_in_advance=None, price=price(drawdown_pct=5.0))
+    assert r.place(f, r.TIER_QUALITY) == r.Placement(r.LIST_REVERSAL, [r.RULE_B1])
+
+
+def test_an_established_advance_with_a_deep_drawdown_gets_the_tag_instead_of_a_reversal_listing():
+    p = r.place(feats(weeks_in_advance=55, price=price(drawdown_pct=31.0)), r.TIER_QUALITY)
+    assert p == r.Placement(r.LIST_MOMENTUM, [r.RULE_A], deep_pullback=True)
+
+
+def test_the_deep_pullback_tag_uses_the_tiers_own_drawdown_threshold():
+    mo = dict(overall_verdict="Fail", weeks_in_advance=30, vs_ma_pct=5.0)
+    assert r.place(feats(price=price(drawdown_pct=25.0), **mo), r.TIER_MOMENTUM_ONLY).deep_pullback is False  # needs 30
+    assert r.place(feats(price=price(drawdown_pct=30.0), **mo), r.TIER_MOMENTUM_ONLY).deep_pullback is True
+    assert r.place(feats(price=price(drawdown_pct=20.0), weeks_in_advance=30), r.TIER_QUALITY).deep_pullback is True  # Quality: 20
+
+
+def test_no_deep_pullback_without_the_rest_of_the_price_structure():
+    assert r.place(feats(weeks_in_advance=30, price=price(drawdown_pct=40.0, higher_low=False)), r.TIER_QUALITY).deep_pullback is False
+
+
+def test_a_momentum_stage_ticker_that_fails_rule_a_is_not_rerouted_to_reversal():
+    f = feats(weeks_in_advance=30, vs_ma_pct=25.0, price=price(drawdown_pct=35.0))  # extended: fails A, passes B2's chart test
+    assert r.place(f, r.TIER_QUALITY) == r.Placement(None, [])
+
+
+def test_decline_and_base_keep_their_reversal_rules_unchanged():
+    f = feats(stage="base", signal_status=r.SIGNAL_FIRED, weeks_in_advance=None)
+    assert r.place(f, r.TIER_QUALITY) == r.Placement(r.LIST_REVERSAL, [r.RULE_B1, r.RULE_B2, r.RULE_B3])
+    assert r.place(f, r.TIER_MOMENTUM_ONLY) == r.Placement(r.LIST_REVERSAL, [r.RULE_B2])
+
+
+@pytest.mark.parametrize("stage", ["advance", "decline", "base", "top", None])
+@pytest.mark.parametrize("weeks", [None, 1, 8, 9, 60])
+@pytest.mark.parametrize("pending", [None, "advance", "decline"])
+@pytest.mark.parametrize("tier", [r.TIER_QUALITY, r.TIER_MOMENTUM_ONLY, r.TIER_ETF])
+def test_a_ticker_can_never_qualify_for_both_lists(stage, weeks, pending, tier):
+    f = feats(stage=stage, weeks_in_advance=weeks, pending_direction=pending, signal_status=r.SIGNAL_FIRED, overall_verdict="Pass" if tier == r.TIER_QUALITY else "Fail", is_etf=tier == r.TIER_ETF)
+    assert not (r.momentum_rule_ids(f, tier) and r.reversal_rule_ids(f, tier))
+
+
 # --- tags -------------------------------------------------------------------------------------------------------------
 
 
 def test_late_trend_starts_at_52_weeks_in_advance():
-    assert "late_trend" not in r.build_tags(feats(weeks_in_advance=51), r.TIER_QUALITY, r.LIST_MOMENTUM, [], None, None)
-    assert r.build_tags(feats(weeks_in_advance=52), r.TIER_QUALITY, r.LIST_MOMENTUM, [], None, None)["late_trend"] is True
+    assert "late_trend" not in r.build_tags(feats(weeks_in_advance=51), r.TIER_QUALITY, r.LIST_MOMENTUM, False, None, None)
+    assert r.build_tags(feats(weeks_in_advance=52), r.TIER_QUALITY, r.LIST_MOMENTUM, False, None, None)["late_trend"] is True
 
 
 def test_leveraged_etf_tag_carries_the_factor():
     f = feats(is_etf=True, leverage=3, overall_verdict=None)
-    assert r.build_tags(f, r.TIER_ETF, r.LIST_MOMENTUM, [], None, None)["leveraged"] == 3
-    assert "leveraged" not in r.build_tags(feats(is_etf=True, overall_verdict=None), r.TIER_ETF, r.LIST_MOMENTUM, [], None, None)
+    assert r.build_tags(f, r.TIER_ETF, r.LIST_MOMENTUM, False, None, None)["leveraged"] == 3
+    assert "leveraged" not in r.build_tags(feats(is_etf=True, overall_verdict=None), r.TIER_ETF, r.LIST_MOMENTUM, False, None, None)
 
 
 @pytest.mark.parametrize("steps, overall, expected", [(72.0, 50, True), (72.0, 72, False), (69.9, 48, False), (70.0, 49, True), (None, 49, False)])
@@ -258,16 +344,21 @@ def test_why_not_quality_skips_a_not_supported_step():
 
 
 def test_only_momentum_only_rows_carry_why_not_quality_and_only_quality_rows_a_signal_status():
-    mo = r.build_tags(feats(overall_verdict="Fail"), r.TIER_MOMENTUM_ONLY, r.LIST_MOMENTUM, [], None, None)
-    q = r.build_tags(feats(), r.TIER_QUALITY, r.LIST_REVERSAL, [], None, None)
+    mo = r.build_tags(feats(overall_verdict="Fail"), r.TIER_MOMENTUM_ONLY, r.LIST_MOMENTUM, False, None, None)
+    q = r.build_tags(feats(), r.TIER_QUALITY, r.LIST_REVERSAL, False, None, None)
     assert "why_not_quality" in mo and "signal_status" not in mo
     assert "why_not_quality" not in q and q["signal_status"] == r.SIGNAL_NONE
 
 
-def test_also_on_points_at_the_other_list_and_market_and_sector_are_carried():
-    tags = r.build_tags(feats(), r.TIER_QUALITY, r.LIST_MOMENTUM, [r.RULE_B2], {"net_new_highs": 3}, {"etf": "XLK"})
-    assert tags["also_on"] == r.LIST_REVERSAL and tags["market"] == {"net_new_highs": 3} and tags["sector"] == {"etf": "XLK"}
-    assert r.build_tags(feats(), r.TIER_QUALITY, r.LIST_REVERSAL, [r.RULE_A], None, None)["also_on"] == r.LIST_MOMENTUM
+def test_market_and_sector_are_carried_and_there_is_no_also_on_tag():
+    tags = r.build_tags(feats(), r.TIER_QUALITY, r.LIST_MOMENTUM, False, {"net_new_highs": 3}, {"etf": "XLK"})
+    assert tags["market"] == {"net_new_highs": 3} and tags["sector"] == {"etf": "XLK"}
+    assert "also_on" not in tags and "deep_pullback" not in tags
+
+
+def test_the_deep_pullback_tag_is_a_momentum_row_tag_only():
+    assert r.build_tags(feats(), r.TIER_QUALITY, r.LIST_MOMENTUM, True, None, None)["deep_pullback"] is True
+    assert "deep_pullback" not in r.build_tags(feats(), r.TIER_QUALITY, r.LIST_REVERSAL, True, None, None)
 
 
 # --- leveraged detection, rules hash ----------------------------------------------------------------------------------
@@ -294,8 +385,9 @@ def test_the_rules_definition_names_every_rule_id_and_is_json_serialisable():
 
     definition = r.rules_definition()
     json.dumps(definition)
+    assert r.RULES_VERSION == "2" and definition["list_assignment"]["fresh_advance_max_weeks"] == r.FRESH_ADVANCE_MAX_WEEKS == 8
     assert definition["rule_ids"] == list(r.RULE_IDS) and set(r.RULE_LABELS) == set(r.RULE_IDS)
-    assert all(rid.endswith(".v1") for rid in r.RULE_IDS)
+    assert all(rid.endswith(".v2") for rid in r.RULE_IDS)
 
 
 # --- bar-derived features ---------------------------------------------------------------------------------------------
