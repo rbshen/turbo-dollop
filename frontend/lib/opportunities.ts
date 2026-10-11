@@ -107,8 +107,14 @@ export function tagPills(row: OpportunityRowOut, list: OpportunityListName): Tag
       tone: "neutral",
     });
   }
-  if (t.also_on) {
-    pills.push({ key: "also", label: `Also on ${t.also_on}`, title: `This ticker is also on the ${LIST_LABEL[t.also_on]} list`, tone: "neutral" });
+  if (t.deep_pullback) {
+    const dd = row.inputs.drawdown_pct;
+    pills.push({
+      key: "pullback",
+      label: "Deep pullback",
+      title: `An established uptrend whose chart passes the reversal price-structure test${typeof dd === "number" ? ` (${dd.toFixed(0)}% below its 52-week high)` : ""}`,
+      tone: "neutral",
+    });
   }
   if (list === "reversal" && t.signal_status === "not_covered") {
     pills.push({

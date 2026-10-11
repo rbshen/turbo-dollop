@@ -2136,7 +2136,8 @@ export interface OpportunityTags {
   leveraged?: number;
   held_back_by_moat?: boolean;
   why_not_quality?: OpportunityWhyNotQuality;
-  also_on?: OpportunityListName;
+  // A Momentum row whose chart also passes the Reversal price-structure test (it is NOT listed on Reversal: the lists are exclusive).
+  deep_pullback?: boolean;
   signal_status?: "fired" | "no_signal" | "not_covered";
   market?: OpportunityMarketTag;
   sector?: OpportunitySectorTag;

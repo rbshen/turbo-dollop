@@ -71,7 +71,7 @@ const RUN: OpportunityRunOut = {
       overall_verdict: "Fail",
       overall_score: 55,
       momentum_rank: 3,
-      tags: { why_not_quality: { overall_verdict: "Fail", failed_steps: ["Debt"], incomplete_steps: [], moat: null }, also_on: "reversal" },
+      tags: { why_not_quality: { overall_verdict: "Fail", failed_steps: ["Debt"], incomplete_steps: [], moat: null }, deep_pullback: true },
     }),
     row({ ticker: "WARY", company_name: "Wary Co", tier: "momentum_only", list_order: 3, overall_verdict: "Pass with caution", overall_score: 75 }),
     row({ ticker: "SOXL", company_name: "Bull 3X ETF", tier: "etf", list_order: 4, overall_verdict: null, overall_score: null, sector: null, tags: { leveraged: 3 }, inputs: { momentum_group: "leveraged_etfs", momentum_group_size: 3 } }),
@@ -205,7 +205,8 @@ describe("OpportunitiesPage", () => {
     await loaded();
     expect(body().getByText("Late trend")).toBeInTheDocument();
     expect(body().getByText("Not quality: Debt")).toBeInTheDocument();
-    expect(body().getByText("Also on reversal")).toBeInTheDocument();
+    expect(body().getByText("Deep pullback")).toBeInTheDocument();
+    expect(body().queryByText(/Also on/)).not.toBeInTheDocument();
     expect(body().getByText("3x leveraged")).toBeInTheDocument();
   });
 

@@ -108,9 +108,12 @@ describe("tagPills", () => {
     expect(pill.title).toContain("55");
   });
 
-  it("points at the other list", () => {
-    expect(tagPills(row({ tags: { also_on: "reversal" } }), "momentum")[0].label).toBe("Also on reversal");
-    expect(tagPills(row({ tags: { also_on: "momentum" } }), "reversal")[0].label).toBe("Also on momentum");
+  it("shows deep pullback with the drawdown, and has no 'also on the other list' pill (the lists are exclusive)", () => {
+    const pill = tagPills(row({ inputs: { drawdown_pct: 31.4 }, tags: { deep_pullback: true } }), "momentum")[0];
+    expect(pill.label).toBe("Deep pullback");
+    expect(pill.title).toContain("31% below its 52-week high");
+    expect(tagPills(row({ tags: { deep_pullback: true } }), "momentum")[0].title).not.toContain("NaN");
+    expect(tagPills(row({ tags: {} }), "momentum").map((p) => p.label)).not.toContain("Also on reversal");
   });
 
   it("says 'not covered' (never 'no signal') for a ticker the signal jobs never ran for, on the Reversal tab only", () => {
@@ -150,14 +153,14 @@ describe("tagPills", () => {
           leveraged: 3,
           held_back_by_moat: true,
           why_not_quality: { overall_verdict: "Fail", failed_steps: [], incomplete_steps: [], moat: "no_moat" },
-          also_on: "reversal",
+          deep_pullback: true,
           signal_status: "not_covered",
           sector: { name: "Technology", etf: "XLK", stage: "top", vs_ma_pct: null, momentum_rank: null, momentum_group_size: null, breadth: null },
         },
       }),
       "reversal",
     ).map((p) => p.label);
-    expect(labels).toEqual(["Late trend", "3x leveraged", "Held back by moat", "Not quality: May not pass", "Also on reversal", "Signals not covered", "XLK Top"]);
+    expect(labels).toEqual(["Late trend", "3x leveraged", "Held back by moat", "Not quality: May not pass", "Deep pullback", "Signals not covered", "XLK Top"]);
   });
 });
 
