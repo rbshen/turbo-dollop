@@ -62,6 +62,7 @@ CRON_JOB_NAMES: list[str] = [
     "pipeline.nightly_price_target_snapshot",
     "pipeline.nightly_sector_industry_pe",
     "pipeline.monthly_momentum_snapshot",
+    "pipeline.weekly_opportunity_snapshot",
     "pipeline.backup_db",
 ]
 
@@ -99,6 +100,7 @@ _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.nightly_price_target_snapshot": _DAILY_HOURS,
     "pipeline.nightly_sector_industry_pe": _DAILY_HOURS,
     "pipeline.monthly_momentum_snapshot": _MONTHLY_HOURS,
+    "pipeline.weekly_opportunity_snapshot": _WEEKLY_HOURS,
 }
 
 
@@ -178,6 +180,9 @@ JOB_METADATA: dict[str, JobMetadata] = {
     "pipeline.monthly_momentum_snapshot": JobMetadata(
         "3/6/12mo momentum ranking snapshot", "monthly", "1st–5th, 2:50 AM", 2 * 60 + 50
     ),
+    "pipeline.weekly_opportunity_snapshot": JobMetadata(
+        "Weekly opportunity lists (Momentum and Reversal) from stored data", "weekly", "Sat 4:00 AM", 4 * 60
+    ),
 }
 
 
@@ -202,6 +207,10 @@ DISABLED_CRON_JOBS: dict[str, DisabledJob] = {
         date(2026, 10, 1),
         "pending investigation: about 1,165 FMP calls per run at 406-527 requests/min, over Starter's 300/min. "
         "The Chart tab serves the cached E/D markers.",
+    ),
+    "pipeline.weekly_opportunity_snapshot": DisabledJob(
+        date(2026, 10, 11),
+        "built but not enabled: run by hand until the first snapshot is checked, then the owner enables the Saturday 4:00 AM cron.",
     ),
 }
 

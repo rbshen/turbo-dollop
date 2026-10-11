@@ -235,3 +235,11 @@
 # criteria and why a real-but-temporarily-unreachable ticker (an FMP outage,
 # a real access-tier gap like BRK.B's known 402) is never a match.
 35 0 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.purge_invalid_tickers >> /home/shen/fathom/backend/logs/purge_invalid_tickers_cron.log 2>&1
+
+# Weekly opportunity lists (Momentum and Reversal) -- BUILT BUT NOT ENABLED (the line below is commented out on purpose; the job
+# is listed in core/cron_health.py::DISABLED_CRON_JOBS). Saturdays at 4:00 AM server time: after the Friday-session nightly chain
+# (technical jobs 1:00-1:40, fundamentals 2:00, score recompute 3:25, backup 3:30) has finished, so every input it reads is final.
+# Stored data only, ZERO FMP calls, ~1 min, chunked reads. As-of = the last completed XNYS session; a rerun for the same date is a
+# no-op. To enable: uncomment the line, delete the DISABLED_CRON_JOBS entry, `crontab crontab.txt` from backend/, check `crontab -l`
+# (docs/specs/opportunities.md, "Enabling the weekly cron"). See pipeline/weekly_opportunity_snapshot.py.
+# 0 4 * * 6 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.weekly_opportunity_snapshot >> /home/shen/fathom/backend/logs/weekly_opportunity_snapshot_cron.log 2>&1
