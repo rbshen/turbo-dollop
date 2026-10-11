@@ -2,7 +2,7 @@
 
 Report only. No code, spec or database change. Cache only, no FMP call; a read-only (`mode=ro`) engine was patched onto every module's `engine`, the
 scratch scripts are deleted. The harness reproduces the stored `TickerScore` Overall for all 471 non-exempt tickers it scored (0 mismatches), so the
-counterfactuals below start from the real numbers. Follow-up to the open item in `docs/specs/stuck-check.md` ("IBKR and GM in Step 1").
+counterfactuals below start from the real numbers. Follow-up to the open item in `docs/specs/stuck-check.md` (removed, see git 520a033) ("IBKR and GM in Step 1").
 
 Weights in force (the saved set, `weights_version` 8, not the code defaults): Step 1 Revenue 30 / Net Income 20 / CFO 25 / Margins 10 / FCF 15;
 Overall Financials 35 / Growth 20 / Profitability 20 / Debt 25. `SCORE_FORMULA_VERSION` 6.

@@ -1108,7 +1108,7 @@ class MarketBreadthSnapshot(SQLModel, table=True):
     constituents closing above their 20/50/200-day SMA, and new 52-week highs
     minus new 52-week lows (see scoring/market_breadth.py for the math,
     data/market_breadth_data.py, pipeline/nightly_market_breadth.py and
-    docs/market_breadth_investigation_2026-09-21.md).
+    docs/market_breadth_investigation_2026-09-21.md (removed, see git 99db9b3)).
 
     WIDE, one row per (universe, as_of_date), each metric its own column --
     unlike SectorEtfReturn's long format -- so a row reads on its own and
@@ -1169,7 +1169,7 @@ class MarketBreadthGateLog(SQLModel, table=True):
     """Append-only trace of every market-breadth coverage-gate check, written
     for EVERY universe checked each night ("sp500" and every "sector:<ETF>")
     regardless of whether the check passed -- see data/market_breadth_data.py::
-    _gate_rule/_log_gate_check and docs/market_breadth_investigation_2026-09-21.md.
+    _gate_rule/_log_gate_check and docs/market_breadth_investigation_2026-09-21.md (removed, see git 99db9b3).
 
     Exists specifically because a REFUSED day gets no MarketBreadthSnapshot row
     to attach anything to -- without this table there would be no record a

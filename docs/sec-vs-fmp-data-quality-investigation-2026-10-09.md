@@ -182,7 +182,7 @@ blocked for this IP.
 3. `sec_company_facts` is mapped to the `fundamentals` data group (`core/data_groups.py:370`): the FMP master switch would pause an SEC job, and a restricted request variant
    is irrelevant to it.
 4. CLAUDE.md: FMP is the sole fundamentals source, SEC only a cross-check; "auto-prefer SEC" contradicts it.
-5. `docs/specs/stuck-check.md` still describes GM as financing receivables in operating cash flow (already reported); the exemption list there is for a different job than
+5. `docs/specs/stuck-check.md` (removed, see git 520a033) still describes GM as financing receivables in operating cash flow (already reported); the exemption list there is for a different job than
    data defects.
 6. 798 MB of whole-company JSON is 57% of the database and of every backup; storing a projection instead is a storage decision the current design never made.
 7. A defect can survive a refetch: the annual row is fresh until the next earnings date plus 2 days, and whether FMP corrects the capex line on a Refresh is unknown (not tested; it needs FMP calls).

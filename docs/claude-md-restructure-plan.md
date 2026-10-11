@@ -215,7 +215,7 @@ uncommitted local scratch docs from the investigations that produced them):
 - `docs/etf_heatmap_momentum_investigation_2026-09-20.md` (line 3708)
 - `docs/fmp_phase2_daily_prices_plan_2026-09-24.md` (line 3548)
 - `docs/fmp_phase3_long_history_non_us_investigation_2026-09-25.md` (line 3603)
-- `docs/market_breadth_investigation_2026-09-21.md` (line 3773)
+- `docs/market_breadth_investigation_2026-09-21.md` (removed, see git 99db9b3) (line 3773)
 - `docs/price_target_daily_snapshot_implementation_2026-09-26.md` (line 3165)
 - `docs/stochastic_divergence_investigation_2026-09-25.md` (line 2836)
 - `docs/valuation.md` (line 2072) — this one looks like a plain wrong path; the real file is

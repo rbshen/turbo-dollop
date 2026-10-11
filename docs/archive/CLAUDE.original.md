@@ -3770,7 +3770,7 @@ S&P 500 breadth, one row per session: % of constituents closing above their own 
 % above their 50-day SMA, % above their 200-day SMA, and net new 52-week highs minus lows. (The
 20-day metric was added later the same day -- see "20-day SMA metric" below; everything else in
 this section applies to it identically unless that entry says otherwise.) Design and measurements:
-`docs/market_breadth_investigation_2026-09-21.md`. Bars from FMP via `SharedBarsCache` (split-adjusted close/high/low, no dividend adjustment -- same basis and rationale as Sector Heatmap), zero FMP fundamentals
+`docs/market_breadth_investigation_2026-09-21.md` (removed, see git 99db9b3). Bars from FMP via `SharedBarsCache` (split-adjusted close/high/low, no dividend adjustment -- same basis and rationale as Sector Heatmap), zero FMP fundamentals
 calls, independent of Step 1-5/Overall Assessment scoring -- no `FMP_ENABLED` guard needed.
 
 - **Definitions** (`scoring/market_breadth.py`, pure). Every window is counted in each ticker's

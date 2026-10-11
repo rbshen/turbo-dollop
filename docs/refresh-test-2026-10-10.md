@@ -1,6 +1,6 @@
 # Refresh test, 2026-10-10 (STX, CAT, GM, KKR)
 
-Preserved from `docs/specs/data-quality.md` (commit d545fc2) when the data-quality feature was removed (decisions.md, 2026-10-10). Background:
+Preserved from `docs/specs/data-quality.md` (removed, see git bc05895; added in commit d545fc2) when the data-quality feature was removed (decisions.md, 2026-10-10). Background:
 `docs/sec-vs-fmp-data-quality-investigation-2026-10-09.md`.
 
 

@@ -1,7 +1,7 @@
 """Pure market-breadth math -- no DB/HTTP, same package convention as
 scoring/etf_returns.py. See data/market_breadth_data.py for orchestration
 (universe, fetch, anchor resolution, coverage gate, persistence) and
-docs/market_breadth_investigation_2026-09-21.md for the design.
+docs/market_breadth_investigation_2026-09-21.md (removed, see git 99db9b3) for the design.
 
 Four metrics per session, each over the constituents that HAVE a bar that
 session:
