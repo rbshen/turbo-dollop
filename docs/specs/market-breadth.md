@@ -110,8 +110,8 @@ never stitches a subset-universe curve onto the index curve. **Survivorship-bias
 constituents applied to every past date (a recent joiner counts in earlier months; removals aren't
 tracked anywhere) — hence `is_backfilled`, the tooltip tag, and the page footnote. `--rebuild`
 deletes ONLY `is_backfilled` rows (never a live nightly row) and recomputes them. Since the shared
-cache now holds 5y of daily bars, the backfilled history spans ~4y (2022-09-26..2026-09-23 at the
-last rebuild) — kept uncapped by decision, still survivorship-biased. The original run and the
+cache now holds 5y of daily bars, the backfilled history spans ~4y (the sp500 and most sector series start 2022-09-26; the
+live nightly rows continue from there to the latest session) — kept uncapped by decision, still survivorship-biased. The original run and the
 20-day fill-pass run records are archived in `docs/archive/claude-md-history-fmp-migration.md`.
 
 ## Sector-level breadth (2026-09-22, shipped)
@@ -134,6 +134,7 @@ on EITHER ≥97% coverage OR at most `SECTOR_COVERAGE_FLOOR_MISSING` tickers mis
 more permissive — so a small sector (~20 names) isn't blocked by a single stale/missing ticker.
 One sector failing its own gate is isolated (logged, skipped) and never blocks the other 10
 sectors' rows that night, unlike the market-wide row's own gate, which is an all-or-nothing raise.
+An sp500 gate failure skips all 11 sectors (they are never evaluated that night); this is logged and prefixed to the failed run's message ("sp500 refused, 11 sectors not evaluated.").
 Every gate check (sp500 and every sector, passed or refused) is additionally logged to
 `MarketBreadthGateLog` so this provisional policy can be revisited from real data later.
 
