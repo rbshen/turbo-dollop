@@ -28,6 +28,7 @@ describe("TopNav", () => {
       ["Stocks", "/screener"],
       ["ETFs", "/etfs"],
       ["Watchlist", "/watchlist"],
+      ["Opportunities", "/opportunities"],
       ["Momentum", "/momentum"],
       ["Sectors", "/sectors"],
       ["Breadth", "/breadth"],
@@ -69,7 +70,7 @@ describe("TopNav", () => {
     }
   });
 
-  it.each(["/momentum", "/sectors", "/breadth", "/breadth/XLK", "/settings"])(
+  it.each(["/opportunities", "/momentum", "/sectors", "/breadth", "/breadth/XLK", "/settings"])(
     "on %s, every nav link and the logo navigate in the same tab",
     (path) => {
       h.pathname = path;
@@ -102,7 +103,7 @@ describe("TopNav", () => {
   it("lists the pages in order: Stocks, ETFs, Watchlist, then the rest", () => {
     render(<TopNav />);
     const labels = screen.getAllByRole("link").map((a) => a.textContent);
-    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Momentum", "Sectors", "Breadth", "Settings"]);
+    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Opportunities", "Momentum", "Sectors", "Breadth", "Settings"]);
     expect(screen.queryByRole("link", { name: "Screener" })).not.toBeInTheDocument();
   });
 

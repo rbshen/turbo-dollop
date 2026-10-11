@@ -17,6 +17,7 @@ const NAV_LINKS: NavLink[] = [
   { href: "/screener", label: "Stocks" },
   { href: "/etfs", label: "ETFs" },
   { href: "/watchlist", label: "Watchlist" },
+  { href: "/opportunities", label: "Opportunities" },
   { href: "/momentum", label: "Momentum" },
   { href: "/sectors", label: "Sectors" },
   { href: "/breadth", label: "Breadth" },
@@ -28,7 +29,7 @@ const NAV_LINKS: NavLink[] = [
 // replayed as one (Cmd on Mac, Ctrl elsewhere). The real href/target stay on the <a> for middle-click, keyboard and
 // no-JS. Safari ignores modifiers on a synthetic click and just foregrounds the tab, same as before.
 // On these pages (and their sub-routes) every nav item, the logo included, navigates in the same tab instead.
-const SAME_TAB_PREFIXES = ["/momentum", "/sectors", "/breadth", "/settings"];
+const SAME_TAB_PREFIXES = ["/opportunities", "/momentum", "/sectors", "/breadth", "/settings"];
 const NEW_TAB_PROPS = { target: "_blank", rel: "noopener noreferrer", onClick: openInBackgroundTab } as const;
 
 function openInBackgroundTab(e: ReactMouseEvent<HTMLAnchorElement>) {

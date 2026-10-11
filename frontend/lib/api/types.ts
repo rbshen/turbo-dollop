@@ -2099,3 +2099,117 @@ export interface UniverseRemoveOut {
   changed: boolean;
   message: string;
 }
+
+// --- Opportunities (docs/specs/opportunities.md): the weekly frozen Momentum and Reversal lists. Everything is the copy written
+// with the run; `overall_verdict` is the raw stored key ("Fail" included), drawn "May not pass" by lib/tierColor.ts.
+
+export type OpportunityTier = "quality" | "momentum_only" | "etf";
+export type OpportunityListName = "momentum" | "reversal";
+
+export interface OpportunityMarketTag {
+  as_of_date: string;
+  pct_above_sma50: number | null;
+  pct_above_sma200: number | null;
+  net_new_highs: number;
+}
+
+export interface OpportunitySectorTag {
+  name: string;
+  etf: string;
+  stage: string | null;
+  vs_ma_pct: number | null;
+  momentum_rank: number | null;
+  momentum_group_size: number | null;
+  breadth: OpportunityMarketTag | null;
+}
+
+export interface OpportunityWhyNotQuality {
+  // The raw stored verdict ("Fail" displays as "May not pass"); null = Overall incomplete.
+  overall_verdict: string | null;
+  failed_steps: string[];
+  incomplete_steps: string[];
+  moat: string | null;
+}
+
+export interface OpportunityTags {
+  late_trend?: boolean;
+  leveraged?: number;
+  held_back_by_moat?: boolean;
+  why_not_quality?: OpportunityWhyNotQuality;
+  also_on?: OpportunityListName;
+  signal_status?: "fired" | "no_signal" | "not_covered";
+  market?: OpportunityMarketTag;
+  sector?: OpportunitySectorTag;
+}
+
+export interface OpportunityRowOut {
+  ticker: string;
+  company_name: string | null;
+  list_name: OpportunityListName;
+  tier: OpportunityTier;
+  list_order: number;
+  rule_ids: string[];
+  tags: OpportunityTags;
+  overall_score: number | null;
+  steps_score: number | null;
+  overall_verdict: string | null;
+  weinstein_stage: string | null;
+  vs_ma_pct: number | null;
+  ma_slope_pct: number | null;
+  mansfield_rs: number | null;
+  momentum_rank: number | null;
+  close: number | null;
+  atr: number | null;
+  adv_usd: number | null;
+  sector: string | null;
+  exchange: string | null;
+  weeks_in_advance: number | null;
+  inputs: Record<string, unknown> & { momentum_group?: string | null; momentum_group_size?: number | null };
+}
+
+export interface OpportunitySectorEtf {
+  etf: string;
+  stage: string | null;
+  vs_ma_pct: number | null;
+  momentum_rank: number | null;
+  momentum_group_size: number | null;
+  breadth: OpportunityMarketTag | null;
+}
+
+export interface OpportunityRunSummary {
+  counts?: Record<string, Record<string, Record<string, number>>>;
+  list_totals?: Record<string, number>;
+  ranked_universe?: { stocks: number; etfs: number; leveraged_etfs: number };
+  gate_passed?: number;
+  gate_drops?: Record<string, number>;
+  stale_stage_rows?: number;
+  stale_score_rows?: number;
+  quality_not_covered?: number;
+  quality_total?: number;
+  market?: { breadth: OpportunityMarketTag | null; sectors_in_advance: number; sector_etfs: Record<string, OpportunitySectorEtf> };
+}
+
+export interface OpportunityRunOut {
+  id: number;
+  kind: string;
+  as_of_date: string;
+  last_bar_date: string;
+  universe_size: number;
+  rules_hash: string;
+  rules_version: string;
+  score_formula_version: number;
+  weights_version: number | null;
+  created_at: string;
+  summary: OpportunityRunSummary;
+  rule_labels: Record<string, string>;
+  momentum: OpportunityRowOut[];
+  reversal: OpportunityRowOut[];
+}
+
+export interface OpportunityDateOut {
+  as_of_date: string;
+  kind: string;
+  created_at: string;
+  momentum_count: number;
+  reversal_count: number;
+}
