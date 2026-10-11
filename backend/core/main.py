@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from contextlib import asynccontextmanager
 from typing import Annotated, Literal
 
@@ -52,6 +52,7 @@ from data.score_recompute import (
 )
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
 from data.market_breadth_data import get_market_breadth
+from data.opportunity_data import get_run as get_opportunity_run, list_run_dates as list_opportunity_dates
 from data.momentum_data import get_etf_momentum_snapshot, get_momentum_snapshot
 from data.sector_heatmap_data import get_sector_heatmap
 from helpers.weinstein_config import get_weinstein_settings, update_weinstein_settings
@@ -81,6 +82,8 @@ from data.universe_membership import (
     remove_from_universe,
 )
 from core.schemas import (
+    OpportunityDateOut,
+    OpportunityRunOut,
     UniverseAddOut,
     UniverseRemoveOut,
     UniverseStatusOut,
@@ -305,6 +308,30 @@ def momentum(period: MomentumPeriod = "current") -> MomentumOut:
 @app.get("/api/momentum/etf", response_model=EtfMomentumOut)
 def etf_momentum(period: MomentumPeriod = "current") -> EtfMomentumOut:
     return get_etf_momentum_snapshot(period)
+
+
+# The weekly opportunity lists (docs/specs/opportunities.md). READ-ONLY by design: the only way a run is created is the
+# pipeline.weekly_opportunity_snapshot job, so there is no POST/PUT/DELETE here (tests/test_opportunities_api.py pins it). The static
+# paths come before the dated one so "dates" and "latest" are never parsed as a date.
+@app.get("/api/opportunities/dates", response_model=list[OpportunityDateOut])
+def opportunities_dates() -> list[OpportunityDateOut]:
+    return list_opportunity_dates()
+
+
+@app.get("/api/opportunities/latest", response_model=OpportunityRunOut)
+def opportunities_latest() -> OpportunityRunOut:
+    run = get_opportunity_run(None)
+    if run is None:
+        raise HTTPException(status_code=404, detail="No opportunity run has been saved yet.")
+    return run
+
+
+@app.get("/api/opportunities/{as_of_date}", response_model=OpportunityRunOut)
+def opportunities_by_date(as_of_date: date) -> OpportunityRunOut:
+    run = get_opportunity_run(as_of_date)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"No opportunity run for {as_of_date.isoformat()}.")
+    return run
 
 
 @app.get("/api/sector-heatmap", response_model=SectorHeatmapOut)

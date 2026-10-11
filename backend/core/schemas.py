@@ -2638,3 +2638,62 @@ class UniverseRemoveOut(BaseModel):
     status: UniverseStatusOut
     changed: bool
     message: str
+
+
+class OpportunityRowOut(BaseModel):
+    """One ticker on one list of a stored opportunity run (docs/specs/opportunities.md). Everything is the FROZEN copy written with
+    the run (nothing is joined live). `overall_verdict` is the raw stored key ("Fail" included): the frontend draws it "May not
+    pass". `tags` and `inputs` are the run's JSON, shaped by scoring/opportunity_rules.py::build_tags and
+    data/opportunity_data.py::compute_run."""
+
+    ticker: str
+    company_name: str | None = None
+    list_name: str
+    tier: str
+    list_order: int
+    rule_ids: list[str]
+    tags: dict
+    overall_score: int | None = None
+    steps_score: float | None = None
+    overall_verdict: str | None = None
+    weinstein_stage: str | None = None
+    vs_ma_pct: float | None = None
+    ma_slope_pct: float | None = None
+    mansfield_rs: float | None = None
+    momentum_rank: int | None = None
+    close: float | None = None
+    atr: float | None = None
+    adv_usd: float | None = None
+    sector: str | None = None
+    exchange: str | None = None
+    weeks_in_advance: int | None = None
+    inputs: dict
+
+
+class OpportunityRunOut(BaseModel):
+    """GET /api/opportunities/latest and /{as_of_date}: one stored run with both lists, in list order."""
+
+    id: int
+    kind: str
+    as_of_date: date
+    last_bar_date: date
+    universe_size: int
+    rules_hash: str
+    rules_version: str
+    score_formula_version: int
+    weights_version: int | None = None
+    created_at: datetime
+    summary: dict
+    rule_labels: dict[str, str]
+    momentum: list[OpportunityRowOut]
+    reversal: list[OpportunityRowOut]
+
+
+class OpportunityDateOut(BaseModel):
+    """GET /api/opportunities/dates: one stored run, for the snapshot date picker."""
+
+    as_of_date: date
+    kind: str
+    created_at: datetime
+    momentum_count: int
+    reversal_count: int
