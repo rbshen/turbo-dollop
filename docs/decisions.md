@@ -1142,3 +1142,13 @@ Also decided: two text sets keyed by the Blue profile (the shortened "profiled" 
 
 **Mistake worth recording.** The first dry run created the two tables in the live `fathom.db` with the column named `list`; renaming it to `list_name` afterwards left a stale table that `init_db` could not repair (`_add_missing_columns` only adds columns). The two empty tables were dropped by hand and re-created by the next `init_db`. A new table's column names must be final before anything calls `init_db()` against the real file.
 
+### 2026-10-11 — Opportunity lists are mutually exclusive: trend stage decides the list (rules v2)
+
+**Decision.** Each ticker is on at most one list per run, and its trend stage decides which (`scoring/opportunity_rules.py::assign_list`). Established Advance (more than `FRESH_ADVANCE_MAX_WEEKS` = 8 weeks) is Momentum only; Decline, Base, a pending Advance or a fresh Advance (<= 8 weeks) is Reversal only; Top is on neither. B2 (price structure) is now evaluated only for the Reversal stages. A Momentum row whose chart passes B2 carries a `deep_pullback` tag instead of a Reversal listing; the "also on the other list" tag is removed. Rule ids are v2 (`RULES_VERSION = "2"`, new rules hash). `OpportunitySnapshotRow` is unique on `(run_id, ticker)`.
+
+**Why.** v1 let B2 ignore stage, so a deep pullback inside an established uptrend qualified as a "reversal", and 4 tickers (AMAT, CLS, KLAC, SOXL) sat on both lists, which are opposite in nature. The stage already tells an uptrend from a base or a decline; letting it route the ticker makes the overlap impossible instead of tagged.
+
+**How it was applied.** The unique constraint cannot be altered in place (`init_db` only creates tables and adds columns), and the two tables held only the saved test run, so both were dropped by hand and re-created by the next `init_db`, then the run was rebuilt for 2026-10-09 (`--force`). Nothing else read them.
+
+**Trade-offs left open.** A fresh Advance without a B2 pass, or a Top stage, is on neither list; a Momentum-stage ticker that fails rule A (extended, outside the rank cut) is not rerouted to Reversal. The 8-week cutoff is one constant. First v2 run: 8 names that were on a v1 list are on neither (listed in `docs/specs/opportunities.md`).
+

@@ -6,10 +6,19 @@ nightly job: it only reads them. **Not scheduled yet:** the job is registered an
 ("Enabling the weekly cron", below). Code: `scoring/opportunity_rules.py` (pure rules), `data/opportunity_data.py` (load, evaluate, persist, read),
 `pipeline/weekly_opportunity_snapshot.py` (entry point), `GET /api/opportunities/*` in `core/main.py`, `frontend/app/opportunities/`.
 
-## The rules (versioned: `RULES_VERSION = "1"`, rule ids end `.v1`)
+## The rules (versioned: `RULES_VERSION = "2"`, rule ids end `.v2`)
 
 `scoring/opportunity_rules.py::rules_hash()` is the sha256 of every id and threshold below (`rules_definition()`); each run stores it with `rules_version`.
 **Change any threshold and bump `RULES_VERSION`**, so an old run is read against the rules it used.
+
+**One list per ticker (rules v2, 2026-10-11).** The lists are opposite in nature, so they are mutually exclusive and **trend stage decides which one a ticker can be on**
+(`scoring/opportunity_rules.py::assign_list`, the single router; `place()` returns the one placement). Established Advance (stage Advance for **more than**
+`FRESH_ADVANCE_MAX_WEEKS` = 8 weeks) -> Momentum only. Decline, Base, a pending Advance (`pending_direction = advance`) or a **fresh** Advance (<= 8 weeks) -> Reversal only. Top
+(unless it has a pending Advance), no fresh stage row, or an Advance of unknown age -> neither. An established Advance outranks a pending-Advance flag. Being assigned a
+list is necessary, not sufficient: the list's own rules must still hit, and a ticker that fails them is NOT rerouted to the other list. A **Momentum** row whose chart would pass
+the B2 price-structure test (the tier's own drawdown threshold) gets the **`deep_pullback` tag** instead of a Reversal listing (the case the later daily routine will use). The
+"also on the other list" tag is gone. Enforced three ways: the router; `UNIQUE (run_id, ticker)` on `OpportunitySnapshotRow` (a ticker has one row per run, whichever list); and
+`compute_run` refuses to write if a ticker ever lands on both, with tests over every stage x weeks x pending x tier combination.
 
 **Gate, all tiers** (a ticker that fails it is on no list and not ranked): not delisted (`TickerScore.delisted_at`); the last daily bar is dated the as-of date
 (and was written after that session's close, the bars cache's provisional-bar test); at least 12 months of bars; average daily dollar volume (close x volume,
@@ -24,14 +33,14 @@ group.
 tickers that **pass the gate**, in three separate groups: the tracked stocks, the ordinary ETFs, the leveraged ETFs. The group sizes are stored (`ranked_universe`)
 and drawn in the page footnote. (The preview ranked the 575 stocks before the liquidity floor; ranking after it moves each cut by a name or two.)
 
-**List A, Momentum** (`A.momentum_trend.v1`): stage Advance, MA slope > 0, Mansfield RS > 0 (the stored RS, vs SPY while `rs_benchmark` is SPY; the run stores the
+**List A, Momentum** (`A.momentum_trend.v2`): an **established** Advance (weeks in Advance > 8), MA slope > 0, Mansfield RS > 0 (the stored RS, vs SPY while `rs_benchmark` is SPY; the run stores the
 benchmark), and `vs_ma_pct` strictly below the tier ceiling: **20** Quality and ETF, **15** Momentum-only. Momentum-only also needs weeks in Advance <= 52, 3 month
 return <= 30%, 12 month return <= 150% and momentum rank in the **top quintile** (ceil(n/5) of the ranked stocks, exact integer arithmetic). ETFs also need the
 **top third** of their own group (ceil(n/3)). Quality needs no rank. Any unknown input (no fresh stage row, no rank, no return) fails the rule it feeds.
 
-**List B, Reversal.** `B2.price_structure.v1` (all tiers): drawdown from the 52-week high >= 20% (Quality, ETF) or >= 30% (Momentum-only); a higher low (the lowest
+**List B, Reversal.** `B2.price_structure.v2` (all tiers, **evaluated only for tickers whose stage puts them on Reversal**): drawdown from the 52-week high >= 20% (Quality, ETF) or >= 30% (Momentum-only); a higher low (the lowest
 low of the last 126 sessions is at least 15 sessions old and the last 15 sessions' lowest low is above it); weekly close above its 10-week SMA; the 30-week EMA slope
-above its value 4 weeks earlier and >= -2%. `B1.base_or_pending_advance.v1` (Quality only): stage Base, or a pending Advance. `B3.entry_signal.v1` (Quality only): a
+above its value 4 weeks earlier and >= -2%. `B1.base_or_pending_advance.v2` (Quality only): stage Base, or a pending Advance. `B3.entry_signal.v2` (Quality only): a
 Warren `blue_up`/`yellow_up` or a BB+RSI event dated in the last 10 sessions **and** stage Decline or Base. Each rule keeps its own id on the row (`rule_ids_json`).
 
 **B3 coverage.** Warren, BB+RSI and Liquidity Zones run only for the monitored lists (`E<n>` and `ETF`). `signal_status` per ticker: `fired` (an event in the
@@ -41,7 +50,7 @@ jobs never looked, so it is never shown as "no signal"). Stored on every Quality
 
 **Tags** (stored in `tags_json`, never filters): `late_trend` (weeks in Advance >= 52), `leveraged` (2 or 3), `held_back_by_moat` (blended Fundamentals >= 70, Overall
 < 70: only the Moat multiplier does it), `why_not_quality` (Momentum-only stocks: the raw stored Overall verdict, the steps below the pass line, the incomplete
-steps, the moat; the page draws "May not pass", never "Fail"), `also_on` (the other list), `signal_status` (Quality), `market` (the latest `MarketBreadthSnapshot`
+steps, the moat; the page draws "May not pass", never "Fail"), `deep_pullback` (a Momentum row that passes the B2 chart test), `signal_status` (Quality), `market` (the latest `MarketBreadthSnapshot`
 on or before the as-of date: % above 50/200-day SMA, net new highs) and `sector` (the sector ETF's stage and momentum rank, the sector's breadth snapshot).
 
 ## Tables (new, insert-only; no existing table changed)
@@ -51,7 +60,7 @@ on or before the as-of date: % above 50/200-day SMA, net new highs) and `sector`
 `(kind, as_of_date)`. `OpportunitySnapshotRow`: `run_id`, `list_name` (momentum/reversal), `ticker`, `tier`, `list_order`, `rule_ids_json`, `tags_json`, and a frozen copy
 of the inputs (`overall_score`, `steps_score`, `overall_verdict`, `weinstein_stage`, `vs_ma_pct`, `ma_slope_pct`, `mansfield_rs`, `momentum_rank`, `close`, `atr`
 (Wilder 14), `adv_usd`, `sector`, and `inputs_json` for the rest: step scores and verdicts, moat, weeks in Advance, 3/12 month returns, drawdown, B2 parts, signal
-status, exchange). Unique on `(run_id, list_name, ticker)`: a ticker on both lists has two rows. `TickerScore` and `TrendAnalysis` are overwritten nightly, which is why
+status, exchange). Unique on `(run_id, ticker)`: a ticker has one row per run, on one list. `TickerScore` and `TrendAnalysis` are overwritten nightly, which is why
 the inputs are copied.
 
 **Registry and backup.** Both are **KEEP** in `data/ticker_data_registry.py` (`opportunitysnapshotrow` in `REGISTRY`; `opportunityrun` has no ticker column, so it is in
@@ -99,11 +108,15 @@ The top nav has an "Opportunities" item (same-tab, like Momentum).
 4. `cd backend && crontab crontab.txt && crontab -l | grep opportunity` and check the line is there, then `uv run pytest tests/test_cron_wiring.py -q`.
 5. After the first Saturday: the Settings > Status page shows the job, and `SELECT * FROM opportunityrun ORDER BY as_of_date DESC LIMIT 2;` shows a new row.
 
-## First run (as of 2026-10-09)
+## First run (as of 2026-10-09), rules v2
 
 Universe 608 (580 tracked stocks + 28 ETFs), 595 through the gate (dropped: 7 illiquid, 4 short history, SPY, 1 stale bar). Ranked: 569 stocks, 23 ETFs, 3 leveraged ETFs.
-Momentum 64 (Quality 29, Momentum-only 28, ETF 7); Reversal 27 (Quality 19: B1 3, B2 6, B3 10; Momentum-only 7 B2; ETF 1 B2). Against the 2026-10-11 preview (A: Quality 30,
-Momentum-only 93, ETF 7; B2 3 / 7 / 1; B1 3; B3 10): with the preview's settings the same code gives Momentum-only 93, ETF 7, Quality 29 (the one difference is the liquidity gate,
-which now also applies to Quality: the OTC EVVTY, $1.9M a day, is out). Momentum-only 93 -> 92 (the $25M floor) -> 84 (ceiling 15) -> 64 (weeks in Advance <= 52) -> 63 (3 month
-<= 30%) -> 61 (12 month <= 150%) -> **28** (top quintile instead of top third). Quality B2 is 6 instead of 3 because its drawdown threshold is 20% (the preview used 30%). 50 of
+**Momentum 55** (Quality 25, Momentum-only 24, ETF 6); **Reversal 24** (Quality 18: B1 3, B2 5, B3 10; Momentum-only 5 B2; ETF 1 B2); overlap 0; 1 `deep_pullback` row (AMAT).
+The v1 run (rules without the stage split) was Momentum 64 / Reversal 27 with 4 tickers on both (AMAT, CLS, KLAC, SOXL). Nine names left Momentum for Reversal or for neither because
+they are fresh Advances (KLAC, CLS, SOXL moved to Reversal through B2; CRDO, META, MPWR, NEM, NOW, SWKS fell off for lack of a B2 pass), and ALAB and BB, which were Reversal only through
+B2 in an established Advance, are on neither list (they fail the Momentum extension ceiling).
+
+Against the 2026-10-11 preview (A: Quality 30, Momentum-only 93, ETF 7; B2 3 / 7 / 1; B1 3; B3 10), still on v1 rules: with the preview's settings the same code gave Momentum-only 93, ETF 7, Quality 29
+(the one difference is the liquidity gate, which also applies to Quality: the OTC EVVTY, $1.9M a day, is out). Momentum-only 93 -> 92 (the $25M floor) -> 84 (ceiling 15) -> 64 (weeks in Advance <= 52) -> 63
+(3 month <= 30%) -> 61 (12 month <= 150%) -> 28 (top quintile instead of top third); the v2 stage split then takes it to 24. Quality B2 uses a 20% drawdown threshold (the preview used 30%). 50 of
 the 118 Quality stocks are not on a monitored list; 5 of the 10 B3 names fired in the window but have since left the monitored lists.
