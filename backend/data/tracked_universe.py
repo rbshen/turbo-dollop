@@ -14,13 +14,15 @@ pipeline/nightly_etf_screener.py). A known ticker is classified by the FIRST mat
              growth-catalyst note (never expires: Monthly Momentum is "Moat-rated tracked tickers")
   added      `TickerView.added_at` set (the Add button, or the 2026-10-03 grandfather backfill): in the universe at ANY idle
              age; leaves only through Remove (DELETE /api/tickers/{t}/universe)
+  opportunity on a list of a weekly opportunity run from the last `OPPORTUNITY_PROTECTION_DAYS` days (docs/specs/opportunities.md):
+             in the universe so its bars keep refreshing for later outcome tracking; leaves when its last run ages out
   browsed    has a `TickerView` row, last opened within `TRACKED_VIEW_WINDOW_DAYS` days, not added: NOT in the universe
   expired    same, but idle for MORE than that many days: not in the universe, awaiting the wipe (pipeline/wipe_untouched_tickers.py,
              locked and unscheduled)
   untracked  known, unprotected, not added, and no `TickerView` row at all (e.g. a stock that left an index): not in the
              universe; the wipe job adopts it (stamps a view) before it can ever expire
 
-A ticker is IN the universe through delisted-free index, watchlist, system, manual or added only. Nothing is deleted by the
+A ticker is IN the universe through delisted-free index, watchlist, system, manual, added or opportunity only. Nothing is deleted by the
 classification: browsed, expired and untracked tickers keep all their data and drop out of the nightly jobs and the Screener's
 `all` universe (an ETF's `EtfScreenerRow` is pruned by the 1:45 job, as for any ETF outside the ETF universe). Opening a
 ticker's page records a view (the "last touch" the wipe reads) but never admits it. `load_all_known_tickers` is the wide set
@@ -48,6 +50,8 @@ from core.db import engine
 from core.models import (
     FundamentalsCache,
     IndexConstituent,
+    OpportunityRun,
+    OpportunitySnapshotRow,
     TickerScore,
     TickerView,
     Watchlist,
@@ -63,6 +67,11 @@ logger = logging.getLogger(__name__)
 
 TRACKED_VIEW_WINDOW_DAYS = 30
 
+# How long a ticker stays in the universe after a weekly opportunity run listed it (its run's as-of date counts): long enough to
+# follow it for the outcome horizons the lists are meant for. Not the 30-day view window: an opportunity ticker is by definition
+# one nobody has opened, so the view clock would drop it a month after the run.
+OPPORTUNITY_PROTECTION_DAYS = 180
+
 # The ETF-side universe's seed list (`load_etf_universe`): the tickers the app itself needs, not the owner: the 11
 # SPDR sector ETFs (Sector Heatmap) and SPY (the Weinstein RS benchmark and the 5Y-vs-SPY comparison). Always in the
 # ETF universe with reason "system", even when the app holds no profile for them yet. (Replaces the stock-side
@@ -76,6 +85,7 @@ WATCHLIST = "watchlist"
 SYSTEM = "system"
 MANUAL = "manual"
 ADDED = "added"
+OPPORTUNITY = "opportunity"
 BROWSED = "browsed"
 EXPIRED = "expired"
 UNTRACKED = "untracked"
@@ -128,6 +138,19 @@ def load_manual_data_tickers(session: Session) -> set[str]:
     return tickers
 
 
+def load_opportunity_tickers(session: Session, now: datetime | None = None) -> set[str]:
+    """Rule `opportunity`: tickers on any list of an OpportunityRun whose as-of date is within the last
+    `OPPORTUNITY_PROTECTION_DAYS` days (inclusive). Stock and ETF alike."""
+    since = (now or datetime.now()).date() - timedelta(days=OPPORTUNITY_PROTECTION_DAYS)
+    return set(
+        session.exec(
+            select(OpportunitySnapshotRow.ticker)
+            .join(OpportunityRun, OpportunityRun.id == OpportunitySnapshotRow.run_id)
+            .where(OpportunityRun.as_of_date >= since)
+        ).all()
+    )
+
+
 def load_delisted_flagged(session: Session) -> set[str]:
     return set(session.exec(select(TickerScore.ticker).where(TickerScore.delisted_at.is_not(None))).all())
 
@@ -152,9 +175,10 @@ def _reason_for(
     added: bool,
     last_viewed: datetime | None,
     cutoff: datetime,
+    opportunity: bool = False,
 ) -> str:
-    """The one first-match-wins rule for ONE ticker (order: delisted, index, watchlist, system, manual, added, browsed /
-    expired / untracked). Shared by the bulk classification (`_classify`) and the single-ticker one (`classify_one`, which
+    """The one first-match-wins rule for ONE ticker (order: delisted, index, watchlist, system, manual, added, opportunity,
+    browsed / expired / untracked). Shared by the bulk classification (`_classify`) and the single-ticker one (`classify_one`, which
     backs the status endpoint), so the two can never disagree. `browsed`: a TickerView row, last viewed on or after
     `cutoff`; `expired`: last viewed strictly before it; `untracked`: no TickerView row."""
     if delisted:
@@ -169,6 +193,8 @@ def _reason_for(
         return MANUAL
     if added:
         return ADDED
+    if opportunity:
+        return OPPORTUNITY
     if last_viewed is None:
         return UNTRACKED
     return BROWSED if last_viewed >= cutoff else EXPIRED
@@ -191,6 +217,7 @@ def _classify(
     cutoff = now - timedelta(days=TRACKED_VIEW_WINDOW_DAYS)
     watchlist = load_watchlist_tickers(session)
     added = load_added_tickers(session)
+    opportunity = load_opportunity_tickers(session, now)
     views = {row.ticker: row.last_viewed_at for row in session.exec(select(TickerView)).all()}
     delisted = load_delisted_flagged(session)
     return {
@@ -203,6 +230,7 @@ def _classify(
             added=ticker in added,
             last_viewed=views.get(ticker),
             cutoff=cutoff,
+            opportunity=ticker in opportunity,
         )
         for ticker in known
     }
@@ -262,6 +290,7 @@ def classify_one(session: Session, ticker: str, now: datetime | None = None) -> 
         added=view is not None and view.added_at is not None,
         last_viewed=view.last_viewed_at if view is not None else None,
         cutoff=now - timedelta(days=TRACKED_VIEW_WINDOW_DAYS),
+        opportunity=ticker in load_opportunity_tickers(session, now),
     )
 
 
@@ -384,6 +413,8 @@ def load_protection_reasons(session: Session, ticker: str) -> list[str]:
     for model in MANUAL_DATA_MODELS:
         if session.get(model, ticker) is not None:
             reasons.append(f"manual:{MANUAL_DATA_LABELS[model.__tablename__]}")
+    if ticker in load_opportunity_tickers(session):
+        reasons.append(PROTECTION_OPPORTUNITY)
     return reasons
 
 
@@ -409,6 +440,7 @@ PROTECTION_SEED = "seed"
 PROTECTION_BENCHMARK = "benchmark"  # WEINSTEIN_BENCHMARK_TICKER
 PROTECTION_RS_BENCHMARK = "rs_benchmark"  # the live WeinsteinSettings.rs_benchmark value
 PROTECTION_ADDED = "added"
+PROTECTION_OPPORTUNITY = "opportunity"  # on a list of a recent weekly opportunity run (OPPORTUNITY_PROTECTION_DAYS)
 PROTECTION_MANUAL_PREFIX = "manual:"  # + the table name, e.g. "manual:tickermoat"
 
 
@@ -501,6 +533,7 @@ def classify_wipe_candidates(
     rs_benchmark = {rs} if rs else set()
     manual = load_manual_data_tickers_by_table(session)
     added_set = {normalize_ticker(t) for t in added}
+    opportunity = load_opportunity_tickers(session, now)
 
     views = {row.ticker: row.last_viewed_at for row in session.exec(select(TickerView)).all()}
     stored = _tickers_with_data(session, wanted)
@@ -523,6 +556,8 @@ def classify_wipe_candidates(
         protections.extend(f"{PROTECTION_MANUAL_PREFIX}{table}" for table, found in sorted(manual.items()) if ticker in found)
         if ticker in added_set:
             protections.append(PROTECTION_ADDED)
+        if ticker in opportunity:
+            protections.append(PROTECTION_OPPORTUNITY)
 
         last_viewed = views.get(ticker)
         has_data = ticker in stored
