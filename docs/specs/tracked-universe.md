@@ -18,11 +18,12 @@ active is the **wipe**: `pipeline/wipe_untouched_tickers.py` exists but is dry-r
 | 4 | `system` | a seed ETF (`ETF_SEED_TICKERS`), `WEINSTEIN_BENCHMARK_TICKER`, or the live `rs_benchmark` setting | yes (protected) |
 | 5 | `manual` | owner-entered data: a Moat, any custom valuation (active or not), a bank-capital entry, a growth-catalyst note (`ticker_data_registry.MANUAL_DATA_MODELS`) | yes (protected) |
 | 6 | `added` | `TickerView.added_at` set (the Add API, or the 2026-10-03 grandfather backfill) | yes, **at any idle age**; leaves only through Remove |
+| 6b | `opportunity` | on a list of a weekly opportunity run whose as-of date is within `OPPORTUNITY_PROTECTION_DAYS` (180) days ([Opportunities](opportunities.md)) | yes, until its last run ages out; so its bars keep refreshing for outcome tracking |
 | 7 | `browsed` | has a `TickerView` row, last opened within 30 days (`TRACKED_VIEW_WINDOW_DAYS`), not added | **no** |
 | 8 | `expired` | same, but idle for MORE than 30 days (exactly 30 is still browsed) | **no**, awaiting the wipe |
 | 9 | `untracked` | known, unprotected, not added, **no `TickerView` row** (e.g. a stock that left an index) | **no**; the wipe job adopts it |
 
-A ticker is **in** the universe through `index`, `watchlist`, `system`, `manual` or `added` only; `OUT_OF_UNIVERSE` = `delisted`, `browsed`, `expired`,
+A ticker is **in** the universe through `index`, `watchlist`, `system`, `manual`, `added` or `opportunity` only; `OUT_OF_UNIVERSE` = `delisted`, `browsed`, `expired`,
 `untracked`. Browsed, expired and untracked tickers keep all their data (the classification deletes nothing); they drop out of the nightly jobs and
 the Screener's `all` universe (an ETF's `EtfScreenerRow` is deleted by the 1:45 job, as for any ETF outside the ETF universe). **Opening a ticker's page
 records a view (the "last touch" the wipe reads) but never admits it.** Rule 5 exists because Monthly Momentum is "Moat-rated tracked tickers"; a
@@ -116,7 +117,7 @@ today 5). A delisted ticker follows the wipe rule like any other (idle > 30 days
 
 A ticker is wiped when its last touch (`TickerView.last_viewed_at`) is more than 30 days old AND it has no protection AND it is not added. Protections are read
 from the RAW sets, never from the classification reasons (`delisted` wins first there, so a delisted watchlisted ticker would look unprotected): any index name in
-`IndexConstituent` (wider than the three that admit a ticker), any watchlist, a seed / the benchmark constant / the live `rs_benchmark`, manual data, and the added
+`IndexConstituent` (wider than the three that admit a ticker), any watchlist, a seed / the benchmark constant / the live `rs_benchmark`, manual data, a recent weekly opportunity list (`opportunity`), and the added
 set. A ticker with stored data but no `TickerView` row and no protection (`untracked`) is never wiped blind: it is **adopted** (`last_viewed_at` stamped now,
 logged) and becomes eligible 30 days later. `classify_wipe_candidates(session, now, added, tickers)` returns per ticker `wipe` / `adopt` / `protected` /
 `not due` / `ignored`; `tests/test_tracked_universe.py` pins, over a generated matrix (protection x added x idle x delisted), that `expired` is exactly a wipe

@@ -1127,3 +1127,18 @@ Also decided: two text sets keyed by the Blue profile (the shortened "profiled" 
 **Still has a path to the real file.** Reads (allowed, by design); `pipeline/backup_db.py` and the raw `sqlite3.connect` calls in `test_backup_db`/`test_wal_compat`/`test_view_touch_read_first` act on temp files, not `fathom.db`; a script run outside pytest (the guard exists only inside a pytest session); a raw DBAPI connection or `executescript` would bypass the SQLAlchemy listener; a statement starting with `WITH ... INSERT` would pass the prefix check. None is used by the suite today.
 
 **Proof.** Live-DB snapshot (48 tables, columns, row counts, `tickerscore` hash, index hash, schema_version) identical before and after a full suite run (2842 passed).
+
+### 2026-10-11 — The weekly opportunity agent (phase 1b): lists from stored data, built but not scheduled
+
+**Decision.** `pipeline/weekly_opportunity_snapshot.py` builds two frozen lists, Momentum and Reversal, from stored data only and saves them in two new insert-only tables (`OpportunityRun`, `OpportunitySnapshotRow`), shown on a read-only `/opportunities` page. Rules, tiers, tags and the rules hash: `docs/specs/opportunities.md`. No FMP call, no LLM, no daily run, no outcome tracking, no auto-created watchlist; scoring, the stage engine and every nightly job are untouched.
+
+**Choices made while building (each one constant or one line to change).**
+- **Quality is the stored verdict Pass or Strong Pass, as in the preview.** "Pass with caution" is a label on a passing score (`docs/specs/overview.md`), yet 79 stored score rows carry it and they fall into Momentum-only with a "Not quality: Pass with caution" tag. If the owner wants them in Quality, add the word to `QUALITY_VERDICTS` and bump `RULES_VERSION`.
+- **The ranked universe is the gate-passing tickers**, three groups ranked on their own (stocks, ordinary ETFs, leveraged ETFs); SPY is in none. The preview ranked all 575 tracked stocks before the liquidity floor.
+- **B3 counts a fired signal whether or not the ticker is still monitored**, and calls a never-monitored ticker `not_covered`, not `no_signal`. Five of the first run's ten B3 names had left the monitored lists within the window.
+- **The job is registered as disabled** (`DISABLED_CRON_JOBS`) with its crontab line commented out, rather than left unregistered like the wipe job: the Settings page lists it, and enabling it is the same two-line step as `nightly_corporate_events`.
+- **Tracked-universe protection is a new reason, `opportunity`, 180 days** (after `added`, before `browsed`), not a reuse of the 30-day view window: an opportunity ticker is one nobody has opened, so the view clock would drop it a month after the run.
+- **The page has no mockup in the repo.** It follows `docs/design-system.md`: hairline table, no card, 44px rows, `Badge` pills, `Tabs` and `SegmentedControl`, a native `Select` for the snapshot date, the existing `ExportMenu` and `AddToWatchlistButton`. Tier pills are all neutral (slate is the "May not pass" verdict tone); the tag pills are neutral except "Late trend" and "N x leveraged" (warn).
+
+**Mistake worth recording.** The first dry run created the two tables in the live `fathom.db` with the column named `list`; renaming it to `list_name` afterwards left a stale table that `init_db` could not repair (`_add_missing_columns` only adds columns). The two empty tables were dropped by hand and re-created by the next `init_db`. A new table's column names must be final before anything calls `init_db()` against the real file.
+

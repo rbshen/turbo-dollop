@@ -1,0 +1,109 @@
+# Opportunities (the weekly opportunity agent)
+
+Built 2026-10-11 (phase 1b). Two frozen lists, **Momentum** and **Reversal**, built across the whole tracked universe from **stored data only** (no FMP call,
+no LLM call, no live price), saved as a dated snapshot and shown on the read-only `/opportunities` page. Not part of the Overall score, the stage engine or any
+nightly job: it only reads them. **Not scheduled yet:** the job is registered and disabled, the owner enables the cron after checking a manual run
+("Enabling the weekly cron", below). Code: `scoring/opportunity_rules.py` (pure rules), `data/opportunity_data.py` (load, evaluate, persist, read),
+`pipeline/weekly_opportunity_snapshot.py` (entry point), `GET /api/opportunities/*` in `core/main.py`, `frontend/app/opportunities/`.
+
+## The rules (versioned: `RULES_VERSION = "1"`, rule ids end `.v1`)
+
+`scoring/opportunity_rules.py::rules_hash()` is the sha256 of every id and threshold below (`rules_definition()`); each run stores it with `rules_version`.
+**Change any threshold and bump `RULES_VERSION`**, so an old run is read against the rules it used.
+
+**Gate, all tiers** (a ticker that fails it is on no list and not ranked): not delisted (`TickerScore.delisted_at`); the last daily bar is dated the as-of date
+(and was written after that session's close, the bars cache's provisional-bar test); at least 12 months of bars; average daily dollar volume (close x volume,
+last 50 sessions) at least **$25M**; SPY excluded. Reason codes: `excluded`, `delisted`, `no_bars`, `stale_bar`, `provisional_bar`, `short_history`, `illiquid`.
+
+**Tiers.** *Quality* = stored Overall verdict **Pass or Strong Pass** (`QUALITY_VERDICTS`). *Momentum-only* = every other stock (Fail, incomplete, and **Pass with
+caution**, which the preview also kept out of Quality although it is a label on a passing score: one constant to change). *ETF* = the ETF universe
+(`load_etf_universe`). A leveraged fund (curated `LEVERAGED_ETF_FACTORS` plus a name test: "3X", "UltraPro") carries the `leveraged` tag and is ranked in its own
+group.
+
+**Ranked universe.** Momentum rank = `scoring/momentum.py::compute_momentum_ranking` (3, 6, 12 month composite) on the cached closes at the as-of date, over the
+tickers that **pass the gate**, in three separate groups: the tracked stocks, the ordinary ETFs, the leveraged ETFs. The group sizes are stored (`ranked_universe`)
+and drawn in the page footnote. (The preview ranked the 575 stocks before the liquidity floor; ranking after it moves each cut by a name or two.)
+
+**List A, Momentum** (`A.momentum_trend.v1`): stage Advance, MA slope > 0, Mansfield RS > 0 (the stored RS, vs SPY while `rs_benchmark` is SPY; the run stores the
+benchmark), and `vs_ma_pct` strictly below the tier ceiling: **20** Quality and ETF, **15** Momentum-only. Momentum-only also needs weeks in Advance <= 52, 3 month
+return <= 30%, 12 month return <= 150% and momentum rank in the **top quintile** (ceil(n/5) of the ranked stocks, exact integer arithmetic). ETFs also need the
+**top third** of their own group (ceil(n/3)). Quality needs no rank. Any unknown input (no fresh stage row, no rank, no return) fails the rule it feeds.
+
+**List B, Reversal.** `B2.price_structure.v1` (all tiers): drawdown from the 52-week high >= 20% (Quality, ETF) or >= 30% (Momentum-only); a higher low (the lowest
+low of the last 126 sessions is at least 15 sessions old and the last 15 sessions' lowest low is above it); weekly close above its 10-week SMA; the 30-week EMA slope
+above its value 4 weeks earlier and >= -2%. `B1.base_or_pending_advance.v1` (Quality only): stage Base, or a pending Advance. `B3.entry_signal.v1` (Quality only): a
+Warren `blue_up`/`yellow_up` or a BB+RSI event dated in the last 10 sessions **and** stage Decline or Base. Each rule keeps its own id on the row (`rule_ids_json`).
+
+**B3 coverage.** Warren, BB+RSI and Liquidity Zones run only for the monitored lists (`E<n>` and `ETF`). `signal_status` per ticker: `fired` (an event in the
+window: a fact whether or not the ticker is still monitored), `no_signal` (monitored, nothing fired), **`not_covered`** (not monitored, nothing fired: the signal
+jobs never looked, so it is never shown as "no signal"). Stored on every Quality row; the Reversal table shows a "Signals not covered" tag; the run summary stores
+`quality_not_covered` of `quality_total`.
+
+**Tags** (stored in `tags_json`, never filters): `late_trend` (weeks in Advance >= 52), `leveraged` (2 or 3), `held_back_by_moat` (blended Fundamentals >= 70, Overall
+< 70: only the Moat multiplier does it), `why_not_quality` (Momentum-only stocks: the raw stored Overall verdict, the steps below the pass line, the incomplete
+steps, the moat; the page draws "May not pass", never "Fail"), `also_on` (the other list), `signal_status` (Quality), `market` (the latest `MarketBreadthSnapshot`
+on or before the as-of date: % above 50/200-day SMA, net new highs) and `sector` (the sector ETF's stage and momentum rank, the sector's breadth snapshot).
+
+## Tables (new, insert-only; no existing table changed)
+
+`OpportunityRun`: `kind` ("weekly"), `as_of_date`, `last_bar_date`, `universe_size`, `rules_hash`, `rules_version`, `score_formula_version`, `weights_version`,
+`created_at`, `summary_json` (counts per list/tier/rule_id, ranked-universe sizes, gate drops, stale stage and score row counts, market context). Unique on
+`(kind, as_of_date)`. `OpportunitySnapshotRow`: `run_id`, `list_name` (momentum/reversal), `ticker`, `tier`, `list_order`, `rule_ids_json`, `tags_json`, and a frozen copy
+of the inputs (`overall_score`, `steps_score`, `overall_verdict`, `weinstein_stage`, `vs_ma_pct`, `ma_slope_pct`, `mansfield_rs`, `momentum_rank`, `close`, `atr`
+(Wilder 14), `adv_usd`, `sector`, and `inputs_json` for the rest: step scores and verdicts, moat, weeks in Advance, 3/12 month returns, drawdown, B2 parts, signal
+status, exchange). Unique on `(run_id, list_name, ticker)`: a ticker on both lists has two rows. `TickerScore` and `TrendAnalysis` are overwritten nightly, which is why
+the inputs are copied.
+
+**Registry and backup.** Both are **KEEP** in `data/ticker_data_registry.py` (`opportunitysnapshotrow` in `REGISTRY`; `opportunityrun` has no ticker column, so it is in
+`KEEP_NON_TICKER_TABLES`): the wipe never touches them. The nightly backup (`pipeline/backup_db.py`) copies the whole database with sqlite's backup API, so both tables
+are in it with no change (checked: no table list anywhere in that script).
+
+## The job
+
+`uv run python -m pipeline.weekly_opportunity_snapshot [--as-of YYYY-MM-DD] [--force] [--dry-run]`, run from `backend/`. As-of defaults to the last completed XNYS
+session. A rerun for an existing `(weekly, as_of)` is a no-op (and does not even compute); `--force` deletes that run and its rows and inserts the new ones in one
+transaction (a failed insert leaves the old run intact); `--dry-run` computes and prints the counts, writes nothing. Bars are read in chunks of 60 tickers
+(`CHUNK_SIZE`); only the closes of gate-passing tickers are kept for the ranking. First run on the live database: about 12 s, peak RSS about 173 MB (the bare interpreter
+and pandas are about 115 MB of it). The run **refuses** (raises, writes nothing) when fewer than 90% of the gate-passing tickers have a Weinstein row computed from the
+as-of bar (`MIN_FRESH_STAGE_SHARE`): the nightly stage job has not caught up and the lists would silently omit every stage-dependent name. A stage row not dated the
+as-of date is treated as unknown for that ticker (it cannot be on a list), so an old as-of date cannot be rebuilt after the fact: `TrendAnalysis` holds the latest row only.
+
+Registered in `core/cron_health.py` (`CRON_JOB_NAMES`, a weekly cadence, `JOB_METADATA`, **and `DISABLED_CRON_JOBS`**, so the Settings page lists it as disabled and
+`test_cron_wiring` passes with no crontab line). `crontab.txt` carries the planned line **commented out**. Nothing is installed.
+
+**Tracked-universe protection.** A ticker on a list of a run whose as-of date is within `OPPORTUNITY_PROTECTION_DAYS` (180) is in the universe with reason `opportunity`
+(order: after `added`, before `browsed`): it is not dropped by the 30-day view expiry, and the wipe sees it as protected (`PROTECTION_OPPORTUNITY`), so its bars keep
+refreshing for outcome tracking. A delisted flag still wins. See [Tracked universe](tracked-universe.md).
+
+## API (read-only)
+
+`GET /api/opportunities/dates` (every run, newest first, with the two list sizes), `GET /api/opportunities/latest`, `GET /api/opportunities/{as_of_date}` (404 when none).
+No POST/PUT/PATCH/DELETE exists (a test pins the route table). Rows come back exactly as stored (`OpportunityRowOut`), in list order: Momentum by composite momentum score,
+Reversal by number of rules hit then composite.
+
+## The page (`/opportunities`)
+
+Header with a snapshot date picker (native Select over the stored runs), the Export menu (TradingView and thinkorswim of the visible rows; the multi-list item is not
+offered) and **Add to watchlist** (the existing `AddToWatchlistButton`, manual only, with its bulk confirm; nothing is created or filled automatically). Below it a hairline
+market context strip (% above the 50 and 200-day SMA, net new highs, sectors in Advance), the Momentum / Reversal tabs with counts, an All / Quality / Momentum-only / ETF
+segmented control with counts, and a hairline table (44px rows, soft tinted pills, sentence case): Ticker, Tier, Verdict, vs MA, Rank, Weeks in Advance (the Reversal tab
+shows the rule that fired instead), ADV $M, Tags. The ticker opens its page in a new tab, as does the whole row (as in Momentum). Verdict pills: Pass and Strong pass green,
+Pass with caution amber, May not pass slate-blue. The footnote states the rules version and hash, the ranked universe, the not-covered count and any stale-score count.
+The top nav has an "Opportunities" item (same-tab, like Momentum).
+
+## Enabling the weekly cron (owner, after checking a manual run)
+
+1. `cd backend && uv run python -m pipeline.weekly_opportunity_snapshot --dry-run` and compare with the snapshot on the page.
+2. In `backend/crontab.txt` uncomment the `0 4 * * 6 ... weekly_opportunity_snapshot` line (Saturday 4:00 AM server time, after the Friday-session nightly chain and the 3:30 backup).
+3. In `backend/core/cron_health.py` delete the `pipeline.weekly_opportunity_snapshot` entry of `DISABLED_CRON_JOBS` (the test requires a disabled job to be absent from the crontab and every other job present).
+4. `cd backend && crontab crontab.txt && crontab -l | grep opportunity` and check the line is there, then `uv run pytest tests/test_cron_wiring.py -q`.
+5. After the first Saturday: the Settings > Status page shows the job, and `SELECT * FROM opportunityrun ORDER BY as_of_date DESC LIMIT 2;` shows a new row.
+
+## First run (as of 2026-10-09)
+
+Universe 608 (580 tracked stocks + 28 ETFs), 595 through the gate (dropped: 7 illiquid, 4 short history, SPY, 1 stale bar). Ranked: 569 stocks, 23 ETFs, 3 leveraged ETFs.
+Momentum 64 (Quality 29, Momentum-only 28, ETF 7); Reversal 27 (Quality 19: B1 3, B2 6, B3 10; Momentum-only 7 B2; ETF 1 B2). Against the 2026-10-11 preview (A: Quality 30,
+Momentum-only 93, ETF 7; B2 3 / 7 / 1; B1 3; B3 10): with the preview's settings the same code gives Momentum-only 93, ETF 7, Quality 29 (the one difference is the liquidity gate,
+which now also applies to Quality: the OTC EVVTY, $1.9M a day, is out). Momentum-only 93 -> 92 (the $25M floor) -> 84 (ceiling 15) -> 64 (weeks in Advance <= 52) -> 63 (3 month
+<= 30%) -> 61 (12 month <= 150%) -> **28** (top quintile instead of top third). Quality B2 is 6 instead of 3 because its drawdown threshold is 20% (the preview used 30%). 50 of
+the 118 Quality stocks are not on a monitored list; 5 of the 10 B3 names fired in the window but have since left the monitored lists.

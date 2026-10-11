@@ -715,6 +715,15 @@ at the flip.
 view in the last 30 days admits a ticker again, and the 25 grandfathered tickers are in through their (seed or real) views until about 2026-11-01. A cleared delisted flag is
 restored with `UPDATE tickerscore SET delisted_at = datetime('now') WHERE ticker = '...'`.
 
+## Weekly opportunity snapshot (built 2026-10-11, NOT scheduled)
+
+Spec: `docs/specs/opportunities.md`. `uv run python -m pipeline.weekly_opportunity_snapshot [--as-of D] [--force] [--dry-run]` from `backend/`: reads stored data only (zero FMP
+calls), about 12 s and 175 MB peak, writes `OpportunityRun` + `OpportunitySnapshotRow` (both KEEP in the table registry, both in the nightly backup, which copies the whole database).
+Registered in `core/cron_health.py::DISABLED_CRON_JOBS` and commented out in `crontab.txt` (Saturday 4:00 AM planned); enabling steps are in the spec. A rerun for the same as-of date is a
+no-op; `--force` replaces that run in one transaction. It refuses to write when fewer than 90% of the gate-passing tickers have a Weinstein row from the as-of bar (the nightly 1:05 job has
+not caught up): check `CronRunLog` for `pipeline.nightly_trend_calculation` first. **Roll back a run:** `DELETE FROM opportunitysnapshotrow WHERE run_id = N; DELETE FROM opportunityrun WHERE id = N;`
+(tickers it listed drop out of the 180-day `opportunity` protection with it).
+
 ## Score recompute job (2026-10-06)
 
 Saving or resetting the score weights, saving the Narrow moat multiplier and Settings/Screener "Recompute all scores" all start one
