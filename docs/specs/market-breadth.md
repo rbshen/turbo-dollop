@@ -230,7 +230,7 @@ tooltip and cross-panel sync, and narrow widths were never verified on screen (n
 
 **Known limits**: holiday-aware via the shared daily helper (XNYS calendar since 2026-10-03, weekday-only
 fallback if the calendar cannot be loaded: there a holiday costs a whole-universe refetch to no effect, see
-fmp-data-and-bar-cache.md "Known limits"); `constituents` is today's count from the weekly Wikipedia scrape (a
+fmp-data-and-bar-cache.md "Known limits"); `constituents` is today's count from the weekly FMP `/sp500-constituent` refresh (since 2026-09-15; replaced the Wikipedia scrape) (a
 same-week index change is picked up a week late); the job imports the private
 `_load_frames`/`_most_recent_completed_trading_date` from `clients/shared_bars_cache.py`
 (`sector_heatmap_data.py` already sets that precedent).
