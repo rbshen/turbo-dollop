@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -434,3 +434,26 @@ def test_build_sector_backfill_rows_reuses_the_same_bars_and_applies_the_or_gate
     values2, summary2 = mbd.build_sector_backfill_rows(bars, sector_tickers2, completed_date=COMPLETED)
     assert summary2["EMPTY"] == {"sessions_seen": 0, "kept": 0, "first_date": None, "last_date": None}
     assert len(values2) == len(values)  # SECTHIN's own rows are unaffected by EMPTY being present too
+
+
+def _gate_row(universe: str, checked_at: datetime) -> MarketBreadthGateLog:
+    return MarketBreadthGateLog(
+        universe=universe, as_of_date=checked_at.date(), checked_at=checked_at, constituents=10, with_bar=10,
+        missing_count=0, missing_tickers_json="[]", passed=True, passed_via="percentage",
+    )
+
+
+def test_prune_gate_log_deletes_only_rows_older_than_the_retention_window(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    now = datetime(2026, 10, 11, 1, 40)
+    window = timedelta(days=mbd.GATE_LOG_RETENTION_DAYS)
+    with Session(engine) as session:
+        session.add(_gate_row("old", now - window - timedelta(days=1)))
+        session.add(_gate_row("edge", now - window + timedelta(minutes=1)))
+        session.add(_gate_row("recent", now - timedelta(days=1)))
+        session.commit()
+
+    assert mbd.prune_gate_log(now) == 1
+    with Session(engine) as session:
+        assert sorted(log.universe for log in session.exec(select(MarketBreadthGateLog)).all()) == ["edge", "recent"]
+    assert mbd.prune_gate_log(now) == 0  # idempotent

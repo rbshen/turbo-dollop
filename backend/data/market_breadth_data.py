@@ -42,7 +42,7 @@ revisited from real data later -- see models.py::MarketBreadthGateLog."""
 
 import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 from sqlalchemy import bindparam, delete, func, update
@@ -189,6 +189,20 @@ def _log_gate_check(
             )
         )
         session.commit()
+
+
+GATE_LOG_RETENTION_DAYS = 730  # MarketBreadthGateLog rows older than this (by checked_at) are pruned by the nightly job
+
+
+def prune_gate_log(now: datetime | None = None) -> int:
+    """Deletes MarketBreadthGateLog rows checked more than GATE_LOG_RETENTION_DAYS before `now`; returns the
+    row count. Own Session/commit. The caller (pipeline/nightly_market_breadth.py) treats a failure as
+    non-fatal -- the log is a diagnostic trace, never worth failing the night's breadth rows over."""
+    cutoff = (now or datetime.now()) - timedelta(days=GATE_LOG_RETENTION_DAYS)
+    with Session(engine) as session:
+        result = session.exec(delete(MarketBreadthGateLog).where(MarketBreadthGateLog.checked_at < cutoff))
+        session.commit()
+        return result.rowcount or 0
 
 
 def load_sector_buckets(session: Session) -> dict[str, list[str]]:

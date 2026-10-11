@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -8,7 +8,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 import data.market_breadth_data as market_breadth_data
 import pipeline.nightly_market_breadth as nightly_market_breadth
-from core.models import IndexConstituent, MarketBreadthSnapshot
+from core.models import IndexConstituent, MarketBreadthGateLog, MarketBreadthSnapshot
 from data.sector_heatmap_data import SECTOR_ETFS
 
 
@@ -117,3 +117,44 @@ def test_run_message_names_one_refused_sector():
 def test_run_message_lists_every_refused_sector_in_sector_order():
     # SECTOR_ETFS order (XLB before XLC), not the order they were refused in.
     assert nightly_market_breadth.run_message(_summary(["XLC", "XLB", "XLK"])).endswith(", 3 sectors refused: XLK, XLB, XLC")
+
+
+def _gate_row(universe: str, checked_at: datetime) -> MarketBreadthGateLog:
+    return MarketBreadthGateLog(
+        universe=universe, as_of_date=checked_at.date(), checked_at=checked_at, constituents=1, with_bar=1,
+        missing_count=0, missing_tickers_json="[]", passed=True, passed_via="percentage",
+    )
+
+
+def test_main_prunes_old_gate_log_rows_and_keeps_recent_ones(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path, [("sp500", "AAA"), ("sp500", "BBB")])
+    _patch_bars(monkeypatch, [])
+    days = market_breadth_data.GATE_LOG_RETENTION_DAYS
+    with Session(engine) as session:
+        session.add(_gate_row("old", datetime.now() - timedelta(days=days + 5)))
+        session.add(_gate_row("recent", datetime.now() - timedelta(days=days - 5)))
+        session.commit()
+
+    summary = asyncio.run(nightly_market_breadth.main())
+
+    assert summary["gate_log_pruned"] == 1
+    with Session(engine) as session:
+        universes = {log.universe for log in session.exec(select(MarketBreadthGateLog)).all()}
+    assert "old" not in universes and {"recent", "sp500"} <= universes  # today's own gate row is kept
+
+
+def test_a_gate_log_prune_failure_does_not_fail_the_job(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path, [("sp500", "AAA"), ("sp500", "BBB")])
+    _patch_bars(monkeypatch, [])
+
+    def boom(*_a, **_k):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(nightly_market_breadth, "prune_gate_log", boom)
+
+    summary = asyncio.run(nightly_market_breadth.main())
+
+    assert summary["gate_log_pruned"] is None and summary["with_bar"] == 2
+    with Session(engine) as session:
+        (row,) = session.exec(select(MarketBreadthSnapshot)).all()
+    assert row.universe == "sp500"

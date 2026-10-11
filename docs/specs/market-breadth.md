@@ -137,7 +137,7 @@ One sector failing its own gate is isolated (logged, skipped) and never blocks t
 sectors' rows that night, unlike the market-wide row's own gate, which is an all-or-nothing raise.
 An sp500 gate failure skips all 11 sectors (they are never evaluated that night); this is logged and prefixed to the failed run's message ("sp500 refused, 11 sectors not evaluated.").
 Every gate check (sp500 and every sector, passed or refused) is additionally logged to
-`MarketBreadthGateLog` so this provisional policy can be revisited from real data later.
+`MarketBreadthGateLog` so this provisional policy can be revisited from real data later. The nightly job prunes gate-log rows older than `GATE_LOG_RETENTION_DAYS` (730, by `checked_at`) after the day's rows are written; a prune failure is logged and never fails the run.
 
 The sector rows reuse the existing pure math (`scoring/market_breadth.py` is fully generic over
 any ticker→frame dict, confirmed to need no change) and the existing `SectorEtfReturn`-adjacent

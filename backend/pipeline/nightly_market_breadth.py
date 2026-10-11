@@ -43,7 +43,7 @@ from core.cron_health import cron_heartbeat
 from core.data_groups import job_skip_reason
 from core.db import engine, init_db
 from core.logging_config import configure_logging
-from data.market_breadth_data import compute_and_store_market_breadth, load_sector_buckets
+from data.market_breadth_data import compute_and_store_market_breadth, load_sector_buckets, prune_gate_log
 from pipeline.nightly_fundamentals_fetch import load_sp500_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_market_breadth.log"
@@ -71,17 +71,25 @@ async def main() -> dict:
     logger.info("Starting nightly market breadth calculation for %d S&P 500 constituents across %d sectors.", len(tickers), len(sector_tickers))
     start_time = time.monotonic()
     summary = await compute_and_store_market_breadth(tickers, sector_tickers=sector_tickers)
+    # Only reached once the day's rows are written (a gate failure raised above). A prune failure is logged and
+    # swallowed: housekeeping on a diagnostic table must never fail the night's breadth run.
+    try:
+        summary["gate_log_pruned"] = prune_gate_log()
+    except Exception:  # noqa: BLE001 -- see comment above
+        logger.exception("Market breadth: gate-log prune failed (non-fatal).")
+        summary["gate_log_pruned"] = None
     summary["duration_seconds"] = time.monotonic() - start_time
     sectors = summary.get("sectors", {})
     sectors_passed = sum(1 for r in sectors.values() if r["passed"])
     logger.info(
-        "Nightly market breadth complete. As of: %s. Constituents: %d. With bar: %d. Excluded: %d. Sectors: %d/%d passed. Duration: %.1fs.",
+        "Nightly market breadth complete. As of: %s. Constituents: %d. With bar: %d. Excluded: %d. Sectors: %d/%d passed. Gate log pruned: %s. Duration: %.1fs.",
         summary["as_of_date"],
         summary["constituents"],
         summary["with_bar"],
         summary["stale_excluded"],
         sectors_passed,
         len(sectors),
+        summary["gate_log_pruned"],
         summary["duration_seconds"],
     )
     return summary
