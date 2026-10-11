@@ -88,8 +88,9 @@ the box (it must be reinstalled from `backend/`); the job's activation record is
 `docs/archive/claude-md-history-fmp-migration.md`.
 
 **Coverage gate** (`MIN_COVERAGE = 0.97`): 97% of constituents must have a bar on the anchor
-session — **488/503 passes (15 missing), 487 fails** (pinned by a boundary test, and also asserted
-on `sma20_eligible`). Below it the job raises `InsufficientCoverageError` (heartbeat failure),
+session, i.e. at least `ceil(0.97 × N)` bars for N constituents, so the pass line moves with the roster
+(for a 503-name roster 488 passes with 15 missing and 487 fails; for 504 it is 489). A boundary test pins
+it at 503 and also asserts it on `sma20_eligible`. Below it the job raises `InsufficientCoverageError` (heartbeat failure),
 names the missing tickers, and **writes nothing**, so the page's own as-of date visibly falls
 behind rather than showing plausible percentages over a shrunken universe. At/above it, missing
 tickers are excluded from every count, recorded in `stale_excluded` and warned in the log. The
@@ -154,6 +155,17 @@ same "N things render as rows/cards on one page" pattern every other multi-entit
 this app already uses (the Sector Heatmap itself, most directly on point, already treats these
 same 11 sectors as rows in one table rather than 11 pages).
 
+**Late sector starts.** The sector series do not all begin on the same day: most start with the sp500
+series (2022-09-26), but **XLK starts 2026-02-13, XLU 2023-01-19 and XLV 2023-12-15**. The backfill keeps a
+session only if the sector clears its own gate (`_sector_keep_mask`: at most `SECTOR_COVERAGE_FLOOR_MISSING`
+= 1 missing, or ≥97% coverage, whichever is more permissive) on BOTH bar presence AND 52-week eligibility
+(a full 252 own bars). A recently listed or spun-off constituent has fewer than 252 bars for its first year,
+so it counts as missing until then, and a sector starts only once its young names fit inside the allowance:
+XLK (86 names, 2 missing allowed) waits for SNDK (first cached bar 2025-02-13), after HONA and Q are absorbed;
+XLU (1 allowed) waits for CEG (spun off 2022-01), after GEV; XLV (1 allowed) waits for GEHC (spun off
+2022-12), after SOLV. The dates move only if the roster or the cache history does. Like the rest of the
+backfill this applies today's membership to past dates.
+
 ## The "Live →" marker — a naming/UX gap, not a data bug (2026-09-27)
 
 A user-reported concern that the nightly job was "stuck" turned out to be a labeling issue, not
@@ -187,20 +199,24 @@ follow-up would need to resolve, not resolved by this documentation pass:
    the first live row overall), or flip that one row's flag semantics. Framed as a genuine
    judgment call, since that specific row is truthfully survivorship-biased backfill, not
    incorrectly labeled.
-3. **A separate, unrelated finding from the same investigation**: one orphaned `CronRunLog` row
-   (status `running`, no `finished_at`) was noticed but not investigated further for whether the
-   health view treats it as stuck.
+3. **A separate, unrelated finding from the same investigation** (**resolved 2026-10-09**): one
+   orphaned `CronRunLog` row (status `running`, no `finished_at`; row 265, an interrupted manual
+   re-run on 2026-09-23) was closed by hand, and `cron_heartbeat` now closes interrupted runs itself
+   (docs/decisions.md "2026-10-09 — Cron heartbeat records interrupted runs as failures"; backend/OPS_RUNBOOK.md,
+   "Interrupted runs"). No `running` row remains.
 
 The sector view (`BreadthSectorView.tsx`) reuses the same marker helper and inherits the
 identical labeling ambiguity — the investigation did not separately query each sector universe's
 own boundary date.
 
-*Code-vs-doc note (verified 2026-09-29):* the frontend has since changed the marker's source.
-`frontend/lib/marketBreadth.ts` no longer has `firstLiveIndex`; the chart uses
-`liveBoundaryIndex`, which returns the row right after the LAST backfilled row (so a
-rebuilt-backfill row sandwiched between live rows pushes the boundary past it — decision point 2
-above, the "contiguous live boundary" option), or -1 when no live row follows. Points 1 and 3
-were not re-checked.
+*Current behavior (verified 2026-10-11):* the frontend no longer has `firstLiveIndex`. The chart uses
+`liveBoundaryIndex` (`frontend/lib/marketBreadth.ts`, commit `d0fb62d`), which returns the row right after
+the LAST backfilled row, so a rebuilt-backfill row sandwiched between live rows pushes the boundary past
+it (decision point 2 above, the "contiguous live boundary" option), or -1 when no live row follows. The
+label is still "Live →" (point 1 not acted on). The boundary is per series, so a backfill or `--rebuild`
+that fills a day one universe's nightly gate refused moves only that series' marker later: on 2026-10-11
+sp500 and ten sectors sit at 2026-09-23, but XLC sits at 2026-10-09 (its 10-06..10-08 days were refused and
+later filled as backfilled rows).
 
 ## API
 
