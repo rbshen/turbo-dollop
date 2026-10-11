@@ -97,3 +97,23 @@ def test_main_also_computes_and_stores_sector_rows(monkeypatch, tmp_path):
         universes = {row.universe for row in session.exec(select(MarketBreadthSnapshot)).all()}
     assert {"sp500", "sector:XLK", "sector:XLE"} <= universes
     assert "sector:XLF" not in universes  # empty bucket -- 0 constituents, refused, no row
+
+
+def _summary(refused: list[str]) -> dict:
+    sectors = {etf: {"passed": etf not in refused} for etf, _ in SECTOR_ETFS}
+    return {"with_bar": 501, "constituents": 504, "unserved_count": 1, "sectors": sectors}
+
+
+def test_run_message_names_no_sector_when_none_were_refused():
+    assert "refused" not in nightly_market_breadth.run_message(_summary([]))
+    assert "refused" not in nightly_market_breadth.run_message({"with_bar": 3, "constituents": 3, "unserved_count": 0})  # no sector_tickers
+
+
+def test_run_message_names_one_refused_sector():
+    message = nightly_market_breadth.run_message(_summary(["XLC"]))
+    assert message.startswith("501/504 constituents, ") and message.endswith(", 1 sector refused: XLC")
+
+
+def test_run_message_lists_every_refused_sector_in_sector_order():
+    # SECTOR_ETFS order (XLB before XLC), not the order they were refused in.
+    assert nightly_market_breadth.run_message(_summary(["XLC", "XLB", "XLK"])).endswith(", 3 sectors refused: XLK, XLB, XLC")

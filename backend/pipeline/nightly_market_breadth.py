@@ -87,10 +87,20 @@ async def main() -> dict:
     return summary
 
 
+def run_message(summary: dict) -> str:
+    """The heartbeat's one-line message for a finished run. A sector refused by its own gate does not fail
+    the run (status stays success), so it is named here -- otherwise only the gate log and the log file show it."""
+    message = f"{summary['with_bar']}/{summary['constituents']} constituents, {describe_unserved(summary['unserved_count'])}"
+    refused = [etf for etf, r in summary.get("sectors", {}).items() if not r["passed"]]
+    if refused:
+        message += f", {len(refused)} sector{'s' if len(refused) > 1 else ''} refused: {', '.join(refused)}"
+    return message
+
+
 if __name__ == "__main__":
     with cron_heartbeat("pipeline.nightly_market_breadth") as run:
         summary = asyncio.run(main())
         if summary.get("skipped"):
             run.skip(summary["skip_reason"])
         else:
-            run.message = f"{summary['with_bar']}/{summary['constituents']} constituents, {describe_unserved(summary['unserved_count'])}"
+            run.message = run_message(summary)

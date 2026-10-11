@@ -83,7 +83,7 @@ the strict function was chosen anyway since it can't silently drift if a Dow-onl
 appears). Anchor = the latest session across the fetched bars that is `<=` the last completed
 session (the Sector Heatmap's rule); a weekend/holiday run upserts the same anchor idempotently.
 The job is wired into `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS`/`JOB_METADATA`/`crontab.txt`/
-`OPS_RUNBOOK.md`, enforced by `test_cron_wiring.py`. A `crontab.txt` edit alone changes nothing on
+`OPS_RUNBOOK.md`, enforced by `test_cron_wiring.py`. The run message (Settings > Scheduled Jobs) is "N/M constituents, <unserved>", plus ", K sector(s) refused: XLC, ..." when a sector failed its own gate; the status stays `success` (a refused sector is not a failed run). A `crontab.txt` edit alone changes nothing on
 the box (it must be reinstalled from `backend/`); the job's activation record is in
 `docs/archive/claude-md-history-fmp-migration.md`.
 
