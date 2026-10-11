@@ -118,7 +118,7 @@ live nightly rows continue from there to the latest session) — kept uncapped b
 ## Sector-level breadth (2026-09-22, shipped)
 
 The same 4 metrics, computed per GICS/SPDR sector (`universe = "sector:<ETF>"`, e.g.
-`"sector:XLK"`) by bucketing the SAME 503 S&P 500 tickers already fetched for the `sp500` row —
+`"sector:XLK"`) by bucketing the SAME S&P 500 constituents already fetched for the `sp500` row —
 never a second fetch or a second per-ticker rolling computation. A 2026-09-22 feasibility
 investigation found this almost entirely reuse: `IndexConstituent.sector` is already fully
 populated (FMP's own 11-sector taxonomy, the same field the Screener's Sector filter already
