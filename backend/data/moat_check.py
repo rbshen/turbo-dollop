@@ -282,13 +282,20 @@ def append_moat_check(
     session: Session, ticker: str, pass1: Any, pass2: Any, now: datetime | None = None, run_date: date | None = None
 ) -> SavedMoatCheck:
     """Validates both passes, reconciles them and INSERTS one new row (history: an existing row is never touched). Raises
-    MoatCheckValidationError when either record is invalid and ValueError for a known ETF/fund, writing nothing in either case.
+    MoatCheckValidationError (the problems of BOTH passes, each prefixed "pass 1:" / "pass 2:") when either record is invalid and ValueError for a known ETF/fund, writing nothing in either case.
     Empty prose fields and (when `run_date` is given) a pass whose checked_date differs from it are WARNINGS returned beside the
     row, never refusals. Never writes TickerMoat, never recomputes a score, never calls the network."""
     ticker = normalize_ticker(ticker)
     if is_known_etf(session, ticker):
         raise ValueError(f"{ticker} is an ETF or fund; an Economic Moat check does not apply to it")
-    checked = [validate_pass_record(pass1, ticker), validate_pass_record(pass2, ticker)]
+    checked, problems = [], []
+    for number, record in enumerate((pass1, pass2), start=1):  # both passes are checked, so one retry can fix every failing pass
+        try:
+            checked.append(validate_pass_record(record, ticker))
+        except MoatCheckValidationError as exc:
+            problems += [f"pass {number}: {problem}" for problem in exc.problems]
+    if problems:
+        raise MoatCheckValidationError(problems)
     warnings = []
     for number, record in enumerate(checked, start=1):
         warnings += [f"pass {number}: {w}" for w in prose_warnings(record)]

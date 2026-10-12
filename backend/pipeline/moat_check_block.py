@@ -162,11 +162,8 @@ def build_block(session: Session, ticker: str) -> tuple[dict, dict]:
     return block, info
 
 
-def main(argv: list[str] | None = None, db_path: Path | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Build the blind data block for the independent Moat check.")
-    parser.add_argument("ticker")
-    parser.add_argument("--out", required=True, type=Path, help="where to write the block JSON")
-    args = parser.parse_args(argv)
+def load_block(ticker: str, db_path: Path | None = None) -> tuple[dict, dict]:
+    """build_block against the database file opened `mode=ro` (the real one by default). Raises BlockRefused."""
     if db_path is None:
         from core.db import DB_PATH
 
@@ -174,12 +171,21 @@ def main(argv: list[str] | None = None, db_path: Path | None = None) -> int:
     engine = create_engine(f"sqlite:///file:{db_path}?mode=ro&uri=true", connect_args={"check_same_thread": False})
     try:
         with Session(engine) as session:
-            block, info = build_block(session, args.ticker)
+            return build_block(session, ticker)
+    finally:
+        engine.dispose()
+
+
+def main(argv: list[str] | None = None, db_path: Path | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Build the blind data block for the independent Moat check.")
+    parser.add_argument("ticker")
+    parser.add_argument("--out", required=True, type=Path, help="where to write the block JSON")
+    args = parser.parse_args(argv)
+    try:
+        block, info = load_block(args.ticker, db_path)
     except BlockRefused as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2
-    finally:
-        engine.dispose()
     args.out.write_text(json.dumps(block, indent=1))
     fiscal = info["fiscal_dates"]
     print(f"wrote {args.out} for {block['ticker']}")

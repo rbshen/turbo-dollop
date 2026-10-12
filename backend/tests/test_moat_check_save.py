@@ -100,6 +100,32 @@ def test_an_invalid_pass_is_refused_with_every_problem_and_nothing_is_saved(engi
     assert rows(engine) == []
 
 
+def test_the_refusal_lists_both_passes_problems_one_per_line_starting_with_the_pass(engine, tmp_path, capsys):
+    bad1, bad2 = make_record(), make_record()
+    bad1["reading"], bad2["checked_date"] = "great", "nope"
+    assert run(engine, tmp_path, bad1, bad2) == 2
+    lines = [line.strip() for line in capsys.readouterr().err.splitlines()[1:]]
+    assert len(lines) == 2 and lines[0].startswith("pass 1: ") and lines[1].startswith("pass 2: ")
+    assert rows(engine) == []
+
+
+def test_only_the_failing_pass_is_named_on_exit_2(engine, tmp_path, capsys):
+    bad = make_record()
+    bad["reading"] = "great"
+    assert run(engine, tmp_path, make_record(), bad) == 2
+    lines = [line.strip() for line in capsys.readouterr().err.splitlines()[1:]]
+    assert lines and all(line.startswith("pass 2: ") for line in lines)
+
+
+def test_an_unreadable_or_missing_pass_file_names_its_pass(engine, tmp_path, capsys):
+    good = write(tmp_path, "p1.json", make_record())
+    assert save_mod.main(["PM", good, str(tmp_path / "missing.json")], engine=engine) == 2
+    assert "pass 2: " in capsys.readouterr().err
+    assert save_mod.main(["PM", write(tmp_path, "bad.json", "{oops"), good], engine=engine) == 2
+    assert "pass 1: " in capsys.readouterr().err
+    assert rows(engine) == []
+
+
 def test_a_pass_with_a_retired_key_is_refused(engine, tmp_path, capsys):
     bad = make_record()
     bad["tag"] = None
@@ -115,7 +141,7 @@ def test_an_unreadable_or_non_record_pass_file_is_refused(engine, tmp_path, caps
 
 def test_a_missing_pass_file_is_refused(engine, tmp_path, capsys):
     assert save_mod.main(["PM", str(tmp_path / "nope.json"), write(tmp_path, "p2.json", make_record())], engine=engine) == 2
-    assert "cannot read a pass file" in capsys.readouterr().err and rows(engine) == []
+    assert "cannot read a pass file: pass 1: " in capsys.readouterr().err and rows(engine) == []
 
 
 def test_a_known_etf_is_refused_with_its_own_exit_code(engine, tmp_path, capsys):

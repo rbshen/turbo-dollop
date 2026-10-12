@@ -496,3 +496,46 @@ def test_no_run_date_means_no_date_warning(session):
     other = make_record()
     other["checked_date"] = "2026-01-01"
     assert mc.append_moat_check(session, "PM", make_record(), other, now=T0).warnings == []
+
+
+# --- both passes are checked: problems are collected and numbered -----------------------------------------------------------------
+
+
+def test_the_problems_of_both_passes_come_back_together_each_prefixed_with_its_pass(session):
+    bad1, bad2 = make_record(), make_record()
+    bad1["reading"], bad2["checked_date"] = "great", "nope"
+    with pytest.raises(mc.MoatCheckValidationError) as excinfo:
+        mc.append_moat_check(session, "PM", bad1, bad2, now=T0)
+    problems = excinfo.value.problems
+    assert len(problems) == 2
+    assert problems[0].startswith("pass 1: ") and "reading" in problems[0]
+    assert problems[1].startswith("pass 2: ") and "checked_date" in problems[1]
+    assert session.exec(select(MoatCheck)).all() == []
+
+
+def test_only_the_failing_pass_is_named(session):
+    bad = make_record()
+    bad["source_facts"]["switching_costs"] = None
+    with pytest.raises(mc.MoatCheckValidationError) as excinfo:
+        mc.append_moat_check(session, "PM", make_record(), bad, now=T0)
+    assert excinfo.value.problems and all(p.startswith("pass 2: ") for p in excinfo.value.problems)
+    with pytest.raises(mc.MoatCheckValidationError) as excinfo:
+        mc.append_moat_check(session, "PM", bad, make_record(), now=T0)
+    assert all(p.startswith("pass 1: ") for p in excinfo.value.problems)
+
+
+def test_a_structural_failure_in_one_pass_does_not_hide_the_other_pass_s_problems(session):
+    broken = make_record()
+    broken["tag"] = None  # key-set failure: only that is reported for this pass
+    other = make_record()
+    other["reading"] = "great"
+    with pytest.raises(mc.MoatCheckValidationError) as excinfo:
+        mc.append_moat_check(session, "PM", broken, other, now=T0)
+    text = "\n".join(excinfo.value.problems)
+    assert "pass 1: record: unexpected key(s) tag" in text and "pass 2: reading" in text
+
+
+def test_a_pass_that_is_not_an_object_is_numbered_too(session):
+    with pytest.raises(mc.MoatCheckValidationError) as excinfo:
+        mc.append_moat_check(session, "PM", make_record(), "junk", now=T0)
+    assert excinfo.value.problems == ["pass 2: record: must be an object"]

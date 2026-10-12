@@ -7,7 +7,8 @@ Not a cron job (no heartbeat, no CRON_JOB_NAMES entry). It writes through the ap
 table: if `moatcheck` is missing it says so and stops. It touches nothing else: not TickerMoat, not a score, no recompute, no network.
 
 Warnings (printed after the result line, never refusals): an empty prose field, and a pass whose checked_date differs from `run_date`.
-Exit codes: 0 saved; 1 the table is missing; 2 invalid or unreadable input (every problem printed, nothing saved); 3 a known ETF or fund."""
+Exit codes: 0 saved; 1 the table is missing; 2 invalid or unreadable input (every problem of BOTH passes printed, each line starting "pass 1:" or
+"pass 2:" so the caller knows which pass to redo; nothing saved); 3 a known ETF or fund."""
 
 import argparse
 import json
@@ -23,11 +24,11 @@ from core import db
 from data.moat_check import MoatCheckValidationError, append_moat_check
 
 
-def _read_pass(path: Path) -> object:
+def _read_pass(number: int, path: Path) -> object:
     try:
         return json.loads(path.read_text())
     except (OSError, ValueError) as exc:
-        raise ValueError(f"{path}: {exc}") from exc
+        raise ValueError(f"pass {number}: {path}: {exc}") from exc
 
 
 def main(argv: list[str] | None = None, engine: Engine | None = None) -> int:
@@ -46,7 +47,7 @@ def main(argv: list[str] | None = None, engine: Engine | None = None) -> int:
             print(f"refused: run_date {args.run_date!r} is not a YYYY-MM-DD date", file=sys.stderr)
             return 2
     try:
-        passes = [_read_pass(args.pass1), _read_pass(args.pass2)]
+        passes = [_read_pass(1, args.pass1), _read_pass(2, args.pass2)]
     except ValueError as exc:
         print(f"refused: cannot read a pass file: {exc}", file=sys.stderr)
         return 2
@@ -61,7 +62,7 @@ def main(argv: list[str] | None = None, engine: Engine | None = None) -> int:
         except MoatCheckValidationError as exc:
             print("refused: a pass record is invalid, nothing was saved:", file=sys.stderr)
             for problem in exc.problems:
-                print(f"  - {problem}", file=sys.stderr)
+                print(f"  {problem}", file=sys.stderr)
             return 2
         except ValueError as exc:
             print(f"refused: {exc}", file=sys.stderr)
