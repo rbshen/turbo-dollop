@@ -8,10 +8,8 @@ looks, on the newest completed session, for three triggers and stores each hit a
 Triggers: scoring/opportunity_triggers.py; orchestration and the cohort rule: data/opportunity_daily_data.py; spec: docs/specs/opportunities.md,
 "Daily flags (Phase 2b v1)". Zero FMP calls (the bars cache and the stored tables are only read), no LLM.
 
-NOT SCHEDULED. Built, tested and run by hand. The planned slot is 03:45 UTC (after the 03:40 outcome updater, 15 minutes before the Saturday
-04:00 weekly job); it is registered in core/cron_health.py (CRON_JOB_NAMES, a 36 h cadence, JOB_METADATA) and listed in DISABLED_CRON_JOBS until
-it is added to crontab.txt. To schedule it: add the crontab line, delete the DISABLED_CRON_JOBS entry, `crontab crontab.txt` from backend/,
-check `crontab -l` (docs/specs/opportunities.md has the exact steps).
+SCHEDULED 2026-10-12 at 03:45 UTC (`45 3 * * *` in crontab.txt): after the 03:40 outcome updater, 15 minutes before the Saturday 04:00 weekly
+job. Registered in core/cron_health.py (CRON_JOB_NAMES, a 36 h cadence, JOB_METADATA).
 
 HEARTBEAT: a normal "no-op: SPY has no bar newer than ..." run (a weekend, a market holiday, a night the bars did not move) is a SUCCESS. The
 no-op test uses this job's OWN last-seen SPY bar date (the newest OpportunityDailyRun with one), not the outcome updater's. A failure is an

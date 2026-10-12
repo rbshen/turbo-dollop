@@ -254,22 +254,18 @@ def test_the_outcome_updater_is_a_daily_job_with_a_daily_cadence():
 
 
 
-def test_the_daily_flag_job_is_planned_between_the_outcome_updater_and_the_saturday_job():
-    """Phase 2b v1: built and run by hand, so it is in DISABLED_CRON_JOBS and absent from crontab.txt. Its planned slot (JOB_METADATA, 3:45) must
-    start after the 03:40 outcome updater (which prices its flags the NEXT night) and at least 15 minutes before the Saturday 4:00 weekly job.
-    Once it is scheduled (the DISABLED entry removed), the crontab line is held to the same order."""
+def test_the_daily_flag_job_runs_between_the_outcome_updater_and_the_saturday_job():
+    """Phase 2b v1, scheduled 2026-10-12 at 3:45 UTC: after the 03:40 outcome updater (which prices its flags the NEXT night) and at least
+    15 minutes before the Saturday 4:00 weekly job, after the whole nightly chain (the backup), daily on a 36 h cadence."""
+    from core.cron_health import _DAILY_HOURS, _EXPECTED_CADENCE_HOURS
+
     name = "pipeline.opportunity_daily_flags"
-    assert name in CRON_JOB_NAMES and name in JOB_METADATA
-    planned = JOB_METADATA[name].sort_minutes
-    assert planned == 3 * 60 + 45
-    assert planned >= JOB_METADATA["pipeline.opportunity_outcome_update"].sort_minutes + 5
-    assert planned + 15 <= JOB_METADATA["pipeline.weekly_opportunity_snapshot"].sort_minutes
-    assert planned >= JOB_METADATA["pipeline.backup_db"].sort_minutes + 8  # after the whole nightly chain, like the updater
-    if name in DISABLED_CRON_JOBS:
-        assert name not in _crontab_module_names()
-        return
+    assert name in CRON_JOB_NAMES and name in JOB_METADATA and name not in DISABLED_CRON_JOBS
+    assert _EXPECTED_CADENCE_HOURS[name] == _DAILY_HOURS == 36
+    assert _crontab_schedule()[name][2:] == ("*", "*", "*")
     scheduled = _daily_minute_of_day(name)
-    assert scheduled == planned
+    assert scheduled == JOB_METADATA[name].sort_minutes == 3 * 60 + 45
     assert scheduled >= _daily_minute_of_day("pipeline.opportunity_outcome_update") + 5
+    assert scheduled >= _daily_minute_of_day("pipeline.backup_db") + 8
     minute, hour, *_ = _crontab_schedule()["pipeline.weekly_opportunity_snapshot"]
     assert int(hour) * 60 + int(minute) - scheduled >= 15

@@ -221,11 +221,6 @@ DISABLED_CRON_JOBS: dict[str, DisabledJob] = {
         "pending investigation: about 1,165 FMP calls per run at 406-527 requests/min, over Starter's 300/min. "
         "The Chart tab serves the cached E/D markers.",
     ),
-    "pipeline.opportunity_daily_flags": DisabledJob(
-        date(2026, 10, 12),
-        "built and run by hand (Phase 2b v1), not scheduled yet. Planned slot 03:45 UTC, after the 03:40 outcome updater and before the "
-        "Saturday 04:00 weekly job; scheduling is its own step (docs/specs/opportunities.md).",
-    ),
 }
 
 

@@ -250,3 +250,11 @@
 # cached daily bars: stored data only, ZERO FMP calls, chunked reads. A no-op unless SPY has a bar newer than the last run's, and a no-op
 # is a successful heartbeat (weekends, market holidays). See pipeline/opportunity_outcome_update.py and docs/specs/opportunities.md.
 40 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.opportunity_outcome_update --once >> /home/shen/fathom/backend/logs/opportunity_outcome_update_cron.log 2>&1
+
+# Opportunity daily flags (Phase 2b v1), ENABLED 2026-10-12. Every night at 3:45 AM server time (UTC; 11:45 AM Hong Kong): 5 minutes AFTER the
+# 3:40 outcome updater (which prices the flags written the night before) and 15 minutes before the Saturday 4:00 weekly opportunity job. By then
+# the 1:05 bar/trend job, the 1:20 BB+RSI and 1:25 Warren jobs have run, so the newest completed session is final. For the names of the latest
+# weekly list it looks for three triggers (stored entry event, stage upgrade, pullback to the MA) on that session and stores each hit: stored
+# data only, ZERO FMP calls, ~2 s, chunked reads (~130 MB peak). A no-op (green) unless SPY has a completed bar newer than THIS job's own last-seen
+# one, or no weekly list is dated before the session. See pipeline/opportunity_daily_flags.py and docs/specs/opportunities.md ("Daily flags").
+45 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.opportunity_daily_flags --once >> /home/shen/fathom/backend/logs/opportunity_daily_flags_cron.log 2>&1
