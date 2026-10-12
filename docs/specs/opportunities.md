@@ -111,6 +111,21 @@ after a day of slack).
 absent from the crontab and every other job present), `crontab crontab.txt`, check `crontab -l`. **Check a run:** `SELECT as_of_date, created_at FROM opportunityrun ORDER BY as_of_date DESC LIMIT 2;`
 and the Settings > Status page.
 
+## Outcome tracking (phase 2a, built 2026-10-12)
+
+Whether each listed name later beat the market. Stored data only, no FMP call, no LLM. Nothing here is shown on a page or served by the API yet (no Scorecard UI). **Conventions (agreed):**
+
+- **Price-only returns**, never dividend-adjusted (the basis of the sector performance and momentum lenses).
+- **Entry is the first session's OPEN after the as-of date.** SPY's bar dates are the session calendar (holidays and half-days need no calendar of their own). Horizon N is the Nth bar after the entry bar, N = 5, 10, 20, 60; the exit is that bar's CLOSE. The entry bar is bar 1 of the position for the stop, `worst_move`, `best_move` and `max_drawdown` windows (the window is the entry bar through the horizon bar).
+- **Stop: intraday, 10% below entry.** A bar's low <= 0.9 x entry is a stop hit, the entry bar's own low included. A gap below the stop fills at the open: `stop_fill_return = min(-10%, open / entry - 1)`. `forward_return` is the buy-and-hold return; the stop never changes it, it is recorded beside it. A stop is path-dependent and final: it is written as soon as it occurs, on every horizon row whose window contains it, while the horizon is still `pending`.
+- **Benchmarks:** SPY is the headline (`spy_return`, `excess_vs_spy`, entry open to the same exit date's close); the ticker's own sector ETF (`SECTOR_TO_ETF` on the stored `TickerScore.sector`) is the second. An ETF, or a stock with no mapped sector ETF, has `sector_etf = null` and null sector fields: it is compared with SPY only.
+- **Censored rows are excluded from means.** A horizon is `censored` when the ticker is missing the entry or the horizon bar and SPY is already more than `CENSOR_GRACE_SESSIONS` = 3 sessions past the horizon date; `censor_reason` is `delisted` (flagged), `left_universe` (no longer tracked) or `stale` (neither). The row still stores the return to the last available bar (`exit_date`, `exit_close`, `forward_return`) as a sensitivity line. A `complete` row is frozen and never recomputed.
+- **`entry_gap_pct`** is the entry open against the frozen as-of close; `entry_gap_flag` is true beyond 25% (a gap that large means the list's price was not the price anyone could pay).
+- **The pool is stored, hidden and unused.** `OpportunityPoolRow` keeps every gate-passing ticker of each run, whether it was listed or not, so a later step can compare the listed names with the ones the rules left out. Nothing reads it yet and no page shows it. Outcome rows exist for the listed snapshot rows only.
+- **Picks.** `OpportunityPick` records the names the user chose with the manual Add to watchlist action on the Opportunities page (the run shown, latest unless a past snapshot is selected), so a later scorecard can compare the user's picks with the lists. The action itself is unchanged.
+
+Tables (insert-only, KEEP in the data registry, in the nightly backup): `OpportunityPoolRow` unique on `(run_id, ticker)`; `OpportunityOutcome` unique on `(run_id, ticker, horizon)`; `OpportunityPick` unique on `(run_id, ticker)`; `OpportunityOutcomeRun` (one row per updater run: its heartbeat-style result, and the SPY bar date it saw). Pure engine: `scoring/opportunity_outcomes.py`. Updater: `pipeline/opportunity_outcome_update.py` (manual only; not in the crontab, `CRON_JOB_NAMES` or the heartbeat).
+
 ## First run (as of 2026-10-09), rules v2
 
 Universe 608 (580 tracked stocks + 28 ETFs), 595 through the gate (dropped: 7 illiquid, 4 short history, SPY, 1 stale bar). Ranked: 569 stocks, 23 ETFs, 3 leveraged ETFs.

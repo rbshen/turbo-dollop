@@ -1162,3 +1162,11 @@ Also decided: two text sets keyed by the Blue profile (the shortened "profiled" 
 
 **Decision.** `0 4 * * 6` is installed; the `DISABLED_CRON_JOBS` entry is gone (this supersedes "registered as disabled" in the 2026-10-11 entry). The weekly cadence (8 days) was already registered. `test_cron_wiring` now knows one Saturday job beside the Sunday block (`_SATURDAY_JOBS`), and the as-of resolution on a Saturday, a winter Saturday, a Good Friday week, an observed-holiday Friday and a half-day Friday is pinned with the real calendar.
 
+### 2026-10-12 — Opportunity outcome tracking (phase 2a): conventions
+
+**Decision.** The opportunity agent now keeps the data a later Scorecard needs: a pool table (every gate-passing ticker of each run, listed or not), a long-format outcome table (listed names, horizons 5/10/20/60), a pick table (names the user adds to a watchlist from the page) and a manual updater. Conventions, all agreed before the build: price-only returns (never dividend-adjusted); entry at the first session's open after the as-of date; SPY's bar dates are the calendar; horizon N is the Nth bar after the entry bar, exit at its close; a 10% intraday stop from the entry bar on, a gap below it filling at the open; SPY the headline benchmark and the ticker's sector ETF the second (SPY only for ETFs and unmapped sectors); censored rows (the ticker stops getting bars more than 3 sessions past the horizon) excluded from means but still carrying the return to the last bar; the pool stored but unused and unshown. Detail: `docs/specs/opportunities.md`, "Outcome tracking".
+
+**Why now.** The pool can only be captured at snapshot time (`TickerScore` and `TrendAnalysis` are overwritten nightly), so the weekly job had to write it before the first scheduled run, Saturday 2026-10-17 04:00 UTC.
+
+**Not done (later steps).** Scheduling the updater (not in `crontab.txt`, `CRON_JOB_NAMES` or a heartbeat), any API or Scorecard page, any LLM step.
+
