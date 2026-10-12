@@ -63,6 +63,7 @@ CRON_JOB_NAMES: list[str] = [
     "pipeline.nightly_sector_industry_pe",
     "pipeline.monthly_momentum_snapshot",
     "pipeline.weekly_opportunity_snapshot",
+    "pipeline.opportunity_outcome_update",
     "pipeline.backup_db",
 ]
 
@@ -101,6 +102,7 @@ _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.nightly_sector_industry_pe": _DAILY_HOURS,
     "pipeline.monthly_momentum_snapshot": _MONTHLY_HOURS,
     "pipeline.weekly_opportunity_snapshot": _WEEKLY_HOURS,
+    "pipeline.opportunity_outcome_update": _DAILY_HOURS,
 }
 
 
@@ -182,6 +184,9 @@ JOB_METADATA: dict[str, JobMetadata] = {
     ),
     "pipeline.weekly_opportunity_snapshot": JobMetadata(
         "Weekly opportunity lists (Momentum and Reversal) from stored data", "weekly", "Sat 4:00 AM", 4 * 60
+    ),
+    "pipeline.opportunity_outcome_update": JobMetadata(
+        "Prices the weekly opportunity lists' outcomes (5/10/20/60 sessions) from stored bars; no FMP calls", "daily", "3:40 AM", 3 * 60 + 40
     ),
 }
 
