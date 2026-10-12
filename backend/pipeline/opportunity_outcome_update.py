@@ -13,6 +13,10 @@ job ran and had nothing to do. A failure is an exception (no SPY bars, a crash) 
 core.cron_health.check_failure_threshold (everything attempted failed, or >= the rate threshold with enough tickers attempted); a few
 failed tickers stay green and are named in the message and in the run's `partial` status.
 
+It ALSO prices the daily flags' outcomes (OpportunityFlagOutcome, Phase 2b v1; data/opportunity_flag_outcome_data.py) in the same invocation, with
+the same engine and conventions: this updater is the only writer of OpportunityOutcome and OpportunityFlagOutcome, and the daily flag job
+(pipeline/opportunity_daily_flags.py) writes flags only, so the two cannot double-count. A database with no flags behaves exactly as before.
+
 Zero FMP calls (the bars cache is only read), no LLM. Idempotent: only pending rows are recomputed, final rows are frozen. A normal run
 is a no-op unless SPY has a bar newer than the last run's (or a listed row has no outcome rows yet); --run-id / --as-of target one run
 and skip that check. One ticker failing leaves its rows pending and does not stop the others.
@@ -33,7 +37,8 @@ from pathlib import Path
 from core.cron_health import check_failure_threshold, cron_heartbeat
 from core.db import init_db
 from core.logging_config import configure_logging
-from data.opportunity_outcome_data import UpdateResult, finish_log, start_log, summary_of, update_outcomes
+from data.opportunity_flag_outcome_data import update_outcomes_and_flags
+from data.opportunity_outcome_data import UpdateResult, finish_log, start_log, summary_of
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "opportunity_outcome_update.log"
 
@@ -48,7 +53,7 @@ def main(run_id: int | None = None, as_of: date | None = None, dry_run: bool = F
     started = time.monotonic()
     log_id = None if dry_run else start_log()
     try:
-        result = update_outcomes(run_id=run_id, as_of=as_of, dry_run=dry_run)
+        result = update_outcomes_and_flags(run_id=run_id, as_of=as_of, dry_run=dry_run)
     except BaseException as exc:
         finish_log(log_id, "failure", f"{type(exc).__name__}: {exc}")
         raise

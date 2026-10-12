@@ -252,3 +252,24 @@ def test_the_outcome_updater_is_a_daily_job_with_a_daily_cadence():
     assert _EXPECTED_CADENCE_HOURS[name] == _DAILY_HOURS == 36
     assert _crontab_schedule()[name][2:] == ("*", "*", "*")
 
+
+
+def test_the_daily_flag_job_is_planned_between_the_outcome_updater_and_the_saturday_job():
+    """Phase 2b v1: built and run by hand, so it is in DISABLED_CRON_JOBS and absent from crontab.txt. Its planned slot (JOB_METADATA, 3:45) must
+    start after the 03:40 outcome updater (which prices its flags the NEXT night) and at least 15 minutes before the Saturday 4:00 weekly job.
+    Once it is scheduled (the DISABLED entry removed), the crontab line is held to the same order."""
+    name = "pipeline.opportunity_daily_flags"
+    assert name in CRON_JOB_NAMES and name in JOB_METADATA
+    planned = JOB_METADATA[name].sort_minutes
+    assert planned == 3 * 60 + 45
+    assert planned >= JOB_METADATA["pipeline.opportunity_outcome_update"].sort_minutes + 5
+    assert planned + 15 <= JOB_METADATA["pipeline.weekly_opportunity_snapshot"].sort_minutes
+    assert planned >= JOB_METADATA["pipeline.backup_db"].sort_minutes + 8  # after the whole nightly chain, like the updater
+    if name in DISABLED_CRON_JOBS:
+        assert name not in _crontab_module_names()
+        return
+    scheduled = _daily_minute_of_day(name)
+    assert scheduled == planned
+    assert scheduled >= _daily_minute_of_day("pipeline.opportunity_outcome_update") + 5
+    minute, hour, *_ = _crontab_schedule()["pipeline.weekly_opportunity_snapshot"]
+    assert int(hour) * 60 + int(minute) - scheduled >= 15

@@ -88,17 +88,31 @@ class UpdateResult:
     by_status: dict[str, dict[int, int]] = field(default_factory=dict)  # status -> horizon -> rows (state after the run)
     stops: int = 0  # rows with a stop recorded (state after the run)
     reason: str = ""  # why a no-op
+    # The daily flags' outcome rows (OpportunityFlagOutcome), priced in the same invocation by data/opportunity_flag_outcome_data.py. All zero
+    # / empty when there are no flags, and then the message below is exactly what it always was.
+    flag_rows: int = 0  # flags tracked
+    flag_seeded: int = 0
+    flag_updated: int = 0
+    flag_by_status: dict[str, dict[int, int]] = field(default_factory=dict)
+    flag_stops: int = 0
 
     def message(self) -> str:
         if self.status == "noop":
             return f"no-op: {self.reason}"
         counts = {s: sum(h.values()) for s, h in self.by_status.items()}
         tail = f", {len(self.failed)} ticker(s) failed" if self.failed else ""
-        return (
+        text = (
             f"{self.status}: {self.runs} run(s), {self.listed_rows} listed rows; complete {counts.get(eng.COMPLETE, 0)}, "
             f"pending {counts.get(eng.PENDING, 0)}, censored {counts.get(eng.CENSORED, 0)}, stops {self.stops}; "
             f"{self.seeded} created, {self.updated} updated{tail} (SPY bar {self.spy_last_bar_date})"
         )
+        if self.flag_rows:
+            flag_counts = {s: sum(h.values()) for s, h in self.flag_by_status.items()}
+            text += (
+                f"; flag outcomes: {self.flag_rows} flag(s), complete {flag_counts.get(eng.COMPLETE, 0)}, pending {flag_counts.get(eng.PENDING, 0)}, "
+                f"censored {flag_counts.get(eng.CENSORED, 0)}, stops {self.flag_stops}; {self.flag_seeded} created, {self.flag_updated} updated"
+            )
+        return text
 
 
 # --- bars -------------------------------------------------------------------------------------------------------------------
@@ -375,7 +389,7 @@ def finish_log(log_id: int | None, status: str, message: str, spy_last_bar_date:
 
 
 def summary_of(result: UpdateResult) -> dict:
-    return {
+    out = {
         "runs": result.runs,
         "listed_rows": result.listed_rows,
         "by_status": {s: {str(h): n for h, n in hs.items()} for s, hs in result.by_status.items()},
@@ -384,3 +398,12 @@ def summary_of(result: UpdateResult) -> dict:
         "updated": result.updated,
         "failed": result.failed,
     }
+    if result.flag_rows:  # the daily flags' outcomes, only when there are flags
+        out["flags"] = {
+            "flag_rows": result.flag_rows,
+            "by_status": {s: {str(h): n for h, n in hs.items()} for s, hs in result.flag_by_status.items()},
+            "stops": result.flag_stops,
+            "seeded": result.flag_seeded,
+            "updated": result.flag_updated,
+        }
+    return out
