@@ -7,7 +7,7 @@ from sqlmodel import SQLModel, create_engine
 from core.config import BASE_DIR, settings
 
 import core.models  # noqa: F401  (registers tables on SQLModel.metadata)
-from core.models import SavedScreenerFilter
+from core.models import OpportunityPick, SavedScreenerFilter
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +141,47 @@ def _migrate_saved_filter_kind() -> bool:
         )
         conn.execute(text('DROP TABLE "savedscreenerfilter_old"'))
     logger.info("Rebuilt savedscreenerfilter with a per-kind unique name (existing views kept as kind 'stock').")
+    return True
+
+
+def _migrate_opportunity_pick_key() -> bool:
+    """OpportunityPick was first keyed by (run_id, ticker) and is now keyed by (as_of_date, ticker), so a pick outlives a rebuilt weekly
+    run (2026-10-12). A UNIQUE constraint cannot be altered in place and _add_missing_columns would only bolt a nullable column onto
+    the old table, so this rebuilds it once: every pick is copied with run_id -> the weekly run's as_of_date, nothing lost (ids,
+    picked_at and source kept). A pick whose run no longer exists cannot be mapped: the old table is then kept as
+    `opportunitypick_unmapped` rather than dropped. Idempotent: a table with no run_id column is left alone. Must run before
+    create_all / _add_missing_columns. Returns True when it rebuilt."""
+    inspector = inspect(engine)
+    if not inspector.has_table("opportunitypick") or not inspector.has_table("opportunityrun"):
+        return False
+    if "run_id" not in {col["name"] for col in inspector.get_columns("opportunitypick")}:
+        return False
+    with engine.begin() as conn:
+        conn.exec_driver_sql("BEGIN")
+        conn.execute(text('ALTER TABLE "opportunitypick" RENAME TO "opportunitypick_old"'))
+        for index in ("ix_opportunitypick_run_id", "ix_opportunitypick_ticker", "ix_opportunitypick_as_of_date"):
+            conn.execute(text(f'DROP INDEX IF EXISTS "{index}"'))
+        OpportunityPick.__table__.create(bind=conn)
+        conn.execute(
+            text(
+                'INSERT OR IGNORE INTO "opportunitypick" (id, as_of_date, ticker, picked_at, source) '
+                "SELECT p.id, r.as_of_date, p.ticker, p.picked_at, p.source FROM opportunitypick_old p "
+                "JOIN opportunityrun r ON r.id = p.run_id AND r.kind = 'weekly'"
+            )
+        )
+        total = conn.execute(text("SELECT COUNT(*) FROM opportunitypick_old")).scalar()
+        migrated = conn.execute(text('SELECT COUNT(*) FROM "opportunitypick"')).scalar()
+        if migrated == total:
+            conn.execute(text('DROP TABLE "opportunitypick_old"'))
+        else:
+            conn.execute(text('ALTER TABLE "opportunitypick_old" RENAME TO "opportunitypick_unmapped"'))
+    if migrated == total:
+        logger.info("Rebuilt opportunitypick keyed by (as_of_date, ticker): %d pick(s) migrated.", migrated)
+    else:
+        logger.warning(
+            "Rebuilt opportunitypick keyed by (as_of_date, ticker): %d of %d pick(s) migrated; the old table is kept as opportunitypick_unmapped.",
+            migrated, total,
+        )
     return True
 
 
@@ -308,6 +349,7 @@ def _migrate_step5_weights() -> dict:
 
 
 def init_db() -> None:
+    _migrate_opportunity_pick_key()
     SQLModel.metadata.create_all(engine)
     _migrate_saved_filter_kind()
     _add_missing_columns()

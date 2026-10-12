@@ -1545,6 +1545,10 @@ class OpportunityOutcome(SQLModel, table=True):
     through the horizon bar. `forward_return` is buy-and-hold: the 10% intraday stop is recorded beside it (`stop_*`), never applied
     to it. A censored row keeps the return to the last available bar (a sensitivity line) and is excluded from means.
 
+    A `censored` row stays revivable for CENSOR_REVIVE_DAYS (14) calendar days from `first_censored_at` (scoring/opportunity_outcomes.py):
+    the updater re-evaluates it every run, and if the missing bars have appeared it becomes `pending` / `complete` again with the
+    censor fields cleared. After that it is frozen like a `complete` row.
+
     `sector_etf` and the sector fields are null for an ETF or a stock with no mapped sector ETF (SPY only). `entry_gap_flag` is
     true when `entry_gap_pct` (entry open vs the frozen as-of close) is beyond 25%. `provenance` is "live" (a backfill from
     approximate data would be "backfill_approx"). Spec: docs/specs/opportunities.md, "Outcome tracking"."""
@@ -1578,17 +1582,24 @@ class OpportunityOutcome(SQLModel, table=True):
     provenance: str = "live"
     rules_version: str
     computed_at: datetime
+    first_censored_at: datetime | None = None  # when the row was FIRST censored; starts the CENSOR_REVIVE_DAYS grace; cleared on revival
 
 
 class OpportunityPick(SQLModel, table=True):
-    """A name the user CHOSE from a run: written by the manual "Add to watchlist" action on the Opportunities page, in the same
-    request, for the run shown (the latest unless a past snapshot is selected). Lets a later scorecard compare the user's picks
-    with the lists. Insert-only; unique on (run_id, ticker), so adding the same ticker again is a no-op."""
+    """A name the user CHOSE from the weekly lists of one as-of date: written by the manual "Add to watchlist" action on the
+    Opportunities page, in the same request, for the run shown (the latest unless a past snapshot is selected), resolved to that
+    run's `as_of_date`. Lets a later scorecard compare the user's picks with the lists.
 
-    __table_args__ = (UniqueConstraint("run_id", "ticker", name="uq_opportunity_pick"),)
+    Keyed by (as_of_date, ticker), NOT by run id: a pick is the user's own choice and must outlive a rebuilt run (`--force` on the
+    weekly job deletes the run and reuses its id). NOTHING deletes a pick: not `--force`, not removing the ticker from a watchlist,
+    not deleting the watchlist, not the ticker leaving the universe. Insert-only; adding the same ticker for the same as_of_date
+    again is a no-op. A pick whose as_of_date has no run any more is kept as is. Join to the run / snapshot / outcome rows through
+    `as_of_date` plus the weekly kind (OpportunityRun.kind == "weekly"). No watchlist id is stored."""
+
+    __table_args__ = (UniqueConstraint("as_of_date", "ticker", name="uq_opportunity_pick_date_ticker"),)
 
     id: int | None = Field(default=None, primary_key=True)
-    run_id: int = Field(index=True)
+    as_of_date: date = Field(index=True)
     ticker: str = Field(index=True)
     picked_at: datetime
     source: str  # "opportunities_page"
