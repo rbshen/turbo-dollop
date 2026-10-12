@@ -42,6 +42,7 @@ from core.models import (
     IndexConstituent,
     LiquidityZoneAnalysis,
     LongHistoryBars,
+    MoatCheck,
     MomentumSnapshot,
     NewsCache,
     OpportunityDailyFlag,
@@ -204,6 +205,11 @@ _ORDERED: tuple[TickerTable, ...] = (
         OpportunityPoolOutcome,
         TableClass.KEEP,
         "slim forward outcomes of the unlisted pool names (the scorecard baseline; a wiped ticker's bars could not rebuild them)",
+    ),
+    _t(
+        MoatCheck,
+        TableClass.KEEP,
+        "advisory independent Moat check history (append-only; about 14 web searches to re-create; not owner-entered, so not in MANUAL_DATA_MODELS)",
     ),
     _t(OpportunityPick, TableClass.KEEP, "names the user picked from an opportunity run (owner-entered history; insert-only)"),
 )

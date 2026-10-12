@@ -42,6 +42,7 @@ from core.models import (
     FundamentalsCache,
     GrowthCatalystNote,
     IndexConstituent,
+    MoatCheck,
     NewsCache,
     PriceTargetSnapshot,
     TickerBankCapitalMetrics,
@@ -78,6 +79,9 @@ class TableMergeConfig:
 TABLE_CONFIGS = [
     TableMergeConfig(TickerScore, (), "ticker", "computed_at"),
     TableMergeConfig(TickerMoat, (), "ticker", "updated_at"),
+    # Append-only history: group_by=("id",) makes every row its own group, so the merge only RENAMES them (group_by=() would put all
+    # rows of both spellings in one group and delete all but the freshest, destroying the history).
+    TableMergeConfig(MoatCheck, ("id",), "id", None),
     TableMergeConfig(TickerBankCapitalMetrics, (), "ticker", "updated_at"),
     TableMergeConfig(TickerCustomValuation, (), "ticker", "saved_at"),
     TableMergeConfig(GrowthCatalystNote, (), "ticker", "updated_at"),

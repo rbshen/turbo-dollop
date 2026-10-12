@@ -1753,3 +1753,37 @@ class OpportunityPoolOutcome(SQLModel, table=True):
     provenance: str = "live"
     computed_at: datetime
     first_censored_at: datetime | None = None  # when the row was first censored: the 14-day grace clock (never restarts)
+
+
+class MoatCheck(SQLModel, table=True):
+    """One run of the advisory independent Moat check (docs/specs/moat-check.md, criteria docs/specs/moat-criteria.md): two blind passes
+    reconciled in code (data/moat_check.py::reconcile) and saved by the one writer, data/moat_check.py::append_moat_check. APPEND-ONLY
+    HISTORY: every run adds a row; nothing updates or deletes one, and the card reads the newest by `checked_at`. Advisory: nothing here
+    feeds TickerMoat, the Moat multiplier, TickerScore or any recompute, and the table is a KEEP table in the ticker-data registry (a check
+    costs about 14 web searches to redo; it is not owner-entered data and is not in MANUAL_DATA_MODELS).
+
+    `status` is "stable" (both passes gave the same rating) or "inconclusive" (they differ: `rating` and every pass-1 detail column are NULL,
+    confidence is Low, both passes stay in the two JSON columns). When stable the detail columns hold pass 1's values."""
+
+    __table_args__ = (Index("ix_moatcheck_ticker_checked_at", "ticker", "checked_at"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    ticker: str
+    checked_at: datetime
+    criteria_version: str  # "moat-criteria-v5.2"
+    status: str  # "stable" | "inconclusive"
+    rating: str | None = None  # "wide_moat" | "narrow_moat" | "no_moat"; NULL when inconclusive
+    pass1_rating: str
+    pass2_rating: str
+    evidence_confidence: str  # "High" | "Medium" | "Low" (the lower of the two passes; Low when inconclusive)
+    proof_basis: str  # "independent" | "company_reported_only" (company_reported_only if either pass says so)
+    threat_level: str | None = None  # pass 1's overall level when stable, else NULL
+    source_ratings_json: str | None = None
+    source_facts_json: str | None = None
+    observed_damage_json: str | None = None
+    forward_threats_json: str | None = None
+    would_lower: str | None = None
+    would_raise: str | None = None
+    evidence_note: str | None = None
+    pass1_json: str  # the validated record (threat_level and evidence_confidence derived in code)
+    pass2_json: str

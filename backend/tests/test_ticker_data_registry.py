@@ -94,7 +94,7 @@ def test_classes_are_disjoint_and_complete():
     assert protecting == {"indexconstituent", "watchlistticker", "tickermoat", "tickercustomvaluation", "tickerbankcapitalmetrics", "growthcatalystnote"}
     assert keep == {
         "sectoretfreturn", "etfmomentumsnapshot", "opportunitysnapshotrow", "opportunitypoolrow", "opportunityoutcome", "opportunitypick",
-        "opportunitydailyflag", "opportunityflagoutcome", "opportunitypooloutcome",
+        "opportunitydailyflag", "opportunityflagoutcome", "opportunitypooloutcome", "moatcheck",
     }
 
 
