@@ -26,6 +26,7 @@ import json
 import logging
 import traceback
 from datetime import date, datetime, timezone
+from typing import NamedTuple
 
 import pandas as pd
 from sqlalchemy import func
@@ -44,6 +45,18 @@ SPY = "SPY"
 CHUNK_SIZE = ou.CHUNK_SIZE
 LOOKBACK_SLACK_DAYS = ou.LOOKBACK_SLACK_DAYS
 PROVENANCE_LIVE = ou.PROVENANCE_LIVE
+
+
+class PoolItem(NamedTuple):
+    """The few fields of an OpportunityPoolRow the pricing needs (a plain tuple, so the 500-odd rows of each of ~13 open cohorts stay small)."""
+
+    run_id: int
+    ticker: str
+    tier: str
+    assigned_list: str | None
+    leveraged: bool
+    sector: str | None
+    close: float | None
 
 
 def _leveraged(pool: OpportunityPoolRow) -> bool:
@@ -111,7 +124,7 @@ def update_pool_outcomes(
         ]
         candidate_ids = [r.id for r in candidates]
         complete_keys: set[tuple[int, str, int]] = set()
-        pool_rows: dict[int, list[OpportunityPoolRow]] = {}
+        pool_rows: dict[int, list[PoolItem]] = {}
         base_counts: list[tuple[str, int, int]] = []
         if candidate_ids:
             complete_keys = {
@@ -125,7 +138,7 @@ def update_pool_outcomes(
             for p in session.exec(
                 select(OpportunityPoolRow).where(OpportunityPoolRow.run_id.in_(candidate_ids), OpportunityPoolRow.listed == False)  # noqa: E712
             ).all():
-                pool_rows.setdefault(p.run_id, []).append(p)
+                pool_rows.setdefault(p.run_id, []).append(PoolItem(p.run_id, p.ticker, p.tier, p.assigned_list, _leveraged(p), p.sector, p.close))
         other_ids = [rid for rid in run_ids if rid not in set(candidate_ids)]
         if other_ids:  # runs with nothing left to do: their rows are all final, only the counts are needed for the report
             base_counts = list(
@@ -199,6 +212,11 @@ def update_pool_outcomes(
                 session.rollback()
             else:
                 session.commit()
+        # the chunk is written: release its row objects (the status tuples in `state` are all the report needs), so memory stays flat
+        for run, pool in work:
+            if pool.ticker in chunk:
+                for h in horizons:
+                    existing.pop((run.id, pool.ticker, h), None)
         del frames
 
     if result.failed and not dry_run:
@@ -213,7 +231,7 @@ def _update_one(
     existing: dict,
     complete_keys: set,
     run,
-    pool: OpportunityPoolRow,
+    pool: PoolItem,
     frame: pd.DataFrame | None,
     spy_bars: pd.DataFrame,
     sector_bars: dict[str, pd.DataFrame],
@@ -251,13 +269,12 @@ def _update_one(
         if row is None:
             values = values if values is not None else {"status": eng.PENDING}
             new = OpportunityPoolOutcome(
-                run_id=run.id, ticker=ticker, horizon=horizon, tier=pool.tier, assigned_list=pool.assigned_list, leveraged=_leveraged(pool),
+                run_id=run.id, ticker=ticker, horizon=horizon, tier=pool.tier, assigned_list=pool.assigned_list, leveraged=pool.leveraged,
                 provenance=PROVENANCE_LIVE, rules_version=run.rules_version, computed_at=now,
                 first_censored_at=ou._naive_utc(now) if values["status"] == eng.CENSORED else None, **values,
             )
             if not dry_run:
                 session.add(new)
-            existing[key] = new
             result.pool_seeded += 1
             state[key] = new.status
             continue
