@@ -1,10 +1,12 @@
 # Economic Moat
 
-Economic Moat is the simplest input in Fathom, and the only one that isn't computed from
+Economic Moat is the simplest input to the score in Fathom, and the only one that isn't computed from
 financial data at all: it's a rating **you set yourself**, based on your own judgment of whether
 the company has a durable competitive advantage — something that protects its profits from
-competitors over the long run (a strong brand, network effects, high switching costs, patents,
-scale advantages, and similar).
+competitors over the long run (a strong brand, network effects, high switching costs, barriers to
+entry, scale advantages, and similar; a patent or a technology alone is not a moat, only a layer
+on top of one of those). An optional, advisory **independent check** (see "The independent check"
+below) can be run beside your rating; it never sets or changes it.
 
 ## The three ratings
 
@@ -16,9 +18,11 @@ You choose one of three states from the Economic Moat tab:
   fend off competition indefinitely.
 - **Wide Moat** — a strong, durable advantage expected to hold up for a decade or more.
 
-There's no built-in checklist or scoring rubric behind these — Fathom doesn't attempt to compute
-a moat rating from financial data, and doesn't offer any automated suggestion for which one to
-pick. It's entirely your own qualitative assessment of the business.
+There's no built-in checklist or scoring rubric behind the rating you set — Fathom doesn't compute
+a moat rating from financial data and never fills one in for you. The rating that scores is
+entirely your own qualitative assessment of the business, and it may include your expectation of
+how long the advantage will last. (The independent check below uses a written rubric, but it is a
+separate, advisory reading: it can disagree with you and has no effect on any score.)
 
 ## Why it matters this much
 
@@ -51,8 +55,9 @@ ticker. You'll see a prompt asking you to confirm before it takes effect.
 
 ## Technical reference
 
-Unlike every other component of the Overall Assessment, Moat is not computed from any financial data at all — it's a manually-set,
-user-asserted classification, and its effect is a fixed multiplier per state.
+Unlike every other component of the Overall Assessment, the Moat rating that scores is not computed from any financial data at all — it's a
+manually-set, user-asserted classification (`TickerMoat`), and its effect is a fixed multiplier per state. Nothing computes it or can set it:
+the independent check described below is stored apart (`MoatCheck`), is read only by its own card, and has no write path to `TickerMoat`.
 
 ### Multipliers
 
@@ -99,6 +104,23 @@ unset ticker shows "Moat not rated, scored as No moat" on the Analysis card and 
 
 Selecting a rating shows a live preview immediately, but nothing is persisted until the user
 explicitly confirms — since doing so changes how Overall Assessment is scored for that ticker.
+
+## The independent check
+
+*Specified 2026-10-12; not built yet (docs/specs/moat-check.md, docs/decisions.md 2026-10-12).* On the Economic Moat tab, below the selector, a **Moat check**
+card shows an independent reading of the same question, run on demand with `/moat-check <ticker>` in Claude Code: two blind passes that never see your rating
+rate the moat from observed evidence only (market share, retention, price increases that held, the company's own margin history, over the last 3 years), under
+the written rubric in [Moat criteria](moat-criteria.md). The card shows the check's rating, whether it **agrees** or **differs** from yours, an evidence
+confidence, and the evidence behind it. A split between the two passes is shown as "Inconclusive", with no suggestion.
+
+- **It is advisory.** It never changes your rating, the multiplier, any score or any stored row, never triggers a recompute, and has no Apply button; running
+  it saves nothing to your rating, and your rating still changes only through the selector and its confirm step.
+- **Its tiers are not your definitions.** The check counts only what has been observed (a Wide needs a strong source with a cited fact, a reading that the
+  moat is working, and no observed damage); a possible future threat never lowers it, and it does not use "expected to hold up for a decade or more". Your
+  rating may reflect that expectation, so a difference is not an error in either.
+- **"Unverified by independent source"** appears when the proof that the moat is working comes from the company alone (its filings or calls); confidence is
+  then Low. It does not change the check's rating.
+- Every ticker shows "Not checked yet" until a check is run; there is no bulk import. ETFs and funds have no Moat and no check.
 
 ## ETFs
 

@@ -8,7 +8,7 @@ calculated completely separately.
 
 ## The Analysis tab: Overall Assessment
 
-The Analysis tab blends four automated checks into a **Fundamentals score**, then applies the manual **Economic Moat** rating as a
+The Analysis tab blends four automated checks into a **Fundamentals score**, then applies the manual **Economic Moat** rating (the one you set; the advisory independent Moat check never feeds the score) as a
 **multiplier** to give the **Overall Assessment** (redesign of 2026-10-07; docs/decisions.md):
 
 **Overall = Fundamentals score x Moat multiplier**
@@ -19,7 +19,7 @@ The Analysis tab blends four automated checks into a **Fundamentals score**, the
 | **Growth Rate** | Forward analyst growth expectations — see [Growth Rate](growth-rate.md) |
 | **Profitability** | Return on Equity, Return on Invested Capital, Accounts Receivable trend, and Cash Conversion Cycle — see [Profitability](profitability.md) |
 | **Debt** | Short-term liquidity, leverage, and debt service burden — see [Debt](debt.md) |
-| **Economic Moat** | A manual, judgment-based competitive-advantage rating you set yourself — a multiplier, not a blend component; see [Economic Moat](economic-moat.md) |
+| **Economic Moat** | A manual, judgment-based competitive-advantage rating you set yourself — a multiplier, not a blend component; see [Economic Moat](economic-moat.md). A separate, advisory independent check (not scored) is described in [Moat check](moat-check.md) |
 
 Each of the four automated cards produces its own score (0–100) and verdict (Fail, displayed "May not pass" / Pass /
 Strong Pass; the Debt card alone can also read "Pass, ratio in breach", the display word for its stored `Pass with caution` — see the
@@ -192,8 +192,9 @@ to "Pass" text (see [Growth Rate](growth-rate.md)).
 
 ## What happens if Economic Moat isn't set
 
-Economic Moat is the one manual, opt-in input. If you haven't set a Moat rating for a ticker yet, it is **scored as No moat**: the
-multiplier is 0.70, exactly as if you had rated it No Moat.
+Economic Moat is the one manual, opt-in input to the score. If you haven't set a Moat rating for a ticker yet, it is **scored as No moat**: the
+multiplier is 0.70, exactly as if you had rated it No Moat. The independent Moat check ([Moat check](moat-check.md)) does not change this: whether or not a
+check exists for the ticker, only the rating you set is used, and a check never fills in a missing rating.
 
 - The Overall score is the Fundamentals score x 0.70, and the verdict is read from that score like any other (there is no separate verdict
   for it). In practice an unrated ticker reads Fail.
@@ -201,7 +202,7 @@ multiplier is 0.70, exactly as if you had rated it No Moat.
   tooltip; the Watchlist Verdict pill carries it in its tooltip). The note shows only on a complete assessment.
 - An **incomplete** assessment (a check with missing data) stays incomplete: no score, no verdict, no note. ETFs have no Moat and no
   Overall, so they are unaffected.
-- Rating the ticker (Economic Moat tab) recomputes its stored row immediately (cache only).
+- Rating the ticker (Economic Moat tab) recomputes its stored row immediately (cache only). Running a Moat check does not.
 - This replaces the 2026-10-05 rule (an unrated ticker kept its steps-only score but could never read Pass: verdict "Moat not rated"),
   which is retired; and the old statement that leaving Moat unrated "does not penalize the number" no longer holds: unrated now costs 30%.
 

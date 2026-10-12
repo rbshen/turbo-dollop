@@ -1231,3 +1231,27 @@ Also decided: two text sets keyed by the Blue profile (the shortened "profiled" 
 
 **Not done:** applying the table to the real database and the first retroactive pricing (a reviewed step, because the dev server's `init_db()` creates any new model's table), any API, any UI.
 
+
+### 2026-10-12 — Independent Moat check: specified (docs only), advisory and read-only
+
+**Decision.** An on-demand **independent Moat check** (`/moat-check <ticker>` in Claude Code, a card on the Economic Moat tab) rates the moat from a written rubric and web research, blind to the rating you set, and the card says whether it **agrees** or **differs**. It is advisory: it never writes `TickerMoat`, never feeds the Moat multiplier or any score, never triggers a recompute, and calls no FMP. Specified in docs/specs/moat-check.md; criteria `moat-criteria-v5.2` in docs/specs/moat-criteria.md. This entry records the specification only: **no code, table, endpoint, command or card exists yet**. It is built in later, separately confirmed code phases. It qualifies, and does not reverse, the statements that the scoring rating is manual (the rating that scores is still only set by you, behind its confirm step).
+
+**The decisions (from the build-plan report, all taken as recommended):**
+1. **Proof the moat is working** = the `outcome_supporting_item` plus the other `outcome_evidence` items that support the reading; the facts behind the five source ratings do not count.
+2. **Independence.** Third-party data vendors (Euromonitor, Circana and similar) count as independent. Proof from the company alone sets `evidence_confidence` to Low and `proof_basis` to `company_reported_only`, and the card says "unverified by independent source". The v5.1 **independent-support rule is removed from the rating**: Wide on company-reported evidence stays Wide.
+3. **No `tag` field in v1.** The card computes "agrees" / "differs" from the check rating and the set rating; nothing in the check stores or assigns a reason.
+4. **A "contradicted" reading counts down from the tier the sources justify** (a strong source means Wide, so Narrow; a moderate source only means Narrow, so No Moat).
+5. **Wide needs at least one strong source with a cited fact**; the word "clear" is removed.
+6. **No hard-coded dates:** the run date, the 18-month stale cutoff and `checked_date` are set at run time; "last 3 years" is used throughout.
+7. **A management claim with no figure is not proof.** A company-reported number from a filing or an earnings call counts and sets the Low-confidence label.
+8. **Reconciliation lives in code, not in the prompt.** Passes agree: the card shows pass 1's detail. Passes split: status `inconclusive`, both passes shown, no suggestion, confidence Low.
+9. **One `MoatCheck` row per run (history kept); v1 is read-only:** no Apply button and no write endpoint.
+10. **`rule_effects` is dropped.** With the independent-support rule gone it only recorded the 18-month rule, whose effect is already visible in the `stale` flags and is noted in `evidence_note`; the `independent_support` key goes with its rule.
+
+**Choices made in the spec (not in the decision list; confirm or change).** The supplied margins in the data block are company-reported figures, so a reading supported only by margins reads Low and `company_reported_only`. At reconciliation `proof_basis` is `company_reported_only` if either pass says so. A ticker with no set rating shows "No set rating" and no agrees/differs. A "figure" is a number with the period or date it describes. Nothing is saved unless both passes validate. The table is `KEEP` in the ticker-data registry and is not in `MANUAL_DATA_MODELS`.
+
+**Why advisory.** The rating multiplies every Overall score (0.70 / 0.85 / 1.0), so it stays a decision you make behind a confirm step. The check exists to show where a documented, observed-evidence rubric differs from that judgment, not to replace it. The v5.1 test round (14 tickers, two blind passes each) showed the rubric is stable on most names and splits on others (PM and CAT read Wide on one pass and Narrow on the other), which is why a split is shown as "inconclusive" rather than averaged.
+
+**Doc changes made with it.** economic-moat.md (intro, rating descriptions, "no automated suggestion" and the technical-reference opening reworded; new "Independent check" section) and overview.md (the Moat wording in the Analysis-tab text and card table, and "What happens if Economic Moat isn't set") now say the rating that scores is manual and a separate advisory check exists. CLAUDE.md gets a docs-map line and a pointer.
+
+**Not changed:** scoring, `SCORE_FORMULA_VERSION`, `TickerMoat`, the Moat multipliers, any endpoint, the database, `crontab.txt`.
