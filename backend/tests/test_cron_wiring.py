@@ -232,3 +232,23 @@ def test_sector_industry_pe_runs_after_fundamentals_and_before_the_jobs_that_fol
     assert pe >= _daily_minute_of_day("pipeline.nightly_fundamentals_fetch") + 65
     assert pe + 5 <= _daily_minute_of_day("pipeline.nightly_price_target_snapshot")
     assert pe + 10 <= _daily_minute_of_day("pipeline.nightly_score_recompute")
+
+
+def test_the_outcome_updater_runs_after_the_backup_and_well_before_the_saturday_weekly_job():
+    """The updater (3:40) starts after the last job of the nightly chain, the backup, with room: the backup took 3:30-3:35 at worst over the
+    10 nights to 2026-10-12. It is a few seconds of work, and the Saturday weekly opportunity job (4:00) starts 20 minutes later."""
+    updater = _daily_minute_of_day("pipeline.opportunity_outcome_update")
+    assert updater >= _daily_minute_of_day("pipeline.backup_db") + 8
+    schedule = _crontab_schedule()
+    minute, hour, *_ = schedule["pipeline.weekly_opportunity_snapshot"]
+    assert int(hour) * 60 + int(minute) - updater >= 15
+
+
+def test_the_outcome_updater_is_a_daily_job_with_a_daily_cadence():
+    from core.cron_health import _DAILY_HOURS, _EXPECTED_CADENCE_HOURS
+
+    name = "pipeline.opportunity_outcome_update"
+    assert name in CRON_JOB_NAMES and name not in DISABLED_CRON_JOBS
+    assert _EXPECTED_CADENCE_HOURS[name] == _DAILY_HOURS == 36
+    assert _crontab_schedule()[name][2:] == ("*", "*", "*")
+

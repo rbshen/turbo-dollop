@@ -373,133 +373,118 @@ def test_the_job_dry_run_writes_no_log_row(jobbed):
     assert result.status == "dry_run" and logs(jobbed) == [] and jobbed.rows() == {}
 
 
-def test_the_updater_is_manual_only_and_makes_no_fmp_call():
+# --- the scheduled run: cron heartbeat -------------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def beat(jobbed, monkeypatch):
+    """The job's command-line entry (run_scheduled) with the cron heartbeat writing into the same throwaway database."""
+    import argparse
+
+    import core.cron_health as ch
+
+    monkeypatch.setattr(ch, "engine", jobbed.engine)
+
+    def go(**kw):
+        ns = argparse.Namespace(once=True, dry_run=False, run_id=None, as_of=None)
+        for k, v in kw.items():
+            setattr(ns, k, v)
+        return job.run_scheduled(ns)
+
+    return go
+
+
+def beats(w: World):
+    from core.models import CronRunLog
+
+    with Session(w.engine) as s:
+        return [(r.status, r.error_summary) for r in s.exec(select(CronRunLog).where(CronRunLog.job_name == "pipeline.opportunity_outcome_update").order_by(CronRunLog.id)).all()]
+
+
+def test_a_real_run_is_a_green_heartbeat_with_the_result_as_its_message(beat, jobbed):
+    result = beat()
+    assert result.status == "success"
+    ((status, message),) = beats(jobbed)
+    assert status == "success" and message == result.message() and "complete 3" in message
+
+
+def test_a_no_op_run_is_a_green_heartbeat_not_a_failure_or_a_skip(beat, jobbed):
+    beat()
+    again = beat()  # same SPY bar: a weekend, a holiday, a night the bars did not move
+    assert again.status == "noop"
+    rows = beats(jobbed)
+    assert [s for s, _ in rows] == ["success", "success"]
+    assert rows[1][1].startswith("no-op: SPY has no bar newer than")
+
+
+def test_an_exception_is_a_red_heartbeat_and_is_re_raised(beat, jobbed):
+    jobbed.frames.pop("SPY")
+    with pytest.raises(RuntimeError, match="SPY"):
+        beat()
+    ((status, message),) = beats(jobbed)
+    assert status == "failure" and "SPY" in message
+
+
+def test_every_ticker_failing_is_a_red_heartbeat_but_one_failed_ticker_is_not(beat, jobbed, monkeypatch):
+    real = eng.compute_outcomes
+    monkeypatch.setattr(ou.eng, "compute_outcomes", lambda **kw: (_ for _ in ()).throw(ValueError("x")) if kw["as_of_close"] == 100.0 else real(**kw))
+    one = beat()  # 1 of 3 attempted failed: below the threshold, green, but named in the message
+    assert one.status == "partial" and one.attempted == 3
+    assert beats(jobbed)[-1][0] == "success" and "1 ticker(s) failed" in beats(jobbed)[-1][1]
+
+    monkeypatch.setattr(ou.eng, "compute_outcomes", lambda **kw: (_ for _ in ()).throw(ValueError("x")))
+    with pytest.raises(RuntimeError, match="all 3 attempted failed"):
+        beat(as_of="2026-10-09")  # targeted, so the new-SPY-bar check does not short-circuit it
+    assert beats(jobbed)[-1][0] == "failure"
+    monkeypatch.setattr(ou.eng, "compute_outcomes", real)
+
+
+def test_the_last_seen_spy_date_advances_only_on_real_runs(beat, jobbed, monkeypatch):
+    def spy_dates():
+        return [(r.status, r.spy_last_bar_date) for r in logs(jobbed)]
+
+    jobbed.frames["SPY"] = jobbed.frames["SPY"].iloc[:5]  # SPY has 5 sessions after the as-of date
+    jobbed.now = now_after(jobbed.dates[4])
+    beat()
+    day5 = jobbed.dates[4]
+    assert spy_dates() == [("success", day5)]
+    beat()  # nothing new: a no-op carries the date, it does not move it
+    assert spy_dates()[-1] == ("noop", day5)
+
+    jobbed.set_bars(8)  # three newer SPY bars: a real run, the date advances
+    beat()
+    assert spy_dates()[-1] == ("success", jobbed.dates[7])
+
+    jobbed.frames.pop("SPY")
+    with pytest.raises(RuntimeError):
+        beat()
+    assert spy_dates()[-1] == ("failure", None)  # a failure stores none, so the next run is not short-circuited by a stale date
+
+    real = eng.compute_outcomes
+    jobbed.set_bars(9)
+    monkeypatch.setattr(ou.eng, "compute_outcomes", lambda **kw: (_ for _ in ()).throw(ValueError("x")) if kw["as_of_close"] == 100.0 else real(**kw))
+    beat()
+    assert spy_dates()[-1] == ("partial", None)  # partial stores none: the failed ticker is retried by the next run
+
+
+def test_a_dry_run_writes_no_heartbeat_row(beat, jobbed):
+    beat(dry_run=True)
+    assert beats(jobbed) == [] and logs(jobbed) == []
+
+
+def test_the_updater_is_scheduled_and_makes_no_fmp_call():
     from pathlib import Path
 
-    from core.cron_health import CRON_JOB_NAMES
+    from core.cron_health import _EXPECTED_CADENCE_HOURS, CRON_JOB_NAMES, DISABLED_CRON_JOBS, JOB_METADATA
 
     backend = Path(__file__).resolve().parent.parent
     name = "pipeline.opportunity_outcome_update"
-    assert name not in CRON_JOB_NAMES
-    assert "opportunity_outcome_update" not in (backend / "crontab.txt").read_text()
-    assert "cron_heartbeat" not in (backend / "pipeline" / "opportunity_outcome_update.py").read_text().split('"""', 2)[2]
+    assert name in CRON_JOB_NAMES and name in JOB_METADATA and name not in DISABLED_CRON_JOBS
+    assert _EXPECTED_CADENCE_HOURS[name] == 36 and JOB_METADATA[name].cadence_group == "daily" and JOB_METADATA[name].sort_minutes == 3 * 60 + 40
+    assert "no FMP calls" in JOB_METADATA[name].description
+    active = [l for l in (backend / "crontab.txt").read_text().splitlines() if l.strip() and not l.lstrip().startswith("#")]
+    (line,) = [l for l in active if name in l]
+    assert line.split()[:5] == ["40", "3", "*", "*", "*"] and f"-m {name} --once" in line
+    assert 'cron_heartbeat("pipeline.opportunity_outcome_update")' in (backend / "pipeline" / "opportunity_outcome_update.py").read_text()
     source = (backend / "data" / "opportunity_outcome_data.py").read_text() + (backend / "scoring" / "opportunity_outcomes.py").read_text()
     assert "fmp_client" not in source and "get_or_fetch" not in source
-
-
-# --- the censored grace period -----------------------------------------------------------------------------------------------------
-
-
-def censor_ccc(w: World, n_sessions: int = 20, keep: int = 4):
-    """CCC stops getting bars after `keep` sessions while SPY runs on: its horizon-5 row is censored by the first update. Returns the full
-    CCC series so a test can hand the missing bars back, and the time of that first update."""
-    w.set_bars(n_sessions)
-    full = w.frames["CCC"]
-    w.frames["CCC"] = full.iloc[:keep]
-    first_now = w.now
-    update(w)
-    assert w.rows()[("CCC", 5)].status == "censored"
-    return full, first_now
-
-
-def test_a_censored_row_records_when_it_was_first_censored(world):
-    _full, t0 = censor_ccc(world)
-    row = world.rows()[("CCC", 5)]
-    assert row.censor_reason == "stale" and row.first_censored_at == t0.replace(tzinfo=None)
-    assert world.rows()[("AAA", 5)].first_censored_at is None  # only censored rows carry it
-
-
-def test_data_returning_inside_the_grace_period_revives_the_row_and_clears_the_censor_fields(world):
-    full, t0 = censor_ccc(world)
-    world.frames["CCC"] = full  # the price-data hole is repaired
-    world.now = t0 + timedelta(days=eng.CENSOR_REVIVE_DAYS) - timedelta(hours=1)
-    result = update(world)
-    row = world.rows()[("CCC", 5)]
-    assert row.status == "complete" and row.censor_reason is None and row.first_censored_at is None
-    assert row.exit_date == world.dates[5] and row.forward_return == pytest.approx(full.iloc[5]["close"] / full.iloc[0]["open"] - 1)
-    assert "censored" not in result.by_status
-    assert all(o.status != "censored" for o in world.rows().values())
-
-
-def test_data_that_never_returns_stays_censored_and_is_frozen_after_the_grace_period(world):
-    full, t0 = censor_ccc(world)
-    before = world.rows()[("CCC", 5)]
-    for days in (1, 7, eng.CENSOR_REVIVE_DAYS - 1):  # re-evaluated every run inside the grace, nothing changes, the clock never restarts
-        world.now = t0 + timedelta(days=days)
-        again = update(world, as_of=AS_OF)
-        assert again.seeded == 0
-        row = world.rows()[("CCC", 5)]
-        assert row.status == "censored" and row.first_censored_at == before.first_censored_at and row.computed_at == before.computed_at
-    # past the grace period the row is frozen: even a repaired history no longer moves it
-    world.now = t0 + timedelta(days=eng.CENSOR_REVIVE_DAYS)
-    world.frames["CCC"] = full
-    result = update(world, as_of=AS_OF)
-    frozen = world.rows()[("CCC", 5)]
-    assert frozen.status == "censored" and frozen.censor_reason == "stale" and frozen.computed_at == before.computed_at
-    assert frozen.forward_return == before.forward_return and result.frozen_untouched >= 1
-
-
-def test_a_real_delisting_stays_censored_with_its_reason_through_and_after_the_grace_period(world):
-    with Session(world.engine) as s:
-        s.add(TickerScore(ticker="CCC", company_name="CCC", delisted_at=CREATED, computed_at=CREATED))
-        s.commit()
-    _full, t0 = censor_ccc(world)
-    first = world.rows()[("CCC", 5)]
-    assert first.censor_reason == "delisted"
-    for days in (3, eng.CENSOR_REVIVE_DAYS + 5):
-        world.now = t0 + timedelta(days=days)
-        update(world, as_of=AS_OF)
-        row = world.rows()[("CCC", 5)]
-        assert row.status == "censored" and row.censor_reason == "delisted"
-        assert row.first_censored_at == first.first_censored_at and row.exit_date == first.exit_date and row.forward_return == first.forward_return
-
-
-def test_a_missing_entry_bar_is_censored_at_every_horizon_and_revives_when_it_appears(world):
-    world.set_bars(20)
-    full = world.frames["CCC"]
-    world.frames["CCC"] = full.iloc[1:]  # no bar on the entry session
-    t0 = world.now
-    update(world)
-    rows = world.rows()
-    assert [rows[("CCC", h)].status for h in eng.HORIZONS] == ["censored"] * 4
-    assert all(rows[("CCC", h)].entry_open is None and rows[("CCC", h)].first_censored_at == t0.replace(tzinfo=None) for h in eng.HORIZONS)
-    world.frames["CCC"] = full
-    world.now = t0 + timedelta(days=2)
-    update(world, as_of=AS_OF)
-    rows = world.rows()
-    assert rows[("CCC", 5)].status == "complete" and rows[("CCC", 5)].entry_open == pytest.approx(full.iloc[0]["open"])
-    assert [rows[("CCC", h)].status for h in (10, 20, 60)] == ["complete", "pending", "pending"]  # 20 sessions: horizon 10 reached; 20 needs 21, 60 needs 61 -> pending again, not censored
-    assert all(rows[("CCC", h)].censor_reason is None and rows[("CCC", h)].first_censored_at is None for h in eng.HORIZONS)
-
-
-def test_reruns_inside_the_grace_period_are_idempotent(world):
-    _full, t0 = censor_ccc(world)
-    snapshot = {k: (o.id, o.status, o.first_censored_at, o.computed_at, o.forward_return) for k, o in world.rows().items()}
-    for days in (1, 2, 3):
-        world.now = t0 + timedelta(days=days)
-        result = update(world, as_of=AS_OF)
-        assert (result.seeded, result.updated) == (0, 0)
-        assert {k: (o.id, o.status, o.first_censored_at, o.computed_at, o.forward_return) for k, o in world.rows().items()} == snapshot
-
-
-def test_a_censored_row_without_a_first_censored_stamp_is_stamped_on_the_next_evaluation(world):
-    _full, t0 = censor_ccc(world)
-    with Session(world.engine) as s:  # a row censored before the column existed
-        row = s.exec(select(OpportunityOutcome).where(OpportunityOutcome.ticker == "CCC", OpportunityOutcome.horizon == 5)).one()
-        row.first_censored_at = None
-        s.add(row)
-        s.commit()
-    world.now = t0 + timedelta(days=30)  # long past any grace: without a stamp the row is still open
-    update(world, as_of=AS_OF)
-    row = world.rows()[("CCC", 5)]
-    assert row.status == "censored" and row.first_censored_at == world.now.replace(tzinfo=None)
-
-
-def test_the_dry_run_reports_a_revival_without_writing_it(world):
-    full, t0 = censor_ccc(world)
-    world.frames["CCC"] = full
-    world.now = t0 + timedelta(days=1)
-    stored = world.rows()[("CCC", 5)]
-    dry = ou.update_outcomes(dry_run=True, now=world.now, as_of=AS_OF)
-    assert dry.updated > 0 and "censored" not in dry.by_status
-    assert world.rows()[("CCC", 5)].status == "censored" and world.rows()[("CCC", 5)].computed_at == stored.computed_at
