@@ -587,7 +587,7 @@ def test_the_flag_tables_are_in_the_nightly_backup(tmp_path):
     conn.close()
 
 
-def test_the_job_is_registered_unscheduled_and_planned_between_the_updater_and_the_saturday_job():
+def test_the_job_is_registered_and_scheduled_between_the_updater_and_the_saturday_job():
     from pathlib import Path
 
     from core.cron_health import _EXPECTED_CADENCE_HOURS, CRON_JOB_NAMES, DISABLED_CRON_JOBS, JOB_METADATA
@@ -599,9 +599,9 @@ def test_the_job_is_registered_unscheduled_and_planned_between_the_updater_and_t
     updater = JOB_METADATA["pipeline.opportunity_outcome_update"].sort_minutes
     weekly = JOB_METADATA["pipeline.weekly_opportunity_snapshot"].sort_minutes
     assert JOB_METADATA[name].sort_minutes == 3 * 60 + 45 and updater + 5 <= JOB_METADATA[name].sort_minutes and JOB_METADATA[name].sort_minutes + 15 <= weekly
-    # built and run by hand: listed as disabled and absent from crontab.txt (the wiring test requires both together)
-    assert name in DISABLED_CRON_JOBS
-    assert name not in (backend / "crontab.txt").read_text()
+    # scheduled 2026-10-12: not disabled, and its line is in crontab.txt (the wiring test requires both together)
+    assert name not in DISABLED_CRON_JOBS
+    assert "45 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.opportunity_daily_flags --once" in (backend / "crontab.txt").read_text()
     assert 'cron_heartbeat("pipeline.opportunity_daily_flags")' in (backend / "pipeline" / "opportunity_daily_flags.py").read_text()
 
 
