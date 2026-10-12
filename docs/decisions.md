@@ -1192,3 +1192,22 @@ Also decided: two text sets keyed by the Blue profile (the shortened "profiled" 
 
 **Heartbeat.** A no-op ("SPY has no bar newer than ...") is a green success, so weekends and holidays do not alarm; an exception or ticker failures past `check_failure_threshold` are red; a few failed tickers stay green and are named in the message (`partial`). A dry run writes no heartbeat. The SPY date the no-op rule reads still advances only on real runs (a no-op carries it, a failure or a partial run stores none, so the next run retries).
 
+### 2026-10-12 — Opportunity daily flags (Phase 2b v1): built, not scheduled
+
+**Decision.** A daily routine on the frozen lists, from stored data only (no FMP, no LLM): `pipeline/opportunity_daily_flags.py` flags the names of the **latest** weekly run with three triggers, stored in three new insert-only KEEP tables (`OpportunityDailyFlag`, `OpportunityDailyRun`, `OpportunityFlagOutcome`). The outcome updater prices the flag outcomes too. Built, tested and run by hand; **not in `crontab.txt`** (scheduling is a separate step; it is listed in `DISABLED_CRON_JOBS`, planned slot 03:45 UTC). Mechanism, tables, the exact steps to schedule it: `docs/specs/opportunities.md`, "Daily flags (Phase 2b v1)".
+
+**The eight decisions (from the Phase 2b investigation, all taken as recommended):**
+1. **Watch window and cohort:** only the latest weekly run's listed rows; a flag attaches to the latest run with as-of before the flag session and listing the ticker; one flag per `(list_as_of_date, ticker, trigger_id)`. Friday's own signals never count against the list built as of Friday.
+2. **Trigger set (three, each with a versioned id and `TRIGGERS_VERSION`, separate from the list `RULES_VERSION`):** `D1.entry_event.v1` (stored Warren/BB+RSI up-signal events after the list date, knowable by `created_at`; Reversal and `deep_pullback` Momentum names; covered names only), `D2.stage_upgrade.v1` (stage up vs the frozen list-row stage; Reversal only), `D3.pullback_to_ma.v1` (`vs_ma_pct <= 5` in an Advance, MA slope and RS positive; Momentum only).
+3. **Storage:** separate flag, run and flag-outcome tables; `OpportunityPick`, its key and `OpportunityOutcome` unchanged. The existing updater prices the flag outcomes with the same engine, the flag session as the as-of date.
+4. **Phase 2c (closing the coverage gap) deferred:** names off the monitored lists are stored as *not covered* for D1, never as "no flag".
+5. **Pullback threshold 5%,** fixed and versioned (4 of 55 Momentum rows qualified on the first list).
+6. **Slot:** 03:45 UTC as its own job with its own heartbeat (after the 03:40 updater, 15 minutes before the Saturday weekly job).
+7. **Picks:** no key change; the scorecard joins through `list_as_of_date` and compares `picked_at` with the flag's `observed_at`.
+8. **Pool:** no flags for the pool (a baseline can be computed on the fly in the scorecard later).
+
+**Choices made in the build.** D3 is the literal condition, not a crossing; a name already within 5% on the list date flags the first night and carries `already_at_ma_on_list` in its frozen inputs. D2/D3 read `TrendAnalysis` (latest row only), so they are judged only on the newest completed session and every skipped session is a recorded gap, while D1 catches up over missed sessions. "Incomplete" (an upstream job of that night not successful, no final bar for the session, a stale stage row, a bars read failure) is stored with its reason and is not "no flag" and not a failure of the job. The job's no-op test uses its own last-seen SPY date, not the outcome updater's. A registered-but-unscheduled job is expressed with the existing `DISABLED_CRON_JOBS` mechanism, so the wiring tests need no exception.
+
+**Deferred:** breakout from a base, a daily-bar RSI pivot-low, liquidity-zone and MA-reclaim triggers, invalidation flags, Phase 2c, flags for the pool, picks tied to a flag, UI/API/scorecard.
+
+**Not changed:** the weekly rules, `RULES_VERSION`, B3, the lists, `OpportunityPick`, `OpportunityOutcome`, `SCORE_FORMULA_VERSION`, any FMP use, `crontab.txt`.
