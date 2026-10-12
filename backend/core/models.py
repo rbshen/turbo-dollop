@@ -1617,3 +1617,98 @@ class OpportunityOutcomeRun(SQLModel, table=True):
     spy_last_bar_date: date | None = None
     message: str = ""
     summary_json: str = "{}"
+
+
+class OpportunityDailyFlag(SQLModel, table=True):
+    """One daily FLAG on a name of the latest weekly opportunity list (Phase 2b v1; pipeline/opportunity_daily_flags.py, orchestration
+    data/opportunity_daily_data.py, pure triggers scoring/opportunity_triggers.py). Insert-only and never rebuilt: the inputs are FROZEN
+    as observed on `flag_date` (TrendAnalysis and the signal tables are overwritten or re-derived later). Unique on
+    (list_as_of_date, ticker, trigger_id): a name flags a trigger at most once per weekly list, the FIRST session it qualified.
+
+    `list_as_of_date` is the as-of date of the weekly run the flag attaches to (the latest run with as_of BEFORE `flag_date`, listing the
+    ticker), the same key space as OpportunityPick, so picks, snapshot rows and outcomes join through it plus OpportunityRun.kind =
+    'weekly'. `flag_date` is the SESSION the trigger fired on (entry is the next session's open); `observed_at` is when the job
+    wrote it (the knowable-at time a pick is compared with). `trigger_version` is TRIGGERS_VERSION, separate from the list RULES_VERSION.
+    "Not covered" and "incomplete" names are NOT rows here: they are in OpportunityDailyRun. Spec: docs/specs/opportunities.md,
+    "Daily flags (Phase 2b v1)"."""
+
+    __table_args__ = (UniqueConstraint("list_as_of_date", "ticker", "trigger_id", name="uq_opportunity_daily_flag"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    list_as_of_date: date = Field(index=True)
+    ticker: str = Field(index=True)
+    trigger_id: str  # e.g. "D1.entry_event.v1"
+    trigger_version: str
+    list_name: str  # "momentum" | "reversal": the list the ticker was on in that weekly run
+    tier: str  # "quality" | "momentum_only" | "etf"
+    flag_date: date = Field(index=True)
+    observed_at: datetime
+    close: float | None = None  # the flag session's close (the "as-of close" the flag outcome's entry gap is measured against)
+    sector: str | None = None
+    inputs_json: str = "{}"  # the frozen evidence: the list row's own figures and what the trigger saw
+
+
+class OpportunityDailyRun(SQLModel, table=True):
+    """One row per real night of the daily flag job (a dry run writes nothing): which session it looked at, the SPY bar it saw
+    (the next run is a no-op unless SPY has a newer one), what the upstream jobs did, and the three things a scorecard needs to keep its
+    denominator honest: `not_covered_json` (names the signal jobs do not run for: NOT 'no flag'), `incomplete_json` (a trigger that could
+    not be evaluated for a name tonight, with the reason: also NOT 'no flag') and `gaps_json` (sessions skipped that a state-based trigger
+    cannot catch up). Insert-only. Spec: docs/specs/opportunities.md, "Daily flags (Phase 2b v1)"."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    started_at: datetime
+    finished_at: datetime | None = None
+    status: str  # "running" | "success" | "noop" | "failure"
+    session_date: date | None = None  # the latest session evaluated
+    spy_last_bar_date: date | None = None
+    list_as_of_date: date | None = None  # the weekly list the latest session was judged against
+    sessions_json: str = "[]"  # every session this run evaluated (more than one = a catch-up)
+    upstream_json: str = "{}"  # {session: {job: status}}
+    watched: int = 0
+    flags_created: int = 0
+    not_covered_json: str = "{}"  # {trigger_id: [tickers]}
+    incomplete_json: str = "{}"  # {trigger_id: {ticker: reason}}
+    gaps_json: str = "[]"
+    message: str = ""
+    summary_json: str = "{}"
+
+
+class OpportunityFlagOutcome(SQLModel, table=True):
+    """How one OpportunityDailyFlag did over one horizon (5/10/20/60 bars): the flag-keyed twin of OpportunityOutcome, priced by the
+    SAME updater (pipeline/opportunity_outcome_update.py) with the SAME pure engine (scoring/opportunity_outcomes.py::compute_outcomes)
+    using the flag session as the as-of date, so the conventions are identical: entry is the next session's OPEN, exit the Nth bar's
+    CLOSE, price-only, a 10% intraday stop recorded beside the buy-and-hold return, SPY and sector-ETF benchmarks, the 14-day censor grace.
+    Unique on (flag_id, horizon); the ticker, trigger and flag date are copied on for joins. Never touches OpportunityOutcome."""
+
+    __table_args__ = (UniqueConstraint("flag_id", "horizon", name="uq_opportunity_flag_outcome"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    flag_id: int = Field(index=True)
+    ticker: str = Field(index=True)
+    trigger_id: str
+    flag_date: date
+    horizon: int
+    status: str  # "pending" | "complete" | "censored"
+    censor_reason: str | None = None
+    entry_date: date | None = None
+    entry_open: float | None = None
+    exit_date: date | None = None
+    exit_close: float | None = None
+    forward_return: float | None = None
+    spy_return: float | None = None
+    excess_vs_spy: float | None = None
+    sector_etf: str | None = None
+    sector_return: float | None = None
+    excess_vs_sector: float | None = None
+    worst_move: float | None = None
+    best_move: float | None = None
+    max_drawdown: float | None = None
+    stop_hit: bool = False
+    stop_date: date | None = None
+    stop_fill_return: float | None = None
+    entry_gap_pct: float | None = None
+    entry_gap_flag: bool = False
+    provenance: str = "live"
+    trigger_version: str
+    computed_at: datetime
+    first_censored_at: datetime | None = None

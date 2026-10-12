@@ -10,7 +10,7 @@ Three classes:
   PROTECTING  rows DEFINE a protection (index membership, watchlist entry, user-entered data). Never deleted by the
               wipe; a ticker with any such row is never a candidate.
   KEEP        has a per-ticker key but is not the wipe's to touch (shared, keyed by seeds only, or frozen history such as the
-              weekly opportunity lists). A KEEP table with no ticker column (`opportunityrun`, `opportunityoutcomerun`) is in `KEEP_NON_TICKER_TABLES`.
+              weekly opportunity lists). A KEEP table with no ticker column (`opportunityrun`, `opportunityoutcomerun`, `opportunitydailyrun`) is in `KEEP_NON_TICKER_TABLES`.
 
 `newssentimentcache` has no SQLModel class: it is a leftover of the Alpha Vantage News-Sentiment feature (added in
 68dc559, removed entirely in c81e9b6, which deleted the model but not the live table, 3 rows). It is registered here
@@ -44,6 +44,9 @@ from core.models import (
     LongHistoryBars,
     MomentumSnapshot,
     NewsCache,
+    OpportunityDailyFlag,
+    OpportunityDailyRun,
+    OpportunityFlagOutcome,
     OpportunityOutcome,
     OpportunityOutcomeRun,
     OpportunityPick,
@@ -186,6 +189,16 @@ _ORDERED: tuple[TickerTable, ...] = (
         TableClass.KEEP,
         "forward outcomes of listed opportunity rows (5/10/20/60 bars; a wiped ticker's bars could not rebuild them)",
     ),
+    _t(
+        OpportunityDailyFlag,
+        TableClass.KEEP,
+        "daily flags on the latest weekly opportunity list (frozen evidence as observed; insert-only history that cannot be re-created)",
+    ),
+    _t(
+        OpportunityFlagOutcome,
+        TableClass.KEEP,
+        "forward outcomes of daily opportunity flags (5/10/20/60 bars; a wiped ticker's bars could not rebuild them)",
+    ),
     _t(OpportunityPick, TableClass.KEEP, "names the user picked from an opportunity run (owner-entered history; insert-only)"),
 )
 
@@ -194,6 +207,7 @@ _ORDERED: tuple[TickerTable, ...] = (
 KEEP_NON_TICKER_TABLES: dict[str, str] = {
     OpportunityRun.__tablename__: "the weekly opportunity run header (rules hash, as-of date, summary); parent of opportunitysnapshotrow",
     OpportunityOutcomeRun.__tablename__: "one row per run of the opportunity outcome updater (heartbeat-style result and the SPY bar it saw)",
+    OpportunityDailyRun.__tablename__: "one row per night of the daily flag job (session, SPY bar seen, upstream status, not-covered / incomplete / gaps)",
 }
 
 REGISTRY: dict[str, TickerTable] = {entry.name: entry for entry in _ORDERED}
