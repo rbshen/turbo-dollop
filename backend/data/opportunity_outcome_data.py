@@ -95,6 +95,12 @@ class UpdateResult:
     flag_updated: int = 0
     flag_by_status: dict[str, dict[int, int]] = field(default_factory=dict)
     flag_stops: int = 0
+    # The pool's slim outcome rows (OpportunityPoolOutcome, unlisted pool names), priced in the same invocation by data/opportunity_pool_outcome_data.py.
+    # All zero / empty when no run has an unlisted pool, and then the message below is exactly what it always was.
+    pool_rows: int = 0  # unlisted pool names tracked (summed over the targeted runs)
+    pool_seeded: int = 0
+    pool_updated: int = 0
+    pool_by_status: dict[str, dict[int, int]] = field(default_factory=dict)
 
     def message(self) -> str:
         if self.status == "noop":
@@ -111,6 +117,12 @@ class UpdateResult:
             text += (
                 f"; flag outcomes: {self.flag_rows} flag(s), complete {flag_counts.get(eng.COMPLETE, 0)}, pending {flag_counts.get(eng.PENDING, 0)}, "
                 f"censored {flag_counts.get(eng.CENSORED, 0)}, stops {self.flag_stops}; {self.flag_seeded} created, {self.flag_updated} updated"
+            )
+        if self.pool_rows:
+            pool_counts = {s: sum(h.values()) for s, h in self.pool_by_status.items()}
+            text += (
+                f"; pool outcomes: {self.pool_rows} name(s), complete {pool_counts.get(eng.COMPLETE, 0)}, pending {pool_counts.get(eng.PENDING, 0)}, "
+                f"censored {pool_counts.get(eng.CENSORED, 0)}; {self.pool_seeded} created, {self.pool_updated} updated"
             )
         return text
 
@@ -405,5 +417,12 @@ def summary_of(result: UpdateResult) -> dict:
             "stops": result.flag_stops,
             "seeded": result.flag_seeded,
             "updated": result.flag_updated,
+        }
+    if result.pool_rows:  # the pool's slim outcomes, only when a run has an unlisted pool
+        out["pool"] = {
+            "pool_rows": result.pool_rows,
+            "by_status": {s: {str(h): n for h, n in hs.items()} for s, hs in result.pool_by_status.items()},
+            "seeded": result.pool_seeded,
+            "updated": result.pool_updated,
         }
     return out

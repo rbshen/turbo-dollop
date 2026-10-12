@@ -35,6 +35,7 @@ from core.models import (
     MarketBreadthSnapshot,
     OpportunityOutcome,
     OpportunityPick,
+    OpportunityPoolOutcome,
     OpportunityPoolRow,
     OpportunityRun,
     OpportunitySnapshotRow,
@@ -527,7 +528,7 @@ def existing_run_id(as_of: date, kind: str = KIND_WEEKLY) -> int | None:
 
 def persist_run(computed: ComputedRun, force: bool = False, kind: str = KIND_WEEKLY, now: datetime | None = None) -> dict:
     """Inserts the run and its rows. A run for (kind, as_of) that already exists is a no-op (`{"status": "exists"}`) unless
-    `force`, which deletes that run and the rows keyed by its run id (snapshot rows, pool rows, outcome rows) and inserts the new ones
+    `force`, which deletes that run and the rows keyed by its run id (snapshot rows, pool rows, outcome rows, pool outcome rows) and inserts the new ones
     in ONE transaction (nothing is left half-replaced if anything fails). The pool is written in that same transaction. Picks are
     NEVER deleted: they are keyed by (as_of_date, ticker), not by run id, so they outlive the rebuilt run. The deleted counts come
     back as `deleted`. Nothing else is ever written or updated."""
@@ -544,6 +545,7 @@ def persist_run(computed: ComputedRun, force: bool = False, kind: str = KIND_WEE
                     ("snapshot_rows", OpportunitySnapshotRow),
                     ("pool_rows", OpportunityPoolRow),
                     ("outcome_rows", OpportunityOutcome),
+                    ("pool_outcome_rows", OpportunityPoolOutcome),
                 ):
                     deleted[label] = session.exec(delete(model).where(model.run_id == existing.id)).rowcount
                 session.exec(delete(OpportunityRun).where(OpportunityRun.id == existing.id))
