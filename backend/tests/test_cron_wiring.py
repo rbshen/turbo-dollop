@@ -165,10 +165,17 @@ def test_no_two_daily_jobs_share_a_minute():
         seen[key] = module
 
 
+_SATURDAY_JOBS = {"pipeline.weekly_opportunity_snapshot"}
+
+
 def _weekly_minutes() -> dict[str, int]:
-    """module -> minute-of-day, for every job scheduled on a single weekday (the weekly block)."""
+    """module -> minute-of-day, for every job in the Sunday block. The one weekly job NOT in it is the Saturday 4:00 AM opportunity
+    snapshot (`_SATURDAY_JOBS`), which runs after the whole nightly chain and the backup; any other weekday is a mistake."""
     out = {}
     for module, (minute, hour, dom, month, dow) in _crontab_schedule().items():
+        if module in _SATURDAY_JOBS:
+            assert (dom, month, dow) == ("*", "*", "6"), f"{module}: expected Saturday (dow 6), got {dow!r}"
+            continue
         if dow != "*":
             assert (dom, month, dow) == ("*", "*", "0"), f"{module}: weekly jobs are expected on Sunday (dow 0), got {dow!r}"
             out[module] = int(hour) * 60 + int(minute)

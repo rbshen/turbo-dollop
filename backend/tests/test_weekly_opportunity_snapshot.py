@@ -1,14 +1,14 @@
 """pipeline/weekly_opportunity_snapshot.py: the entry point's flow (no-op rerun, --force, --dry-run), its heartbeat message, and
 that the job is registered but NOT scheduled."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
 
 import pipeline.weekly_opportunity_snapshot as job
 from core.cron_health import CRON_JOB_NAMES, DISABLED_CRON_JOBS, JOB_METADATA
-from data.opportunity_data import ComputedRun
+from data.opportunity_data import ComputedRun, latest_completed_session
 
 AS_OF = date(2026, 10, 9)
 BACKEND = Path(__file__).resolve().parent.parent
@@ -67,14 +67,60 @@ def test_the_default_as_of_is_the_last_completed_session(monkeypatch):
     assert seen == [AS_OF]
 
 
-def test_the_job_is_registered_but_disabled_and_not_in_the_crontab():
+def test_the_job_is_registered_enabled_and_scheduled_saturday_4am():
+    from core.cron_health import _EXPECTED_CADENCE_HOURS, _WEEKLY_HOURS
+
     name = "pipeline.weekly_opportunity_snapshot"
-    assert name in CRON_JOB_NAMES and name in JOB_METADATA and name in DISABLED_CRON_JOBS
+    assert name in CRON_JOB_NAMES and name in JOB_METADATA and name not in DISABLED_CRON_JOBS
+    assert JOB_METADATA[name].cadence_group == "weekly" and JOB_METADATA[name].sort_minutes == 4 * 60
+    # a weekly job is overdue after 8 days (one missed Saturday plus a day of slack), not the 36 hours of a daily one
+    assert _EXPECTED_CADENCE_HOURS[name] == _WEEKLY_HOURS == 24 * 8
     active = [l for l in (BACKEND / "crontab.txt").read_text().splitlines() if l.strip() and not l.lstrip().startswith("#")]
-    assert not [l for l in active if "weekly_opportunity_snapshot" in l]
+    (line,) = [l for l in active if "weekly_opportunity_snapshot" in l]
+    assert line.split()[:5] == ["0", "4", "*", "*", "6"]
+    assert "-m pipeline.weekly_opportunity_snapshot" in line
     assert '"pipeline.weekly_opportunity_snapshot"' in (BACKEND / "pipeline" / "weekly_opportunity_snapshot.py").read_text()
+
+
+def test_the_weekly_run_comes_after_the_backup_and_the_nightly_chain():
+    import re
+
+    schedule = {}
+    for line in (BACKEND / "crontab.txt").read_text().splitlines():
+        m = re.search(r"-m ([\w.]+)", line)
+        if line.strip() and not line.lstrip().startswith("#") and m:
+            schedule[m.group(1)] = line.split()[:5]
+    minute, hour, _dom, _month, dow = schedule["pipeline.weekly_opportunity_snapshot"]
+    backup_minute, backup_hour, *_ = schedule["pipeline.backup_db"]
+    assert dow == "6" and int(hour) * 60 + int(minute) > int(backup_hour) * 60 + int(backup_minute)
 
 
 def test_the_job_makes_no_fmp_call_and_imports_no_client():
     source = (BACKEND / "data" / "opportunity_data.py").read_text() + (BACKEND / "pipeline" / "weekly_opportunity_snapshot.py").read_text()
     assert "fmp_client" not in source and "get_or_fetch" not in source and "get_or_fetch_bars_batch" not in source
+
+
+# --- the as-of date on the scheduled run (Saturday 04:00 server time, which is UTC) -----------------------------------------
+
+
+@pytest.mark.parametrize("run_at_utc, expected, why", [
+    (datetime(2026, 10, 10, 4, 0, tzinfo=timezone.utc), date(2026, 10, 9), "an ordinary week: Saturday -> Friday's close (EDT, 00:00 ET)"),
+    (datetime(2027, 1, 9, 4, 0, tzinfo=timezone.utc), date(2027, 1, 8), "winter: 23:00 ET on Friday evening, still after the close"),
+    (datetime(2027, 3, 27, 4, 0, tzinfo=timezone.utc), date(2027, 3, 25), "Good Friday (NYSE closed 2027-03-26): Thursday"),
+    (datetime(2026, 7, 4, 4, 0, tzinfo=timezone.utc), date(2026, 7, 2), "Friday 2026-07-03 is the observed Independence Day holiday: Thursday"),
+    (datetime(2026, 11, 28, 4, 0, tzinfo=timezone.utc), date(2026, 11, 27), "day after Thanksgiving closes at 13:00: that Friday counts"),
+])
+def test_a_saturday_run_resolves_to_the_last_completed_session(run_at_utc, expected, why):
+    assert latest_completed_session(run_at_utc) == expected, why
+
+
+def test_the_default_as_of_of_the_job_is_that_same_resolution(monkeypatch):
+    """main() with no --as-of asks latest_completed_session() (no reference: now); pinned here by freezing that call's clock."""
+    import data.opportunity_data as od
+
+    seen = []
+    real = od._most_recent_completed_trading_date
+    monkeypatch.setattr(od, "_most_recent_completed_trading_date", lambda reference=None: seen.append(reference) or real(datetime(2027, 3, 27, 4, 0, tzinfo=timezone.utc)))
+    monkeypatch.setattr(job, "existing_run_id", lambda as_of: seen.append(as_of) or 1)
+    job.main()
+    assert seen[-1] == date(2027, 3, 25)

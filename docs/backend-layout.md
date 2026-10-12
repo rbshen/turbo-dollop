@@ -57,7 +57,7 @@ backend/     FastAPI app, organized into packages by role:
                registered 2026-10-03, see docs/specs/etf-screener.md),
                monthly_momentum_snapshot.py, recompute_ticker_scores.py,
                weekly_opportunity_snapshot.py (the weekly Momentum / Reversal lists,
-               built but not scheduled, see docs/specs/opportunities.md),
+               Saturdays 04:00 UTC, see docs/specs/opportunities.md),
                tracked_universe_report.py (read-only universe report),
                audit_fixture_contamination.py, refresh.py, prune_cache.py,
                backup_db.py, rotate_logs.py, stale_data_health_check.py --

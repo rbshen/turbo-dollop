@@ -2,8 +2,7 @@
 
 Built 2026-10-11 (phase 1b). Two frozen lists, **Momentum** and **Reversal**, built across the whole tracked universe from **stored data only** (no FMP call,
 no LLM call, no live price), saved as a dated snapshot and shown on the read-only `/opportunities` page. Not part of the Overall score, the stage engine or any
-nightly job: it only reads them. **Not scheduled yet:** the job is registered and disabled, the owner enables the cron after checking a manual run
-("Enabling the weekly cron", below). Code: `scoring/opportunity_rules.py` (pure rules), `data/opportunity_data.py` (load, evaluate, persist, read),
+nightly job: it only reads them. **Cron: enabled 2026-10-12** (Saturdays 4:00 AM server time, see "Cron status", below). Code: `scoring/opportunity_rules.py` (pure rules), `data/opportunity_data.py` (load, evaluate, persist, read),
 `pipeline/weekly_opportunity_snapshot.py` (entry point), `GET /api/opportunities/*` in `core/main.py`, `frontend/app/opportunities/`.
 
 ## The rules (versioned: `RULES_VERSION = "2"`, rule ids end `.v2`)
@@ -77,8 +76,9 @@ and pandas are about 115 MB of it). The run **refuses** (raises, writes nothing)
 as-of bar (`MIN_FRESH_STAGE_SHARE`): the nightly stage job has not caught up and the lists would silently omit every stage-dependent name. A stage row not dated the
 as-of date is treated as unknown for that ticker (it cannot be on a list), so an old as-of date cannot be rebuilt after the fact: `TrendAnalysis` holds the latest row only.
 
-Registered in `core/cron_health.py` (`CRON_JOB_NAMES`, a weekly cadence, `JOB_METADATA`, **and `DISABLED_CRON_JOBS`**, so the Settings page lists it as disabled and
-`test_cron_wiring` passes with no crontab line). `crontab.txt` carries the planned line **commented out**. Nothing is installed.
+Registered in `core/cron_health.py` (`CRON_JOB_NAMES`, a weekly cadence of 8 days before it reads overdue, `JOB_METADATA`; it is no longer in `DISABLED_CRON_JOBS`) and scheduled in
+`crontab.txt`. The default as-of is the last completed XNYS session at the moment it starts: on a normal Saturday that is Friday's close, in a week with a Friday holiday (Good Friday, the
+observed Independence Day) it is Thursday's, and after a half-day Friday it is that Friday (`tests/test_weekly_opportunity_snapshot.py` pins the five cases with the real calendar).
 
 **Tracked-universe protection.** A ticker on a list of a run whose as-of date is within `OPPORTUNITY_PROTECTION_DAYS` (180) is in the universe with reason `opportunity`
 (order: after `added`, before `browsed`): it is not dropped by the 30-day view expiry, and the wipe sees it as protected (`PROTECTION_OPPORTUNITY`), so its bars keep
@@ -100,13 +100,16 @@ shows the rule that fired instead), ADV $M, Tags. The ticker opens its page in a
 Pass with caution amber, May not pass slate-blue. The footnote states the rules version and hash, the ranked universe, the not-covered count and any stale-score count.
 The top nav has an "Opportunities" item (same-tab, like Momentum).
 
-## Enabling the weekly cron (owner, after checking a manual run)
+## Cron status
 
-1. `cd backend && uv run python -m pipeline.weekly_opportunity_snapshot --dry-run` and compare with the snapshot on the page.
-2. In `backend/crontab.txt` uncomment the `0 4 * * 6 ... weekly_opportunity_snapshot` line (Saturday 4:00 AM server time, after the Friday-session nightly chain and the 3:30 backup).
-3. In `backend/core/cron_health.py` delete the `pipeline.weekly_opportunity_snapshot` entry of `DISABLED_CRON_JOBS` (the test requires a disabled job to be absent from the crontab and every other job present).
-4. `cd backend && crontab crontab.txt && crontab -l | grep opportunity` and check the line is there, then `uv run pytest tests/test_cron_wiring.py -q`.
-5. After the first Saturday: the Settings > Status page shows the job, and `SELECT * FROM opportunityrun ORDER BY as_of_date DESC LIMIT 2;` shows a new row.
+**Enabled 2026-10-12.** `0 4 * * 6` in `backend/crontab.txt`, installed with `crontab crontab.txt` from `backend/`. The server clock is UTC (`Etc/UTC`), so 04:00 Saturday is 00:00 Saturday in New York
+(EDT; 23:00 Friday in winter) and **12:00 noon Saturday in Hong Kong** (UTC+8). It runs after the Friday-session nightly chain (1:00-3:25) and the 3:30 backup. The first scheduled run is
+**Saturday 2026-10-17 04:00 UTC** (as-of Friday 2026-10-16); the 2026-10-09 run already exists from the manual run. The cadence slack is 8 days (a missed Saturday reads overdue the next Sunday
+after a day of slack).
+
+**Disable again:** comment the crontab line, add a `DISABLED_CRON_JOBS` entry for `pipeline.weekly_opportunity_snapshot` in `core/cron_health.py` (the wiring test requires a disabled job to be
+absent from the crontab and every other job present), `crontab crontab.txt`, check `crontab -l`. **Check a run:** `SELECT as_of_date, created_at FROM opportunityrun ORDER BY as_of_date DESC LIMIT 2;`
+and the Settings > Status page.
 
 ## First run (as of 2026-10-09), rules v2
 

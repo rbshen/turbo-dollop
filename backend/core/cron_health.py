@@ -208,10 +208,6 @@ DISABLED_CRON_JOBS: dict[str, DisabledJob] = {
         "pending investigation: about 1,165 FMP calls per run at 406-527 requests/min, over Starter's 300/min. "
         "The Chart tab serves the cached E/D markers.",
     ),
-    "pipeline.weekly_opportunity_snapshot": DisabledJob(
-        date(2026, 10, 11),
-        "built but not enabled: run by hand until the first snapshot is checked, then the owner enables the Saturday 4:00 AM cron.",
-    ),
 }
 
 

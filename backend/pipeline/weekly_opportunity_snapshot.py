@@ -10,8 +10,8 @@ Runs once for one as-of date (default: the last completed XNYS session). A rerun
 replaces that run's rows in one transaction. It refuses (raises, writes nothing) when fewer than 90% of the gate-passing tickers
 have a Weinstein row computed from the as-of bar, i.e. when the nightly stage job has not caught up.
 
-NOT SCHEDULED. It is registered in core/cron_health.py (CRON_JOB_NAMES, DISABLED_CRON_JOBS) and has a commented-out line in
-crontab.txt, but nothing runs it until the owner enables the cron (steps in docs/specs/opportunities.md, "Enabling the weekly cron").
+SCHEDULED (enabled 2026-10-12): Saturdays 04:00 server time (UTC) in crontab.txt, registered in core/cron_health.py (weekly cadence).
+The default as-of is the last completed XNYS session, i.e. Friday's close (Thursday's in a week with a Friday holiday).
 
 Run:
     uv run python -m pipeline.weekly_opportunity_snapshot

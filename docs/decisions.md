@@ -1158,3 +1158,7 @@ Also decided: two text sets keyed by the Blue profile (the shortened "profiled" 
 
 **Why.** A stock on Reversal is there for its chart (a base or a pullback), not for momentum, so "Momentum-only" misdescribes it; "Technical only" says what is missing without changing what the tier means in the data.
 
+### 2026-10-12 — The weekly opportunity job is enabled (Saturdays 04:00 UTC)
+
+**Decision.** `0 4 * * 6` is installed; the `DISABLED_CRON_JOBS` entry is gone (this supersedes "registered as disabled" in the 2026-10-11 entry). The weekly cadence (8 days) was already registered. `test_cron_wiring` now knows one Saturday job beside the Sunday block (`_SATURDAY_JOBS`), and the as-of resolution on a Saturday, a winter Saturday, a Good Friday week, an observed-holiday Friday and a half-day Friday is pinned with the real calendar.
+
