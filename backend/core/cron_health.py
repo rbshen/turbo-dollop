@@ -64,6 +64,7 @@ CRON_JOB_NAMES: list[str] = [
     "pipeline.monthly_momentum_snapshot",
     "pipeline.weekly_opportunity_snapshot",
     "pipeline.opportunity_outcome_update",
+    "pipeline.opportunity_daily_flags",
     "pipeline.backup_db",
 ]
 
@@ -103,6 +104,7 @@ _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.monthly_momentum_snapshot": _MONTHLY_HOURS,
     "pipeline.weekly_opportunity_snapshot": _WEEKLY_HOURS,
     "pipeline.opportunity_outcome_update": _DAILY_HOURS,
+    "pipeline.opportunity_daily_flags": _DAILY_HOURS,
 }
 
 
@@ -188,6 +190,12 @@ JOB_METADATA: dict[str, JobMetadata] = {
     "pipeline.opportunity_outcome_update": JobMetadata(
         "Prices the weekly opportunity lists' outcomes (5/10/20/60 sessions) from stored bars; no FMP calls", "daily", "3:40 AM", 3 * 60 + 40
     ),
+    "pipeline.opportunity_daily_flags": JobMetadata(
+        "Daily flags on the latest weekly opportunity list (entry signal, stage upgrade, pullback to the MA) from stored data; no FMP calls",
+        "daily",
+        "3:45 AM",
+        3 * 60 + 45,
+    ),
 }
 
 
@@ -212,6 +220,11 @@ DISABLED_CRON_JOBS: dict[str, DisabledJob] = {
         date(2026, 10, 1),
         "pending investigation: about 1,165 FMP calls per run at 406-527 requests/min, over Starter's 300/min. "
         "The Chart tab serves the cached E/D markers.",
+    ),
+    "pipeline.opportunity_daily_flags": DisabledJob(
+        date(2026, 10, 12),
+        "built and run by hand (Phase 2b v1), not scheduled yet. Planned slot 03:45 UTC, after the 03:40 outcome updater and before the "
+        "Saturday 04:00 weekly job; scheduling is its own step (docs/specs/opportunities.md).",
     ),
 }
 
