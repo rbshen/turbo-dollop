@@ -540,3 +540,18 @@ describe("AddToWatchlistButton: a new list cannot be named ETF", () => {
   });
 });
 
+describe("AddToWatchlistButton: opportunity run id", () => {
+  it("passes the run id to a single add and a bulk add, and nothing extra without it", async () => {
+    const { unmount } = render(<AddToWatchlistButton tickers={["AAPL"]} opportunityRunId={7} />);
+    open();
+    fireEvent.click(within(screen.getByText("Growth").parentElement as HTMLElement).getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(addTickerToWatchlist).toHaveBeenCalledWith(1, "AAPL", 7));
+    unmount();
+
+    render(<AddToWatchlistButton tickers={["AAPL", "MSFT"]} opportunityRunId={7} />);
+    open();
+    fireEvent.click(within(screen.getByText("Growth").parentElement as HTMLElement).getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("button", { name: "Okay" }));
+    await waitFor(() => expect(bulkAddTickersToWatchlist).toHaveBeenCalledWith(1, ["AAPL", "MSFT"], 7));
+  });
+});

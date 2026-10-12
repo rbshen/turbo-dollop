@@ -49,8 +49,9 @@ export async function deleteWatchlist(id: number): Promise<void> {
   await mutate(KEY);
 }
 
-export async function addTickerToWatchlist(id: number, ticker: string): Promise<void> {
-  await apiPost(`${KEY}/${id}/tickers`, { ticker });
+/** `opportunityRunId` is sent only by the Opportunities page: the backend then also records the pick for that run. */
+export async function addTickerToWatchlist(id: number, ticker: string, opportunityRunId?: number): Promise<void> {
+  await apiPost(`${KEY}/${id}/tickers`, opportunityRunId === undefined ? { ticker } : { ticker, opportunity_run_id: opportunityRunId });
   // Both the watchlist list (embeds each ticker's membership, used by
   // AddToWatchlistButton) and this watchlist's own rows (the Watchlist
   // page's table data, stock /rows or the ETF list's /etf-rows) need to
@@ -63,8 +64,11 @@ export async function removeTickerFromWatchlist(id: number, ticker: string): Pro
   await Promise.all([mutate(KEY), mutateWatchlistRows(id)]);
 }
 
-export async function bulkAddTickersToWatchlist(id: number, tickers: string[]): Promise<BulkAddResult> {
-  const result = await apiPost<BulkAddResult>(`${KEY}/${id}/tickers/bulk`, { tickers });
+export async function bulkAddTickersToWatchlist(id: number, tickers: string[], opportunityRunId?: number): Promise<BulkAddResult> {
+  const result = await apiPost<BulkAddResult>(
+    `${KEY}/${id}/tickers/bulk`,
+    opportunityRunId === undefined ? { tickers } : { tickers, opportunity_run_id: opportunityRunId },
+  );
   await Promise.all([mutate(KEY), mutateWatchlistRows(id)]);
   return result;
 }

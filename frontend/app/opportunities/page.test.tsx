@@ -90,6 +90,8 @@ const DATES: OpportunityDateOut[] = [
 ];
 
 let requested: string[] = [];
+let posted: Record<string, unknown>[] = [];
+const WATCHLISTS = [{ id: 1, name: "Picks", sort_field: "ticker", sort_direction: "asc", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", tickers: [] }];
 
 function mockFetch(opts: { dates?: OpportunityDateOut[]; run?: OpportunityRunOut | null } = {}) {
   const dates = opts.dates ?? DATES;
@@ -104,7 +106,15 @@ function mockFetch(opts: { dates?: OpportunityDateOut[]; run?: OpportunityRunOut
         return run ? new Response(JSON.stringify(run), { status: 200 }) : new Response(JSON.stringify({ detail: "none" }), { status: 404 });
       }
       if (path.endsWith("/opportunities/2026-10-02")) return new Response(JSON.stringify(OLD), { status: 200 });
-      if (path.endsWith("/watchlists")) return new Response("[]", { status: 200 });
+      if (path.endsWith("/watchlists/1/tickers/bulk")) {
+        posted.push(JSON.parse(String(init?.body)));
+        return new Response(JSON.stringify({ added: 4, already_present: 0 }), { status: 200 });
+      }
+      if (path.endsWith("/watchlists/1/tickers")) {
+        posted.push(JSON.parse(String(init?.body)));
+        return new Response(JSON.stringify({ ticker: "OLDY", added_at: "2026-10-12T00:00:00" }), { status: 201 });
+      }
+      if (path.endsWith("/watchlists")) return new Response(JSON.stringify(WATCHLISTS), { status: 200 });
       return new Response("{}", { status: 404 });
     }),
   );
@@ -120,6 +130,7 @@ function renderPage() {
 
 beforeEach(() => {
   requested = [];
+  posted = [];
   mockFetch();
 });
 
@@ -266,6 +277,29 @@ describe("OpportunitiesPage", () => {
     expect(screen.getByRole("menuitem", { name: "thinkorswim (.csv)" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /multiple/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add to watchlist" })).toBeEnabled();
+  });
+
+  it("the manual Add to watchlist also sends the id of the run shown: the latest by default, the past one when selected", async () => {
+    await loaded();
+    const addAll = async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Add to watchlist" }));
+      fireEvent.click(within(screen.getByText("Picks").parentElement as HTMLElement).getByRole("button", { name: "Add" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Okay" }));
+    };
+    await addAll();
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toMatchObject({ opportunity_run_id: 2 });
+    expect(posted[0].tickers).toEqual(["QUAL", "MOMO", "WARY", "SOXL"]);
+  });
+
+  it("a past snapshot sends that run's id", async () => {
+    await loaded();
+    fireEvent.change(screen.getByRole("combobox", { name: "Snapshot date" }), { target: { value: "2026-10-02" } });
+    await waitFor(() => expect(screen.getByText("OLDY")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Add to watchlist" }));
+    fireEvent.click(within(screen.getByText("Picks").parentElement as HTMLElement).getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toEqual({ ticker: "OLDY", opportunity_run_id: 1 });
   });
 
   it("exports the visible rows as a TradingView list grouped by sector", async () => {

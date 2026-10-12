@@ -1948,10 +1948,13 @@ class MarketBreadthOut(BaseModel):
 
 class WatchlistTickerIn(BaseModel):
     ticker: str
+    # Set only by the Opportunities page: the run shown, so the add also records the pick (OpportunityPick). Changes nothing else.
+    opportunity_run_id: int | None = None
 
 
 class WatchlistBulkAddIn(BaseModel):
     tickers: list[str]
+    opportunity_run_id: int | None = None  # see WatchlistTickerIn
 
 
 class WatchlistBulkAddOut(BaseModel):

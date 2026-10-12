@@ -45,6 +45,19 @@ describe("watchlist mutations refresh both row views of the list", () => {
     expect(keys()).toEqual(BOTH);
   });
 
+  it("sends the opportunity run id only when given, so every other caller's request body is unchanged", async () => {
+    await addTickerToWatchlist(7, "SPY");
+    await addTickerToWatchlist(7, "SPY", 3);
+    await bulkAddTickersToWatchlist(7, ["SPY", "QQQ"]);
+    await bulkAddTickersToWatchlist(7, ["SPY", "QQQ"], 3);
+    expect(h.post.mock.calls).toEqual([
+      ["/watchlists/7/tickers", { ticker: "SPY" }],
+      ["/watchlists/7/tickers", { ticker: "SPY", opportunity_run_id: 3 }],
+      ["/watchlists/7/tickers/bulk", { tickers: ["SPY", "QQQ"] }],
+      ["/watchlists/7/tickers/bulk", { tickers: ["SPY", "QQQ"], opportunity_run_id: 3 }],
+    ]);
+  });
+
   it("bulk add", async () => {
     await bulkAddTickersToWatchlist(7, ["SPY", "QQQ"]);
     expect(keys()).toEqual(BOTH);

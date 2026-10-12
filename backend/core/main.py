@@ -52,7 +52,7 @@ from data.score_recompute import (
 )
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
 from data.market_breadth_data import get_market_breadth
-from data.opportunity_data import get_run as get_opportunity_run, list_run_dates as list_opportunity_dates
+from data.opportunity_data import get_run as get_opportunity_run, list_run_dates as list_opportunity_dates, record_picks as record_opportunity_picks
 from data.momentum_data import get_etf_momentum_snapshot, get_momentum_snapshot
 from data.sector_heatmap_data import get_sector_heatmap
 from helpers.weinstein_config import get_weinstein_settings, update_weinstein_settings
@@ -1341,6 +1341,8 @@ async def watchlist_add_ticker(watchlist_id: int, body: WatchlistTickerIn) -> Wa
             raise _capacity_error(existing_count, net_new_count)
         row = add_watchlist_ticker(session, watchlist_id, ticker)
         out = WatchlistTickerOut(ticker=row.ticker, added_at=row.added_at)
+        # The Opportunities page also records which names were chosen (insert-only, never fails the add). A 409 above is not a pick.
+        record_opportunity_picks(session, body.opportunity_run_id, [ticker])
     # An ETF with no EtfScreenerRow yet gets it now (best effort, one call, never fails the add); stocks: no write.
     await ensure_etf_screener_rows([ticker])
     return out
@@ -1364,6 +1366,8 @@ async def watchlist_bulk_add_tickers(watchlist_id: int, body: WatchlistBulkAddIn
         if existing_count + net_new_count > WATCHLIST_CAPACITY:
             raise _capacity_error(existing_count, net_new_count)
         added, already_present = bulk_add_watchlist_tickers(session, watchlist_id, tickers)
+        # Every ticker the user submitted from the Opportunities page was chosen, whether or not the list already held it.
+        record_opportunity_picks(session, body.opportunity_run_id, tickers)
     await ensure_etf_screener_rows(tickers)  # best effort, one call for at most a few ETFs, never fails the add
     return WatchlistBulkAddOut(added=added, already_present=already_present)
 

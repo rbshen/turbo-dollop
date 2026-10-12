@@ -106,6 +106,7 @@ export default function OpportunitiesPage() {
               confirmDescription={`all ${visible.length} listed tickers`}
               disabled={visible.length === 0}
               audience={tier === "etf" ? "etf" : "stock"}
+              opportunityRunId={run?.id}
             />
           </>
         }

@@ -30,6 +30,9 @@ interface Props {
   // backend refuses), so the stock ticker page and the Stocks screener never offer it. "etf" (the ETFs screener's bulk
   // add) offers every list, "ETF" included.
   audience?: WatchlistAudience;
+  // Only the Opportunities page sets this: the run shown. The add then also records which names were chosen from that run
+  // (the backend writes the pick in the same request); what the add does is unchanged.
+  opportunityRunId?: number;
 }
 
 type Panel = "idle" | "picking";
@@ -75,7 +78,9 @@ function StatusLabel({ status, labels }: { status: Status; labels: Record<Status
 const WARN_BUTTON_CLASS = "border-warn/50 text-warn hover:border-warn hover:text-warn";
 const REMOVE_BUTTON_CLASS = "hover:border-negative hover:text-negative";
 
-export function AddToWatchlistButton({ tickers, label, confirmDescription, disabled, audience = "stock" }: Props) {
+export function AddToWatchlistButton({ tickers, label, confirmDescription, disabled, audience = "stock", opportunityRunId }: Props) {
+  // Appended to the add calls only when set, so every other caller's calls (and request bodies) are exactly as before.
+  const runArg: [number] | [] = opportunityRunId === undefined ? [] : [opportunityRunId];
   const { data: allWatchlists } = useWatchlists();
   const watchlists = allWatchlists ? listsForAudience(allWatchlists, audience) : undefined;
   const isBulk = tickers.length > 1;
@@ -157,7 +162,7 @@ export function AddToWatchlistButton({ tickers, label, confirmDescription, disab
   async function handleAddToExisting(watchlistId: number) {
     setAddStatus((prev) => ({ ...prev, [watchlistId]: "saving" }));
     try {
-      await addTickerToWatchlist(watchlistId, tickers[0]);
+      await addTickerToWatchlist(watchlistId, tickers[0], ...runArg);
       setAddStatus((prev) => ({ ...prev, [watchlistId]: "saved" }));
     } catch (e) {
       setAddStatus((prev) => ({ ...prev, [watchlistId]: "error" }));
@@ -186,7 +191,7 @@ export function AddToWatchlistButton({ tickers, label, confirmDescription, disab
     setConfirmTarget(null);
     setAddStatus((prev) => ({ ...prev, [watchlistId]: "saving" }));
     try {
-      const result = await bulkAddTickersToWatchlist(watchlistId, tickers);
+      const result = await bulkAddTickersToWatchlist(watchlistId, tickers, ...runArg);
       setBulkResult((prev) => ({
         ...prev,
         [watchlistId]:
@@ -224,9 +229,9 @@ export function AddToWatchlistButton({ tickers, label, confirmDescription, disab
     try {
       const watchlist = await createWatchlist(trimmedName);
       if (isBulk) {
-        await bulkAddTickersToWatchlist(watchlist.id, tickers);
+        await bulkAddTickersToWatchlist(watchlist.id, tickers, ...runArg);
       } else {
-        await addTickerToWatchlist(watchlist.id, tickers[0]);
+        await addTickerToWatchlist(watchlist.id, tickers[0], ...runArg);
       }
       setNewListStatus("saved");
       setNewListStep("idle");

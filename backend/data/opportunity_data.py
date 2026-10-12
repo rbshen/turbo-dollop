@@ -623,6 +623,34 @@ def persist_run(computed: ComputedRun, force: bool = False, kind: str = KIND_WEE
         }
 
 
+PICK_SOURCE_PAGE = "opportunities_page"
+
+
+def record_picks(session: Session, run_id: int | None, tickers: list[str], source: str = PICK_SOURCE_PAGE, now: datetime | None = None) -> int:
+    """Records that the user CHOSE these tickers from run `run_id` (the Opportunities page's manual Add to watchlist). Insert-only and
+    idempotent: a (run_id, ticker) already picked is left alone. Only tickers that are rows of that run are recorded (a run id or a
+    ticker the run never listed is ignored, not an error). Returns the number of new pick rows. Never raises: a pick must not break
+    the watchlist add it rides on, so a failure is logged and rolled back."""
+    if run_id is None or not tickers:
+        return 0
+    try:
+        listed = set(session.exec(select(OpportunitySnapshotRow.ticker).where(OpportunitySnapshotRow.run_id == run_id)).all())
+        wanted = {t for t in tickers if t in listed}
+        if not wanted:
+            return 0
+        already = set(session.exec(select(OpportunityPick.ticker).where(OpportunityPick.run_id == run_id)).all())
+        picked_at = now or datetime.now()
+        new = sorted(wanted - already)
+        for ticker in new:
+            session.add(OpportunityPick(run_id=run_id, ticker=ticker, picked_at=picked_at, source=source))
+        session.commit()
+        return len(new)
+    except Exception:  # noqa: BLE001 -- see the docstring
+        session.rollback()
+        logger.warning("Could not record opportunity picks for run %s (%s).", run_id, tickers, exc_info=True)
+        return 0
+
+
 # --- reading (the API) ----------------------------------------------------------------------------------------------------------
 
 
