@@ -103,6 +103,8 @@ The controls for typing, choosing and toggling a value on a form page. Built 202
 
 **Native select rule.** A choice is a native `<select>` in the themed `appearance-none` shell with an overlaid caret, restyled to the same 36px height, border and radius as a boxed field and sized by the same tokens. No custom listbox, and no segmented-control mode for a form setting: a native select gives keyboard, touch and screen-reader behaviour for free.
 
+**Indeterminate (2026-10-12).** `Checkbox` takes `indeterminate`: it sets the native property and draws a dash in the same neutral fill, for a select-all over a partly selected table (the Opportunities page header). A label-less table checkbox needs an `aria-label`.
+
 **Checked state is neutral.** A checked Checkbox is `text-primary` fill with a dark check; an on Switch is a `text-primary` track with a dark thumb (32 by 18px, a hidden native `<input type="checkbox" role="switch">`). The `chip` Checkbox variant is the Screener's toggle chip done properly: a `radius-md` 32px chip with a 1px `border-input`, `text-secondary`, and a `surface-2` fill with `text-primary` when checked (a chip is not a Pill; see "Not a Status" under Pills below).
 
 ### Screener filter sidebar (session 10)
