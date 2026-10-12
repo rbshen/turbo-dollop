@@ -242,3 +242,11 @@
 # Thursday's in a week with a Friday holiday); a rerun for the same date is a no-op. 4:00 AM UTC is 12:00 AM Saturday New York (EDT) and
 # 12:00 PM Saturday Hong Kong. See pipeline/weekly_opportunity_snapshot.py and docs/specs/opportunities.md.
 0 4 * * 6 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.weekly_opportunity_snapshot >> /home/shen/fathom/backend/logs/weekly_opportunity_snapshot_cron.log 2>&1
+
+# Opportunity outcome updater, ENABLED 2026-10-12. Every night at 3:40 AM server time (UTC; 11:40 AM Hong Kong): AFTER the whole nightly chain
+# and the 3:30 backup (over the last 10 nights the chain's last job, the backup, ended 3:32-3:35), and 20 minutes before the Saturday 4:00
+# weekly opportunity job (the updater runs a few seconds; it never overlaps it). Prices every listed row of the stored weekly opportunity runs
+# (5/10/20/60 sessions after entry, price-only, SPY and sector-ETF benchmarks, a 10% intraday stop recorded beside the return) from the
+# cached daily bars: stored data only, ZERO FMP calls, chunked reads. A no-op unless SPY has a bar newer than the last run's, and a no-op
+# is a successful heartbeat (weekends, market holidays). See pipeline/opportunity_outcome_update.py and docs/specs/opportunities.md.
+40 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.opportunity_outcome_update --once >> /home/shen/fathom/backend/logs/opportunity_outcome_update_cron.log 2>&1
