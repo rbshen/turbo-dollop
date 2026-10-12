@@ -385,3 +385,121 @@ def test_the_updater_is_manual_only_and_makes_no_fmp_call():
     assert "cron_heartbeat" not in (backend / "pipeline" / "opportunity_outcome_update.py").read_text().split('"""', 2)[2]
     source = (backend / "data" / "opportunity_outcome_data.py").read_text() + (backend / "scoring" / "opportunity_outcomes.py").read_text()
     assert "fmp_client" not in source and "get_or_fetch" not in source
+
+
+# --- the censored grace period -----------------------------------------------------------------------------------------------------
+
+
+def censor_ccc(w: World, n_sessions: int = 20, keep: int = 4):
+    """CCC stops getting bars after `keep` sessions while SPY runs on: its horizon-5 row is censored by the first update. Returns the full
+    CCC series so a test can hand the missing bars back, and the time of that first update."""
+    w.set_bars(n_sessions)
+    full = w.frames["CCC"]
+    w.frames["CCC"] = full.iloc[:keep]
+    first_now = w.now
+    update(w)
+    assert w.rows()[("CCC", 5)].status == "censored"
+    return full, first_now
+
+
+def test_a_censored_row_records_when_it_was_first_censored(world):
+    _full, t0 = censor_ccc(world)
+    row = world.rows()[("CCC", 5)]
+    assert row.censor_reason == "stale" and row.first_censored_at == t0.replace(tzinfo=None)
+    assert world.rows()[("AAA", 5)].first_censored_at is None  # only censored rows carry it
+
+
+def test_data_returning_inside_the_grace_period_revives_the_row_and_clears_the_censor_fields(world):
+    full, t0 = censor_ccc(world)
+    world.frames["CCC"] = full  # the price-data hole is repaired
+    world.now = t0 + timedelta(days=eng.CENSOR_REVIVE_DAYS) - timedelta(hours=1)
+    result = update(world)
+    row = world.rows()[("CCC", 5)]
+    assert row.status == "complete" and row.censor_reason is None and row.first_censored_at is None
+    assert row.exit_date == world.dates[5] and row.forward_return == pytest.approx(full.iloc[5]["close"] / full.iloc[0]["open"] - 1)
+    assert "censored" not in result.by_status
+    assert all(o.status != "censored" for o in world.rows().values())
+
+
+def test_data_that_never_returns_stays_censored_and_is_frozen_after_the_grace_period(world):
+    full, t0 = censor_ccc(world)
+    before = world.rows()[("CCC", 5)]
+    for days in (1, 7, eng.CENSOR_REVIVE_DAYS - 1):  # re-evaluated every run inside the grace, nothing changes, the clock never restarts
+        world.now = t0 + timedelta(days=days)
+        again = update(world, as_of=AS_OF)
+        assert again.seeded == 0
+        row = world.rows()[("CCC", 5)]
+        assert row.status == "censored" and row.first_censored_at == before.first_censored_at and row.computed_at == before.computed_at
+    # past the grace period the row is frozen: even a repaired history no longer moves it
+    world.now = t0 + timedelta(days=eng.CENSOR_REVIVE_DAYS)
+    world.frames["CCC"] = full
+    result = update(world, as_of=AS_OF)
+    frozen = world.rows()[("CCC", 5)]
+    assert frozen.status == "censored" and frozen.censor_reason == "stale" and frozen.computed_at == before.computed_at
+    assert frozen.forward_return == before.forward_return and result.frozen_untouched >= 1
+
+
+def test_a_real_delisting_stays_censored_with_its_reason_through_and_after_the_grace_period(world):
+    with Session(world.engine) as s:
+        s.add(TickerScore(ticker="CCC", company_name="CCC", delisted_at=CREATED, computed_at=CREATED))
+        s.commit()
+    _full, t0 = censor_ccc(world)
+    first = world.rows()[("CCC", 5)]
+    assert first.censor_reason == "delisted"
+    for days in (3, eng.CENSOR_REVIVE_DAYS + 5):
+        world.now = t0 + timedelta(days=days)
+        update(world, as_of=AS_OF)
+        row = world.rows()[("CCC", 5)]
+        assert row.status == "censored" and row.censor_reason == "delisted"
+        assert row.first_censored_at == first.first_censored_at and row.exit_date == first.exit_date and row.forward_return == first.forward_return
+
+
+def test_a_missing_entry_bar_is_censored_at_every_horizon_and_revives_when_it_appears(world):
+    world.set_bars(20)
+    full = world.frames["CCC"]
+    world.frames["CCC"] = full.iloc[1:]  # no bar on the entry session
+    t0 = world.now
+    update(world)
+    rows = world.rows()
+    assert [rows[("CCC", h)].status for h in eng.HORIZONS] == ["censored"] * 4
+    assert all(rows[("CCC", h)].entry_open is None and rows[("CCC", h)].first_censored_at == t0.replace(tzinfo=None) for h in eng.HORIZONS)
+    world.frames["CCC"] = full
+    world.now = t0 + timedelta(days=2)
+    update(world, as_of=AS_OF)
+    rows = world.rows()
+    assert rows[("CCC", 5)].status == "complete" and rows[("CCC", 5)].entry_open == pytest.approx(full.iloc[0]["open"])
+    assert [rows[("CCC", h)].status for h in (10, 20, 60)] == ["complete", "pending", "pending"]  # 20 sessions: horizon 10 reached; 20 needs 21, 60 needs 61 -> pending again, not censored
+    assert all(rows[("CCC", h)].censor_reason is None and rows[("CCC", h)].first_censored_at is None for h in eng.HORIZONS)
+
+
+def test_reruns_inside_the_grace_period_are_idempotent(world):
+    _full, t0 = censor_ccc(world)
+    snapshot = {k: (o.id, o.status, o.first_censored_at, o.computed_at, o.forward_return) for k, o in world.rows().items()}
+    for days in (1, 2, 3):
+        world.now = t0 + timedelta(days=days)
+        result = update(world, as_of=AS_OF)
+        assert (result.seeded, result.updated) == (0, 0)
+        assert {k: (o.id, o.status, o.first_censored_at, o.computed_at, o.forward_return) for k, o in world.rows().items()} == snapshot
+
+
+def test_a_censored_row_without_a_first_censored_stamp_is_stamped_on_the_next_evaluation(world):
+    _full, t0 = censor_ccc(world)
+    with Session(world.engine) as s:  # a row censored before the column existed
+        row = s.exec(select(OpportunityOutcome).where(OpportunityOutcome.ticker == "CCC", OpportunityOutcome.horizon == 5)).one()
+        row.first_censored_at = None
+        s.add(row)
+        s.commit()
+    world.now = t0 + timedelta(days=30)  # long past any grace: without a stamp the row is still open
+    update(world, as_of=AS_OF)
+    row = world.rows()[("CCC", 5)]
+    assert row.status == "censored" and row.first_censored_at == world.now.replace(tzinfo=None)
+
+
+def test_the_dry_run_reports_a_revival_without_writing_it(world):
+    full, t0 = censor_ccc(world)
+    world.frames["CCC"] = full
+    world.now = t0 + timedelta(days=1)
+    stored = world.rows()[("CCC", 5)]
+    dry = ou.update_outcomes(dry_run=True, now=world.now, as_of=AS_OF)
+    assert dry.updated > 0 and "censored" not in dry.by_status
+    assert world.rows()[("CCC", 5)].status == "censored" and world.rows()[("CCC", 5)].computed_at == stored.computed_at

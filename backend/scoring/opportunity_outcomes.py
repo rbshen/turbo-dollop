@@ -15,7 +15,7 @@ Conventions (all agreed, each one constant or one line):
 - `pending` until the horizon bar exists. `complete` once the ticker has the entry bar and the horizon bar. `censored` when the
   ticker is missing either and SPY is already more than CENSOR_GRACE_SESSIONS sessions past the horizon date (delisted, acquired,
   left the universe, a data hole): the row keeps the return to the LAST AVAILABLE bar as a sensitivity line, and is excluded from
-  means by whoever reads it. A ticker with no entry bar more than CENSOR_GRACE_SESSIONS sessions after the entry date is censored
+  means by whoever reads it (the updater re-evaluates it for CENSOR_REVIVE_DAYS, then freezes it). A ticker with no entry bar more than CENSOR_GRACE_SESSIONS sessions after the entry date is censored
   at every horizon at once (nothing can be priced).
 - Benchmarks: SPY (headline) and the ticker's sector ETF, each entry open to the same exit date's close. No sector ETF (an ETF, an
   unmapped sector) -> the sector fields are None and the row compares against SPY only.
@@ -33,6 +33,10 @@ HORIZONS: tuple[int, ...] = (5, 10, 20, 60)
 STOP_PCT = 0.10
 ENTRY_GAP_FLAG_PCT = 0.25
 CENSOR_GRACE_SESSIONS = 3
+# A censored row stays revivable this many calendar days from the day it was FIRST censored (OpportunityOutcome.first_censored_at):
+# the updater re-evaluates it every run, and bars that were only late (a price-data hole, not a delisting) revive it. After that it is
+# frozen like a complete row.
+CENSOR_REVIVE_DAYS = 14
 _STOP_EPSILON = 1e-9  # a low that lands on the stop price to the last float digit still counts as a hit
 
 PENDING, COMPLETE, CENSORED = "pending", "complete", "censored"

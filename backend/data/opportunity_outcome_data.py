@@ -6,8 +6,11 @@ STORED DATA ONLY: no FMP call (the bars cache is read, never fetched). Writes on
 Memory stays flat: SPY and the (at most 11) sector ETFs are loaded once, every other ticker's bars in chunks of CHUNK_SIZE.
 
 Rules of the update:
-- Idempotent. Only `pending` rows are recomputed; a `complete` or `censored` row is frozen and never touched. A pending row is written
-  only when its values changed. A stop already recorded on a pending row is kept even if the bars that showed it vanish.
+- Idempotent. Only open rows are recomputed: `pending`, and a `censored` row still inside its grace period (CENSOR_REVIVE_DAYS from
+  `first_censored_at`, so a price-data hole is not frozen as if it were a delisting). A `complete` row, and a censored row past its
+  grace, are frozen and never touched. A row is written only when its values changed. A stop already recorded on a pending row is kept even if the bars that showed it vanish.
+- A censored row whose missing bars have appeared goes back to `pending` / `complete` with `censor_reason` and `first_censored_at`
+  cleared. One that is still censored keeps its original `first_censored_at` (the clock never restarts).
 - Every listed snapshot row has four outcome rows (5/10/20/60) after the first update, seeded `pending` when it cannot be priced yet.
 - A ticker whose bars fail to read or price leaves its rows as they were (seeded `pending` if new) and does not stop the others.
 - Only COMPLETED bars are used: a bar after the last completed session, or a last bar written before its own session's close (the bars
@@ -21,7 +24,7 @@ import json
 import logging
 import traceback
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 from sqlmodel import Session, select
@@ -54,7 +57,21 @@ _VALUE_FIELDS = (
     "stop_fill_return", "entry_gap_pct", "entry_gap_flag",
 )
 _STOP_FIELDS = ("stop_hit", "stop_date", "stop_fill_return")
-_FINAL = (eng.COMPLETE, eng.CENSORED)
+
+
+def _naive_utc(moment: datetime) -> datetime:
+    """The stored datetimes are naive (the server clock is UTC); compare like with like."""
+    return moment.astimezone(timezone.utc).replace(tzinfo=None) if moment.tzinfo is not None else moment
+
+
+def is_final(row: OpportunityOutcome, now: datetime) -> bool:
+    """True when the updater must leave the row alone: complete, or censored and past its grace period. A censored row with no
+    `first_censored_at` (written before the column existed) is still open; the next evaluation stamps it."""
+    if row.status == eng.COMPLETE:
+        return True
+    if row.status != eng.CENSORED or row.first_censored_at is None:
+        return False
+    return _naive_utc(now) >= row.first_censored_at + timedelta(days=eng.CENSOR_REVIVE_DAYS)
 
 
 @dataclass
@@ -168,7 +185,7 @@ def update_outcomes(
 
     def has_work(run: OpportunityRun, rows: list[OpportunitySnapshotRow]) -> bool:
         return any(
-            (run.id, r.ticker, h) not in existing or existing[(run.id, r.ticker, h)].status not in _FINAL
+            (run.id, r.ticker, h) not in existing or not is_final(existing[(run.id, r.ticker, h)], now)
             for r in rows
             for h in eng.HORIZONS
         )
@@ -178,7 +195,7 @@ def update_outcomes(
 
     # state of every targeted outcome row after this run, for the report: (run, ticker, horizon) -> (status, stop_hit)
     state = {k: (o.status, o.stop_hit) for k, o in existing.items()}
-    result.frozen_untouched = sum(1 for o in existing.values() if o.status in _FINAL)
+    result.frozen_untouched = sum(1 for o in existing.values() if is_final(o, now))
 
     if not work:
         result.status, result.reason = "noop", "every listed row already has final outcomes" if runs else "no opportunity run to track"
@@ -252,7 +269,7 @@ def _update_one(
     dry_run: bool,
 ) -> None:
     keys = [(run.id, snap.ticker, h) for h in eng.HORIZONS]
-    pending_keys = [k for k in keys if k not in existing or existing[k].status not in _FINAL]
+    pending_keys = [k for k in keys if k not in existing or not is_final(existing[k], now)]
     if not pending_keys:
         return
     outcomes: dict[int, eng.HorizonOutcome] = {}
@@ -280,7 +297,8 @@ def _update_one(
         if row is None:
             values = _values(outcome) if outcome is not None else {"status": eng.PENDING}
             new = OpportunityOutcome(
-                run_id=run.id, ticker=ticker, horizon=horizon, provenance=PROVENANCE_LIVE, rules_version=run.rules_version, computed_at=now, **values
+                run_id=run.id, ticker=ticker, horizon=horizon, provenance=PROVENANCE_LIVE, rules_version=run.rules_version, computed_at=now,
+                first_censored_at=_naive_utc(now) if values["status"] == eng.CENSORED else None, **values
             )
             if not dry_run:
                 session.add(new)
@@ -294,12 +312,18 @@ def _update_one(
         if row.stop_hit and not values["stop_hit"]:  # a stop is final: keep it even if the bars that showed it are gone
             for k in _STOP_FIELDS:
                 values[k] = getattr(row, k)
-        if _same(row, values):
+        # the grace clock starts when a row is FIRST censored, never restarts, and is cleared on revival
+        if values["status"] != eng.CENSORED:
+            first_censored = None
+        else:
+            first_censored = row.first_censored_at if row.status == eng.CENSORED and row.first_censored_at is not None else _naive_utc(now)
+        if _same(row, values) and row.first_censored_at == first_censored:
             state[key] = (row.status, row.stop_hit)
             continue
         if not dry_run:
             for k, v in values.items():
                 setattr(row, k, v)
+            row.first_censored_at = first_censored
             row.computed_at = now
             session.add(row)
         result.updated += 1
