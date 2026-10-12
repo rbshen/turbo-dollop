@@ -519,11 +519,12 @@ def _seed_children(engine, run_id: int, other_run_id: int) -> None:
     with Session(engine) as s:
         for rid in (run_id, other_run_id):
             s.add(OpportunityOutcome(run_id=rid, ticker="MOM1", horizon=5, status="pending", rules_version="2", computed_at=NOW))
-            s.add(OpportunityPick(run_id=rid, ticker="MOM1", picked_at=NOW, source="opportunities_page"))
+        s.add(OpportunityPick(as_of_date=AS_OF, ticker="MOM1", picked_at=NOW, source="opportunities_page"))
+        s.add(OpportunityPick(as_of_date=date(2026, 10, 2), ticker="MOM1", picked_at=NOW, source="opportunities_page"))
         s.commit()
 
 
-def test_force_deletes_the_pool_outcome_and_pick_rows_of_that_run_only(world):
+def test_force_deletes_the_pool_and_outcome_rows_of_that_run_only_and_never_a_pick(world):
     first = od.persist_run(od.compute_run(AS_OF, NOW), now=NOW)
     other = od.compute_run(AS_OF, NOW)
     other.as_of = date(2026, 10, 2)
@@ -531,16 +532,31 @@ def test_force_deletes_the_pool_outcome_and_pick_rows_of_that_run_only(world):
     _seed_children(world, first["run_id"], second["run_id"])
     result = od.persist_run(od.compute_run(AS_OF, NOW), force=True, now=NOW + timedelta(days=1))
     assert result["status"] == "replaced"
-    assert result["deleted"]["outcome_rows"] == 1 and result["deleted"]["pick_rows"] == 1
+    assert result["deleted"]["outcome_rows"] == 1 and "pick_rows" not in result["deleted"]
     assert result["deleted"]["pool_rows"] == first["pool_rows"] and result["deleted"]["snapshot_rows"] == first["rows"]
     with Session(world) as s:
         new_id = result["run_id"]
-        for model in (OpportunityOutcome, OpportunityPick):
-            rows = s.exec(select(model)).all()
-            assert [r.run_id for r in rows] == [second["run_id"]]  # the other run's children survive; none left for the replaced run
+        rows = s.exec(select(OpportunityOutcome)).all()
+        assert [r.run_id for r in rows] == [second["run_id"]]  # the other run's outcomes survive; none left for the replaced run
         pool_runs = {p.run_id for p in s.exec(select(OpportunityPoolRow)).all()}
         assert pool_runs == {new_id, second["run_id"]}  # the replaced run's old pool is gone, the new one is in
         assert len(s.exec(select(OpportunityPoolRow).where(OpportunityPoolRow.run_id == new_id)).all()) == first["pool_rows"]
+        # both picks (the rebuilt date and the other date) are exactly as they were
+        assert sorted((p.as_of_date, p.ticker, p.picked_at) for p in s.exec(select(OpportunityPick)).all()) == [
+            (date(2026, 10, 2), "MOM1", NOW), (AS_OF, "MOM1", NOW),
+        ]
+
+
+def test_a_pick_survives_force_even_when_the_rebuilt_run_gets_the_same_id(world):
+    first = od.persist_run(od.compute_run(AS_OF, NOW), now=NOW)
+    with Session(world) as s:
+        s.add(OpportunityPick(as_of_date=AS_OF, ticker="MOM1", picked_at=NOW, source="opportunities_page"))
+        s.commit()
+    again = od.persist_run(od.compute_run(AS_OF, NOW), force=True, now=NOW + timedelta(days=1))
+    assert again["run_id"] == first["run_id"]  # sqlite reuses the highest id: a run-id key would have re-attached the pick silently
+    with Session(world) as s:
+        (pick,) = s.exec(select(OpportunityPick)).all()
+        assert (pick.as_of_date, pick.ticker, pick.picked_at) == (AS_OF, "MOM1", NOW)
 
 
 def test_a_failed_force_keeps_the_pool_outcomes_and_picks(world):
