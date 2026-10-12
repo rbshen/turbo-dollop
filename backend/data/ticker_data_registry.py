@@ -50,6 +50,7 @@ from core.models import (
     OpportunityOutcome,
     OpportunityOutcomeRun,
     OpportunityPick,
+    OpportunityPoolOutcome,
     OpportunityPoolRow,
     OpportunityRun,
     OpportunitySnapshotRow,
@@ -198,6 +199,11 @@ _ORDERED: tuple[TickerTable, ...] = (
         OpportunityFlagOutcome,
         TableClass.KEEP,
         "forward outcomes of daily opportunity flags (5/10/20/60 bars; a wiped ticker's bars could not rebuild them)",
+    ),
+    _t(
+        OpportunityPoolOutcome,
+        TableClass.KEEP,
+        "slim forward outcomes of the unlisted pool names (the scorecard baseline; a wiped ticker's bars could not rebuild them)",
     ),
     _t(OpportunityPick, TableClass.KEEP, "names the user picked from an opportunity run (owner-entered history; insert-only)"),
 )

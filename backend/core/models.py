@@ -1712,3 +1712,44 @@ class OpportunityFlagOutcome(SQLModel, table=True):
     trigger_version: str
     computed_at: datetime
     first_censored_at: datetime | None = None
+
+
+class OpportunityPoolOutcome(SQLModel, table=True):
+    """A SLIM outcome for one UNLISTED pool name of a weekly opportunity run: the baseline a scorecard compares the listed names with
+    (docs/specs/opportunities.md, "Pool outcomes"). One row per (run, ticker, horizon in {5, 10, 20, 60}) for every OpportunityPoolRow with
+    `listed = false`; listed names already have OpportunityOutcome. Written and updated ONLY by pipeline/opportunity_outcome_update.py
+    (data/opportunity_pool_outcome_data.py) through the same pure engine as the lists (scoring/opportunity_outcomes.py::compute_outcomes,
+    wrapped by scoring/opportunity_pool_outcomes.py), so the conventions are identical: entry is the first session's OPEN after the run's
+    as-of date, horizon N exits at the Nth bar's CLOSE, price-only, SPY and sector-ETF benchmarks, censoring and the 14-day grace.
+
+    Slim on purpose: no stop, best/worst move or drawdown, and no exit close. `tier`, `assigned_list` (what the frozen trend stage allowed:
+    "momentum" | "reversal" | None, context only when None) and `leveraged` are copied from the OpportunityPoolRow when the row is first
+    written, so a baseline can be matched to the listed names without a join. Upserted while `pending` (or `censored` inside its grace),
+    frozen once `complete`. Deleted with its run by `--force` (keyed by run id, like OpportunityOutcome). Not served by any API yet."""
+
+    __table_args__ = (UniqueConstraint("run_id", "ticker", "horizon", name="uq_opportunity_pool_outcome"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    run_id: int = Field(index=True)
+    ticker: str = Field(index=True)
+    horizon: int
+    status: str  # "pending" | "complete" | "censored"
+    censor_reason: str | None = None  # "delisted" | "left_universe" | "stale"
+    tier: str  # "quality" | "momentum_only" | "etf" (from the pool row)
+    assigned_list: str | None = None  # "momentum" | "reversal" | None (from the pool row)
+    leveraged: bool = False  # a 2x / 3x fund (from the pool row's `leverage`)
+    entry_date: date | None = None
+    entry_open: float | None = None
+    entry_gap_pct: float | None = None
+    entry_gap_flag: bool = False
+    exit_date: date | None = None
+    forward_return: float | None = None
+    spy_return: float | None = None
+    excess_vs_spy: float | None = None
+    sector_etf: str | None = None
+    sector_return: float | None = None
+    excess_vs_sector: float | None = None
+    rules_version: str
+    provenance: str = "live"
+    computed_at: datetime
+    first_censored_at: datetime | None = None  # when the row was first censored: the 14-day grace clock (never restarts)
