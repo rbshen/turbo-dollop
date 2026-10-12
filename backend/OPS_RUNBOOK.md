@@ -721,8 +721,10 @@ Spec: `docs/specs/opportunities.md`. `uv run python -m pipeline.weekly_opportuni
 calls), about 12 s and 175 MB peak, writes `OpportunityRun` + `OpportunitySnapshotRow` (both KEEP in the table registry, both in the nightly backup, which copies the whole database).
 Scheduled Saturdays 04:00 server time (UTC; noon in Hong Kong) in `crontab.txt`, weekly cadence in `core/cron_health.py` (overdue after 8 days); first scheduled run Saturday 2026-10-17. Disable/enable steps are in the spec ("Cron status"). A rerun for the same as-of date is a
 no-op; `--force` replaces that run in one transaction. It refuses to write when fewer than 90% of the gate-passing tickers have a Weinstein row from the as-of bar (the nightly 1:05 job has
-not caught up): check `CronRunLog` for `pipeline.nightly_trend_calculation` first. **Roll back a run:** `DELETE FROM opportunitysnapshotrow WHERE run_id = N; DELETE FROM opportunityrun WHERE id = N;`
-(tickers it listed drop out of the 180-day `opportunity` protection with it).
+not caught up): check `CronRunLog` for `pipeline.nightly_trend_calculation` first. **Roll back a run:** `DELETE FROM opportunityoutcome WHERE run_id = N; DELETE FROM opportunitypick WHERE run_id = N; DELETE FROM opportunitypoolrow WHERE run_id = N; DELETE FROM opportunitysnapshotrow WHERE run_id = N; DELETE FROM opportunityrun WHERE id = N;`
+(tickers it listed drop out of the 180-day `opportunity` protection with it). The run now also writes its pool (`opportunitypoolrow`, every gate-passing ticker); `--force` deletes the run's pool, outcome and pick rows with it.
+
+**Outcome updater (manual, built 2026-10-12):** `uv run python -m pipeline.opportunity_outcome_update --once` (or `--dry-run`, `--run-id N`, `--as-of D`) from `backend/`: zero FMP calls, about 130 MB peak, a no-op unless SPY has a new bar. Not in `crontab.txt` or `CRON_JOB_NAMES`; its result is the latest row of `opportunityoutcomerun`. Scheduling steps (suggested 03:40 UTC): `docs/specs/opportunities.md`, "Outcome tracking".
 
 ## Score recompute job (2026-10-06)
 
