@@ -51,6 +51,7 @@ from data.score_recompute import (
     wait_for_run,
 )
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
+from data.moat_check import get_latest_moat_check, moat_check_payload
 from data.market_breadth_data import get_market_breadth
 from data.opportunity_data import get_run as get_opportunity_run, list_run_dates as list_opportunity_dates, record_picks as record_opportunity_picks
 from data.momentum_data import get_etf_momentum_snapshot, get_momentum_snapshot
@@ -112,6 +113,7 @@ from core.schemas import (
     LiquidityZonesOut,
     MoatScoreConfigIn,
     MarketBreadthOut,
+    MoatCheckOut,
     MoatScoreConfigOut,
     EtfMomentumOut,
     MomentumOut,
@@ -1054,6 +1056,15 @@ async def update_ticker_moat(ticker: str, body: TickerMoatIn) -> TickerMoatOut:
     # been viewed and has no cached profile yet.
     await compute_ticker_score(ticker, cache_only=True)
     return TickerMoatOut(**row.model_dump())
+
+
+@app.get("/api/tickers/{ticker}/moat-check", response_model=MoatCheckOut | None)
+def ticker_moat_check(ticker: str) -> MoatCheckOut | None:
+    """The newest advisory independent Moat check (docs/specs/moat-check.md), or JSON null when the ticker was never checked ("Not
+    checked yet"). Read-only: it reads the database only, writes nothing, never touches TickerMoat or a score and calls no FMP."""
+    with Session(engine) as session:
+        row = get_latest_moat_check(session, ticker)
+        return None if row is None else MoatCheckOut(**moat_check_payload(row))
 
 
 @app.get("/api/tickers/{ticker}/speculative-growth", response_model=SpeculativeGrowthOut)

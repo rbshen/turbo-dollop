@@ -6,14 +6,15 @@ is the INSERT of one `MoatCheck` row, and rows are never updated or deleted (his
 
 Validation is structural. It rejects missing or extra keys (so `tag`, `independent_support` and `rule_effects` are refused), unknown
 enumeration values, a wrong criteria_version, an unparseable checked_date, a rated source with no fact, an unproven source that carries one,
-and incomplete observed_damage / threat / tripwire fields. Two values are DERIVED in code instead of rejected when they disagree with the
+and incomplete observed_damage / threat / tripwire fields. Empty prose (narrative, margins_note, would_lower, would_raise, evidence_note) is NOT
+a refusal: it is saved as given and returned as a warning. Two values are DERIVED in code instead of rejected when they disagree with the
 record: the overall `forward_threats.threat_level` (the highest level among the threats, Low when there are none) and `evidence_confidence`
 (forced to Low when `proof_basis` is `company_reported_only`). The returned record carries the corrected values."""
 
 import copy
 import json
 from datetime import date, datetime
-from typing import Any
+from typing import Any, NamedTuple
 
 from sqlmodel import Session, select
 
@@ -43,6 +44,10 @@ RECORD_KEYS = frozenset(
         "evidence_note", "forward_threats", "would_lower", "would_raise", "sources",
     }
 )
+# Free-text fields a research run can leave empty. An empty one is saved as given and reported as a warning, never a refusal: a full
+# research run is not thrown away over empty prose. (Empty = null or whitespace-only; evidence_note is null by design when there is
+# nothing to note, so a null evidence_note raises no warning.)
+PROSE_FIELDS = ("narrative", "margins_note", "would_lower", "would_raise", "evidence_note")
 _FACT_KEYS = frozenset({"fact", "source", "date"})
 _EVIDENCE_KEYS = frozenset({"level", "item", "source", "date", "stale"})
 _DAMAGE_KEYS = frozenset({"metric", "change", "period", "counted", "reason"})
@@ -191,10 +196,10 @@ def validate_pass_record(record: Any, ticker: str) -> dict:
     if record["single_product_flag"] is not None and not _is_text(record["single_product_flag"]):
         problems.append("single_product_flag: must be null or a non-empty string")
     _check_choice(record["durability_years_estimate"], DURABILITY, "durability_years_estimate", problems)
-    _check_text_fields(record, ("margins_note", "narrative", "would_lower", "would_raise"), "record", problems)
+    for name in PROSE_FIELDS:  # emptiness is a warning (prose_warnings), a wrong type is a structure problem
+        if record[name] is not None and not isinstance(record[name], str):
+            problems.append(f"{name}: must be text or null")
     _check_choice(record["evidence_confidence"], CONFIDENCES, "evidence_confidence", problems)
-    if record["evidence_note"] is not None and not _is_text(record["evidence_note"]):
-        problems.append("evidence_note: must be null or a non-empty string")
     _validate_threats(record, problems)
     sources = record["sources"]
     if not isinstance(sources, list):
@@ -212,6 +217,18 @@ def validate_pass_record(record: Any, ticker: str) -> dict:
     if corrected["proof_basis"] == "company_reported_only":
         corrected["evidence_confidence"] = "Low"
     return corrected
+
+
+def prose_warnings(record: dict) -> list[str]:
+    """Warnings for a validated record: each prose field that is empty (null or whitespace-only), except a null `evidence_note`."""
+    warnings = []
+    for name in PROSE_FIELDS:
+        value = record[name]
+        if value is None and name == "evidence_note":
+            continue
+        if value is None or not value.strip():
+            warnings.append(f"{name} is empty (saved as given)")
+    return warnings
 
 
 def reconcile(pass1: dict, pass2: dict) -> dict:
@@ -253,14 +270,30 @@ def reconcile(pass1: dict, pass2: dict) -> dict:
     return values
 
 
-def append_moat_check(session: Session, ticker: str, pass1: Any, pass2: Any, now: datetime | None = None) -> MoatCheck:
+class SavedMoatCheck(NamedTuple):
+    """What append_moat_check returns: the inserted row and the warnings the save produced (empty prose fields, a pass whose
+    checked_date differs from the run date). Warnings are reported to the caller and not stored."""
+
+    row: MoatCheck
+    warnings: list[str]
+
+
+def append_moat_check(
+    session: Session, ticker: str, pass1: Any, pass2: Any, now: datetime | None = None, run_date: date | None = None
+) -> SavedMoatCheck:
     """Validates both passes, reconciles them and INSERTS one new row (history: an existing row is never touched). Raises
     MoatCheckValidationError when either record is invalid and ValueError for a known ETF/fund, writing nothing in either case.
-    Never writes TickerMoat, never recomputes a score, never calls the network."""
+    Empty prose fields and (when `run_date` is given) a pass whose checked_date differs from it are WARNINGS returned beside the
+    row, never refusals. Never writes TickerMoat, never recomputes a score, never calls the network."""
     ticker = normalize_ticker(ticker)
     if is_known_etf(session, ticker):
         raise ValueError(f"{ticker} is an ETF or fund; an Economic Moat check does not apply to it")
     checked = [validate_pass_record(pass1, ticker), validate_pass_record(pass2, ticker)]
+    warnings = []
+    for number, record in enumerate(checked, start=1):
+        warnings += [f"pass {number}: {w}" for w in prose_warnings(record)]
+        if run_date is not None and record["checked_date"] != run_date.isoformat():
+            warnings.append(f"pass {number}: checked_date {record['checked_date']} differs from run date {run_date.isoformat()}")
     row = MoatCheck(
         ticker=ticker,
         checked_at=now or datetime.now(),
@@ -271,7 +304,7 @@ def append_moat_check(session: Session, ticker: str, pass1: Any, pass2: Any, now
     session.add(row)
     session.commit()
     session.refresh(row)
-    return row
+    return SavedMoatCheck(row, warnings)
 
 
 def get_latest_moat_check(session: Session, ticker: str) -> MoatCheck | None:
@@ -283,3 +316,35 @@ def get_latest_moat_check(session: Session, ticker: str) -> MoatCheck | None:
         .limit(1)
     )
     return session.exec(statement).first()
+
+
+def moat_check_payload(row: MoatCheck) -> dict[str, Any]:
+    """The API view of a stored row (core/schemas.py::MoatCheckOut fields): the query columns, the detail parsed from its JSON columns
+    when the row is stable, and both pass records when it is inconclusive. Pure; reads nothing."""
+
+    def parsed(text: str | None) -> Any:
+        return None if text is None else json.loads(text)
+
+    inconclusive = row.status == STATUS_INCONCLUSIVE
+    return {
+        "ticker": row.ticker,
+        "checked_at": row.checked_at,
+        "criteria_version": row.criteria_version,
+        "criteria_is_current": row.criteria_version == MOAT_CRITERIA_VERSION,
+        "status": row.status,
+        "rating": row.rating,
+        "pass1_rating": row.pass1_rating,
+        "pass2_rating": row.pass2_rating,
+        "evidence_confidence": row.evidence_confidence,
+        "proof_basis": row.proof_basis,
+        "threat_level": row.threat_level,
+        "sources_rating": parsed(row.source_ratings_json),
+        "source_facts": parsed(row.source_facts_json),
+        "observed_damage": parsed(row.observed_damage_json),
+        "forward_threats": parsed(row.forward_threats_json),
+        "would_lower": row.would_lower,
+        "would_raise": row.would_raise,
+        "evidence_note": row.evidence_note,
+        "pass1": parsed(row.pass1_json) if inconclusive else None,
+        "pass2": parsed(row.pass2_json) if inconclusive else None,
+    }

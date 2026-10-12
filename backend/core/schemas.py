@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StringConstraints, field_validator, model_validator
 
@@ -962,6 +962,34 @@ class TickerMoatOut(BaseModel):
 
 class TickerMoatIn(BaseModel):
     moat: Literal["no_moat", "narrow_moat", "wide_moat"]
+
+
+class MoatCheckOut(BaseModel):
+    """The newest advisory independent Moat check for a ticker (docs/specs/moat-check.md); the endpoint answers JSON null when the ticker
+    was never checked. Read-only. The nested parts are deliberately loose (dict / list): they are the validated records the check
+    saved, and a row from a later criteria version must not fail response validation on a page view. A `stable` row carries pass 1's
+    detail and no `pass1`/`pass2`; an `inconclusive` row has `rating` and the detail None and carries both passes."""
+
+    ticker: str
+    checked_at: datetime
+    criteria_version: str
+    criteria_is_current: bool  # False when the row was checked under another criteria version than the app's current one
+    status: Literal["stable", "inconclusive"]
+    rating: Literal["no_moat", "narrow_moat", "wide_moat"] | None = None
+    pass1_rating: str
+    pass2_rating: str
+    evidence_confidence: Literal["High", "Medium", "Low"]
+    proof_basis: Literal["independent", "company_reported_only"]
+    threat_level: str | None = None
+    sources_rating: dict[str, Any] | None = None
+    source_facts: dict[str, Any] | None = None
+    observed_damage: list[dict[str, Any]] | None = None
+    forward_threats: dict[str, Any] | None = None
+    would_lower: str | None = None
+    would_raise: str | None = None
+    evidence_note: str | None = None
+    pass1: dict[str, Any] | None = None
+    pass2: dict[str, Any] | None = None
 
 
 class SpeculativeGrowthOut(BaseModel):

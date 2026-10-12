@@ -303,7 +303,7 @@ def test_confidence_is_the_lower_of_the_two_passes(a, b, expected):
 
 
 def test_append_writes_one_row_with_both_validated_passes(session):
-    row = mc.append_moat_check(session, "pm", make_record(), make_record(), now=T0)
+    row = mc.append_moat_check(session, "pm", make_record(), make_record(), now=T0).row
     assert row.id is not None and row.ticker == "PM" and row.checked_at == T0 and row.status == "stable"
     stored = json.loads(row.pass1_json)
     assert stored["forward_threats"]["threat_level"] == "Moderate" and "tag" not in stored
@@ -312,18 +312,18 @@ def test_append_writes_one_row_with_both_validated_passes(session):
 def test_the_stored_passes_carry_the_derived_values(session):
     record = make_record(confidence="High", proof="company_reported_only", threat_levels=("High",))
     record["forward_threats"]["threat_level"] = "Low"
-    row = mc.append_moat_check(session, "PM", record, record, now=T0)
+    row = mc.append_moat_check(session, "PM", record, record, now=T0).row
     stored = json.loads(row.pass1_json)
     assert stored["evidence_confidence"] == "Low" and stored["forward_threats"]["threat_level"] == "High"
     assert row.evidence_confidence == "Low" and row.proof_basis == "company_reported_only" and row.threat_level == "High"
 
 
 def test_a_rerun_appends_a_second_row_and_changes_nothing_already_stored(session):
-    first = mc.append_moat_check(session, "PM", make_record(), make_record(), now=T0)
+    first = mc.append_moat_check(session, "PM", make_record(), make_record(), now=T0).row
     before = first.model_dump()
     second = mc.append_moat_check(
         session, "PM", make_record(rating="wide_moat"), make_record(rating="wide_moat"), now=datetime(2026, 10, 13, 9, 0)
-    )
+    ).row
     rows = session.exec(select(MoatCheck).order_by(MoatCheck.id)).all()
     assert [r.id for r in rows] == [first.id, second.id]
     assert rows[0].model_dump() == before and rows[1].rating == "wide_moat"
@@ -333,7 +333,7 @@ def test_latest_is_the_newest_by_checked_at_then_id(session):
     assert mc.get_latest_moat_check(session, "PM") is None
     mc.append_moat_check(session, "PM", make_record(), make_record(), now=datetime(2026, 10, 14))
     mc.append_moat_check(session, "PM", make_record(rating="wide_moat"), make_record(rating="wide_moat"), now=datetime(2026, 10, 12))
-    newest = mc.append_moat_check(session, "PM", make_record(rating="no_moat"), make_record(rating="no_moat"), now=datetime(2026, 10, 14))
+    newest = mc.append_moat_check(session, "PM", make_record(rating="no_moat"), make_record(rating="no_moat"), now=datetime(2026, 10, 14)).row
     mc.append_moat_check(session, "MO", make_record(ticker="MO"), make_record(ticker="MO"), now=datetime(2026, 10, 20))
     latest = mc.get_latest_moat_check(session, "pm")
     assert latest.id == newest.id and latest.rating == "no_moat"  # the same instant: the higher id wins
@@ -442,3 +442,57 @@ def test_the_table_has_no_tag_column_and_the_composite_index():
     inspector = inspect(engine)
     assert "tag" not in {c["name"] for c in inspector.get_columns("moatcheck")}
     assert any(i["column_names"] == ["ticker", "checked_at"] for i in inspector.get_indexes("moatcheck"))
+
+
+# --- warnings: empty prose and a run-date mismatch are reported, never refused ----------------------------------------------------
+
+
+@pytest.mark.parametrize("field", ["narrative", "margins_note", "would_lower", "would_raise"])
+@pytest.mark.parametrize("empty", ["", "   ", None])
+def test_an_empty_prose_field_is_saved_as_given_with_a_warning(session, field, empty):
+    record = make_record()
+    record[field] = empty
+    saved = mc.append_moat_check(session, "PM", record, make_record(), now=T0)
+    assert saved.warnings == [f"pass 1: {field} is empty (saved as given)"]
+    assert json.loads(saved.row.pass1_json)[field] == empty and session.exec(select(MoatCheck)).all() == [saved.row]
+
+
+def test_an_empty_evidence_note_warns_but_a_null_one_does_not(session):
+    blank, null = make_record(), make_record()
+    blank["evidence_note"], null["evidence_note"] = "  ", None
+    assert mc.append_moat_check(session, "PM", blank, null, now=T0).warnings == ["pass 1: evidence_note is empty (saved as given)"]
+
+
+def test_a_pass_with_every_prose_field_empty_still_saves_and_names_each_warning(session):
+    record = make_record()
+    for name in mc.PROSE_FIELDS:
+        record[name] = ""
+    saved = mc.append_moat_check(session, "PM", make_record(), record, now=T0)
+    assert [w.split(" is empty")[0] for w in saved.warnings] == [f"pass 2: {name}" for name in mc.PROSE_FIELDS]
+
+
+@pytest.mark.parametrize("field", mc.PROSE_FIELDS)
+def test_a_prose_field_of_the_wrong_type_is_still_rejected(field):
+    record = make_record()
+    record[field] = ["not", "text"]
+    assert any(field in p and "text or null" in p for p in problems_of(record))
+
+
+def test_complete_prose_gives_no_warnings(session):
+    assert mc.append_moat_check(session, "PM", make_record(), make_record(), now=T0).warnings == []
+
+
+def test_a_checked_date_other_than_the_run_date_is_a_warning_not_a_refusal(session):
+    from datetime import date
+
+    other = make_record()
+    other["checked_date"] = "2026-10-11"
+    saved = mc.append_moat_check(session, "PM", make_record(), other, now=T0, run_date=date(2026, 10, 12))
+    assert saved.warnings == ["pass 2: checked_date 2026-10-11 differs from run date 2026-10-12"]
+    assert saved.row.id is not None
+
+
+def test_no_run_date_means_no_date_warning(session):
+    other = make_record()
+    other["checked_date"] = "2026-01-01"
+    assert mc.append_moat_check(session, "PM", make_record(), other, now=T0).warnings == []
