@@ -18,19 +18,35 @@
 // With no `label` prop (a Settings row, whose own <label for> names it) there
 // is no wrapping <label> at all: the input is laid over the box, so a click on
 // the box still toggles it, and the row's label is the only accessible name.
-import { forwardRef, type InputHTMLAttributes, type ReactNode } from "react";
-import { Check } from "@phosphor-icons/react";
+import { forwardRef, useCallback, useEffect, useRef, type InputHTMLAttributes, type ReactNode } from "react";
+import { Check, Minus } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { describedByOf, useFormFieldContext } from "@/components/ui/form-field";
 
 export interface CheckboxProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: ReactNode;
   variant?: "neutral" | "chip";
+  /** Draws the mixed state (a dash) and sets the native `indeterminate` property: a select-all with only some rows selected. A click
+   * still toggles `checked` as usual; the caller decides what that means. */
+  indeterminate?: boolean;
 }
 
 export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
-  ({ className, label, id, variant = "neutral", disabled, "aria-describedby": ariaDescribedBy, ...props }, ref) => {
+  ({ className, label, id, variant = "neutral", indeterminate = false, disabled, "aria-describedby": ariaDescribedBy, ...props }, ref) => {
     const ctx = useFormFieldContext();
+    const inputRef = useRef<HTMLInputElement | null>(null);
+    const setRefs = useCallback(
+      (node: HTMLInputElement | null) => {
+        inputRef.current = node;
+        if (typeof ref === "function") ref(node);
+        else if (ref) ref.current = node;
+      },
+      [ref],
+    );
+    // `indeterminate` is a DOM property, not an attribute: React cannot set it from JSX.
+    useEffect(() => {
+      if (inputRef.current) inputRef.current.indeterminate = indeterminate;
+    }, [indeterminate]);
     const fieldId = id ?? ctx?.id;
     // A label-less checkbox is not wrapped in a <label>: the input covers the box.
     const bare = !label && variant !== "chip";
@@ -42,7 +58,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
         )}
       >
         <input
-          ref={ref}
+          ref={setRefs}
           id={fieldId}
           type="checkbox"
           disabled={disabled ?? ctx?.disabled}
@@ -58,7 +74,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
           aria-hidden
           className={cn(
             "absolute inset-0 rounded-[3px] border border-border-control transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand",
-            "peer-checked:border-text-primary peer-checked:bg-text-primary",
+            "peer-checked:border-text-primary peer-checked:bg-text-primary peer-indeterminate:border-text-primary peer-indeterminate:bg-text-primary",
             bare && "pointer-events-none",
           )}
         />
@@ -67,9 +83,15 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
           weight="bold"
           size={11}
           className={cn(
-            "relative z-10 text-page opacity-0 peer-checked:opacity-100",
+            "relative z-10 text-page opacity-0 peer-checked:opacity-100 peer-indeterminate:opacity-0",
             bare && "pointer-events-none",
           )}
+        />
+        <Minus
+          aria-hidden
+          weight="bold"
+          size={11}
+          className={cn("absolute inset-0 m-auto z-10 text-page opacity-0 peer-indeterminate:opacity-100", bare && "pointer-events-none")}
         />
       </span>
     );

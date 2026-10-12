@@ -139,3 +139,26 @@ describe("Checkbox: no label prop (a Settings row names it)", () => {
     expect(document.getElementById("c")?.closest("label")).not.toBeNull();
   });
 });
+
+describe("Checkbox: indeterminate", () => {
+  it("sets the native property, draws the dash, and still toggles on click", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<Checkbox aria-label="All" indeterminate onChange={onChange} />);
+    const input = screen.getByRole("checkbox", { name: "All" }) as HTMLInputElement;
+    expect(input.indeterminate).toBe(true);
+    expect(boxOf(input)).toHaveClass("peer-indeterminate:border-text-primary", "peer-indeterminate:bg-text-primary");
+    expect(checkOf(input)).toHaveClass("peer-indeterminate:opacity-0");
+    expect(checkOf(input).nextElementSibling).toHaveClass("peer-indeterminate:opacity-100"); // the Minus
+    fireEvent.click(input);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    rerender(<Checkbox aria-label="All" onChange={onChange} />);
+    expect(input.indeterminate).toBe(false);
+  });
+
+  it("still forwards its ref", () => {
+    const ref = { current: null as HTMLInputElement | null };
+    render(<Checkbox aria-label="x" ref={ref} indeterminate />);
+    expect(ref.current).toBeInstanceOf(HTMLInputElement);
+  });
+});
+
