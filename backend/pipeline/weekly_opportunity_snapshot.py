@@ -3,11 +3,12 @@ universe from STORED data only and saves a dated snapshot (OpportunityRun + Oppo
 scoring/opportunity_rules.py; orchestration: data/opportunity_data.py; spec: docs/specs/opportunities.md.
 
 Makes ZERO FMP calls and no LLM call: it reads the shared bars cache (in chunks of 60 tickers, so memory stays flat), TickerScore,
-TrendAnalysis, the Warren / BB+RSI event tables and MarketBreadthSnapshot. It writes only the two new tables, insert-only.
+TrendAnalysis, the Warren / BB+RSI event tables and MarketBreadthSnapshot. It writes only the run, its snapshot rows and the run's
+pool (OpportunityPoolRow: every gate-passing ticker, listed or not, frozen for a later step), insert-only, in one transaction.
 Existing nightly jobs, the stage engine and the scoring are not touched.
 
 Runs once for one as-of date (default: the last completed XNYS session). A rerun for the same as-of date is a no-op; `--force`
-replaces that run's rows in one transaction. It refuses (raises, writes nothing) when fewer than 90% of the gate-passing tickers
+replaces that run in one transaction, deleting its snapshot, pool, outcome and pick rows with it. It refuses (raises, writes nothing) when fewer than 90% of the gate-passing tickers
 have a Weinstein row computed from the as-of bar, i.e. when the nightly stage job has not caught up.
 
 SCHEDULED (enabled 2026-10-12): Saturdays 04:00 server time (UTC) in crontab.txt, registered in core/cron_health.py (weekly cadence).

@@ -33,6 +33,9 @@ from core.models import (
     EtfScreenerRow,
     FundamentalsCache,
     MarketBreadthSnapshot,
+    OpportunityOutcome,
+    OpportunityPick,
+    OpportunityPoolRow,
     OpportunityRun,
     OpportunitySnapshotRow,
     ScoreWeightSettings,
@@ -79,6 +82,7 @@ class ComputedRun:
     weights_version: int | None
     summary: dict
     rows: list[dict]  # one dict per OpportunitySnapshotRow (without run_id)
+    pool: list[dict] = field(default_factory=list)  # one dict per OpportunityPoolRow: EVERY gate-passing ticker, listed or not
     gate_drops: dict[str, int] = field(default_factory=dict)
 
 
@@ -419,6 +423,47 @@ def compute_run(as_of: date | None = None, now: datetime | None = None) -> Compu
             row["list_order"] = order
             rows.append(row)
 
+    # The pool: every gate-passing ticker with the list its stage allows and whether it made one. Stored only (nothing reads it yet).
+    listed_on = {r["ticker"]: r["list_name"] for r in rows}
+    pool = []
+    for t in passed:
+        f = features[t]
+        p = f.price
+        score = scores.get(t)
+        info = rank_info.get(t, {})
+        pool.append(
+            {
+                "ticker": t,
+                "tier": tiers[t],
+                "assigned_list": rules.assign_list(f),
+                "listed": t in listed_on,
+                "list_name": listed_on.get(t),
+                "sector": score.sector if score is not None and not f.is_etf else None,
+                "overall_verdict": f.overall_verdict,
+                "weinstein_stage": f.stage,
+                "vs_ma_pct": f.vs_ma_pct,
+                "momentum_rank": f.momentum_rank,
+                "close": p.close if p else None,
+                "adv_usd": p.adv_usd if p else None,
+                "inputs": {
+                    "is_etf": f.is_etf,
+                    "leverage": f.leverage,
+                    "pending_direction": f.pending_direction,
+                    "weeks_in_advance": f.weeks_in_advance,
+                    "ma_slope_pct": f.ma_slope_pct,
+                    "mansfield_rs": f.mansfield_rs,
+                    "return_3m": f.return_3m,
+                    "return_12m": f.return_12m,
+                    "composite": info.get("composite"),
+                    "momentum_group": group_of.get(t),
+                    "momentum_group_size": f.momentum_group_size,
+                    "drawdown_pct": p.drawdown_pct if p else None,
+                    "signal_status": f.signal_status,
+                    "overall_score": f.overall_score,
+                },
+            }
+        )
+
     counts: dict[str, dict[str, dict[str, int]]] = {rules.LIST_MOMENTUM: {}, rules.LIST_REVERSAL: {}}
     for row in rows:
         by_tier = counts[row["list_name"]].setdefault(row["tier"], {"total": 0})
@@ -431,6 +476,7 @@ def compute_run(as_of: date | None = None, now: datetime | None = None) -> Compu
         "list_totals": {name: len(r) for name, r in ((rules.LIST_MOMENTUM, momentum_rows), (rules.LIST_REVERSAL, reversal_rows))},
         "ranked_universe": ranked_sizes,
         "gate_passed": len(passed),
+        "pool_rows": len(pool),
         "gate_drops": gate_drops,
         "stale_stage_rows": stale_stage,
         "stale_score_rows": stale_scores,
@@ -455,6 +501,7 @@ def compute_run(as_of: date | None = None, now: datetime | None = None) -> Compu
         weights_version=weights_version,
         summary=summary,
         rows=rows,
+        pool=pool,
         gate_drops=gate_drops,
     )
 
@@ -480,18 +527,29 @@ def existing_run_id(as_of: date, kind: str = KIND_WEEKLY) -> int | None:
 
 def persist_run(computed: ComputedRun, force: bool = False, kind: str = KIND_WEEKLY, now: datetime | None = None) -> dict:
     """Inserts the run and its rows. A run for (kind, as_of) that already exists is a no-op (`{"status": "exists"}`) unless
-    `force`, which deletes that run and its rows and inserts the new ones in ONE transaction (nothing is left half-replaced if
-    anything fails). Nothing else is ever written or updated."""
+    `force`, which deletes that run and EVERYTHING keyed by its run id (snapshot rows, pool rows, outcome rows, pick rows) and inserts
+    the new ones in ONE transaction (nothing is left half-replaced if anything fails). The pool is written in that same transaction.
+    Deleting the picks is deliberate (a replaced run's old ids mean nothing to the new lists, and sqlite may even reuse the id); the
+    count is returned as `deleted` and logged. Nothing else is ever written or updated."""
     now = now or datetime.now()
     with Session(engine) as session:
         existing = find_run(session, computed.as_of, kind)
         if existing is not None and not force:
             return {"status": "exists", "run_id": existing.id, "as_of_date": computed.as_of.isoformat()}
         replaced = existing.id if existing is not None else None
+        deleted: dict[str, int] = {}
         try:
             if existing is not None:
-                session.exec(delete(OpportunitySnapshotRow).where(OpportunitySnapshotRow.run_id == existing.id))
+                for label, model in (
+                    ("snapshot_rows", OpportunitySnapshotRow),
+                    ("pool_rows", OpportunityPoolRow),
+                    ("outcome_rows", OpportunityOutcome),
+                    ("pick_rows", OpportunityPick),
+                ):
+                    deleted[label] = session.exec(delete(model).where(model.run_id == existing.id)).rowcount
                 session.exec(delete(OpportunityRun).where(OpportunityRun.id == existing.id))
+                if deleted.get("pick_rows"):
+                    logger.warning("Opportunity run --force deleted %d pick row(s) of run %s.", deleted["pick_rows"], existing.id)
             run = OpportunityRun(
                 kind=kind,
                 as_of_date=computed.as_of,
@@ -531,6 +589,25 @@ def persist_run(computed: ComputedRun, force: bool = False, kind: str = KIND_WEE
                         inputs_json=json.dumps(row["inputs"]),
                     )
                 )
+            for p in computed.pool:
+                session.add(
+                    OpportunityPoolRow(
+                        run_id=run.id,
+                        ticker=p["ticker"],
+                        tier=p["tier"],
+                        assigned_list=p["assigned_list"],
+                        listed=p["listed"],
+                        list_name=p["list_name"],
+                        sector=p["sector"],
+                        overall_verdict=p["overall_verdict"],
+                        weinstein_stage=p["weinstein_stage"],
+                        vs_ma_pct=p["vs_ma_pct"],
+                        momentum_rank=p["momentum_rank"],
+                        close=p["close"],
+                        adv_usd=p["adv_usd"],
+                        inputs_json=json.dumps(p["inputs"]),
+                    )
+                )
             session.commit()
         except Exception:
             session.rollback()
@@ -541,6 +618,8 @@ def persist_run(computed: ComputedRun, force: bool = False, kind: str = KIND_WEE
             "replaced_run_id": replaced,
             "as_of_date": computed.as_of.isoformat(),
             "rows": len(computed.rows),
+            "pool_rows": len(computed.pool),
+            "deleted": deleted,
         }
 
 

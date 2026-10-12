@@ -15,6 +15,9 @@ import data.opportunity_data as od
 from core.models import (
     EtfScreenerRow,
     MarketBreadthSnapshot,
+    OpportunityOutcome,
+    OpportunityPick,
+    OpportunityPoolRow,
     OpportunityRun,
     OpportunitySnapshotRow,
     SharedBarsCache,
@@ -449,6 +452,114 @@ def test_the_database_rejects_a_duplicate_run_or_row(world):
         s.add(OpportunitySnapshotRow(run_id=row.run_id, list_name=other, ticker=row.ticker, tier="etf", list_order=99, rule_ids_json="[]"))
         with pytest.raises(IntegrityError):
             s.commit()
+
+
+# --- the pool and the --force cascade ------------------------------------------------------------------------------------------
+
+
+def test_the_pool_is_exactly_the_gate_passing_set(world):
+    run = od.compute_run(AS_OF, NOW)
+    gate_drops = run.summary["gate_drops"]
+    passed = run.summary["gate_passed"]
+    assert len(run.pool) == passed == run.summary["pool_rows"]
+    pooled = {p["ticker"] for p in run.pool}
+    assert len(pooled) == len(run.pool)  # one row per ticker
+    # every gate drop (and SPY) is out of the pool; every listed ticker is in it
+    assert not pooled & {"SHORT", "STALE", "ILLIQ", "DELIST", "NOBARS", "SPY"}
+    assert {r["ticker"] for r in run.rows} <= pooled
+    assert passed + sum(gate_drops.values()) == run.universe_size
+
+
+def test_a_pool_row_says_what_the_stage_allowed_and_whether_it_was_listed(world):
+    run = od.compute_run(AS_OF, NOW)
+    pool = {p["ticker"]: p for p in run.pool}
+    listed = {r["ticker"]: r["list_name"] for r in run.rows}
+    for t, p in pool.items():
+        assert p["listed"] == (t in listed) and p["list_name"] == listed.get(t)
+        assert p["list_name"] in (None, p["assigned_list"])  # a ticker is only ever listed on the list its stage allows
+    assert pool["TOPQ"]["assigned_list"] is None and pool["TOPQ"]["listed"] is False  # Top: allowed on neither
+    assert pool["MOMSLOW"]["assigned_list"] == "momentum" and pool["MOMSLOW"]["listed"] is False  # allowed, rule A not hit
+    assert pool["MOM1"]["assigned_list"] == "momentum" and pool["MOM1"]["listed"] is True
+    assert pool["MOM1"]["overall_verdict"] == "Fail"  # the raw stored word, never relabelled
+    assert pool["MOM1"]["weinstein_stage"] == "advance" and pool["MOM1"]["close"] is not None and pool["MOM1"]["adv_usd"] is not None
+
+
+def test_persist_writes_the_pool_in_the_same_transaction_as_the_run(world):
+    run = od.compute_run(AS_OF, NOW)
+    result = od.persist_run(run, now=NOW)
+    assert result["pool_rows"] == len(run.pool)
+    with Session(world) as s:
+        stored = s.exec(select(OpportunityRun)).one()
+        pool = s.exec(select(OpportunityPoolRow).where(OpportunityPoolRow.run_id == stored.id)).all()
+        assert {p.ticker for p in pool} == {p["ticker"] for p in run.pool}
+        assert {p.ticker for p in pool if p.listed} == {r["ticker"] for r in run.rows}
+        assert json.loads(next(p for p in pool if p.ticker == "MOM1").inputs_json)["momentum_group"] == "stocks"
+
+
+def test_a_failed_pool_insert_rolls_the_whole_run_back(world):
+    run = od.compute_run(AS_OF, NOW)
+    run.pool[0]["tier"] = None  # NOT NULL: fails after the run and the snapshot rows were added
+    with pytest.raises(IntegrityError):
+        od.persist_run(run, now=NOW)
+    with Session(world) as s:
+        assert s.exec(select(OpportunityRun)).all() == [] and s.exec(select(OpportunitySnapshotRow)).all() == []
+        assert s.exec(select(OpportunityPoolRow)).all() == []
+
+
+def test_the_database_rejects_a_duplicate_pool_row(world):
+    od.persist_run(od.compute_run(AS_OF, NOW), now=NOW)
+    with Session(world) as s:
+        row = s.exec(select(OpportunityPoolRow)).first()
+        s.add(OpportunityPoolRow(run_id=row.run_id, ticker=row.ticker, tier="etf"))
+        with pytest.raises(IntegrityError):
+            s.commit()
+
+
+def _seed_children(engine, run_id: int, other_run_id: int) -> None:
+    with Session(engine) as s:
+        for rid in (run_id, other_run_id):
+            s.add(OpportunityOutcome(run_id=rid, ticker="MOM1", horizon=5, status="pending", rules_version="2", computed_at=NOW))
+            s.add(OpportunityPick(run_id=rid, ticker="MOM1", picked_at=NOW, source="opportunities_page"))
+        s.commit()
+
+
+def test_force_deletes_the_pool_outcome_and_pick_rows_of_that_run_only(world):
+    first = od.persist_run(od.compute_run(AS_OF, NOW), now=NOW)
+    other = od.compute_run(AS_OF, NOW)
+    other.as_of = date(2026, 10, 2)
+    second = od.persist_run(other, now=NOW)
+    _seed_children(world, first["run_id"], second["run_id"])
+    result = od.persist_run(od.compute_run(AS_OF, NOW), force=True, now=NOW + timedelta(days=1))
+    assert result["status"] == "replaced"
+    assert result["deleted"]["outcome_rows"] == 1 and result["deleted"]["pick_rows"] == 1
+    assert result["deleted"]["pool_rows"] == first["pool_rows"] and result["deleted"]["snapshot_rows"] == first["rows"]
+    with Session(world) as s:
+        new_id = result["run_id"]
+        for model in (OpportunityOutcome, OpportunityPick):
+            rows = s.exec(select(model)).all()
+            assert [r.run_id for r in rows] == [second["run_id"]]  # the other run's children survive; none left for the replaced run
+        pool_runs = {p.run_id for p in s.exec(select(OpportunityPoolRow)).all()}
+        assert pool_runs == {new_id, second["run_id"]}  # the replaced run's old pool is gone, the new one is in
+        assert len(s.exec(select(OpportunityPoolRow).where(OpportunityPoolRow.run_id == new_id)).all()) == first["pool_rows"]
+
+
+def test_a_failed_force_keeps_the_pool_outcomes_and_picks(world):
+    first = od.persist_run(od.compute_run(AS_OF, NOW), now=NOW)
+    _seed_children(world, first["run_id"], first["run_id"] + 100)
+    bad = od.compute_run(AS_OF, NOW)
+    bad.pool[2]["tier"] = None
+    with pytest.raises(IntegrityError):
+        od.persist_run(bad, force=True, now=NOW + timedelta(days=1))
+    with Session(world) as s:
+        assert len(s.exec(select(OpportunityPoolRow).where(OpportunityPoolRow.run_id == first["run_id"])).all()) == first["pool_rows"]
+        assert len(s.exec(select(OpportunityOutcome)).all()) == 2 and len(s.exec(select(OpportunityPick)).all()) == 2
+
+
+def test_a_rerun_without_force_computes_and_writes_nothing_new(world):
+    first = od.persist_run(od.compute_run(AS_OF, NOW), now=NOW)
+    od.persist_run(od.compute_run(AS_OF, NOW), now=NOW + timedelta(hours=1))
+    with Session(world) as s:
+        assert len(s.exec(select(OpportunityPoolRow)).all()) == first["pool_rows"]
 
 
 # --- reading -------------------------------------------------------------------------------------------------------------------
