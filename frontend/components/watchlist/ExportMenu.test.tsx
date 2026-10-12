@@ -114,6 +114,13 @@ describe("ExportMenu", () => {
     expect(trigger.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
   });
 
+  it("takes a label for the trigger and keeps naming the menu \"Export list\"", () => {
+    render(<ExportMenu label="Export 12 selected" onExportTradingView={() => {}} onExportThinkorswim={() => {}} />);
+    const trigger = screen.getByRole("button", { name: "Export 12 selected" });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menu", { name: "Export list" })).toBeInTheDocument();
+  });
+
   it("names the menu in sentence case", () => {
     const { trigger } = renderMenu();
     fireEvent.click(trigger);

@@ -270,51 +270,260 @@ describe("OpportunitiesPage", () => {
     expect(requested.some((r) => r.endsWith("/opportunities/2026-10-02"))).toBe(true);
   });
 
-  it("has the export menu with TradingView and thinkorswim, and a manual Add to watchlist button", async () => {
+  it("has the export menu with TradingView and thinkorswim, and a manual Add to watchlist button that stay enabled", async () => {
     await loaded();
-    fireEvent.click(screen.getByRole("button", { name: /Export list/ }));
-    expect(screen.getByRole("menuitem", { name: "TradingView (.txt)" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "thinkorswim (.csv)" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Export 4 shown" }));
+    expect(screen.getByRole("menuitem", { name: "TradingView (.txt)" })).toBeEnabled();
+    expect(screen.getByRole("menuitem", { name: "thinkorswim (.csv)" })).toBeEnabled();
     expect(screen.queryByRole("menuitem", { name: /multiple/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add to watchlist" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add to watchlist" })).toBeEnabled(); // nothing selected: still enabled, it answers on use
   });
 
-  it("the manual Add to watchlist also sends the id of the run shown: the latest by default, the past one when selected", async () => {
+  // --- selection --------------------------------------------------------------------------------------------------------------
+
+  const box = (ticker: string) => screen.getByRole("checkbox", { name: `Select ${ticker}` }) as HTMLInputElement;
+  const header = () => screen.getByRole("checkbox", { name: "Select all shown" }) as HTMLInputElement;
+  const tierButton = (name: RegExp) => within(screen.getByRole("group", { name: "Tier" })).getByRole("button", { name });
+  const picked = (...tickers: string[]) => tickers.forEach((t) => fireEvent.click(box(t)));
+
+  it("selects one row: a count line, the count in both buttons, a Clear action", async () => {
     await loaded();
-    const addAll = async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Add to watchlist" }));
-      fireEvent.click(within(screen.getByText("Picks").parentElement as HTMLElement).getByRole("button", { name: "Add" }));
-      fireEvent.click(await screen.findByRole("button", { name: "Okay" }));
-    };
-    await addAll();
+    expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
+    picked("MOMO");
+    expect(box("MOMO")).toBeChecked();
+    expect(box("QUAL")).not.toBeChecked();
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add 1 to watchlist" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export 1 selected" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(box("MOMO")).not.toBeChecked();
+    expect(screen.queryByText("1 selected")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add to watchlist" })).toBeInTheDocument();
+  });
+
+  it("keeps a fixed-height status line so the selection line appearing moves nothing", async () => {
+    await loaded();
+    const line = screen.getByRole("status");
+    expect(line).toHaveClass("h-8");
+    picked("QUAL");
+    expect(screen.getByRole("status")).toBe(line);
+    expect(line).toHaveClass("h-8");
+  });
+
+  it("the header checkbox selects exactly the shown rows and shows an indeterminate state for a partial selection", async () => {
+    await loaded();
+    expect(header().checked).toBe(false);
+    expect(header().indeterminate).toBe(false);
+    picked("QUAL");
+    expect(header().indeterminate).toBe(true);
+    expect(header().checked).toBe(false);
+    fireEvent.click(header());
+    expect(["QUAL", "MOMO", "WARY", "SOXL"].every((t) => box(t).checked)).toBe(true);
+    expect(header().checked).toBe(true);
+    expect(header().indeterminate).toBe(false);
+    expect(screen.getByText("4 selected")).toBeInTheDocument();
+    fireEvent.click(header()); // all shown selected -> deselect the shown rows
+    expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
+    expect(header().checked).toBe(false);
+  });
+
+  it("select-all follows the tier filter: only the shown rows are selected, and others already selected stay", async () => {
+    await loaded();
+    fireEvent.click(tierButton(/^Momentum-only/));
+    fireEvent.click(header());
+    expect(screen.getByText("2 selected")).toBeInTheDocument(); // MOMO and WARY, not QUAL or SOXL
+    fireEvent.click(tierButton(/^All/));
+    expect(box("MOMO")).toBeChecked();
+    expect(box("QUAL")).not.toBeChecked();
+    expect(header().indeterminate).toBe(true);
+  });
+
+  it("shift-click selects the range of shown rows from the last one clicked", async () => {
+    await loaded();
+    picked("QUAL");
+    fireEvent.click(box("WARY"), { shiftKey: true });
+    expect(["QUAL", "MOMO", "WARY"].every((t) => box(t).checked)).toBe(true);
+    expect(box("SOXL")).not.toBeChecked();
+    fireEvent.click(box("QUAL"), { shiftKey: true }); // anchor is WARY; QUAL is selected, so the range turns off
+    expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
+  });
+
+  it("space toggles the focused checkbox (the keyboard path is a native click)", async () => {
+    await loaded();
+    box("MOMO").focus();
+    fireEvent.click(document.activeElement as HTMLElement); // a space press on a checkbox dispatches a click
+    expect(box("MOMO")).toBeChecked();
+    expect(box("MOMO")).toHaveAttribute("type", "checkbox");
+  });
+
+  it("keeps the selection across the tier filter and across the Momentum / Reversal tabs", async () => {
+    await loaded();
+    picked("QUAL");
+    fireEvent.click(tierButton(/^Momentum-only/));
+    expect(screen.queryByText("QUAL")).not.toBeInTheDocument();
+    expect(screen.getByText("1 selected")).toBeInTheDocument(); // the hidden selection still counts
+    fireEvent.click(tierButton(/^All/));
+    expect(box("QUAL")).toBeChecked();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Reversal/ }));
+    picked("REVQ");
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: /Momentum/ }));
+    expect(box("QUAL")).toBeChecked();
+    fireEvent.click(screen.getByRole("tab", { name: /Reversal/ }));
+    expect(box("REVQ")).toBeChecked();
+  });
+
+  it("clears the selection when the snapshot date changes", async () => {
+    await loaded();
+    picked("QUAL", "MOMO");
+    fireEvent.change(screen.getByRole("combobox", { name: "Snapshot date" }), { target: { value: "2026-10-02" } });
+    await waitFor(() => expect(screen.getByText("OLDY")).toBeInTheDocument());
+    expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
+    expect(box("OLDY")).not.toBeChecked();
+    fireEvent.change(screen.getByRole("combobox", { name: "Snapshot date" }), { target: { value: "2026-10-09" } });
+    await waitFor(() => expect(screen.getByText("QUAL")).toBeInTheDocument());
+    expect(box("QUAL")).not.toBeChecked();
+  });
+
+  it("a checkbox click neither opens the ticker nor counts as a row click; the row itself still does", async () => {
+    await loaded();
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    fireEvent.click(box("QUAL"));
+    fireEvent.click(box("QUAL").closest("td") as HTMLElement); // the padding around the box
+    fireEvent.click(header());
+    expect(open).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Quality Co"));
+    expect(open).toHaveBeenCalledWith("/tickers/QUAL", "_blank", "noopener,noreferrer");
+    open.mockRestore();
+  });
+
+  // --- Add to watchlist -------------------------------------------------------------------------------------------------------
+
+  const openPicks = () => {
+    fireEvent.click(screen.getByRole("button", { name: /^Add (\d+ )?to watchlist$/ }));
+    return within(screen.getByText("Picks").parentElement as HTMLElement);
+  };
+
+  it("with nothing selected, Add to watchlist does nothing but say so inline (no menu, no request, still enabled)", async () => {
+    await loaded();
+    fireEvent.click(screen.getByRole("button", { name: "Add to watchlist" }));
+    expect(screen.getByText("Select at least one ticker")).toBeInTheDocument();
+    expect(screen.queryByText("Picks")).not.toBeInTheDocument();
+    expect(posted).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Add to watchlist" })).toBeEnabled();
+    picked("QUAL"); // the message goes away once something is selected
+    expect(screen.queryByText("Select at least one ticker")).not.toBeInTheDocument();
+  });
+
+  it("adds only the selected tickers, with the id of the run shown, and clears the selection after", async () => {
+    await loaded();
+    picked("MOMO", "SOXL");
+    fireEvent.click(openPicks().getByRole("button", { name: "Add" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Okay" }));
     await waitFor(() => expect(posted).toHaveLength(1));
-    expect(posted[0]).toMatchObject({ opportunity_run_id: 2 });
-    expect(posted[0].tickers).toEqual(["QUAL", "MOMO", "WARY", "SOXL"]);
+    expect(posted[0]).toEqual({ tickers: ["MOMO", "SOXL"], opportunity_run_id: 2 });
+    await waitFor(() => expect(screen.queryByText("2 selected")).not.toBeInTheDocument());
+    expect(box("MOMO")).not.toBeChecked();
+    expect(screen.getByText(/Added 4 to “Picks”/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add to watchlist" })).toBeInTheDocument();
+  });
+
+  it("a selection that spans both tabs is added together, in the run's order", async () => {
+    await loaded();
+    picked("WARY");
+    fireEvent.click(screen.getByRole("tab", { name: /Reversal/ }));
+    picked("REVM");
+    expect(screen.getByRole("button", { name: "Add 2 to watchlist" })).toBeInTheDocument();
+    fireEvent.click(openPicks().getByRole("button", { name: "Add" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Okay" }));
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toEqual({ tickers: ["WARY", "REVM"], opportunity_run_id: 2 });
+  });
+
+  it("a single selected ticker is added with the single-add call and the run id", async () => {
+    await loaded();
+    picked("QUAL");
+    fireEvent.click(openPicks().getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toEqual({ ticker: "QUAL", opportunity_run_id: 2 });
+    await waitFor(() => expect(screen.getByText("Added QUAL to “Picks”")).toBeInTheDocument());
   });
 
   it("a past snapshot sends that run's id", async () => {
     await loaded();
     fireEvent.change(screen.getByRole("combobox", { name: "Snapshot date" }), { target: { value: "2026-10-02" } });
     await waitFor(() => expect(screen.getByText("OLDY")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Add to watchlist" }));
-    fireEvent.click(within(screen.getByText("Picks").parentElement as HTMLElement).getByRole("button", { name: "Add" }));
+    picked("OLDY");
+    fireEvent.click(openPicks().getByRole("button", { name: "Add" }));
     await waitFor(() => expect(posted).toHaveLength(1));
     expect(posted[0]).toEqual({ ticker: "OLDY", opportunity_run_id: 1 });
   });
 
-  it("exports the visible rows as a TradingView list grouped by sector", async () => {
+  // --- Export -----------------------------------------------------------------------------------------------------------------
+
+  function captureDownloads() {
+    const files: { name: string; blob: Blob }[] = [];
+    let last: Blob | null = null;
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: (b: Blob) => ((last = b), "blob:x"), revokeObjectURL: () => {} }));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      files.push({ name: this.download, blob: last as unknown as Blob });
+    });
+    return { files, restore: () => click.mockRestore() };
+  }
+
+  it("with nothing selected exports everything in the current view (tab plus tier), labelled with the count and named as a view", async () => {
     await loaded();
-    const created: Blob[] = [];
-    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: (b: Blob) => (created.push(b), "blob:x"), revokeObjectURL: () => {} }));
-    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-    fireEvent.click(screen.getByRole("button", { name: /Export list/ }));
+    const d = captureDownloads();
+    fireEvent.click(screen.getByRole("button", { name: "Export 4 shown" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "TradingView (.txt)" }));
-    expect(created).toHaveLength(1);
-    const text = await created[0].text();
+    expect(d.files).toHaveLength(1);
+    expect(d.files[0].name).toBe("opportunities-momentum-view-2026-10-09.txt");
+    const text = await d.files[0].blob.text();
     expect(text).toContain("###Technology");
     expect(text).toContain("NASDAQ:QUAL");
     expect(text).toContain("###Other"); // the ETF has no sector
-    click.mockRestore();
+    expect(text).not.toContain("REVQ"); // the Reversal list is not in a Momentum view
+    d.restore();
+
+    fireEvent.click(tierButton(/^Momentum-only/));
+    expect(screen.getByRole("button", { name: "Export 2 shown" })).toBeInTheDocument();
+  });
+
+  it("with rows selected exports exactly those rows, named as a selection with the list and the date", async () => {
+    await loaded();
+    const d = captureDownloads();
+    picked("MOMO", "WARY");
+    fireEvent.click(screen.getByRole("button", { name: "Export 2 selected" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "thinkorswim (.csv)" }));
+    expect(d.files[0].name).toBe("opportunities-momentum-selection-2026-10-09_thinkorswim.csv");
+    expect(await d.files[0].blob.text()).toBe("MOMO\nWARY\n");
+    d.restore();
+  });
+
+  it("a selection spanning both lists is exported together and the file name carries both lists", async () => {
+    await loaded();
+    const d = captureDownloads();
+    picked("QUAL");
+    fireEvent.click(screen.getByRole("tab", { name: /Reversal/ }));
+    picked("REVQ");
+    fireEvent.click(screen.getByRole("button", { name: "Export 2 selected" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "thinkorswim (.csv)" }));
+    expect(d.files[0].name).toBe("opportunities-momentum-reversal-selection-2026-10-09_thinkorswim.csv");
+    expect(await d.files[0].blob.text()).toBe("QUAL\nREVQ\n");
+    d.restore();
+  });
+
+  it("exporting a view with no rows (and no selection) says so instead of writing a file", async () => {
+    await loaded();
+    const d = captureDownloads();
+    fireEvent.click(screen.getByRole("tab", { name: /Reversal/ }));
+    fireEvent.click(tierButton(/^ETF/));
+    fireEvent.click(screen.getByRole("button", { name: "Export 0 shown" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "thinkorswim (.csv)" }));
+    expect(d.files).toHaveLength(0);
+    expect(screen.getByText("Nothing to export")).toBeInTheDocument();
+    d.restore();
   });
 
   it("makes no write request: the page only GETs", async () => {

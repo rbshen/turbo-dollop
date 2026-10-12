@@ -555,3 +555,50 @@ describe("AddToWatchlistButton: opportunity run id", () => {
     await waitFor(() => expect(bulkAddTickersToWatchlist).toHaveBeenCalledWith(1, ["AAPL", "MSFT"], 7));
   });
 });
+
+describe("AddToWatchlistButton: onEmptyClick and onAdded", () => {
+  it("with no tickers and onEmptyClick, a click calls it, opens no menu and the button is enabled", () => {
+    const onEmptyClick = vi.fn();
+    render(<AddToWatchlistButton tickers={[]} label="Add to watchlist" onEmptyClick={onEmptyClick} />);
+    const trigger = screen.getByRole("button", { name: "Add to watchlist" });
+    expect(trigger).toBeEnabled();
+    fireEvent.click(trigger);
+    expect(onEmptyClick).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Growth")).not.toBeInTheDocument();
+  });
+
+  it("reports a single add and a bulk add (with the already-present count) to onAdded, after the add", async () => {
+    const onAdded = vi.fn();
+    const { unmount } = render(<AddToWatchlistButton tickers={["AAPL"]} onAdded={onAdded} />);
+    open();
+    fireEvent.click(within(screen.getByText("Growth").parentElement as HTMLElement).getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(onAdded).toHaveBeenCalledWith({ watchlistName: "Growth", added: 1, alreadyPresent: 0, tickers: ["AAPL"] }));
+    unmount();
+
+    bulkAddTickersToWatchlist.mockResolvedValue({ added: 1, already_present: 1 });
+    render(<AddToWatchlistButton tickers={["AAPL", "MSFT"]} onAdded={onAdded} />);
+    open();
+    fireEvent.click(within(screen.getByText("Growth").parentElement as HTMLElement).getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("button", { name: "Okay" }));
+    await waitFor(() => expect(onAdded).toHaveBeenLastCalledWith({ watchlistName: "Growth", added: 1, alreadyPresent: 1, tickers: ["AAPL", "MSFT"] }));
+  });
+
+  it("does not call onAdded when the add fails", async () => {
+    const onAdded = vi.fn();
+    addTickerToWatchlist.mockRejectedValue(new Error("network"));
+    render(<AddToWatchlistButton tickers={["AAPL"]} onAdded={onAdded} />);
+    open();
+    fireEvent.click(within(screen.getByText("Growth").parentElement as HTMLElement).getByRole("button", { name: "Add" }));
+    await screen.findByText("Something went wrong");
+    expect(onAdded).not.toHaveBeenCalled();
+  });
+
+  it("closes an open menu when the tickers go away under it (a cleared selection) without throwing", () => {
+    const { rerender } = render(<AddToWatchlistButton tickers={["AAPL"]} />);
+    open();
+    expect(screen.getByText("Growth")).toBeInTheDocument();
+    rerender(<AddToWatchlistButton tickers={[]} />);
+    expect(screen.queryByText("Growth")).not.toBeInTheDocument();
+  });
+});
+
