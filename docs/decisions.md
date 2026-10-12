@@ -1152,3 +1152,9 @@ Also decided: two text sets keyed by the Blue profile (the shortened "profiled" 
 
 **Trade-offs left open.** A fresh Advance without a B2 pass, or a Top stage, is on neither list; a Momentum-stage ticker that fails rule A (extended, outside the rank cut) is not rerouted to Reversal. The 8-week cutoff is one constant. First v2 run: 8 names that were on a v1 list are on neither (listed in `docs/specs/opportunities.md`).
 
+### 2026-10-12 — The Reversal tab calls the second tier "Technical only" (display only)
+
+**Decision.** On the Reversal tab only, the Momentum-only tier is drawn "Technical only": the tier segment, the tier pill, and the why-not-Quality tag, which reads "Fundamentals not passed" plus the failed Overall step(s) (the tooltip adds the verdict in "May not pass" wording and the moat status). The Momentum tab keeps "Momentum-only" and "Not quality: ...". Quality and ETF are unchanged. The stored value (`momentum_only`), the schema, the rules, and the saved 2026-10-09 run are untouched; no re-run.
+
+**Why.** A stock on Reversal is there for its chart (a base or a pullback), not for momentum, so "Momentum-only" misdescribes it; "Technical only" says what is missing without changing what the tier means in the data.
+

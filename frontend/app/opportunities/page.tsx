@@ -22,8 +22,8 @@ import {
   LIST_LABEL,
   rowsFor,
   thinkorswimText,
-  TIER_FILTER_OPTIONS,
   tierCounts,
+  tierFilterOptions,
   type TierFilter,
 } from "@/lib/opportunities";
 import { buildTradingViewText } from "@/lib/watchlistExport";
@@ -130,7 +130,7 @@ export default function OpportunitiesPage() {
               aria-label="Tier"
               value={tier}
               onValueChange={(v) => setTier(v as TierFilter)}
-              options={TIER_FILTER_OPTIONS.map((o) => ({
+              options={tierFilterOptions(list).map((o) => ({
                 value: o.value,
                 label: (
                   <>

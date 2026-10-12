@@ -78,7 +78,7 @@ const RUN: OpportunityRunOut = {
   ],
   reversal: [
     row({ ticker: "REVQ", company_name: "Reversal Q", list_name: "reversal", rule_ids: ["B1.base_or_pending_advance.v1", "B2.price_structure.v1"], tags: { signal_status: "not_covered" }, weeks_in_advance: null }),
-    row({ ticker: "REVM", company_name: "Reversal M", list_name: "reversal", tier: "momentum_only", overall_verdict: "Fail", overall_score: 40, rule_ids: ["B2.price_structure.v1"] }),
+    row({ ticker: "REVM", company_name: "Reversal M", list_name: "reversal", tier: "momentum_only", overall_verdict: "Fail", overall_score: 40, rule_ids: ["B2.price_structure.v1"], tags: { why_not_quality: { overall_verdict: "Fail", failed_steps: ["Debt"], incomplete_steps: [], moat: "no_moat" } } }),
   ],
 };
 
@@ -199,6 +199,35 @@ describe("OpportunitiesPage", () => {
     expect(body().getAllByText("Price structure").length).toBe(2);
     expect(body().getByText("Base or pending advance")).toBeInTheDocument();
     expect(body().getByText("Signals not covered")).toBeInTheDocument();
+  });
+
+  it("labels the second tier 'Momentum-only' on the Momentum tab and 'Technical only' on the Reversal tab (display only)", async () => {
+    await loaded();
+    const tier = () => within(screen.getByRole("group", { name: "Tier" }));
+    expect(tier().getByRole("button", { name: /^Momentum-only/ })).toBeInTheDocument();
+    expect(tier().queryByRole("button", { name: /Technical only/ })).not.toBeInTheDocument();
+    expect(body().getAllByText("Momentum-only").length).toBe(2); // MOMO and WARY pills
+    expect(body().queryByText("Technical only")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Reversal/ }));
+    await waitFor(() => expect(screen.getByText("REVM")).toBeInTheDocument());
+    expect(tier().getByRole("button", { name: /^Technical only/ })).toBeInTheDocument();
+    expect(tier().queryByRole("button", { name: /Momentum-only/ })).not.toBeInTheDocument();
+    expect(body().getByText("Technical only")).toBeInTheDocument();
+    expect(body().queryByText("Momentum-only")).not.toBeInTheDocument();
+    expect(body().getByText("Fundamentals not passed: Debt")).toBeInTheDocument();
+    expect(body().queryByText(/Not quality/)).not.toBeInTheDocument();
+
+    // the Technical only segment filters on the stored tier
+    fireEvent.click(tier().getByRole("button", { name: /^Technical only/ }));
+    await waitFor(() => expect(screen.queryByText("REVQ")).not.toBeInTheDocument());
+    expect(screen.getByText("REVM")).toBeInTheDocument();
+
+    // and back on the Momentum tab the old wording returns
+    fireEvent.click(screen.getByRole("tab", { name: /Momentum/ }));
+    await waitFor(() => expect(screen.getByText("MOMO")).toBeInTheDocument());
+    expect(tier().getByRole("button", { name: /^Momentum-only/ })).toBeInTheDocument();
+    expect(body().getByText("Not quality: Debt")).toBeInTheDocument();
   });
 
   it("shows tags as pills, including why-not-quality and the leveraged tag", async () => {

@@ -24,6 +24,17 @@ export const TIER_LABEL: Record<OpportunityTier, string> = {
   etf: "ETF",
 };
 
+/** The tier word as drawn on a given tab. The stored value is "momentum_only" everywhere; on the Reversal tab alone the second tier
+ * reads "Technical only" (its stocks are there for the chart, not the fundamentals). Display only. */
+export function tierLabel(tier: OpportunityTier, list: OpportunityListName): string {
+  return list === "reversal" && tier === "momentum_only" ? "Technical only" : TIER_LABEL[tier];
+}
+
+/** The segmented control's options for a tab, with the tab's own tier wording. */
+export function tierFilterOptions(list: OpportunityListName): { value: TierFilter; label: string }[] {
+  return TIER_FILTER_OPTIONS.map((o) => (o.value === "all" ? o : { ...o, label: tierLabel(o.value, list) }));
+}
+
 export const LIST_LABEL: Record<OpportunityListName, string> = { momentum: "Momentum", reversal: "Reversal" };
 
 export function rowsFor(run: OpportunityRunOut, list: OpportunityListName): OpportunityRowOut[] {
@@ -100,12 +111,15 @@ export function tagPills(row: OpportunityRowOut, list: OpportunityListName): Tag
     if (w.failed_steps.length) parts.push(`below the pass line: ${w.failed_steps.join(", ")}`);
     if (w.incomplete_steps.length) parts.push(`incomplete: ${w.incomplete_steps.join(", ")}`);
     parts.push(w.moat ? MOAT_WORDS[w.moat] ?? w.moat : "Moat not rated");
-    pills.push({
-      key: "wnq",
-      label: w.failed_steps.length ? `Not quality: ${w.failed_steps[0]}${w.failed_steps.length > 1 ? ` +${w.failed_steps.length - 1}` : ""}` : `Not quality: ${verdict}`,
-      title: parts.join(" · "),
-      tone: "neutral",
-    });
+    const extra = w.failed_steps.length > 1 ? ` +${w.failed_steps.length - 1}` : "";
+    // On the Reversal tab the tier is "Technical only", so the tag says what is missing: the fundamentals.
+    const label =
+      list === "reversal"
+        ? `Fundamentals not passed${w.failed_steps.length ? `: ${w.failed_steps[0]}${extra}` : ""}`
+        : w.failed_steps.length
+          ? `Not quality: ${w.failed_steps[0]}${extra}`
+          : `Not quality: ${verdict}`;
+    pills.push({ key: "wnq", label, title: parts.join(" · "), tone: "neutral" });
   }
   if (t.deep_pullback) {
     const dd = row.inputs.drawdown_pct;

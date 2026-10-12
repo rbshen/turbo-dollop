@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { OpportunityListName, OpportunityRowOut } from "@/lib/api/types";
 import { fmtPct, pnlClass } from "@/lib/format";
-import { fmtAdvM, MAX_TAG_PILLS, rankTitle, tagPills, TIER_LABEL } from "@/lib/opportunities";
+import { fmtAdvM, MAX_TAG_PILLS, rankTitle, tagPills, tierLabel } from "@/lib/opportunities";
 import { toneForNullable, verdictLabel } from "@/lib/tierColor";
 
 const HEAD_CLASS = "text-xs font-medium text-text-tertiary";
@@ -92,7 +92,7 @@ export function OpportunitiesTable({ rows, list, ruleLabels }: Props) {
               </p>
             </TableCell>
             <TableCell>
-              <Badge size="compact">{TIER_LABEL[row.tier]}</Badge>
+              <Badge size="compact">{tierLabel(row.tier, list)}</Badge>
             </TableCell>
             <TableCell>
               <VerdictCell row={row} />

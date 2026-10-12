@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { OpportunityRowOut, OpportunityTags } from "@/lib/api/types";
 import {
   exportFileName,
+  tierFilterOptions,
+  tierLabel,
   exportRows,
   filterByTier,
   fmtAdvM,
@@ -56,6 +58,20 @@ describe("tier filter and counts", () => {
   });
 });
 
+describe("tier wording per tab", () => {
+  it("draws the second tier 'Technical only' on the Reversal tab and 'Momentum-only' on the Momentum tab; the stored value is unchanged", () => {
+    expect(tierLabel("momentum_only", "reversal")).toBe("Technical only");
+    expect(tierLabel("momentum_only", "momentum")).toBe("Momentum-only");
+    for (const list of ["momentum", "reversal"] as const) {
+      expect(tierLabel("quality", list)).toBe("Quality");
+      expect(tierLabel("etf", list)).toBe("ETF");
+    }
+    // the segment value (what the filter compares) stays the stored key on both tabs
+    expect(tierFilterOptions("reversal").map((o) => [o.value, o.label])).toEqual([["all", "All"], ["quality", "Quality"], ["momentum_only", "Technical only"], ["etf", "ETF"]]);
+    expect(tierFilterOptions("momentum").map((o) => [o.value, o.label])).toEqual([["all", "All"], ["quality", "Quality"], ["momentum_only", "Momentum-only"], ["etf", "ETF"]]);
+  });
+});
+
 describe("column formatting", () => {
   it("shows average daily dollar volume in whole millions", () => {
     expect(fmtAdvM(123_456_789)).toBe("123");
@@ -91,6 +107,16 @@ describe("tagPills", () => {
     expect(pills[0].label).toBe("Not quality: Debt +1");
     expect(pills[0].title).toBe("Overall: May not pass · below the pass line: Debt, Growth rate · Moat not rated");
     expect(JSON.stringify(pills)).not.toMatch(/\bFail\b/);
+  });
+
+  it("on the Reversal tab the tag reads 'Fundamentals not passed' with the failed steps and moat status, in 'May not pass' wording", () => {
+    const why = { overall_verdict: "Fail", failed_steps: ["Debt", "Growth rate"], incomplete_steps: [], moat: "no_moat" };
+    const pill = tagPills(row({ tier: "momentum_only", tags: { why_not_quality: why } }), "reversal")[0];
+    expect(pill.label).toBe("Fundamentals not passed: Debt +1");
+    expect(pill.title).toBe("Overall: May not pass · below the pass line: Debt, Growth rate · No moat");
+    expect(JSON.stringify(pill)).not.toMatch(/Not quality|\bFail\b/);
+    const bare = tagPills(row({ tier: "momentum_only", tags: { why_not_quality: { ...why, failed_steps: [] } } }), "reversal")[0];
+    expect(bare.label).toBe("Fundamentals not passed");
   });
 
   it("names the verdict when no step failed, and 'Incomplete' when Overall has none", () => {
@@ -160,7 +186,7 @@ describe("tagPills", () => {
       }),
       "reversal",
     ).map((p) => p.label);
-    expect(labels).toEqual(["Late trend", "3x leveraged", "Held back by moat", "Not quality: May not pass", "Deep pullback", "Signals not covered", "XLK Top"]);
+    expect(labels).toEqual(["Late trend", "3x leveraged", "Held back by moat", "Fundamentals not passed", "Deep pullback", "Signals not covered", "XLK Top"]);
   });
 });
 
