@@ -724,7 +724,7 @@ no-op; `--force` replaces that run in one transaction. It refuses to write when 
 not caught up): check `CronRunLog` for `pipeline.nightly_trend_calculation` first. **Roll back a run:** `DELETE FROM opportunityoutcome WHERE run_id = N; DELETE FROM opportunitypoolrow WHERE run_id = N; DELETE FROM opportunitysnapshotrow WHERE run_id = N; DELETE FROM opportunityrun WHERE id = N;`
 (tickers it listed drop out of the 180-day `opportunity` protection with it). The run now also writes its pool (`opportunitypoolrow`, every gate-passing ticker); `--force` deletes the run's pool and outcome rows with it and never touches `opportunitypick` (keyed by as_of_date; nothing deletes a pick).
 
-**Outcome updater (manual, built 2026-10-12):** `uv run python -m pipeline.opportunity_outcome_update --once` (or `--dry-run`, `--run-id N`, `--as-of D`) from `backend/`: zero FMP calls, about 130 MB peak, a no-op unless SPY has a new bar. Not in `crontab.txt` or `CRON_JOB_NAMES`; its result is the latest row of `opportunityoutcomerun`. Scheduling steps (suggested 03:40 UTC): `docs/specs/opportunities.md`, "Outcome tracking".
+**Outcome updater (scheduled nightly 03:40 UTC, 2026-10-12):** `uv run python -m pipeline.opportunity_outcome_update --once` (or `--dry-run`, `--run-id N`, `--as-of D`) from `backend/`: zero FMP calls, seconds and about 130 MB peak, a no-op (green heartbeat) unless SPY has a new bar. In `crontab.txt` and `CRON_JOB_NAMES` (daily, 36 h); log `logs/opportunity_outcome_update_cron.log`; its own result per run is a row of `opportunityoutcomerun`. Pause it by commenting the crontab line, adding a `DISABLED_CRON_JOBS` entry and running `crontab crontab.txt`. Details: `docs/specs/opportunities.md`, "Outcome tracking".
 
 ## Score recompute job (2026-10-06)
 

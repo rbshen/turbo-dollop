@@ -1184,3 +1184,11 @@ Also decided: two text sets keyed by the Blue profile (the shortened "profiled" 
 
 **Choices.** No disabled controls (restraint rule): empty actions answer on use. `Checkbox` gained an `indeterminate` prop (shared primitive). No backend change: the pick path already records the submitted tickers for the run id the page sends. An add from any other page still records nothing (no run id). A bulk add still records every submitted ticker, including ones the watchlist already held (unchanged since Phase 2a); a single add records only on success. No "export the whole weekly run" option; it could be added as a third menu item if wanted.
 
+### 2026-10-12 — The opportunity outcome updater is scheduled (03:40 UTC nightly)
+
+**Decision.** `pipeline.opportunity_outcome_update --once` runs every night at 03:40 UTC (11:40 Hong Kong), registered in `core/cron_health.py` (daily, 36 h, a `JOB_METADATA` entry) and wrapped in `cron_heartbeat`. This supersedes "Not done: scheduling the updater" in the Phase 2a entry. The updater's logic, horizons, the 10% stop, the 14-day censor grace and the weekly job are unchanged.
+
+**Why 03:40.** The nightly chain ends with the 03:30 backup, which finished by 03:35:10 at the latest over the 10 nights to 2026-10-12; 03:40 is after it, and 20 minutes before the Saturday 04:00 weekly job, which the updater (seconds of work) can never still be running into. The bars it reads are the ones the 01:05 job stored, so each night prices the previous session.
+
+**Heartbeat.** A no-op ("SPY has no bar newer than ...") is a green success, so weekends and holidays do not alarm; an exception or ticker failures past `check_failure_threshold` are red; a few failed tickers stay green and are named in the message (`partial`). A dry run writes no heartbeat. The SPY date the no-op rule reads still advances only on real runs (a no-op carries it, a failure or a partial run stores none, so the next run retries).
+
