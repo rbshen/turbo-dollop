@@ -79,6 +79,7 @@ class UpdateResult:
     status: str  # "noop" | "success" | "partial" | "dry_run"
     spy_last_bar_date: date | None = None
     runs: int = 0
+    attempted: int = 0  # tickers the run tried to price (the denominator of the failure threshold)
     listed_rows: int = 0
     seeded: int = 0  # outcome rows created
     updated: int = 0  # pending rows rewritten with new values
@@ -222,6 +223,7 @@ def update_outcomes(
     sector_bars = _read_bars(sector_etfs, lookback, now) if sector_etfs else {}
 
     tickers = sorted({r.ticker for _, rows in work for r in rows})
+    result.attempted = len(tickers)
     for i in range(0, len(tickers), CHUNK_SIZE):
         chunk = tickers[i : i + CHUNK_SIZE]
         try:

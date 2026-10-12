@@ -3,10 +3,15 @@ daily bars (5 / 10 / 20 / 60 sessions after entry, price-only, SPY and sector-ET
 return) and upserts OpportunityOutcome rows. Engine: scoring/opportunity_outcomes.py; orchestration: data/opportunity_outcome_data.py;
 spec: docs/specs/opportunities.md, "Outcome tracking".
 
-MANUAL ONLY. It is deliberately NOT in crontab.txt, NOT in core/cron_health.py::CRON_JOB_NAMES and NOT wrapped in cron_heartbeat:
-scheduling it is a later step (docs/specs/opportunities.md lists the exact steps). It still leaves a heartbeat-style result: one
-OpportunityOutcomeRun row per real run (status, message, the SPY bar date it saw), which is also what the next run reads to decide
-whether SPY has a new bar. A dry run writes nothing at all.
+SCHEDULED (2026-10-12): every night at 03:40 UTC (11:40 Hong Kong) in crontab.txt, after the nightly chain and the 03:30 backup, registered in
+core/cron_health.py (daily cadence, overdue after 36 h) and wrapped in cron_heartbeat below. One OpportunityOutcomeRun row per real run
+(status, message, the SPY bar date it saw) is also kept: it is what the next run reads to decide whether SPY has a new bar. A dry run writes
+nothing at all, and is not a heartbeat either.
+
+HEARTBEAT: a normal "no-op: SPY has no bar newer than ..." run (weekends, market holidays, a night the bars did not move) is a SUCCESS: the
+job ran and had nothing to do. A failure is an exception (no SPY bars, a crash) or a run where the ticker-level failures pass
+core.cron_health.check_failure_threshold (everything attempted failed, or >= the rate threshold with enough tickers attempted); a few
+failed tickers stay green and are named in the message and in the run's `partial` status.
 
 Zero FMP calls (the bars cache is only read), no LLM. Idempotent: only pending rows are recomputed, final rows are frozen. A normal run
 is a no-op unless SPY has a bar newer than the last run's (or a listed row has no outcome rows yet); --run-id / --as-of target one run
@@ -25,6 +30,7 @@ import time
 from datetime import date
 from pathlib import Path
 
+from core.cron_health import check_failure_threshold, cron_heartbeat
 from core.db import init_db
 from core.logging_config import configure_logging
 from data.opportunity_outcome_data import UpdateResult, finish_log, start_log, summary_of, update_outcomes
@@ -66,7 +72,18 @@ def _parse_args() -> argparse.Namespace:
     return args
 
 
+def run_scheduled(cli: argparse.Namespace) -> UpdateResult:
+    """The command-line run. A real run is a cron heartbeat (success for a result or a no-op, failure for an exception or past the
+    failure threshold); a dry run writes nothing, not even a heartbeat row."""
+    as_of = date.fromisoformat(cli.as_of) if cli.as_of else None
+    if cli.dry_run:
+        return main(cli.run_id, as_of, dry_run=True)
+    with cron_heartbeat("pipeline.opportunity_outcome_update") as run:
+        outcome = main(cli.run_id, as_of)
+        run.message = outcome.message()
+        check_failure_threshold(outcome.attempted, len(outcome.failed), outcome.message())
+    return outcome
+
+
 if __name__ == "__main__":
-    cli = _parse_args()
-    outcome = main(cli.run_id, date.fromisoformat(cli.as_of) if cli.as_of else None, dry_run=cli.dry_run)
-    print(outcome.message())
+    print(run_scheduled(_parse_args()).message())
