@@ -1,25 +1,26 @@
 # Independent Moat check
 
-**Status: specified 2026-10-12, not built.** This page is the design for the code phases; nothing below exists in the code yet. The criteria themselves are final and live in [Moat criteria](moat-criteria.md) (`moat-criteria-v5.2`).
+**Status: built except the `/moat-check` command (code phases 1 to 4, 2026-10-12).** The table, read API, block and save scripts and the card exist; until the command exists (phase 5) a check can be saved only by running the block and save scripts by hand. The criteria themselves are final and live in [Moat criteria](moat-criteria.md) (`moat-criteria-v5.2`).
 
 The independent Moat check is a second opinion on a ticker's Economic Moat, run on demand from Claude Code with `/moat-check <ticker>` and shown as a card on the Economic Moat tab. It rates the moat from a written rubric and web research, **without ever seeing the rating you set**, and the card then says whether it **agrees** or **differs** from your rating. It is advisory: it never changes your rating, the Moat multiplier, the Overall score or any stored score (see [Economic Moat](economic-moat.md) for the rating that scores).
 
 ## What you see
 
-On the Economic Moat tab, below the rating selector, a **Moat check** card. It has four states:
+On the Economic Moat tab, below the rating selector, an **Independent check** card. It has these states:
 
 | State | What the card shows |
 |---|---|
-| **Not checked yet** | The words "Not checked yet" and how to run it (`/moat-check <ticker>` in Claude Code). Every ticker starts here; there is no bulk import. |
+| **Not checked yet** | "Not checked yet. Run /moat-check <ticker> in Claude Code." (with the ticker filled in). Every ticker starts here; there is no bulk import. |
 | **Checked, passes agree** (status `stable`) | The check rating (Wide / Narrow / No moat, drawn with the same tier labels as the selector), the verdict against your rating (**agrees** or **differs**, see below), evidence confidence, the checked date and criteria version, then **pass 1's detail**: the five sources with their cited facts, the outcome reading and its evidence, the observed-damage list, the forward threats with their tripwires, the "would lower" / "would raise" lines and the evidence note. |
 | **Checked, passes split** (status `inconclusive`) | "Inconclusive: the two passes disagree" with **both passes** side by side (rating, reading, confidence, strongest source and facts). **No suggested rating, no agrees/differs.** Confidence is Low. |
-| **Loading / error** | The tab's usual loading line; on error "Couldn't load Moat check — <message>". |
+| **Loading / error** | The tab's usual loading line; on error "Couldn't load Independent check — <message>". A stored row the card cannot read shows "This check can't be displayed."; an error boundary around only this card keeps a bad row from taking down the Moat tab. |
 
 - **Agrees / differs.** The card compares the check rating with your set rating and shows one word. Nothing in the check stores or assigns a reason for a difference. If you have not set a rating, the card shows "No set rating" and no agrees/differs (the ticker is still scored as No moat, as always).
-- **Unverified label.** When `proof_basis` is `company_reported_only`, the card shows **"unverified by independent source"** next to the confidence (which is Low). The rating itself is not changed by it.
-- **Older criteria.** If the stored row's criteria version is not the current one, the card says "Checked under criteria v5.x" so an old row is not read as current.
+- **Unverified label.** When `proof_basis` is `company_reported_only`, the card shows an **"Unverified by independent source"** pill (warn tone) and a warn-toned Low confidence. The rating itself is not changed by it.
+- **Older criteria.** If the stored row's criteria version is not the current one, the card says "Checked under criteria v5.x" so an old row is not read as current (`criteria_is_current` from the API).
 - **Words.** The card uses the Moat tier labels only. It never draws a verdict word ("Fail" is retired as a display word, see [Overview](overview.md)), and it has **no Apply button**: v1 is read-only, and the only way to change your rating stays the selector and its confirm step.
 - **Rendering.** Everything the check wrote (facts, narrative, names, tripwires) is rendered as **plain text**: no HTML, no Markdown. A source URL becomes a link only if it parses as `http:` or `https:` (opened in a new tab with `rel="noopener noreferrer"`); any other scheme is shown as text. Model output built from web research is untrusted.
+- **Layout (card below the rating panel, same surface and border).** Header: "Independent check", the criteria version and checked date on the right, and "passes disagree" when inconclusive. Always visible, in this order: three metric tiles (**Rating today**, captioned "observed evidence only"; **Evidence confidence**, warn-toned when Low; **Forward threat level**, captioned "not scored"); one pill row (**Agrees with your rating** / **Differs from your rating** in the same neutral tone, or **No set rating**, plus the Unverified pill); the **Evidence check** box (outcome reading, the supporting item, who reported it, the independent-support finding and the outcome evidence with hostname links and stale marks, labelled "Affects confidence only, never the rating"); the five source pills (rating, or "no cited fact" for an unproven one); the narrative. Collapsed, starting collapsed on every render and never persisted: **Fact behind each source rating**; **Declines reviewed: N found, M counted against the rating** (each observed-damage entry, whether it counted and why); **Forward threats** ("What could happen, not what has happened. Never changes the rating.", then each threat with what was seen, tripwire metric, value now and review level). Then the "Would lower it" and "Would raise it" lines, the evidence note as a warn-toned banner when present, and the footer "Advisory only. Never changes your rating or any score." An inconclusive row shows, instead of the single-pass body, two columns (stacked on mobile) with each pass's rating, reading, strongest source and supporting item and a one-line reason from the two readings. There is no Apply button and no "overall if applied" score.
 
 ## What it never does
 
@@ -74,7 +75,7 @@ There is no `tag` column and no stored reason for a difference with the set rati
 
 One read-only endpoint, no write endpoint (v1):
 
-- `GET /api/tickers/{ticker}/moat-check` returns the newest row for the ticker (query columns, the detail fields, `criteria_is_current` and, for an inconclusive row, both pass records; the nested parts are loosely typed on purpose so a row from a later criteria version still serves), or **JSON `null` when the ticker has never been checked** (the card's "Not checked yet"). It reads the database only. A history listing endpoint is deferred: history is stored, not served.
+- `GET /api/tickers/{ticker}/moat-check` returns the newest row for the ticker (query columns, the detail fields, `criteria_is_current`, `pass1` (pass 1's whole record, always: the outcome reading, evidence, narrative and sources exist only there) and, for an inconclusive row, `pass2` too; the nested parts are loosely typed on purpose so a row from a later criteria version still serves), or **JSON `null` when the ticker has never been checked** (the card's "Not checked yet"). It reads the database only. A history listing endpoint is deferred: history is stored, not served.
 
 Rows are written only by `pipeline/moat_check_save.py`, which is not a cron job (no `CRON_JOB_NAMES` entry, no heartbeat). The settings allowlist may carry `Bash(uv run python -m pipeline.moat_check_save *)` to avoid a prompt per run; that is a personal setting, not part of the repo.
 
@@ -86,13 +87,13 @@ Rows are written only by `pipeline/moat_check_save.py`, which is not a cron job 
 - **Dev server.** Adding the model makes `uvicorn --reload` run `init_db()` on the real database, which creates the empty table. Take a manual backup before the model phase (see `backend/OPS_RUNBOOK.md`).
 - **Tests** use an in-memory engine monkeypatched onto every module's `engine` (the conftest write guard blocks the real one).
 
-## Build phases (code, not started)
+## Build phases
 
-1. **Table and persistence:** `MoatCheck` model, `data/moat_check.py` (schema validation, `reconcile`, append, latest), registry `KEEP`, merge entry; tests (validation, reconcile table above, history appends, latest, registry, backup, no `TickerMoat` write, ETF refusal). Full backend suite (shared models and registry).
-2. **Read API:** schema and `GET /api/tickers/{t}/moat-check` returning null; endpoint tests.
-3. **Scripts:** `pipeline/moat_check_block.py` (read-only block builder) and `pipeline/moat_check_save.py`; tests.
-4. **Card:** types, `useMoatCheck`, the card inside the Moat tab, per the design system; full vitest, tsc and eslint.
-5. **Command:** `.claude/commands/moat-check.md`.
-6. **Trial:** `/moat-check` on one ticker; verify the saved row, the API output and the card's props through tests (no browser verification).
+1. **Table and persistence (done):** `MoatCheck` model, `data/moat_check.py` (schema validation, `reconcile`, append, latest), registry `KEEP`, merge entry; tests (validation, reconcile table above, history appends, latest, registry, backup, no `TickerMoat` write, ETF refusal). Full backend suite (shared models and registry).
+2. **Read API (done):** schema and `GET /api/tickers/{t}/moat-check` returning null; endpoint tests.
+3. **Scripts (done):** `pipeline/moat_check_block.py` (read-only block builder) and `pipeline/moat_check_save.py`; tests.
+4. **Card (done):** types, `useMoatCheck`, the card inside the Moat tab, per the design system; full vitest, tsc and eslint.
+5. **Command (not started):** `.claude/commands/moat-check.md`.
+6. **Trial (not started):** `/moat-check` on one ticker; verify the saved row, the API output and the card's props through tests (no browser verification).
 
 Each phase is planned, confirmed and committed separately (CLAUDE.md, Workflow rules).

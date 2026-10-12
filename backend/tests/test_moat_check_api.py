@@ -50,7 +50,17 @@ def test_a_stable_row_carries_pass_1_detail_and_no_passes(engine):
     assert set(body["sources_rating"]) == set(mc.SOURCE_NAMES) and body["source_facts"]["economies_of_scale"] is None
     assert body["observed_damage"][0]["counted"] == "no" and body["forward_threats"]["threats"][0]["tripwire"]["metric"] == "share"
     assert body["would_lower"] and body["would_raise"] and body["evidence_note"] is None
-    assert body["pass1"] is None and body["pass2"] is None
+    assert body["pass2"] is None
+
+
+def test_a_stable_row_also_carries_pass_1s_whole_record(engine):
+    """The card's outcome reading, evidence, narrative and sources exist only inside the record."""
+    save(engine, p1=make_record(rating="wide_moat"), p2=make_record(rating="wide_moat"))
+    body = get().json()
+    assert body["status"] == "stable" and body["pass2"] is None
+    assert body["pass1"]["reading"] == "supported" and body["pass1"]["outcome_evidence"][0]["stale"] is False
+    assert body["pass1"]["narrative"] == "Observed facts only." and body["pass1"]["sources"][0]["url"] == "https://example.com/a"
+    assert body["pass1"]["outcome_supporting_item"] == "share held"
 
 
 def test_an_inconclusive_row_has_no_rating_no_detail_and_both_passes(engine):

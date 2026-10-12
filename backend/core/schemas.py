@@ -967,8 +967,9 @@ class TickerMoatIn(BaseModel):
 class MoatCheckOut(BaseModel):
     """The newest advisory independent Moat check for a ticker (docs/specs/moat-check.md); the endpoint answers JSON null when the ticker
     was never checked. Read-only. The nested parts are deliberately loose (dict / list): they are the validated records the check
-    saved, and a row from a later criteria version must not fail response validation on a page view. A `stable` row carries pass 1's
-    detail and no `pass1`/`pass2`; an `inconclusive` row has `rating` and the detail None and carries both passes."""
+    saved, and a row from a later criteria version must not fail response validation on a page view. Every row carries `pass1` (its whole record: the
+    outcome reading, evidence, narrative and sources are only there); a `stable` row also has pass 1's detail columns and no `pass2`; an
+    `inconclusive` row has `rating` and the detail columns None and carries both passes."""
 
     ticker: str
     checked_at: datetime

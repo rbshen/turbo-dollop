@@ -320,7 +320,7 @@ def get_latest_moat_check(session: Session, ticker: str) -> MoatCheck | None:
 
 def moat_check_payload(row: MoatCheck) -> dict[str, Any]:
     """The API view of a stored row (core/schemas.py::MoatCheckOut fields): the query columns, the detail parsed from its JSON columns
-    when the row is stable, and both pass records when it is inconclusive. Pure; reads nothing."""
+    when the row is stable, pass 1's whole record always, and pass 2's too when the row is inconclusive. Pure; reads nothing."""
 
     def parsed(text: str | None) -> Any:
         return None if text is None else json.loads(text)
@@ -345,6 +345,6 @@ def moat_check_payload(row: MoatCheck) -> dict[str, Any]:
         "would_lower": row.would_lower,
         "would_raise": row.would_raise,
         "evidence_note": row.evidence_note,
-        "pass1": parsed(row.pass1_json) if inconclusive else None,
+        "pass1": parsed(row.pass1_json),  # always: the outcome reading, evidence, narrative and sources live only in the record
         "pass2": parsed(row.pass2_json) if inconclusive else None,
     }

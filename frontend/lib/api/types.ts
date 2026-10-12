@@ -545,6 +545,35 @@ export interface TickerMoatOut {
   updated_at: string | null;
 }
 
+// The newest advisory independent Moat check for a ticker (docs/specs/moat-check.md); the endpoint answers JSON null when the ticker was
+// never checked. Only the top level is strict. The nested parts are `unknown` ON PURPOSE: they are the records a research run saved, a row
+// from a later criteria version may have another shape, and nothing here may be trusted to be what it says. They are read only through
+// the tolerant readers in lib/moatCheck.ts, which never throw. `rating`'s union is a TypeScript promise the server keeps today, but the
+// card re-checks it at run time too.
+export interface MoatCheckOut {
+  ticker: string;
+  checked_at: string;
+  criteria_version: string;
+  criteria_is_current: boolean;
+  status: "stable" | "inconclusive";
+  rating: MoatValue | null;
+  pass1_rating: string;
+  pass2_rating: string;
+  evidence_confidence: "High" | "Medium" | "Low";
+  proof_basis: "independent" | "company_reported_only";
+  threat_level: string | null;
+  sources_rating: unknown;
+  source_facts: unknown;
+  observed_damage: unknown;
+  forward_threats: unknown;
+  would_lower: string | null;
+  would_raise: string | null;
+  evidence_note: string | null;
+  /** Pass 1's whole record, always; pass 2's only when the row is inconclusive. */
+  pass1: unknown;
+  pass2: unknown;
+}
+
 // New, independent, read-only classification layered on top of the existing
 // 5-step framework -- never derived from or feeding back into Step1-5/
 // Overall Assessment. A ticker can be Overall=Fail and qualifies=true at the

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { mutate } from "swr";
 
+import { MoatCheckBoundary } from "@/components/ticker/MoatCheckBoundary";
+import { MoatCheckCard } from "@/components/ticker/MoatCheckCard";
 import { Button } from "@/components/ui/button";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { apiPut } from "@/lib/api/client";
@@ -135,6 +137,11 @@ function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut })
           </div>
         )}
       </div>
+
+      {/* Advisory and read-only. It gets the SAVED rating (data.moat), never the unconfirmed selection above. */}
+      <MoatCheckBoundary key={ticker}>
+        <MoatCheckCard ticker={ticker} setRating={data.moat} />
+      </MoatCheckBoundary>
     </div>
   );
 }

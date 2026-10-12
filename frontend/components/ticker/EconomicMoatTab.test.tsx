@@ -8,6 +8,7 @@ import type { TickerMoatOut } from "@/lib/api/types";
 const apiPut = vi.fn();
 const mutate = vi.fn();
 let hook: { data?: TickerMoatOut; error?: Error; isLoading?: boolean };
+let checkHook: { data?: unknown; error?: Error };
 
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),
@@ -15,12 +16,14 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
 }));
 vi.mock("swr", () => ({ mutate: (...args: unknown[]) => mutate(...args) }));
 vi.mock("@/lib/hooks/useTickerMoat", () => ({ useTickerMoat: () => hook }));
+vi.mock("@/lib/hooks/useMoatCheck", () => ({ useMoatCheck: () => checkHook }));
 vi.mock("@/lib/hooks/useMoatConfig", () => ({
   useMoatConfig: () => ({ data: { wide_moat_multiplier: 1, narrow_moat_multiplier: 0.87, no_moat_multiplier: 0.7 } }),
 }));
 
 beforeEach(() => {
   hook = { data: { ticker: "AAPL", moat: "narrow_moat", updated_at: "2026-06-01T00:00:00" } };
+  checkHook = { data: null };
   apiPut.mockReset().mockResolvedValue(undefined);
   mutate.mockReset().mockResolvedValue(undefined);
 });
@@ -178,5 +181,82 @@ describe("EconomicMoatTab: confirm panel", () => {
     pick("Wide moat");
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
     expect(await screen.findByText("Failed to save — please try again.")).toBeInTheDocument();
+  });
+});
+
+
+const checkRow = (rating: string) => ({
+  ticker: "AAPL",
+  checked_at: "2026-10-12T10:00:00",
+  criteria_version: "moat-criteria-v5.2",
+  criteria_is_current: true,
+  status: "stable",
+  rating,
+  pass1_rating: rating,
+  pass2_rating: rating,
+  evidence_confidence: "Medium",
+  proof_basis: "independent",
+  threat_level: "Low",
+  sources_rating: null,
+  source_facts: null,
+  observed_damage: null,
+  forward_threats: null,
+  would_lower: null,
+  would_raise: null,
+  evidence_note: null,
+  pass1: null,
+  pass2: null,
+});
+
+describe("EconomicMoatTab: the Independent check card", () => {
+  it("sits below the rating panel, and says Not checked yet until a check is run", () => {
+    render(<EconomicMoatTab ticker="AAPL" />);
+    expect(screen.getByRole("heading", { level: 3, name: "Independent check" })).toBeInTheDocument();
+    expect(document.body.textContent).toContain("Not checked yet. Run /moat-check AAPL in Claude Code.");
+    const panel = screen.getByRole("group", { name: "Economic moat rating" });
+    const card = screen.getByTestId("moat-check-card");
+    expect(panel.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("compares the check with the SAVED rating", () => {
+    checkHook = { data: checkRow("narrow_moat") };
+    render(<EconomicMoatTab ticker="AAPL" />);
+    expect(screen.getByText("Agrees with your rating")).toBeInTheDocument(); // saved rating is Narrow
+  });
+
+  it("an unconfirmed selection does not change the comparison; confirming does not write to the check", async () => {
+    checkHook = { data: checkRow("narrow_moat") };
+    render(<EconomicMoatTab ticker="AAPL" />);
+    fireEvent.click(screen.getByRole("button", { name: "Wide moat" })); // pending, not saved
+    expect(screen.getByText("Agrees with your rating")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(apiPut).not.toHaveBeenCalled();
+  });
+
+  it("says No set rating when the ticker has no saved rating", () => {
+    hook = { data: { ticker: "AAPL", moat: null, updated_at: null } };
+    checkHook = { data: checkRow("wide_moat") };
+    render(<EconomicMoatTab ticker="AAPL" />);
+    expect(screen.getByText("No set rating")).toBeInTheDocument();
+  });
+
+  it("an unreadable stored check cannot take the tab down: the selector still works", () => {
+    checkHook = { data: { status: "stable", ticker: "AAPL", checked_at: 1, pass1: { sources_rating: { brand_monopoly: {} } }, rating: {} } };
+    render(<EconomicMoatTab ticker="AAPL" />);
+    expect(screen.getByRole("group", { name: "Economic moat rating" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Independent check" })).toBeInTheDocument();
+  });
+
+  it("a card that throws while drawing is contained by its boundary", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    checkHook = {
+      get data(): unknown {
+        throw new Error("boom while reading");
+      },
+    };
+    render(<EconomicMoatTab ticker="AAPL" />);
+    expect(screen.getByRole("group", { name: "Economic moat rating" })).toBeInTheDocument();
+    expect(document.body.textContent).toContain("This check can't be displayed.");
+    spy.mockRestore();
   });
 });
