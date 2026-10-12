@@ -547,6 +547,23 @@ def test_force_deletes_the_pool_and_outcome_rows_of_that_run_only_and_never_a_pi
         ]
 
 
+def test_force_also_deletes_the_pool_outcomes_of_that_run_only(world):
+    from core.models import OpportunityPoolOutcome
+
+    first = od.persist_run(od.compute_run(AS_OF, NOW), now=NOW)
+    other = od.compute_run(AS_OF, NOW)
+    other.as_of = date(2026, 10, 2)
+    second = od.persist_run(other, now=NOW)
+    with Session(world) as s:
+        for rid in (first["run_id"], second["run_id"]):
+            s.add(OpportunityPoolOutcome(run_id=rid, ticker="POOL1", horizon=5, status="pending", tier="quality", rules_version="2", computed_at=NOW))
+        s.commit()
+    result = od.persist_run(od.compute_run(AS_OF, NOW), force=True, now=NOW + timedelta(days=1))
+    assert result["deleted"]["pool_outcome_rows"] == 1
+    with Session(world) as s:
+        assert [r.run_id for r in s.exec(select(OpportunityPoolOutcome)).all()] == [second["run_id"]]
+
+
 def test_a_pick_survives_force_even_when_the_rebuilt_run_gets_the_same_id(world):
     first = od.persist_run(od.compute_run(AS_OF, NOW), now=NOW)
     with Session(world) as s:
