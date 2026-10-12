@@ -1211,3 +1211,23 @@ Also decided: two text sets keyed by the Blue profile (the shortened "profiled" 
 **Deferred:** breakout from a base, a daily-bar RSI pivot-low, liquidity-zone and MA-reclaim triggers, invalidation flags, Phase 2c, flags for the pool, picks tied to a flag, UI/API/scorecard.
 
 **Not changed:** the weekly rules, `RULES_VERSION`, B3, the lists, `OpportunityPick`, `OpportunityOutcome`, `SCORE_FORMULA_VERSION`, any FMP use, `crontab.txt`.
+
+### 2026-10-12 — Scorecard step 1: slim pool outcomes, priced nightly (supersedes decision 8's on-the-fly baseline)
+
+**Decision.** The unlisted names of each weekly run's pool get slim outcome rows (`OpportunityPoolOutcome`: 5 / 10 / 20 / 60 sessions, entry at the next session's open, price-only, SPY and sector-ETF benchmarks, the same engine and censor/grace semantics, no stop or path fields), written by the existing 03:40 UTC updater as a third step after the weekly and flag-outcome steps, retroactively from the stored bars. Mechanism, columns, measurements: `docs/specs/opportunities.md`, "Pool outcomes". Backend only: no API, no page, no crontab change.
+
+**Supersedes decision 8** of the daily-flags entry ("Pool: ... a baseline can be computed on the fly in the scorecard later"). **Why:** the scorecard's first question is listed vs pool, and an on-the-fly baseline reads about 500 tickers' bars on every request, about 12 s and 130 MB each. Priced once a night it costs about 6 s the first time and, with 13 weekly cohorts open at once, about a minute and 163 MB (measured), and the endpoint then aggregates a few hundred thousand stored rows in milliseconds. **Still true from decision 8:** no flags for the pool (the pool is a comparison group, never a signal).
+
+**Scorecard decisions taken with it (from the scorecard investigation; they govern the API and tab to come, nothing here implements them):**
+1. **Minimum sample:** a cell shows values only with at least 20 complete rows and at least 3 cohorts; below that it shows counts only ("Too early"). It is labelled "Early" until 60 rows and 8 cohorts. The cohort count is the effective n, because weekly cohorts overlap and persistent names repeat.
+2. **Headline statistic:** the median excess return, taken per cohort and then summarised across cohorts, with the mean beside it; the SPY return is shown beside it for context.
+3. **Exclusions, each with its count shown:** pending rows; censored rows (with an "including censored" sensitivity line, because dropping delistings flatters the result); rows with `entry_gap_flag`; leveraged ETFs (shown as their own row, never pooled with ordinary ETFs). Rules and trigger versions are never merged.
+4. **Flag comparator:** flagged names (priced from the flag) against the same cohort's unflagged eligible names (priced from the list), labelled "not a controlled comparison"; `not_covered` and `incomplete` names stay out of the denominator; an open cohort's "unflagged" is provisional. A controlled comparison needs data not stored today (state-based triggers cannot be rebuilt) and is deferred.
+5. **Picks deferred** until picks exist; the first version shows only the count and a proxy priced from the list date.
+6. **Placement:** a page-level Lists / Scorecard tab pair on `/opportunities` (`?view=scorecard`); the list-only controls are hidden, not disabled, on Scorecard.
+7. **Deferred:** flag badges on list rows; extending the 180-day `opportunity` tracked-universe protection to the unlisted pool (447 of 516 are index members, so the survivorship risk is small today); rule-level cuts in the first view; a cohort-by-cohort chart; bootstrap intervals.
+
+**Choices made in the build.** `assigned_list` is not derived: `OpportunityPoolRow` already stores it from the single router, so the outcome row copies it (with `tier` and a `leveraged` boolean) when first written. Beyond the requested column list the table also carries `sector_etf` (which benchmark the sector return is against), `exit_date` (the horizon bar, or the last bar for a censored row) and `first_censored_at` (the 14-day grace clock cannot work without it). `--force` on the weekly job now also deletes a run's pool outcomes (they are keyed by run id and a rebuilt run reuses the id). The existing outcome rows, keys, messages and tests are unchanged; the message gains a pool segment only when a run has an unlisted pool.
+
+**Not done:** applying the table to the real database and the first retroactive pricing (a reviewed step, because the dev server's `init_db()` creates any new model's table), any API, any UI.
+
