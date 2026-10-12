@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { OpportunityRowOut, OpportunityTags } from "@/lib/api/types";
 import {
   exportFileName,
+  toggleAllShown,
+  toggleSelection,
   tierFilterOptions,
   tierLabel,
   exportRows,
@@ -197,8 +199,9 @@ describe("exports", () => {
   });
 
   it("names the files by list and date", () => {
-    expect(exportFileName("momentum", "2026-10-09", "txt")).toBe("opportunities-momentum-2026-10-09.txt");
-    expect(exportFileName("reversal", "2026-10-09", "csv")).toBe("opportunities-reversal-2026-10-09_thinkorswim.csv");
+    expect(exportFileName(["momentum"], "view", "2026-10-09", "txt")).toBe("opportunities-momentum-view-2026-10-09.txt");
+    expect(exportFileName(["reversal"], "selection", "2026-10-09", "csv")).toBe("opportunities-reversal-selection-2026-10-09_thinkorswim.csv");
+    expect(exportFileName(["momentum", "reversal"], "selection", "2026-10-09", "txt")).toBe("opportunities-momentum-reversal-selection-2026-10-09.txt");
   });
 
   it("gives an ETF no sector, so TradingView groups it under Other", () => {
@@ -206,5 +209,31 @@ describe("exports", () => {
       { ticker: "AAA", exchange: "NASDAQ", sector: "Technology" },
       { ticker: "ETF1", exchange: "AMEX", sector: null },
     ]);
+  });
+});
+
+describe("row selection helpers", () => {
+  const shown = ["A", "B", "C", "D", "E"];
+
+  it("a plain click flips one ticker and leaves the rest", () => {
+    expect([...toggleSelection(new Set(["Z"]), shown, "B", null, false)].sort()).toEqual(["B", "Z"]);
+    expect([...toggleSelection(new Set(["B", "Z"]), shown, "B", null, false)]).toEqual(["Z"]);
+  });
+
+  it("shift selects the shown range from the anchor, in either direction, to the state the clicked row moves to", () => {
+    expect([...toggleSelection(new Set(), shown, "D", "B", true)].sort()).toEqual(["B", "C", "D"]);
+    expect([...toggleSelection(new Set(), shown, "A", "C", true)].sort()).toEqual(["A", "B", "C"]);
+    expect([...toggleSelection(new Set(["B", "C", "D"]), shown, "D", "B", true)]).toEqual([]);
+  });
+
+  it("shift with no anchor, or an anchor that is not shown, is a plain click", () => {
+    expect([...toggleSelection(new Set(), shown, "C", null, true)]).toEqual(["C"]);
+    expect([...toggleSelection(new Set(), shown, "C", "GONE", true)]).toEqual(["C"]);
+  });
+
+  it("select-all adds the shown rows, or removes only the shown rows when all are selected", () => {
+    expect([...toggleAllShown(new Set(["Z", "B"]), shown)].sort()).toEqual(["A", "B", "C", "D", "E", "Z"]);
+    expect([...toggleAllShown(new Set([...shown, "Z"]), shown)]).toEqual(["Z"]);
+    expect(toggleAllShown(new Set(), []).size).toBe(0);
   });
 });

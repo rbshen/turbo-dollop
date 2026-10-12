@@ -1,6 +1,7 @@
 import type { MouseEvent } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { OpportunityListName, OpportunityRowOut } from "@/lib/api/types";
 import { fmtPct, pnlClass } from "@/lib/format";
@@ -14,13 +15,20 @@ interface Props {
   list: OpportunityListName;
   /** rule_id -> the label the Reversal tab shows in place of Weeks in Advance. */
   ruleLabels: Record<string, string>;
+  /** Tickers selected on the page (held by ticker, so it survives a tier or tab switch). */
+  selected: ReadonlySet<string>;
+  /** A row checkbox changed; `shiftKey` asks for the range from the last one clicked. */
+  onToggle: (ticker: string, shiftKey: boolean) => void;
+  /** The header checkbox: selects every shown row, or (when all are) deselects them. */
+  onToggleAll: () => void;
 }
 
 // The whole row opens the ticker page in a new tab (as the Momentum table and the Watchlist do); the ticker itself stays a real
 // <a target="_blank"> for keyboard and middle-click, and a click that starts on it (or on any button) is left to the browser so
-// two tabs never open.
+// two tabs never open. The selection checkbox is left alone the same way (and its cell swallows the click, so the padding
+// around the box does not open the ticker either).
 function handleRowClick(e: MouseEvent<HTMLTableRowElement>, ticker: string) {
-  if ((e.target as HTMLElement).closest("a, button")) return;
+  if ((e.target as HTMLElement).closest("a, button, input, label")) return;
   window.open(`/tickers/${ticker}`, "_blank", "noopener,noreferrer");
 }
 
@@ -53,14 +61,24 @@ function TagsCell({ row, list }: { row: OpportunityRowOut; list: OpportunityList
   );
 }
 
-export function OpportunitiesTable({ rows, list, ruleLabels }: Props) {
+export function OpportunitiesTable({ rows, list, ruleLabels, selected, onToggle, onToggleAll }: Props) {
   if (rows.length === 0) {
     return <p className="py-6 text-sm text-text-tertiary">Nothing on this list for the selected tier.</p>;
   }
+  const selectedShown = rows.filter((r) => selected.has(r.ticker)).length;
+  const allShown = selectedShown === rows.length;
   return (
     <Table>
       <TableHeader>
         <TableRow className="h-9">
+          <TableHead className="w-10">
+            <Checkbox
+              aria-label="Select all shown"
+              checked={allShown}
+              indeterminate={selectedShown > 0 && !allShown}
+              onChange={onToggleAll}
+            />
+          </TableHead>
           <TableHead className={`${HEAD_CLASS} w-[260px]`}>Ticker</TableHead>
           <TableHead className={HEAD_CLASS}>Tier</TableHead>
           <TableHead className={HEAD_CLASS}>Verdict</TableHead>
@@ -78,6 +96,13 @@ export function OpportunitiesTable({ rows, list, ruleLabels }: Props) {
       <TableBody>
         {rows.map((row) => (
           <TableRow key={`${row.list_name}-${row.ticker}`} interactive onClick={(e) => handleRowClick(e, row.ticker)}>
+            <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
+              <Checkbox
+                aria-label={`Select ${row.ticker}`}
+                checked={selected.has(row.ticker)}
+                onChange={(e) => onToggle(row.ticker, (e.nativeEvent as unknown as { shiftKey?: boolean }).shiftKey === true)}
+              />
+            </TableCell>
             <TableCell className="max-w-[260px] overflow-hidden">
               <a
                 href={`/tickers/${row.ticker}`}

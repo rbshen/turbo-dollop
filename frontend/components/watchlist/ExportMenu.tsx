@@ -16,6 +16,8 @@ interface Props {
   onExportThinkorswim: () => void;
   // The third item, "Export multiple lists…", which opens the page's inline panel. Omitted = the two-item menu.
   onExportMultiple?: () => void;
+  // The trigger's text (default "Export list"); the Opportunities page says what it will export ("Export 12 selected").
+  label?: string;
 }
 
 const ITEM_CLASS =
@@ -28,6 +30,7 @@ export function ExportMenu({
   onExportTradingView,
   onExportThinkorswim,
   onExportMultiple,
+  label = "Export list",
 }: Props) {
   const [open, setOpen] = useState(defaultOpen);
   const ref = useRef<HTMLDivElement>(null);
@@ -68,7 +71,7 @@ export function ExportMenu({
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        Export list
+        {label}
         <CaretDown size={12} weight="bold" aria-hidden="true" className="text-text-tertiary" />
       </Button>
 

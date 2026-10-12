@@ -33,6 +33,18 @@ interface Props {
   // Only the Opportunities page sets this: the run shown. The add then also records which names were chosen from that run
   // (the backend writes the pick in the same request); what the add does is unchanged.
   opportunityRunId?: number;
+  // Set by a page whose list can be empty and which must NOT disable the button (the Opportunities page: nothing selected). A click
+  // with no tickers then calls this instead of opening the menu.
+  onEmptyClick?: () => void;
+  // Called once after an add succeeded, with what was added and where (the Opportunities page clears its selection and says so).
+  onAdded?: (result: AddedResult) => void;
+}
+
+export interface AddedResult {
+  watchlistName: string;
+  added: number;
+  alreadyPresent: number;
+  tickers: string[];
 }
 
 type Panel = "idle" | "picking";
@@ -78,12 +90,13 @@ function StatusLabel({ status, labels }: { status: Status; labels: Record<Status
 const WARN_BUTTON_CLASS = "border-warn/50 text-warn hover:border-warn hover:text-warn";
 const REMOVE_BUTTON_CLASS = "hover:border-negative hover:text-negative";
 
-export function AddToWatchlistButton({ tickers, label, confirmDescription, disabled, audience = "stock", opportunityRunId }: Props) {
+export function AddToWatchlistButton({ tickers, label, confirmDescription, disabled, audience = "stock", opportunityRunId, onEmptyClick, onAdded }: Props) {
   // Appended to the add calls only when set, so every other caller's calls (and request bodies) are exactly as before.
   const runArg: [number] | [] = opportunityRunId === undefined ? [] : [opportunityRunId];
   const { data: allWatchlists } = useWatchlists();
   const watchlists = allWatchlists ? listsForAudience(allWatchlists, audience) : undefined;
   const isBulk = tickers.length > 1;
+  const isSingle = tickers.length === 1;
   const [panel, setPanel] = useState<Panel>("idle");
   const [newListStep, setNewListStep] = useState<NewListStep>("idle");
   const [newListName, setNewListName] = useState("");
@@ -114,12 +127,20 @@ export function AddToWatchlistButton({ tickers, label, confirmDescription, disab
   const panelId = useId();
   const newListErrorId = useId();
 
+  const nameOf = (id: number) => watchlists?.find((w) => w.id === id)?.name ?? "the watchlist";
+
   const closePanel = useCallback(() => {
     setPanel("idle");
     setNewListStep("idle");
     setConfirmTarget(null);
     setRemoveConfirmTarget(null);
   }, []);
+
+  // The tickers went away under an open menu (a selection that was cleared after an add): close it.
+  const noTickers = tickers.length === 0;
+  useEffect(() => {
+    if (noTickers) closePanel();
+  }, [noTickers, closePanel]);
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -164,6 +185,7 @@ export function AddToWatchlistButton({ tickers, label, confirmDescription, disab
     try {
       await addTickerToWatchlist(watchlistId, tickers[0], ...runArg);
       setAddStatus((prev) => ({ ...prev, [watchlistId]: "saved" }));
+      onAdded?.({ watchlistName: nameOf(watchlistId), added: 1, alreadyPresent: 0, tickers });
     } catch (e) {
       setAddStatus((prev) => ({ ...prev, [watchlistId]: "error" }));
       setAddErrorMessage((prev) => ({ ...prev, [watchlistId]: errorDetail(e) ?? "Something went wrong" }));
@@ -208,6 +230,7 @@ export function AddToWatchlistButton({ tickers, label, confirmDescription, disab
           return next;
         });
       }, 4000);
+      onAdded?.({ watchlistName: nameOf(watchlistId), added: result.added, alreadyPresent: result.already_present, tickers });
     } catch (e) {
       setAddStatus((prev) => ({ ...prev, [watchlistId]: "error" }));
       setAddErrorMessage((prev) => ({ ...prev, [watchlistId]: errorDetail(e) ?? "Something went wrong" }));
@@ -228,8 +251,12 @@ export function AddToWatchlistButton({ tickers, label, confirmDescription, disab
     setNewListError(null);
     try {
       const watchlist = await createWatchlist(trimmedName);
+      let added = 1;
+      let alreadyPresent = 0;
       if (isBulk) {
-        await bulkAddTickersToWatchlist(watchlist.id, tickers, ...runArg);
+        const result = await bulkAddTickersToWatchlist(watchlist.id, tickers, ...runArg);
+        added = result.added;
+        alreadyPresent = result.already_present;
       } else {
         await addTickerToWatchlist(watchlist.id, tickers[0], ...runArg);
       }
@@ -237,6 +264,7 @@ export function AddToWatchlistButton({ tickers, label, confirmDescription, disab
       setNewListStep("idle");
       setNewListName("");
       setTimeout(() => setNewListStatus("idle"), 3000);
+      onAdded?.({ watchlistName: watchlist.name, added, alreadyPresent, tickers });
     } catch (e) {
       setNewListStatus("error");
       if (e instanceof Error && e.message.includes("409")) {
@@ -255,7 +283,7 @@ export function AddToWatchlistButton({ tickers, label, confirmDescription, disab
         // primary at sm is 32px, like the outline RefreshButton beside it in the
         // ticker header and the Screener results-header buttons.
         size="sm"
-        onClick={() => setPanel((p) => (p === "idle" ? "picking" : "idle"))}
+        onClick={() => (noTickers && onEmptyClick ? onEmptyClick() : setPanel((p) => (p === "idle" ? "picking" : "idle")))}
         disabled={disabled}
         aria-expanded={panel === "picking"}
         aria-controls={panel === "picking" ? panelId : undefined}
@@ -298,7 +326,7 @@ export function AddToWatchlistButton({ tickers, label, confirmDescription, disab
                   );
                 }
 
-                if (!isBulk && removeConfirmTarget === w.id) {
+                if (isSingle && removeConfirmTarget === w.id) {
                   return (
                     <div key={w.id} className="space-y-1 rounded px-2 py-1.5 text-xs">
                       <p className="text-warn">
@@ -316,7 +344,7 @@ export function AddToWatchlistButton({ tickers, label, confirmDescription, disab
                   );
                 }
 
-                const alreadyAdded = !isBulk && w.tickers.some((t) => t.ticker === tickers[0].toUpperCase());
+                const alreadyAdded = isSingle && w.tickers.some((t) => t.ticker === tickers[0].toUpperCase());
                 const resultMessage = isBulk ? bulkResult[w.id] : undefined;
                 const removeState = removeStatus[w.id] ?? "idle";
 

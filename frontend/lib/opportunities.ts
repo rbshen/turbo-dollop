@@ -160,11 +160,50 @@ export function thinkorswimText(rows: OpportunityRowOut[]): string {
   return rows.map((r) => `${r.ticker}\n`).join("");
 }
 
-export function exportFileName(list: OpportunityListName, asOf: string, ext: "txt" | "csv"): string {
-  return `opportunities-${list}-${asOf}${ext === "csv" ? "_thinkorswim" : ""}.${ext}`;
+/** `opportunities-<list>-<selection|view>-<as_of>[_thinkorswim].<ext>`: says whether the file is the ticked rows ("selection") or
+ * everything in the current tab and tier filter ("view"). A selection that spans both lists names both (`momentum-reversal`). */
+export function exportFileName(lists: OpportunityListName[], scope: ExportScope, asOf: string, ext: "txt" | "csv"): string {
+  return `opportunities-${lists.join("-")}-${scope}-${asOf}${ext === "csv" ? "_thinkorswim" : ""}.${ext}`;
 }
+
+export type ExportScope = "selection" | "view";
 
 /** What the TradingView builder needs from a row: an ETF has no GICS sector (it lands in "Other"). */
 export function exportRows(rows: OpportunityRowOut[]) {
   return rows.map((r) => ({ ticker: r.ticker, exchange: r.exchange, sector: r.tier === "etf" ? null : r.sector }));
+}
+
+// --- row selection (held by ticker; a ticker is on one list per run, so a ticker names exactly one row) ---------------------------
+
+/** The selection after clicking `ticker`'s checkbox. A plain click flips that ticker. With `shift` and an `anchor` that is among the
+ * `shown` tickers, every shown row from the anchor to `ticker` is set to the state the clicked row is moving to. */
+export function toggleSelection(
+  selected: ReadonlySet<string>,
+  shown: string[],
+  ticker: string,
+  anchor: string | null,
+  shift: boolean,
+): Set<string> {
+  const next = new Set(selected);
+  const turnOn = !selected.has(ticker);
+  const from = shift && anchor !== null ? shown.indexOf(anchor) : -1;
+  const to = shown.indexOf(ticker);
+  const span = from >= 0 && to >= 0 ? shown.slice(Math.min(from, to), Math.max(from, to) + 1) : [ticker];
+  for (const t of span) {
+    if (turnOn) next.add(t);
+    else next.delete(t);
+  }
+  return next;
+}
+
+/** The header checkbox: every shown row selected -> deselect the shown rows; otherwise select them all. Tickers selected but not shown
+ * (another tier filter or tab) are left as they are. */
+export function toggleAllShown(selected: ReadonlySet<string>, shown: string[]): Set<string> {
+  const next = new Set(selected);
+  const all = shown.length > 0 && shown.every((t) => selected.has(t));
+  for (const t of shown) {
+    if (all) next.delete(t);
+    else next.add(t);
+  }
+  return next;
 }
