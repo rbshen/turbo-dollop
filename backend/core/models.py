@@ -1505,3 +1505,104 @@ class OpportunitySnapshotRow(SQLModel, table=True):
     adv_usd: float | None = None
     sector: str | None = None
     inputs_json: str = "{}"
+
+
+class OpportunityPoolRow(SQLModel, table=True):
+    """Every GATE-PASSING ticker of one OpportunityRun, listed or not, with a frozen copy of its key inputs. Captured at snapshot
+    time because TickerScore and TrendAnalysis are overwritten nightly. Stored for a later step (comparing the listed names with
+    the ones the rules left out); NOTHING reads it yet and no page shows it. Insert-only; unique on (run_id, ticker). Written in
+    the same transaction as the run and its snapshot rows (data/opportunity_data.py::persist_run); `--force` deletes it with them.
+
+    `assigned_list` is what trend stage allows (scoring/opportunity_rules.py::assign_list; None for Top, a missing stage row or an
+    Advance of unknown age); `listed` / `list_name` say whether the ticker actually made a list (the list's own rules must hit).
+    Spec: docs/specs/opportunities.md, "Outcome tracking"."""
+
+    __table_args__ = (UniqueConstraint("run_id", "ticker", name="uq_opportunity_pool_row"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    run_id: int = Field(index=True)
+    ticker: str = Field(index=True)
+    tier: str  # "quality" | "momentum_only" | "etf"
+    assigned_list: str | None = None  # "momentum" | "reversal" | None: the list the stage allows
+    listed: bool = False
+    list_name: str | None = None  # the list it is on, when listed
+    sector: str | None = None
+    overall_verdict: str | None = None  # the raw stored verdict ("Fail" stays "Fail")
+    weinstein_stage: str | None = None
+    vs_ma_pct: float | None = None
+    momentum_rank: int | None = None
+    close: float | None = None
+    adv_usd: float | None = None
+    inputs_json: str = "{}"  # the rest (weeks in Advance, returns, drawdown, signal status, group size, ...)
+
+
+class OpportunityOutcome(SQLModel, table=True):
+    """How one LISTED snapshot row did over one horizon (long format: a row per (run, ticker, horizon), horizon in {5, 10, 20, 60}
+    bars). Written and updated only by pipeline/opportunity_outcome_update.py through the pure engine
+    scoring/opportunity_outcomes.py; upserted on the key while `pending`, frozen once `complete` or `censored`. Price-only returns
+    (never dividend-adjusted). Entry is the first session's OPEN after the as-of date (SPY's bar dates are the calendar); horizon N
+    is the Nth bar after the entry bar, exited at its close. The window for the stop, worst/best move and drawdown is the entry bar
+    through the horizon bar. `forward_return` is buy-and-hold: the 10% intraday stop is recorded beside it (`stop_*`), never applied
+    to it. A censored row keeps the return to the last available bar (a sensitivity line) and is excluded from means.
+
+    `sector_etf` and the sector fields are null for an ETF or a stock with no mapped sector ETF (SPY only). `entry_gap_flag` is
+    true when `entry_gap_pct` (entry open vs the frozen as-of close) is beyond 25%. `provenance` is "live" (a backfill from
+    approximate data would be "backfill_approx"). Spec: docs/specs/opportunities.md, "Outcome tracking"."""
+
+    __table_args__ = (UniqueConstraint("run_id", "ticker", "horizon", name="uq_opportunity_outcome"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    run_id: int = Field(index=True)
+    ticker: str = Field(index=True)
+    horizon: int
+    status: str  # "pending" | "complete" | "censored"
+    censor_reason: str | None = None  # "delisted" | "left_universe" | "stale"
+    entry_date: date | None = None
+    entry_open: float | None = None
+    exit_date: date | None = None
+    exit_close: float | None = None
+    forward_return: float | None = None
+    spy_return: float | None = None
+    excess_vs_spy: float | None = None
+    sector_etf: str | None = None
+    sector_return: float | None = None
+    excess_vs_sector: float | None = None
+    worst_move: float | None = None  # min low / entry - 1 over the window
+    best_move: float | None = None  # max high / entry - 1 over the window
+    max_drawdown: float | None = None  # peak-to-trough close within the window (<= 0)
+    stop_hit: bool = False
+    stop_date: date | None = None
+    stop_fill_return: float | None = None  # min(-10%, open / entry - 1) on the stop bar
+    entry_gap_pct: float | None = None
+    entry_gap_flag: bool = False
+    provenance: str = "live"
+    rules_version: str
+    computed_at: datetime
+
+
+class OpportunityPick(SQLModel, table=True):
+    """A name the user CHOSE from a run: written by the manual "Add to watchlist" action on the Opportunities page, in the same
+    request, for the run shown (the latest unless a past snapshot is selected). Lets a later scorecard compare the user's picks
+    with the lists. Insert-only; unique on (run_id, ticker), so adding the same ticker again is a no-op."""
+
+    __table_args__ = (UniqueConstraint("run_id", "ticker", name="uq_opportunity_pick"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    run_id: int = Field(index=True)
+    ticker: str = Field(index=True)
+    picked_at: datetime
+    source: str  # "opportunities_page"
+
+
+class OpportunityOutcomeRun(SQLModel, table=True):
+    """One row per real run of pipeline/opportunity_outcome_update.py (a dry run writes nothing): its heartbeat-style result, kept
+    here instead of CronRunLog because the updater is not a registered cron job yet. `spy_last_bar_date` is the newest SPY bar the
+    run saw; the next run is a no-op unless SPY has a newer one (or a listed row has no outcome rows yet). Insert-only."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    started_at: datetime
+    finished_at: datetime | None = None
+    status: str  # "running" | "success" | "noop" | "partial" | "failure"
+    spy_last_bar_date: date | None = None
+    message: str = ""
+    summary_json: str = "{}"

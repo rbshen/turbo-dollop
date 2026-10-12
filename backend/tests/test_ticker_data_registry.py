@@ -92,7 +92,9 @@ def test_classes_are_disjoint_and_complete():
     keep = {n for n, e in reg.REGISTRY.items() if e.table_class is reg.TableClass.KEEP}
     assert wipe | protecting | keep == set(reg.REGISTRY)
     assert protecting == {"indexconstituent", "watchlistticker", "tickermoat", "tickercustomvaluation", "tickerbankcapitalmetrics", "growthcatalystnote"}
-    assert keep == {"sectoretfreturn", "etfmomentumsnapshot", "opportunitysnapshotrow"}
+    assert keep == {
+        "sectoretfreturn", "etfmomentumsnapshot", "opportunitysnapshotrow", "opportunitypoolrow", "opportunityoutcome", "opportunitypick",
+    }
 
 
 def test_only_fundamentalscache_has_a_keep_predicate_and_it_names_forex_rate():
@@ -128,12 +130,14 @@ def test_a_growth_note_keeps_a_ticker_in_the_universe_as_manual():
 
 
 def test_the_opportunity_tables_are_keep_and_never_wiped(init_db_engine):
-    """Both opportunity tables are KEEP: the snapshot row (ticker-keyed) in the registry, the run header (no ticker column) in
-    KEEP_NON_TICKER_TABLES. Neither is a wipe table, and both exist in the real schema."""
-    assert reg.REGISTRY["opportunitysnapshotrow"].table_class is reg.TableClass.KEEP
-    assert set(reg.KEEP_NON_TICKER_TABLES) == {"opportunityrun"}
+    """Every opportunity table is KEEP: the ticker-keyed ones (snapshot row, pool row, outcome, pick) in the registry, the two without
+    a ticker column (run header, updater run log) in KEEP_NON_TICKER_TABLES. None is a wipe table, and all exist in the real schema."""
+    ticker_keyed = {"opportunitysnapshotrow", "opportunitypoolrow", "opportunityoutcome", "opportunitypick"}
+    for name in ticker_keyed:
+        assert reg.REGISTRY[name].table_class is reg.TableClass.KEEP
+    assert set(reg.KEEP_NON_TICKER_TABLES) == {"opportunityrun", "opportunityoutcomerun"}
     wipe = {e.name for e in reg.WIPE_TABLES}
-    assert not wipe & ({"opportunitysnapshotrow"} | set(reg.KEEP_NON_TICKER_TABLES))
+    assert not wipe & (ticker_keyed | set(reg.KEEP_NON_TICKER_TABLES))
     tables = set(inspect(init_db_engine).get_table_names())
-    assert {"opportunitysnapshotrow", "opportunityrun"} <= tables
+    assert ticker_keyed | set(reg.KEEP_NON_TICKER_TABLES) <= tables
     assert reg.unclassified_ticker_tables(init_db_engine) == []
