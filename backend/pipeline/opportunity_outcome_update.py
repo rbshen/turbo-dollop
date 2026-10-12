@@ -1,0 +1,72 @@
+"""Standalone script: the opportunity outcome updater -- prices every listed row of the stored weekly opportunity runs against the cached
+daily bars (5 / 10 / 20 / 60 sessions after entry, price-only, SPY and sector-ETF benchmarks, a 10% intraday stop recorded beside the
+return) and upserts OpportunityOutcome rows. Engine: scoring/opportunity_outcomes.py; orchestration: data/opportunity_outcome_data.py;
+spec: docs/specs/opportunities.md, "Outcome tracking".
+
+MANUAL ONLY. It is deliberately NOT in crontab.txt, NOT in core/cron_health.py::CRON_JOB_NAMES and NOT wrapped in cron_heartbeat:
+scheduling it is a later step (docs/specs/opportunities.md lists the exact steps). It still leaves a heartbeat-style result: one
+OpportunityOutcomeRun row per real run (status, message, the SPY bar date it saw), which is also what the next run reads to decide
+whether SPY has a new bar. A dry run writes nothing at all.
+
+Zero FMP calls (the bars cache is only read), no LLM. Idempotent: only pending rows are recomputed, final rows are frozen. A normal run
+is a no-op unless SPY has a bar newer than the last run's (or a listed row has no outcome rows yet); --run-id / --as-of target one run
+and skip that check. One ticker failing leaves its rows pending and does not stop the others.
+
+Run (from backend/):
+    uv run python -m pipeline.opportunity_outcome_update --once
+    uv run python -m pipeline.opportunity_outcome_update --dry-run                 # compute and print, write nothing
+    uv run python -m pipeline.opportunity_outcome_update --once --as-of 2026-10-09
+    uv run python -m pipeline.opportunity_outcome_update --once --run-id 1
+"""
+
+import argparse
+import logging
+import time
+from datetime import date
+from pathlib import Path
+
+from core.db import init_db
+from core.logging_config import configure_logging
+from data.opportunity_outcome_data import UpdateResult, finish_log, start_log, summary_of, update_outcomes
+
+LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "opportunity_outcome_update.log"
+
+logger = logging.getLogger(__name__)
+
+
+def main(run_id: int | None = None, as_of: date | None = None, dry_run: bool = False) -> UpdateResult:
+    """Returns the UpdateResult so tests and manual runs can assert on it rather than scrape the log. A real run opens and closes one
+    OpportunityOutcomeRun row ("running" -> success / noop / partial / failure); a failure re-raises after closing it."""
+    configure_logging(LOG_PATH)
+    init_db()
+    started = time.monotonic()
+    log_id = None if dry_run else start_log()
+    try:
+        result = update_outcomes(run_id=run_id, as_of=as_of, dry_run=dry_run)
+    except BaseException as exc:
+        finish_log(log_id, "failure", f"{type(exc).__name__}: {exc}")
+        raise
+    # a partial run stores no SPY date, so the next normal run goes ahead and retries the tickers that failed
+    finish_log(log_id, result.status, result.message(), None if result.status == "partial" else result.spy_last_bar_date, summary_of(result))
+    logger.info("Opportunity outcome update (%.1fs): %s", time.monotonic() - started, result.message())
+    for ticker, why in sorted(result.failed.items()):
+        logger.warning("Outcome update: %s left as it was: %s", ticker, why)
+    return result
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Opportunity outcome updater: forward returns of the listed names (manual run).")
+    parser.add_argument("--once", action="store_true", help="Run once (the normal run): a no-op unless SPY has a new bar.")
+    parser.add_argument("--dry-run", action="store_true", help="Compute and report what would change; write nothing.")
+    parser.add_argument("--run-id", type=int, default=None, help="Only this OpportunityRun id (skips the new-SPY-bar check).")
+    parser.add_argument("--as-of", type=str, default=None, help="Only the run with this as-of date, YYYY-MM-DD (skips the new-SPY-bar check).")
+    args = parser.parse_args()
+    if not (args.once or args.dry_run or args.run_id is not None or args.as_of):
+        parser.error("say what to do: --once, --dry-run, --run-id or --as-of")
+    return args
+
+
+if __name__ == "__main__":
+    cli = _parse_args()
+    outcome = main(cli.run_id, date.fromisoformat(cli.as_of) if cli.as_of else None, dry_run=cli.dry_run)
+    print(outcome.message())
