@@ -17,12 +17,13 @@ export function isPublicPath(pathname: string): boolean {
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   if (isPublicPath(pathname) || request.cookies.has(SESSION_COOKIE)) return NextResponse.next();
-  // A relative Location: the browser resolves it against the address it used (localhost through the SSH tunnel), whatever
-  // host name Next itself was started with. NextResponse.redirect would need an absolute URL built from that host.
-  return new NextResponse(null, {
-    status: 307,
-    headers: { Location: loginUrl(pathname + search), "Cache-Control": "no-store" },
-  });
+  // Next 16 rejects a relative redirect target from a proxy ("TypeError: Invalid URL", a 500 on every signed-out page), so the
+  // target is built as an absolute URL from the incoming request. `request.url` carries Next's own bind address
+  // (http://127.0.0.1:3100, not the Host the browser sent through the SSH tunnel), and that is fine: Next rewrites a
+  // Location on the request's own origin to a path-only one before it is sent (router-utils/resolve-routes.js,
+  // getRelativeURL), so the browser resolves it against the address it actually used. No host name is read or trusted here.
+  const target = new URL(loginUrl(pathname + search), request.url);
+  return NextResponse.redirect(target, { status: 307, headers: { "Cache-Control": "no-store" } });
 }
 
 // Everything except /api, Next's own build output and image route, and the static files in public/ (matched by extension, so a

@@ -11,17 +11,32 @@ function matched(path: string): boolean {
   return config.matcher.some((m) => new RegExp(`^${m}$`).test(path));
 }
 
-describe("proxy: signed-out visitors go to /login", () => {
-  it("redirects a page request without the session cookie, carrying the page as next", () => {
-    const res = proxy(req("/screener?x=1"));
-    expect(res.status).toBe(307);
-    expect(res.headers.get("location")).toBe("/login?next=%2Fscreener%3Fx%3D1");
-    expect(res.headers.get("cache-control")).toBe("no-store");
-  });
+// These run the real `proxy` on a real NextRequest and a real NextResponse (nothing mocked), so a redirect target Next
+// itself would refuse (the relative "/login?..." that threw "Invalid URL" in production) fails here too.
+function target(path: string, cookie?: string): URL {
+  const res = proxy(req(path, cookie));
+  expect([302, 307]).toContain(res.status);
+  return new URL(res.headers.get("location")!); // throws on a relative Location
+}
 
-  it("redirects the root and a ticker with a dot in its symbol", () => {
-    expect(proxy(req("/")).headers.get("location")).toBe("/login?next=%2F");
-    expect(proxy(req("/tickers/BRK.B")).headers.get("location")).toBe("/login?next=%2Ftickers%2FBRK.B");
+describe("proxy: signed-out visitors go to /login", () => {
+  it.each(["/", "/watchlist", "/screener?x=1", "/tickers/BRK.B", "/screener?a=1&b=two%20words"])(
+    "redirects %s to an absolute /login whose next is the original path and query",
+    (path) => {
+      const res = proxy(req(path));
+      expect(res.status).toBe(307);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      const url = target(path);
+      expect(url.pathname).toBe("/login");
+      expect(url.searchParams.get("next")).toBe(path);
+      expect(url.search).toBe(`?next=${encodeURIComponent(path)}`); // URL-encoded
+    },
+  );
+
+  it("builds the target on the request's own origin (whatever request.url reports), never a made-up host", () => {
+    // NextRequest reports the Host header's origin for request.url when one is sent; either way the target stays on it.
+    const r = new NextRequest("http://127.0.0.1:3100/watchlist", { headers: { host: "localhost:3100" } });
+    expect(new URL(proxy(r).headers.get("location")!).origin).toBe(new URL(r.url).origin);
   });
 
   it("lets a request with the cookie through (it does not check the value: the backend does)", () => {
@@ -40,7 +55,10 @@ describe("proxy: signed-out visitors go to /login", () => {
   });
 
   it("does not echo an unsafe path into next", () => {
-    expect(proxy(req("//evil.com/x")).headers.get("location")).toBe("/login");
+    const url = target("//evil.com/x");
+    expect(url.pathname).toBe("/login");
+    expect(url.search).toBe("");
+    expect(url.origin).toBe("http://localhost:3100");
   });
 });
 
