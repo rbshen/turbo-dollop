@@ -7,6 +7,7 @@ import type { EtfWatchlistRow, WatchlistOut } from "@/lib/api/types";
 import { DEFAULT_ETF_SORT_RULES } from "@/lib/etfWatchlistSort";
 
 // The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+import { setMockRole } from "@/lib/auth/adminAuthMock";
 vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
 
 const removeTickerFromWatchlist = vi.fn();
@@ -189,6 +190,17 @@ describe("EtfWatchlistTable states", () => {
   it("says so for an empty list", () => {
     renderTable({ watchlist: { ...WATCHLIST, tickers: [] }, rows: [] });
     expect(screen.getByText(/No tickers in this watchlist yet/)).toBeInTheDocument();
+  });
+
+  it("tells a viewer the plain fact, with no instruction to add one", () => {
+    setMockRole("viewer");
+    try {
+      renderTable({ watchlist: { ...WATCHLIST, tickers: [] }, rows: [] });
+      expect(screen.getByText("No tickers in this watchlist.")).toBeInTheDocument();
+      expect(screen.queryByText(/add one/i)).toBeNull();
+    } finally {
+      setMockRole("admin");
+    }
   });
 
   it("shows the load error", () => {

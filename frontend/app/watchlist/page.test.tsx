@@ -220,6 +220,20 @@ describe("WatchlistPage", () => {
 describe("WatchlistPage for a viewer", () => {
   afterEach(() => setMockRole("admin"));
 
+  it("says there are no watchlists without telling a viewer to add a ticker", async () => {
+    fixture = [];
+    setMockRole("viewer");
+    renderPage();
+    await waitFor(() => expect(screen.getByText("No watchlists.")).toBeInTheDocument());
+    expect(screen.queryByText(/add a ticker/i)).toBeNull();
+  });
+
+  it("the same empty page for an admin explains how to create one", async () => {
+    fixture = [];
+    renderPage();
+    await waitFor(() => expect(screen.getByText("No watchlists yet — add a ticker from its page to create one.")).toBeInTheDocument());
+  });
+
   it("shows the lists and their tickers, with no rename, delete or per-row remove", async () => {
     fixture = ETF_AND_STOCK_LISTS;
     setMockRole("viewer");

@@ -7,6 +7,7 @@ import type { WatchlistOut, WatchlistRowOut } from "@/lib/api/types";
 import { DEFAULT_SORT_RULES } from "@/lib/watchlistSort";
 
 // The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+import { setMockRole } from "@/lib/auth/adminAuthMock";
 vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
 
 const removeTickerFromWatchlist = vi.fn();
@@ -529,5 +530,26 @@ describe("WatchlistTable: Verdict truncation", () => {
     expect(word).toHaveClass("truncate");
     expect(pill).toContainElement(word);
     expect(pill.getAttribute("title")).toMatch(/^Pass with caution \(overall score 73\)/);
+  });
+});
+
+
+describe("WatchlistTable empty list", () => {
+  const empty = { ...WATCHLIST, tickers: [] };
+
+  it("points an admin at the ticker page", () => {
+    render(<WatchlistTable watchlist={empty} rows={[]} sortRules={DEFAULT_SORT_RULES} onSortRulesChange={vi.fn()} />);
+    expect(screen.getByText("No tickers in this watchlist yet — add one from its ticker page.")).toBeInTheDocument();
+  });
+
+  it("tells a viewer the plain fact, with no instruction to add one", () => {
+    setMockRole("viewer");
+    try {
+      render(<WatchlistTable watchlist={empty} rows={[]} sortRules={DEFAULT_SORT_RULES} onSortRulesChange={vi.fn()} />);
+      expect(screen.getByText("No tickers in this watchlist.")).toBeInTheDocument();
+      expect(screen.queryByText(/add one/i)).toBeNull();
+    } finally {
+      setMockRole("admin");
+    }
   });
 });

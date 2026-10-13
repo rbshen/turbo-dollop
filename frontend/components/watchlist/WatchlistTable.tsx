@@ -14,6 +14,8 @@ import type { SortableField, WatchlistOut, WatchlistRowOut } from "@/lib/api/typ
 import { MOAT_NOT_RATED_NOTE, PASS_THRESHOLD } from "@/lib/overallScore";
 import { fmtCompactMoney, fmtMoney, joinNatural, fmtNumber, fmtSignedCompactMoneyTooltip } from "@/lib/format";
 import { FAIL_DISPLAY_LABEL, toneForNullable, verdictLabel } from "@/lib/tierColor";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import { emptyWatchlistText } from "@/lib/emptyStates";
 import { cn } from "@/lib/utils";
 import { applyHeaderClick, sortWatchlistRows, type SortRule } from "@/lib/watchlistSort";
 
@@ -235,9 +237,10 @@ const VERDICT_MAX = "max-w-[96px]";
 export function WatchlistTable({ watchlist, rows, error, sortRules, onSortRulesChange }: Props) {
   const sorted = useMemo(() => (rows ? sortWatchlistRows(rows, sortRules) : []), [rows, sortRules]);
   const removeFlow = useRemoveFlow(watchlist.id);
+  const { isAdmin } = useAuth();
 
   if (watchlist.tickers.length === 0) {
-    return <p className="text-xs text-text-tertiary">No tickers in this watchlist yet — add one from its ticker page.</p>;
+    return <p className="text-xs text-text-tertiary">{emptyWatchlistText(isAdmin)}</p>;
   }
 
   if (error) {

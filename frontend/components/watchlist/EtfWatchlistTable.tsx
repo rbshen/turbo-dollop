@@ -7,6 +7,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { EtfWatchlistRow, WatchlistOut } from "@/lib/api/types";
 import { applyEtfHeaderClick, sortEtfWatchlistRows, type EtfSortableField, type EtfSortRule } from "@/lib/etfWatchlistSort";
 import { fmtCompactMoney, fmtCompactNumber, fmtMoney, fmtNumber, fmtPct, fmtPlainPct, pnlClass } from "@/lib/format";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import { emptyWatchlistText } from "@/lib/emptyStates";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -64,6 +66,7 @@ function NumberCell({ value, format, tone }: { value: number | null; format: (n:
 export function EtfWatchlistTable({ watchlist, rows, error, sortRules, onSortRulesChange }: Props) {
   const sorted = useMemo(() => (rows ? sortEtfWatchlistRows(rows, sortRules) : []), [rows, sortRules]);
   const removeFlow = useRemoveFlow(watchlist.id);
+  const { isAdmin } = useAuth();
 
   function head(field: EtfSortableField, label: string, className: string, align?: "right") {
     return (
@@ -80,7 +83,7 @@ export function EtfWatchlistTable({ watchlist, rows, error, sortRules, onSortRul
   }
 
   if (watchlist.tickers.length === 0) {
-    return <p className="text-xs text-text-tertiary">No tickers in this watchlist yet — add one from its ticker page.</p>;
+    return <p className="text-xs text-text-tertiary">{emptyWatchlistText(isAdmin)}</p>;
   }
 
   if (error) {

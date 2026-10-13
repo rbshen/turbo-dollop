@@ -4,9 +4,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Step5Card } from "@/components/step5/Step5Card";
 import type { Step5Out } from "@/lib/api/types";
+import { setMockRole } from "@/lib/auth/adminAuthMock";
 
 let hook: { data?: Step5Out; error?: Error };
 
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
 vi.mock("@/lib/hooks/useStep5", () => ({ useStep5: () => hook }));
 vi.mock("@/lib/hooks/useTickerBankCapitalMetrics", () => ({ useTickerBankCapitalMetrics: () => ({ data: undefined }) }));
 
@@ -104,5 +106,37 @@ describe("Step5Card", () => {
     expect(screen.getByText(/Gearing Ratio is in breach and the blended score falls short of the Pass threshold \(70\), so Debt may not pass\./)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/hard limit|regardless of the blended score/);
     expect(screen.getAllByText(/May not pass/).length).toBeGreaterThan(0);
+  });
+});
+
+describe("Step5Card bank CET1 blurb by role", () => {
+  const bank = (cet1: number | null) =>
+    step5({ company_type: "Bank", bank_capital_metrics_editable: true, cet1_ratio_pct: cet1, score: null, verdict: "insufficient_data", pass_with_caution: false, unrescued_breaches: [] });
+
+  afterEach(() => setMockRole("admin"));
+
+  it("tells an admin to enter the missing CET1 below", () => {
+    hook = { data: bank(null) };
+    render(<Step5Card ticker="ABC" />);
+    expect(screen.getByText("CET1 ratio not yet entered — enter it below to complete this ticker's Debt verdict.")).toBeInTheDocument();
+  });
+
+  it("tells a viewer an admin has to enter it (the form is not shown to them)", () => {
+    setMockRole("viewer");
+    hook = { data: bank(null) };
+    render(<Step5Card ticker="ABC" />);
+    expect(screen.getByText("CET1 ratio not yet entered — this ticker's Debt verdict is incomplete until an admin enters it.")).toBeInTheDocument();
+    expect(screen.queryByText(/enter it below/)).toBeNull();
+  });
+
+  it("drops the pointer to the form from the scored blurb for a viewer", () => {
+    setMockRole("viewer");
+    hook = { data: bank(11.2) };
+    render(<Step5Card ticker="ABC" />);
+    expect(screen.getByText("Scored from manually-entered CET1 and NPL.")).toBeInTheDocument();
+    setMockRole("admin");
+    cleanup();
+    render(<Step5Card ticker="ABC" />);
+    expect(screen.getByText("Scored from manually-entered CET1 and NPL (see below).")).toBeInTheDocument();
   });
 });

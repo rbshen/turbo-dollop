@@ -18,6 +18,8 @@ import { apiFetchBlob } from "@/lib/api/client";
 import { useWatchlists } from "@/lib/hooks/useWatchlists";
 import { useWatchlistRows } from "@/lib/hooks/useWatchlistRows";
 import { ETF_WATCHLIST_NAME } from "@/lib/monitoredWatchlists";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import { noWatchlistsText } from "@/lib/emptyStates";
 import { buildTradingViewText } from "@/lib/watchlistExport";
 import { DEFAULT_SORT_RULES, parseSortRules, type SortRule } from "@/lib/watchlistSort";
 
@@ -61,6 +63,7 @@ function slugify(name: string): string {
 }
 
 export default function WatchlistPage() {
+  const { isAdmin } = useAuth();
   const { data: watchlists, error } = useWatchlists();
   // null until the user picks a tab -- defaults to the first watchlist
   // below rather than needing an effect to sync it once data loads.
@@ -188,7 +191,7 @@ export default function WatchlistPage() {
   if (watchlists.length === 0 || !active) {
     return (
       <PageContainer className="py-12">
-        <p className="text-sm text-text-tertiary">No watchlists yet — add a ticker from its page to create one.</p>
+        <p className="text-sm text-text-tertiary">{noWatchlistsText(isAdmin)}</p>
       </PageContainer>
     );
   }

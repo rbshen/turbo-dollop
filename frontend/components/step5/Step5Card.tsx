@@ -6,6 +6,8 @@ import { AnalysisSectionCard, type ReasoningBullet, weightScoreSuffix } from "@/
 import { AdminOnly } from "@/components/auth/AdminOnly";
 import { BankCapitalMetricsForm } from "@/components/step5/BankCapitalMetricsForm";
 import { useStep5 } from "@/lib/hooks/useStep5";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import { bankCapitalBlurb } from "@/lib/emptyStates";
 import { fmtNumber, fmtPct, fmtTableMoney } from "@/lib/format";
 import { DEBT_CAUTION_DISPLAY_LABEL, debtVerdictDisplay } from "@/lib/tierColor";
 import type { BreachContextSignal, Step5Out, Step5RatioResult } from "@/lib/api/types";
@@ -192,6 +194,7 @@ function reasoningBullets(data: Step5Out): ReasoningBullet[] {
 
 export function Step5Card({ ticker }: Props) {
   const { data, error } = useStep5(ticker);
+  const { isAdmin } = useAuth();
 
   if (error) {
     return (
@@ -220,9 +223,7 @@ export function Step5Card({ ticker }: Props) {
 
   const blurb = isBank
     ? data.bank_capital_metrics_editable
-      ? data.cet1_ratio_pct == null
-        ? "CET1 ratio not yet entered — enter it below to complete this ticker's Debt verdict."
-        : "Scored from manually-entered CET1 and NPL (see below)."
+      ? bankCapitalBlurb(isAdmin, data.cet1_ratio_pct != null)
       : // IBKR/HOOD -- no customer deposit-taking business. This is a
         // permanent, deliberate exemption, not a temporary data gap --
         // unlike the "not yet entered" case above, no CET1/NPL form is ever
