@@ -2706,7 +2706,7 @@ class UniverseAddOut(BaseModel):
     score_computed: bool | None = None
     # ETF only (null for a stock or when nothing was added): was the EtfScreenerRow written now.
     row_written: bool | None = None
-    # Why a compute/write did not happen, e.g. "fundamentals_group_off", "daily_prices_group_off", "no_data", "failed".
+    # Why a compute/write did not happen, e.g. "fundamentals_group_off", "daily_prices_group_off", "no_data", "fetch_failed", "failed".
     reason: str | None = None
     error: str | None = None
     # Not available: FMPClient keeps no per-request call counter.

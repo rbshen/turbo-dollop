@@ -19,7 +19,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
 from clients.fmp_client import fmp_client
-from core.cache import get_or_fetch
+from core.cache import get_or_fetch, track_fetch_failures
 from core.config import settings
 from core.data_groups import group_live, job_skip_reason
 from core.db import engine
@@ -183,12 +183,20 @@ async def _add_stock(ticker: str, status: UniverseStatusOut) -> UniverseAddOut:
             message=f"Added {ticker}. The fundamentals data group is off, so the score was not refreshed live; the nightly recompute fills it.",
         )
     try:
-        row = await compute_ticker_score(ticker, cache_only=False)
+        # track_fetch_failures: a transient FMP failure with an input left empty makes compute_ticker_score skip the upsert
+        # (core/cache.py), so the row it returns is degraded and nothing was stored -- reported below as not computed.
+        with track_fetch_failures() as tracker:
+            row = await compute_ticker_score(ticker, cache_only=False)
     except Exception as exc:  # noqa: BLE001 -- the add stands; the nightly recompute fills the score
         logger.warning("Score compute failed for %s after Add", ticker, exc_info=True)
         return UniverseAddOut(
             status=status, changed=True, score_computed=False, reason="failed", error=redact_apikey(f"{type(exc).__name__}: {exc}"),
             message=f"Added {ticker}, but computing its score failed; the nightly recompute fills it.",
+        )
+    if tracker.unrecovered:
+        return UniverseAddOut(
+            status=status, changed=True, score_computed=False, reason="fetch_failed",
+            message=f"Added {ticker}, but FMP failed while fetching its data, so no score was stored; the nightly recompute fills it.",
         )
     if row is None:
         return UniverseAddOut(

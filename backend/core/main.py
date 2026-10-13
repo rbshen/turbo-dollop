@@ -1064,7 +1064,14 @@ async def ticker_score_out(ticker: TickerPath) -> TickerScoreOut | None:
     if row is None or row.overall_score is None or frozen or reweighted:
         # persist_etf=False: an ETF's TickerScore row is frozen since the 2026-10-03 cutover (the header shows no chip for
         # it), so its page load computes the same response but writes nothing; a stock is upserted exactly as before.
-        row = await compute_ticker_score(ticker, cache_only=not frozen, persist_etf=False)
+        # track_fetch_failures: a transient FMP failure during the live recompute of a frozen row serves the cached statement rows,
+        # and when some input could not be fetched at all compute_ticker_score skips the upsert (core/cache.py). The row it
+        # returns is then built from missing inputs, so the endpoint answers with the stored row instead of that degraded one.
+        previous = row
+        with track_fetch_failures() as tracker:
+            row = await compute_ticker_score(ticker, cache_only=not frozen, persist_etf=False)
+        if tracker.unrecovered and previous is not None:
+            row = previous
     return TickerScoreOut(**row.model_dump()) if row is not None else None
 
 

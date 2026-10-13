@@ -164,7 +164,9 @@ watchlist row for (`classification: null`). A ticker under an index name outside
   - **Stock:** a live `compute_ticker_score(cache_only=False)`, the call `POST /refresh` makes. It runs Steps 1/2/4/5, the summary and speculative growth, each through
     the cache, so the cost is whatever the opened page has not cached yet (estimate 10-20 FMP calls, 3-10 s; `fmp_calls` is null because `FMPClient` keeps no per-request
     counter). `fundamentals` group off: a cache-only compute (zero calls) and `score_computed: false`, `reason: "fundamentals_group_off"`. A raise or no data: still
-    success, `score_computed: false`, `reason: "failed"` / `"no_data"`, `error` (apikey redacted).
+    success, `score_computed: false`, `reason: "failed"` / `"no_data"`, `error` (apikey redacted). The compute runs inside `track_fetch_failures()` (2026-10-13): a transient FMP failure
+    that left an input empty makes `compute_ticker_score` skip the upsert, and the Add reports `score_computed: false`, `reason: "fetch_failed"` (no raw error text) instead of storing an all-None score. `GET /score`'s
+    frozen-row recompute does the same and answers with the stored row.
   - **ETF:** `refresh_etf_screener(tickers=[X])` (about 2-4 calls, 1-3 s), skipped while `daily_prices` is off (`row_written: false`, `reason: "daily_prices_group_off"`).
     Nothing computed: `row_written: false`, `reason: "no_data"`, "appears after tonight's run". A raise: `reason: "failed"`.
 - **`DELETE`** (Remove): 409 with the reasons while any protection applies (a protected + added ticker too); a 200 no-op (`changed: false`) when not added; otherwise clears
