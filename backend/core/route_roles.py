@@ -54,7 +54,6 @@ ROUTE_ROLES: dict[tuple[str, str], Role] = {
     ("GET", "/api/tickers/{ticker}/liquidity-zones"): "viewer",
     ("GET", "/api/tickers/{ticker}/moat"): "viewer",
     ("GET", "/api/tickers/{ticker}/moat-check"): "viewer",
-    ("GET", "/api/tickers/{ticker}/news"): "viewer",
     ("GET", "/api/tickers/{ticker}/pe-history"): "viewer",
     ("GET", "/api/tickers/{ticker}/ratios"): "viewer",
     ("GET", "/api/tickers/{ticker}/score"): "viewer",

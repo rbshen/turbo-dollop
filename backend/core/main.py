@@ -69,7 +69,6 @@ from helpers.liquidity_zone_config import get_liquidity_zone_settings, update_li
 from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config, update_reit_dividend_yield_config
 from core.models import IndexConstituent, SavedScreenerFilter, TickerCustomValuation, TickerScore, Watchlist
 from core.tickers import InvalidTickerError, normalize_ticker, require_valid_ticker
-from data.news_data import get_news_data
 from pipeline.refresh import clear_ticker_cache, groups_blocking_refresh
 from data.financials_data import get_cash_flow_cell_sec_check, get_financials_data
 from data.pe_history_data import get_pe_history
@@ -128,7 +127,6 @@ from core.schemas import (
     EtfMomentumOut,
     MomentumOut,
     MomentumPeriod,
-    NewsOut,
     PeHistoryOut,
     RatiosOut,
     RecomputeSummary,
@@ -1020,14 +1018,6 @@ async def ticker_analyst_ratings(ticker: TickerPath, restricted: Restricted) -> 
 async def ticker_institutional_ownership(ticker: TickerPath, restricted: Restricted) -> InstitutionalOwnershipOut:
     try:
         return await get_institutional_ownership_data(ticker, cache_only=restricted)
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="FMP request failed") from exc
-
-
-@app.get("/api/tickers/{ticker}/news", response_model=NewsOut)
-async def ticker_news(ticker: TickerPath, restricted: Restricted) -> NewsOut:
-    try:
-        return await get_news_data(ticker, cache_only=restricted)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
 

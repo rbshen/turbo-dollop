@@ -35,6 +35,8 @@ def _normalize(raw: list[dict]) -> list[NewsArticle]:
     ]
 
 
+# No route or page calls this since 2026-10-13 (GET /api/tickers/{t}/news and the frontend useNews hook were removed as dead surface; the News tab is
+# shelved, docs/specs/fmp-data-and-bar-cache.md). The module, NewsCache and the `news` data group stay until that is decided.
 async def get_news_data(ticker: str, cache_only: bool = False) -> NewsOut:
     """TTL-cached (`Settings.news_cache_ttl_minutes`) wrapper around FMP's
     /news/stock -- deliberately separate from cache.py::get_or_fetch, which

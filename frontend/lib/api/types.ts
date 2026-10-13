@@ -1344,23 +1344,6 @@ export interface AnalystRatingsOut {
   grades_consensus_as_of: string | null;
 }
 
-export interface NewsArticle {
-  title: string;
-  publisher: string;
-  site: string;
-  snippet: string;
-  image: string | null;
-  url: string;
-  // FMP's raw "YYYY-MM-DD HH:MM:SS" string, passed through as-is -- no
-  // timezone is documented.
-  published_at: string;
-}
-
-export interface NewsOut {
-  ticker: string;
-  articles: NewsArticle[];
-}
-
 export interface InstitutionalOwnershipQuarterOut {
   year: number;
   quarter: number;

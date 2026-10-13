@@ -168,3 +168,13 @@ def test_fmp_failure_with_no_prior_cache_returns_empty_without_writing_a_row(mon
     with Session(test_engine) as session:
         row = session.exec(select(NewsCache).where(NewsCache.ticker == "ZZZZ")).first()
     assert row is None
+
+
+def test_the_news_route_is_gone():
+    """GET /api/tickers/{t}/news was removed as dead surface (2026-10-13): no route, no registry line."""
+    import core.main as main
+    from core.route_roles import ROUTE_ROLES
+
+    paths = {getattr(route, "path", "") for route in main.app.routes}
+    assert "/api/tickers/{ticker}/news" not in paths
+    assert not any(path.endswith("/news") for _method, path in ROUTE_ROLES)
