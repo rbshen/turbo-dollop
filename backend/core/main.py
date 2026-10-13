@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Literal
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
@@ -61,7 +61,7 @@ from helpers.weinstein_config import get_weinstein_settings, update_weinstein_se
 from helpers.liquidity_zone_config import get_liquidity_zone_settings, update_liquidity_zone_settings
 from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config, update_reit_dividend_yield_config
 from core.models import IndexConstituent, SavedScreenerFilter, TickerCustomValuation, TickerScore, Watchlist
-from core.tickers import normalize_ticker
+from core.tickers import InvalidTickerError, normalize_ticker, require_valid_ticker
 from data.news_data import get_news_data
 from pipeline.refresh import clear_ticker_cache, groups_blocking_refresh
 from data.financials_data import get_cash_flow_cell_sec_check, get_financials_data
@@ -210,6 +210,18 @@ from data.watchlists import (
 )
 
 apply_redaction_filters()
+
+
+def _validated_ticker_path(ticker: str) -> str:
+    """Path-parameter check for every /api/tickers/{ticker}/... and watchlist-member route: a malformed symbol is a
+    generic 422 before any handler, cache or FMP call runs. Returns the value unchanged (handlers normalize as before)."""
+    try:
+        return require_valid_ticker(ticker)
+    except InvalidTickerError:
+        raise HTTPException(status_code=422, detail="Invalid ticker symbol") from None
+
+
+TickerPath = Annotated[str, Depends(_validated_ticker_path)]
 
 
 @asynccontextmanager
@@ -539,7 +551,7 @@ async def ticker_search(q: str = "") -> list[TickerSearchResult]:
 
 
 @app.get("/api/tickers/{ticker}/summary", response_model=TickerSummaryOut)
-async def ticker_summary(ticker: str) -> TickerSummaryOut:
+async def ticker_summary(ticker: TickerPath) -> TickerSummaryOut:
     # A page view keeps the ticker in the nightly universe for 30 days and is the "last touch" the wipe reads
     # (data/tracked_universe.py). A ticker that already has a TickerView row is touched at the START of the request, so a
     # wipe cannot catch it mid-open; a ticker with no row yet gets one only after the summary succeeded (below), so an
@@ -564,13 +576,13 @@ async def ticker_summary(ticker: str) -> TickerSummaryOut:
 # The opt-in universe API (docs/specs/tracked-universe.md, "API"). The status is the DESIGN state (protected / added /
 # browsed), not the classification reason; GET is cache-only (no FMP call, no write, no TickerView touch).
 @app.get("/api/tickers/{ticker}/universe", response_model=UniverseStatusOut)
-def ticker_universe_status(ticker: str) -> UniverseStatusOut:
+def ticker_universe_status(ticker: TickerPath) -> UniverseStatusOut:
     with Session(engine) as session:
         return get_universe_status(session, ticker)
 
 
 @app.post("/api/tickers/{ticker}/universe", response_model=UniverseAddOut)
-async def ticker_universe_add(ticker: str) -> UniverseAddOut:
+async def ticker_universe_add(ticker: TickerPath) -> UniverseAddOut:
     try:
         return await add_to_universe(ticker)
     except TickerNotFoundError as exc:
@@ -582,7 +594,7 @@ async def ticker_universe_add(ticker: str) -> UniverseAddOut:
 
 
 @app.delete("/api/tickers/{ticker}/universe", response_model=UniverseRemoveOut)
-def ticker_universe_remove(ticker: str) -> UniverseRemoveOut:
+def ticker_universe_remove(ticker: TickerPath) -> UniverseRemoveOut:
     try:
         return remove_from_universe(ticker)
     except UniverseRejectedError as exc:
@@ -593,12 +605,12 @@ def ticker_universe_remove(ticker: str) -> UniverseRemoveOut:
 # fetch is a normal `status: "unavailable"` body, so the Overview can say so while the Technical and
 # Chart tabs keep working.
 @app.get("/api/tickers/{ticker}/etf-overview", response_model=EtfOverviewOut)
-async def ticker_etf_overview(ticker: str) -> EtfOverviewOut:
+async def ticker_etf_overview(ticker: TickerPath) -> EtfOverviewOut:
     return await get_etf_overview(ticker)
 
 
 @app.get("/api/tickers/{ticker}/step1", response_model=Step1Out)
-async def ticker_step1(ticker: str) -> Step1Out:
+async def ticker_step1(ticker: TickerPath) -> Step1Out:
     try:
         return await get_step1_data(ticker)
     except httpx.HTTPError as exc:
@@ -612,7 +624,7 @@ async def ticker_step1(ticker: str) -> Step1Out:
 
 
 @app.get("/api/tickers/{ticker}/step2", response_model=Step2Out)
-async def ticker_step2(ticker: str) -> Step2Out:
+async def ticker_step2(ticker: TickerPath) -> Step2Out:
     try:
         return await get_step2_data(ticker)
     except httpx.HTTPError as exc:
@@ -626,7 +638,7 @@ async def ticker_step2(ticker: str) -> Step2Out:
 
 
 @app.get("/api/tickers/{ticker}/step3", response_model=Step3Out)
-async def ticker_step3(ticker: str) -> Step3Out:
+async def ticker_step3(ticker: TickerPath) -> Step3Out:
     # Always Auto Calculation, deliberately NOT get_active_valuation -- the
     # Valuation tab's "Model Valuation" card is a fixed Auto reference point
     # to compare a custom valuation against, and must never itself switch to
@@ -653,7 +665,7 @@ async def ticker_step3(ticker: str) -> Step3Out:
 # `req.last_close` is supplied by the caller (already available from the
 # live /step3 fetch the Manual Calculation panel seeds itself from).
 @app.post("/api/tickers/{ticker}/step3/manual", response_model=Step3ManualOut)
-async def ticker_step3_manual(ticker: str, req: Step3ManualRequest) -> Step3ManualOut:
+async def ticker_step3_manual(ticker: TickerPath, req: Step3ManualRequest) -> Step3ManualOut:
     result = run_manual_calculation(
         method=req.method,
         current_value=req.current_value,
@@ -714,7 +726,7 @@ async def _custom_valuation_out(ticker: str, row: TickerCustomValuation | None) 
 
 
 @app.get("/api/tickers/{ticker}/custom-valuation", response_model=TickerCustomValuationOut)
-async def ticker_custom_valuation(ticker: str) -> TickerCustomValuationOut:
+async def ticker_custom_valuation(ticker: TickerPath) -> TickerCustomValuationOut:
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = get_ticker_custom_valuation(session, ticker)
@@ -722,7 +734,7 @@ async def ticker_custom_valuation(ticker: str) -> TickerCustomValuationOut:
 
 
 @app.put("/api/tickers/{ticker}/custom-valuation", response_model=TickerCustomValuationOut)
-async def update_ticker_custom_valuation(ticker: str, body: TickerCustomValuationIn) -> TickerCustomValuationOut:
+async def update_ticker_custom_valuation(ticker: TickerPath, body: TickerCustomValuationIn) -> TickerCustomValuationOut:
     ticker = normalize_ticker(ticker)
     # Validate before persisting -- a user must never be able to save a
     # custom valuation that can't actually produce a verdict for the chosen
@@ -749,7 +761,7 @@ async def update_ticker_custom_valuation(ticker: str, body: TickerCustomValuatio
 
 
 @app.post("/api/tickers/{ticker}/custom-valuation/activate", response_model=TickerCustomValuationOut)
-async def activate_ticker_custom_valuation_endpoint(ticker: str) -> TickerCustomValuationOut:
+async def activate_ticker_custom_valuation_endpoint(ticker: TickerPath) -> TickerCustomValuationOut:
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = activate_ticker_custom_valuation(session, ticker)
@@ -760,7 +772,7 @@ async def activate_ticker_custom_valuation_endpoint(ticker: str) -> TickerCustom
 
 
 @app.post("/api/tickers/{ticker}/custom-valuation/deactivate", response_model=TickerCustomValuationOut)
-async def deactivate_ticker_custom_valuation_endpoint(ticker: str) -> TickerCustomValuationOut:
+async def deactivate_ticker_custom_valuation_endpoint(ticker: TickerPath) -> TickerCustomValuationOut:
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = deactivate_ticker_custom_valuation(session, ticker)
@@ -772,7 +784,7 @@ async def deactivate_ticker_custom_valuation_endpoint(ticker: str) -> TickerCust
 
 
 @app.delete("/api/tickers/{ticker}/custom-valuation", status_code=204)
-async def delete_ticker_custom_valuation_endpoint(ticker: str) -> None:
+async def delete_ticker_custom_valuation_endpoint(ticker: TickerPath) -> None:
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         deleted = delete_ticker_custom_valuation(session, ticker)
@@ -784,7 +796,7 @@ async def delete_ticker_custom_valuation_endpoint(ticker: str) -> None:
 
 
 @app.get("/api/tickers/{ticker}/step4", response_model=Step4Out)
-async def ticker_step4(ticker: str) -> Step4Out:
+async def ticker_step4(ticker: TickerPath) -> Step4Out:
     try:
         return await get_step4_data(ticker)
     except httpx.HTTPError as exc:
@@ -798,7 +810,7 @@ async def ticker_step4(ticker: str) -> Step4Out:
 
 
 @app.get("/api/tickers/{ticker}/step5", response_model=Step5Out)
-async def ticker_step5(ticker: str) -> Step5Out:
+async def ticker_step5(ticker: TickerPath) -> Step5Out:
     try:
         return await get_step5_data(ticker)
     except httpx.HTTPError as exc:
@@ -812,7 +824,7 @@ async def ticker_step5(ticker: str) -> Step5Out:
 
 
 @app.get("/api/tickers/{ticker}/trend-analysis", response_model=TrendAnalysisOut | None)
-async def ticker_trend_analysis(ticker: str) -> TrendAnalysisOut | None:
+async def ticker_trend_analysis(ticker: TickerPath) -> TrendAnalysisOut | None:
     # No httpx.HTTPError handling needed here -- this never calls FMP.
     # get_trend_analysis_data already swallows a missing-bars failure
     # (ValueError) internally, same "degrade to null/stale rather than
@@ -821,7 +833,7 @@ async def ticker_trend_analysis(ticker: str) -> TrendAnalysisOut | None:
 
 
 @app.get("/api/tickers/{ticker}/entry-signal", response_model=TechnicalEntrySignalOut | None)
-async def ticker_entry_signal(ticker: str, signal_type: str = "bb_rsi") -> TechnicalEntrySignalOut | None:
+async def ticker_entry_signal(ticker: TickerPath, signal_type: str = "bb_rsi") -> TechnicalEntrySignalOut | None:
     # Cache-only, same as get_trend_analysis_data's degrade-to-null
     # convention -- but there's no live-fetch fallback path here at all
     # (see data/entry_signal_data.py's own docstring): this signal only
@@ -836,7 +848,7 @@ async def ticker_entry_signal(ticker: str, signal_type: str = "bb_rsi") -> Techn
 
 
 @app.get("/api/tickers/{ticker}/liquidity-zones", response_model=LiquidityZonesOut | None)
-def ticker_liquidity_zones(ticker: str) -> LiquidityZonesOut | None:
+def ticker_liquidity_zones(ticker: TickerPath) -> LiquidityZonesOut | None:
     # Cache-only, same convention as ticker_entry_signal above -- no
     # live-fetch fallback path at all (see data/liquidity_zone_data.py's
     # own docstring): this only ever exists for tickers on a watchlist
@@ -846,7 +858,7 @@ def ticker_liquidity_zones(ticker: str) -> LiquidityZonesOut | None:
 
 
 @app.get("/api/tickers/{ticker}/chart", response_model=ChartOut)
-async def ticker_chart(ticker: str, range: Literal["2H_90D", "D_6M", "D_1Y", "D_2Y", "W_4Y"] = "D_1Y") -> ChartOut:
+async def ticker_chart(ticker: TickerPath, range: Literal["2H_90D", "D_6M", "D_1Y", "D_2Y", "W_4Y"] = "D_1Y") -> ChartOut:
     # Unlike every other ticker-page endpoint above, this one DOES make a
     # live call on every request (no nightly precompute -- see
     # data/chart_data.py's own docstring for why), so the httpx.HTTPError ->
@@ -861,7 +873,7 @@ async def ticker_chart(ticker: str, range: Literal["2H_90D", "D_6M", "D_1Y", "D_
 
 
 @app.get("/api/tickers/{ticker}/financials", response_model=FinancialsOut)
-async def ticker_financials(ticker: str) -> FinancialsOut:
+async def ticker_financials(ticker: TickerPath) -> FinancialsOut:
     try:
         return await get_financials_data(ticker)
     except httpx.HTTPError as exc:
@@ -875,7 +887,7 @@ async def ticker_financials(ticker: str) -> FinancialsOut:
 
 
 @app.get("/api/tickers/{ticker}/financials/cash-flow-cell-check", response_model=SecCrossCheck)
-async def ticker_financials_cash_flow_cell_check(ticker: str, field: str, period_end: str) -> SecCrossCheck:
+async def ticker_financials_cash_flow_cell_check(ticker: TickerPath, field: str, period_end: str) -> SecCrossCheck:
     """Phase 3a (2026-08-16): on-demand SEC EDGAR cross-check for a single
     zero/blank Financials-tab cell -- see get_cash_flow_cell_sec_check's own
     docstring for why this is scoped to exactly two fields (incomeTaxesPaid,
@@ -898,7 +910,7 @@ async def ticker_financials_cash_flow_cell_check(ticker: str, field: str, period
 
 
 @app.get("/api/tickers/{ticker}/ratios", response_model=RatiosOut)
-async def ticker_ratios(ticker: str) -> RatiosOut:
+async def ticker_ratios(ticker: TickerPath) -> RatiosOut:
     try:
         return await get_ratios_data(ticker)
     except httpx.HTTPError as exc:
@@ -912,13 +924,13 @@ async def ticker_ratios(ticker: str) -> RatiosOut:
 
 
 @app.get("/api/tickers/{ticker}/pe-history", response_model=PeHistoryOut)
-def ticker_pe_history(ticker: str) -> PeHistoryOut:
+def ticker_pe_history(ticker: TickerPath) -> PeHistoryOut:
     # Cache-only (no FMP call): the ticker's trailing P/E beside FMP's sector / industry average P/E, last 1 year.
     return get_pe_history(normalize_ticker(ticker))
 
 
 @app.get("/api/tickers/{ticker}/segmentation", response_model=SegmentationOut)
-async def ticker_segmentation(ticker: str) -> SegmentationOut:
+async def ticker_segmentation(ticker: TickerPath) -> SegmentationOut:
     try:
         return await get_segmentation_data(ticker)
     except httpx.HTTPError as exc:
@@ -926,7 +938,7 @@ async def ticker_segmentation(ticker: str) -> SegmentationOut:
 
 
 @app.get("/api/tickers/{ticker}/analyst-ratings", response_model=AnalystRatingsOut)
-async def ticker_analyst_ratings(ticker: str) -> AnalystRatingsOut:
+async def ticker_analyst_ratings(ticker: TickerPath) -> AnalystRatingsOut:
     try:
         return await get_analyst_ratings_data(ticker)
     except httpx.HTTPError as exc:
@@ -934,7 +946,7 @@ async def ticker_analyst_ratings(ticker: str) -> AnalystRatingsOut:
 
 
 @app.get("/api/tickers/{ticker}/institutional-ownership", response_model=InstitutionalOwnershipOut)
-async def ticker_institutional_ownership(ticker: str) -> InstitutionalOwnershipOut:
+async def ticker_institutional_ownership(ticker: TickerPath) -> InstitutionalOwnershipOut:
     try:
         return await get_institutional_ownership_data(ticker)
     except httpx.HTTPError as exc:
@@ -942,7 +954,7 @@ async def ticker_institutional_ownership(ticker: str) -> InstitutionalOwnershipO
 
 
 @app.get("/api/tickers/{ticker}/news", response_model=NewsOut)
-async def ticker_news(ticker: str) -> NewsOut:
+async def ticker_news(ticker: TickerPath) -> NewsOut:
     try:
         return await get_news_data(ticker)
     except httpx.HTTPError as exc:
@@ -950,7 +962,7 @@ async def ticker_news(ticker: str) -> NewsOut:
 
 
 @app.post("/api/tickers/{ticker}/refresh", response_model=RefreshResult)
-async def ticker_refresh(ticker: str) -> RefreshResult:
+async def ticker_refresh(ticker: TickerPath) -> RefreshResult:
     blocked = groups_blocking_refresh(ticker)
     if blocked:
         # Must not proceed to clear_ticker_cache below while any group it
@@ -1006,7 +1018,7 @@ SCORE_STALE_AFTER = timedelta(hours=36)
 # (see nightly_score_recompute.py for the periodic sweep that covers it).
 # Still zero FMP calls either way.
 @app.get("/api/tickers/{ticker}/score", response_model=TickerScoreOut | None)
-async def ticker_score_out(ticker: str) -> TickerScoreOut | None:
+async def ticker_score_out(ticker: TickerPath) -> TickerScoreOut | None:
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = session.get(TickerScore, ticker)
@@ -1042,7 +1054,7 @@ async def ticker_score_out(ticker: str) -> TickerScoreOut | None:
 
 
 @app.get("/api/tickers/{ticker}/moat", response_model=TickerMoatOut)
-def ticker_moat(ticker: str) -> TickerMoatOut:
+def ticker_moat(ticker: TickerPath) -> TickerMoatOut:
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = get_ticker_moat(session, ticker)
@@ -1052,7 +1064,7 @@ def ticker_moat(ticker: str) -> TickerMoatOut:
 
 
 @app.put("/api/tickers/{ticker}/moat", response_model=TickerMoatOut)
-async def update_ticker_moat(ticker: str, body: TickerMoatIn) -> TickerMoatOut:
+async def update_ticker_moat(ticker: TickerPath, body: TickerMoatIn) -> TickerMoatOut:
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         # An Economic Moat is a company judgement; an ETF has none, and a Moat-rated ticker is what
@@ -1070,7 +1082,7 @@ async def update_ticker_moat(ticker: str, body: TickerMoatIn) -> TickerMoatOut:
 
 
 @app.get("/api/tickers/{ticker}/moat-check", response_model=MoatCheckOut | None)
-def ticker_moat_check(ticker: str) -> MoatCheckOut | None:
+def ticker_moat_check(ticker: TickerPath) -> MoatCheckOut | None:
     """The newest advisory independent Moat check (docs/specs/moat-check.md), or JSON null when the ticker was never checked ("Not
     checked yet"). Read-only: it reads the database only, writes nothing, never touches TickerMoat or a score and calls no FMP."""
     with Session(engine) as session:
@@ -1079,7 +1091,7 @@ def ticker_moat_check(ticker: str) -> MoatCheckOut | None:
 
 
 @app.get("/api/tickers/{ticker}/speculative-growth", response_model=SpeculativeGrowthOut)
-async def ticker_speculative_growth(ticker: str) -> SpeculativeGrowthOut:
+async def ticker_speculative_growth(ticker: TickerPath) -> SpeculativeGrowthOut:
     try:
         return await get_speculative_growth_data(ticker)
     except httpx.HTTPError as exc:
@@ -1087,7 +1099,7 @@ async def ticker_speculative_growth(ticker: str) -> SpeculativeGrowthOut:
 
 
 @app.get("/api/tickers/{ticker}/bank-capital-metrics", response_model=TickerBankCapitalMetricsOut)
-def ticker_bank_capital_metrics(ticker: str) -> TickerBankCapitalMetricsOut:
+def ticker_bank_capital_metrics(ticker: TickerPath) -> TickerBankCapitalMetricsOut:
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = get_ticker_bank_capital_metrics(session, ticker)
@@ -1099,7 +1111,7 @@ def ticker_bank_capital_metrics(ticker: str) -> TickerBankCapitalMetricsOut:
 
 
 @app.put("/api/tickers/{ticker}/bank-capital-metrics", response_model=TickerBankCapitalMetricsOut)
-async def update_ticker_bank_capital_metrics(ticker: str, body: TickerBankCapitalMetricsIn) -> TickerBankCapitalMetricsOut:
+async def update_ticker_bank_capital_metrics(ticker: TickerPath, body: TickerBankCapitalMetricsIn) -> TickerBankCapitalMetricsOut:
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = set_ticker_bank_capital_metrics(
@@ -1395,7 +1407,7 @@ async def watchlist_bulk_add_tickers(watchlist_id: int, body: WatchlistBulkAddIn
 
 
 @app.delete("/api/watchlists/{watchlist_id}/tickers/{ticker}", status_code=204)
-def watchlist_remove_ticker(watchlist_id: int, ticker: str) -> None:
+def watchlist_remove_ticker(watchlist_id: int, ticker: TickerPath) -> None:
     with Session(engine) as session:
         deleted = remove_watchlist_ticker(session, watchlist_id, normalize_ticker(ticker))
     if not deleted:
@@ -1403,7 +1415,7 @@ def watchlist_remove_ticker(watchlist_id: int, ticker: str) -> None:
 
 
 @app.post("/api/tickers/{ticker}/etf-watchlist", response_model=EtfWatchlistAddOut)
-async def ticker_add_to_etf_watchlist(ticker: str) -> EtfWatchlistAddOut:
+async def ticker_add_to_etf_watchlist(ticker: TickerPath) -> EtfWatchlistAddOut:
     """The ETF page's "Add to watchlist": adds the ticker to the list named "ETF" (a monitored list,
     see data/watchlists.py), creating it on first use. Idempotent -- an ETF already on that list
     answers 200 with added=false. The 100-ticker cap applies like anywhere else (400)."""

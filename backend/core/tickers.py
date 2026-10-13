@@ -14,11 +14,47 @@ through unchanged rather than being silently mangled. These two are the
 only confirmed dot-notation tickers in Fathom's tracked universe (verified
 directly against IndexConstituent -- see investigation notes)."""
 
+import re
+
 TICKER_ALIASES = {"BRK.B": "BRK-B", "BF.B": "BF-B"}
+
+# The one ticker-shape check for every boundary that takes a symbol from outside (API path/body/query fields).
+# ASCII letters and digits, "." and "-" after the first character (BRK-B, 0700.HK, MC.PA), an optional single
+# leading "^" for an index (^GSPC), 1-12 characters in all. A leading "-" or "." is never valid, so no ticker can
+# start with a CSV formula character (=, +, -, @). Applied to the normalized form (is_valid_ticker), so the
+# case and the BRK.B/BF.B aliases behave exactly as normalize_ticker already makes them; it never rewrites a ticker.
+MAX_TICKER_LENGTH = 12
+TICKER_PATTERN = re.compile(r"\^?[A-Z0-9][A-Z0-9.\-]*")
+INVALID_TICKER_MESSAGE = "Invalid ticker symbol"
+
+
+class InvalidTickerError(ValueError):
+    """A string that is not a ticker symbol. The message is generic on purpose (the input is not echoed)."""
+
+    def __init__(self) -> None:
+        super().__init__(INVALID_TICKER_MESSAGE)
 
 def normalize_ticker(ticker: str) -> str:
     cleaned = ticker.strip().upper()
     return TICKER_ALIASES.get(cleaned, cleaned)
+
+
+def is_valid_ticker(raw: object) -> bool:
+    """True when `raw` is a string that normalizes to a ticker-shaped symbol (see TICKER_PATTERN). Non-ASCII input is
+    refused before upper() can fold it into ASCII (dotless i -> I)."""
+    if not isinstance(raw, str) or not raw.isascii():
+        return False
+    if raw.strip(" ") != raw.strip():  # only plain spaces may pad it, never a tab, CR or LF
+        return False
+    cleaned = normalize_ticker(raw)
+    return len(cleaned) <= MAX_TICKER_LENGTH and TICKER_PATTERN.fullmatch(cleaned) is not None
+
+
+def require_valid_ticker(raw: object) -> str:
+    """`raw` unchanged when it is a valid ticker, else InvalidTickerError. Callers keep their own normalize_ticker call."""
+    if not is_valid_ticker(raw):
+        raise InvalidTickerError()
+    return raw  # type: ignore[return-value]  # is_valid_ticker checked it is a str
 
 
 def is_non_us_ticker(ticker: str) -> bool:

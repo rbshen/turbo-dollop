@@ -1,7 +1,12 @@
 from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StringConstraints, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StrictInt, StringConstraints, field_validator, model_validator
+
+from core.tickers import require_valid_ticker
+
+# A ticker symbol coming from a request body: validated, never rewritten (handlers still call normalize_ticker).
+TickerSymbol = Annotated[str, AfterValidator(require_valid_ticker)]
 
 
 class SecCrossCheck(BaseModel):
@@ -1825,7 +1830,7 @@ class WeinsteinConfigIn(BaseModel):
     slope_lookback: int = Field(ge=1, le=52)
     breakout_volume_mult: float = Field(gt=0, le=20)
     volume_avg_length: int = Field(ge=2, le=200)
-    rs_benchmark: str = Field(min_length=1, max_length=20)
+    rs_benchmark: TickerSymbol = Field(min_length=1, max_length=20)
     rs_smoothing_length: int = Field(ge=2, le=200)
 
 
@@ -1976,13 +1981,14 @@ class MarketBreadthOut(BaseModel):
 
 
 class WatchlistTickerIn(BaseModel):
-    ticker: str
+    ticker: TickerSymbol
     # Set only by the Opportunities page: the run shown, so the add also records the pick (OpportunityPick). Changes nothing else.
     opportunity_run_id: int | None = None
 
 
 class WatchlistBulkAddIn(BaseModel):
-    tickers: list[str]
+    # One invalid symbol rejects the whole request (422), like the ETF-only and capacity checks: no partial fill.
+    tickers: list[TickerSymbol]
     opportunity_run_id: int | None = None  # see WatchlistTickerIn
 
 
