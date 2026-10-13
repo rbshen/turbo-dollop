@@ -174,7 +174,9 @@ build_frontend() {
   mkdir -p "$FRONTEND_LOG_DIR"
   : > "$FRONTEND_LOG"
   log "Building frontend (next build, timeout ${FRONTEND_BUILD_TIMEOUT_SECONDS}s) -> $FRONTEND_LOG"
-  (cd "$FRONTEND_DIR" && timeout "$FRONTEND_BUILD_TIMEOUT_SECONDS" npm run build >>"$FRONTEND_LOG" 2>&1 </dev/null) \
+  # Node's default heap limit on this 1 GB box is ~470 MB, and `next build`'s type-check step runs out of it
+  # (2026-10-13, "JavaScript heap out of memory"); 1 GB is what a passing build needs. Swap absorbs the peak.
+  (cd "$FRONTEND_DIR" && NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=1024}" timeout "$FRONTEND_BUILD_TIMEOUT_SECONDS" npm run build >>"$FRONTEND_LOG" 2>&1 </dev/null) \
     || fail "Frontend build failed or timed out -- see $FRONTEND_LOG."
   log "Frontend build complete."
 }
