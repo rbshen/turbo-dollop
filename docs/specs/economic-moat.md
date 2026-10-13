@@ -107,7 +107,7 @@ explicitly confirms — since doing so changes how Overall Assessment is scored 
 
 ## The independent check
 
-*Built, not yet run live (docs/specs/moat-check.md, docs/decisions.md 2026-10-12; the command is `.claude/commands/moat-check.md`).* On the Economic Moat tab, below the selector, an **Independent check**
+*Built and run live on PM (docs/specs/moat-check.md, docs/decisions.md 2026-10-12 and 2026-10-13); run a check with `/moat-check <ticker>` in Claude Code (`.claude/commands/moat-check.md`).* On the Economic Moat tab, below the selector, an **Independent check**
 card shows an independent reading of the same question, run on demand with `/moat-check <ticker>` in Claude Code: two blind passes that never see your rating
 rate the moat from observed evidence only (market share, retention, price increases that held, the company's own margin history, over the last 3 years), under
 the written rubric in [Moat criteria](moat-criteria.md). The card shows the check's rating, whether it **agrees** or **differs** from yours, an evidence
