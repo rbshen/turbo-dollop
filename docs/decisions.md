@@ -1298,3 +1298,17 @@ Also decided: two text sets keyed by the Blue profile (the shortened "profiled" 
 8. **File permissions:** `.env` and `fathom.db*` 0600, `backups/` 0700, backup files 0600; `backup_db` creates them that way.
 
 **Not changed:** authentication, ticker validation, throttling (later steps), scoring, `SCORE_FORMULA_VERSION`, any endpoint's behaviour, `crontab.txt`, the cron jobs.
+
+### 2026-10-13 — Security step 2, "app hardening" (code; still no auth, roles or universe cap)
+
+**Decision.** Seven items, one commit each, none changing a valid request:
+
+1. **Ticker validation.** `core/tickers.py::is_valid_ticker` (ASCII letters/digits, `.` and `-` after the first character, one optional leading `^`, 1-12 characters, checked on the normalized form, never rewriting it) on every `{ticker}` route, `WatchlistTickerIn`, each `WatchlistBulkAddIn` item and the Weinstein benchmark. A bad symbol is a generic `422 "Invalid ticker symbol"`. **Bulk add rejects the whole request on one bad item** (the existing ETF-only and capacity checks already reject whole; the UI shows the error text and has no partial-fill flow). Read-only scan of all 634 distinct tickers in every ticker-bearing table: none rejected. `moat_check_prepare.TICKER_PATTERN` stays its own, stricter pattern.
+2. **Export neutralisation** (`data/export_safety.py`, `frontend/lib/watchlistExport.ts`): thinkorswim lines lose whitespace/control characters, commas and quotes and get a leading `'` when they start with `= + - @`; TradingView symbol, exchange and sector lose `, " # :` and line breaks. Only the first character is tested, so `BRK-B` and `^GSPC` are untouched; the validator already forbids a leading `-`.
+3. **Size caps** (all well above current maxima): see docs/specs/overview.md, "Input validation and size caps".
+4. **FMP request protection** (docs/specs/fmp-data-and-bar-cache.md, "Outbound request protection"): a token bucket in the API process only (120/min, burst 40, env-configurable) and a 401/403 circuit breaker in every process (5 in a row, 300 s cooldown) surfaced through the existing key-problem banner. No universe cap.
+5. **Upstream validation:** a 200 that is not JSON, or an object with an `Error Message` / `error` key, is a handled `httpx.HTTPError` and is never cached; null-safe `ticker_summary` and `sec_edgar` parsing; a corrupt saved-view JSON lists with no filters instead of failing the list.
+6. **M5 (a transient FMP failure persisting a degraded score) was investigated report-first; see the report. Nothing was changed for it.**
+7. **`shadcn` moved to devDependencies** (its CLI and `tailwind.css` are build-time only): `npm audit --omit=dev` 7 high -> 0. This closes the "seven high advisories left" note in the step 1 entry above.
+
+**Not changed:** scoring, `SCORE_FORMULA_VERSION`, the 100-ticker watchlist cap, cron schedules, the live services.
