@@ -184,7 +184,8 @@ def get_pe_history(ticker: str) -> PeHistoryOut:
     if not closes.empty:
         base = closes.index
     else:
-        union = sector_series.index.union(industry_series.index)
+        # DatetimeIndex(...): two empty series have object-dtype indexes, and comparing one with a Timestamp raised a TypeError (a 500)
+        union = pd.DatetimeIndex(sector_series.index.union(industry_series.index))
         base = union[union >= pd.Timestamp(start)]
     sector_line = _carry(base, sector_series)
     industry_line = _carry(base, industry_series)

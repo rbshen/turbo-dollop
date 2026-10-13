@@ -8,7 +8,7 @@ from core.db import engine
 from core.schemas import TickerSearchResult
 from core.tickers import is_us_listed, normalize_ticker
 from data.etf_data import known_etf_tickers
-from data.tracked_universe import load_all_known_tickers
+from data.tracked_universe import load_all_known_tickers, load_etf_universe, load_tracked_universe
 
 SEARCH_RESULT_LIMIT = 10
 
@@ -55,7 +55,7 @@ def _rank_key(index: int, symbol: str, name: str | None, query: str) -> tuple[in
     return (tier, penalty, index)
 
 
-def _search_tracked_universe(query: str) -> list[TickerSearchResult]:
+def _search_tracked_universe(query: str, tracked_only: bool = False) -> list[TickerSearchResult]:
     """the profile_quote group is off fallback -- prefix/substring match against the
     app's own tracked ticker universe (index constituents + ever-viewed +
     watchlisted, see load_all_known_tickers) instead of FMP's live
@@ -63,10 +63,16 @@ def _search_tracked_universe(query: str) -> list[TickerSearchResult]:
     company name, so this only matches the query against the SYMBOL --
     materially narrower than the live path (no name matching), which is
     the expected, accepted tradeoff while FMP is paused rather than 502ing
-    on every search."""
+    on every search.
+
+    `tracked_only=True` (a viewer's search) narrows the set from every ticker the app holds a row for to the nightly universes
+    (`load_tracked_universe` + `load_etf_universe`): a viewer can only open those, so a result they would get a 404 for is not offered."""
     normalized_query = query.strip().upper()
     with Session(engine) as session:
-        universe = load_all_known_tickers(session)
+        if tracked_only:
+            universe = sorted({*load_tracked_universe(session), *load_etf_universe(session)})
+        else:
+            universe = load_all_known_tickers(session)
 
     prefix_matches = [t for t in universe if t.startswith(normalized_query)]
     substring_matches = [t for t in universe if normalized_query in t and t not in prefix_matches]
@@ -84,7 +90,7 @@ def _mark_known_etfs(results: list[TickerSearchResult]) -> list[TickerSearchResu
     return results
 
 
-async def search_tickers(query: str) -> list[TickerSearchResult]:
+async def search_tickers(query: str, tracked_only: bool = False) -> list[TickerSearchResult]:
     """Typeahead search backing the nav search box -- queried against FMP's
     own live ticker universe (not just the app's tracked S&P 500/Dow +
     watchlisted set), per the ticker-search UX investigation.
@@ -120,8 +126,9 @@ async def search_tickers(query: str) -> list[TickerSearchResult]:
     if not query:
         return []
 
-    if not group_live("profile_quote"):
-        return _search_tracked_universe(query)
+    # tracked_only (a viewer's request): never a live FMP call, and only tickers a viewer can open.
+    if tracked_only or not group_live("profile_quote"):
+        return _search_tracked_universe(query, tracked_only=tracked_only)
 
     symbol_matches, name_matches = await asyncio.gather(
         fmp_client.search_symbol(query, SEARCH_RESULT_LIMIT),

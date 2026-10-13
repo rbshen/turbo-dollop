@@ -35,20 +35,24 @@ def _normalize(raw: list[dict]) -> list[NewsArticle]:
     ]
 
 
-async def get_news_data(ticker: str) -> NewsOut:
+async def get_news_data(ticker: str, cache_only: bool = False) -> NewsOut:
     """TTL-cached (`Settings.news_cache_ttl_minutes`) wrapper around FMP's
     /news/stock -- deliberately separate from cache.py::get_or_fetch, which
     is keyed on FundamentalsCache's (ticker, statement_type, period) shape
     and staleness measured in days; news uses its own NewsCache table keyed
-    on ticker alone, staleness measured in minutes."""
+    on ticker alone, staleness measured in minutes. `cache_only=True` (a viewer's request) never calls FMP and never writes:
+    the cached feed however stale, or an empty one."""
     ticker = normalize_ticker(ticker)
     now = datetime.now()
 
     with Session(engine) as session:
         row = session.exec(select(NewsCache).where(NewsCache.ticker == ticker)).first()
-        if row and now - row.fetched_at < timedelta(minutes=settings.news_cache_ttl_minutes):
+        if row and (cache_only or now - row.fetched_at < timedelta(minutes=settings.news_cache_ttl_minutes)):
             raw = json.loads(row.raw_json)
             return NewsOut(ticker=ticker, articles=_normalize(raw))
+
+        if cache_only:
+            return NewsOut(ticker=ticker, articles=[])
 
         try:
             data = await fmp_client.get_stock_news(ticker, ARTICLE_LIMIT)

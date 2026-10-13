@@ -1208,6 +1208,10 @@ class RecomputeRunOut(BaseModel):
     weights_version: int | None = None
     error: str | None = None
 
+    def for_viewer(self) -> "RecomputeRunOut":
+        """The same run without its raw `error` text (state, counts and timestamps stay)."""
+        return self.model_copy(update={"error": None})
+
 
 class ScoreWeightsOut(BaseModel):
     weights: dict[str, dict[str, int]]
@@ -1317,6 +1321,10 @@ class RecomputeSummary(BaseModel):
     failed: int
     duration_seconds: float
     failures: list[tuple[str, str]] = []
+
+    def for_viewer(self) -> "RecomputeSummary":
+        """The same summary with each failure's raw exception text blanked (the ticker stays)."""
+        return self.model_copy(update={"failures": [(ticker, "") for ticker, _ in self.failures]})
 
 
 SavedFilterKind = Literal["stock", "etf"]
@@ -2712,6 +2720,10 @@ class UniverseAddOut(BaseModel):
     # Not available: FMPClient keeps no per-request call counter.
     fmp_calls: int | None = None
     message: str
+
+    def for_viewer(self) -> "UniverseAddOut":
+        """The same answer without the raw exception text in `error`."""
+        return self.model_copy(update={"error": None})
 
 
 class UniverseRemoveOut(BaseModel):

@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Literal
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Path, Query
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request
 from fastapi.responses import Response
 from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
@@ -30,6 +30,7 @@ from helpers.discount_rate_config import (
     update_discount_rate_config,
 )
 from core.audit import AuditMiddleware
+import core.auth as auth
 from core.auth import authorize
 from core.auth_routes import register_auth_routes
 from core.logging_config import apply_redaction_filters
@@ -77,6 +78,8 @@ from data.segmentation_data import get_segmentation_data
 from data.speculative_growth_data import get_speculative_growth_data
 from data.ticker_search import search_tickers
 from data.tracked_universe import (
+    OUT_OF_UNIVERSE,
+    classify_one,
     load_tracked_universe,
     record_ticker_view,
     touch_existing_ticker_view,
@@ -190,6 +193,7 @@ from data.step5_data import get_step5_data
 from data.ticker_score import compute_ticker_score
 from scoring.overall import SCORE_FORMULA_VERSION
 from data.chart_data import get_chart_data
+from data.viewer_chart_cache import viewer_chart_cache
 from data.entry_signal_data import get_entry_signal_data
 from data.warren_signal_data import get_warren_signal_data
 from data.ticker_summary import get_summary
@@ -220,16 +224,38 @@ apply_redaction_filters()
 logger = logging.getLogger(__name__)
 
 
-def _validated_ticker_path(ticker: str) -> str:
+def _ticker_is_tracked(ticker: str) -> bool:
+    """True when the ticker is in the nightly universe (stock or ETF side): `classify_one` is the rule `load_tracked_universe` /
+    `load_etf_universe` use, from targeted cache-only reads (no FMP call, no write, no TickerView touch)."""
+    with Session(engine) as session:
+        reason = classify_one(session, ticker)
+    return reason is not None and reason not in OUT_OF_UNIVERSE
+
+
+def _validated_ticker_path(request: Request, ticker: str) -> str:
     """Path-parameter check for every /api/tickers/{ticker}/... and watchlist-member route: a malformed symbol is a
-    generic 422 before any handler, cache or FMP call runs. Returns the value unchanged (handlers normalize as before)."""
+    generic 422 before any handler, cache or FMP call runs. Returns the value unchanged (handlers normalize as before).
+    A viewer (anyone who is not an admin) may only open tickers already in the tracked universe: any other ticker is a generic
+    404 here, before the handler, so it causes no fetch and no write (docs/specs/auth.md, "Viewer rules")."""
     try:
-        return require_valid_ticker(ticker)
+        valid = require_valid_ticker(ticker)
     except InvalidTickerError:
         raise HTTPException(status_code=422, detail="Invalid ticker symbol") from None
+    if auth.is_restricted(auth.current_principal(request)) and not _ticker_is_tracked(valid):
+        raise HTTPException(status_code=404, detail="Not found")
+    return valid
 
 
 TickerPath = Annotated[str, Depends(_validated_ticker_path)]
+
+
+def _is_restricted(request: Request) -> bool:
+    return auth.is_restricted(auth.current_principal(request))
+
+
+# True for a viewer: the handler reads stored data only (every data function runs cache_only=True), records no ticker view and
+# writes nothing. False for an admin, whose behaviour is unchanged.
+Restricted = Annotated[bool, Depends(_is_restricted)]
 
 # A saved Screener view's name in the URL: 1 to MAX_SAVED_VIEW_NAME characters (docs/specs/overview.md, "Input size caps").
 SavedViewNamePath = Annotated[str, Path(min_length=1, max_length=MAX_SAVED_VIEW_NAME)]
@@ -469,8 +495,13 @@ def _score_weights_payload() -> ScoreWeightsOut:
 
 
 @app.get("/api/config/score-weights", response_model=ScoreWeightsOut)
-def score_weights_config() -> ScoreWeightsOut:
-    return _score_weights_payload()
+def score_weights_config(restricted: Restricted) -> ScoreWeightsOut:
+    payload = _score_weights_payload()
+    # The recompute's `error` is the raw exception text of a failed run (a worker start error, a path): admins only. A viewer still
+    # sees the state ("failed") and the counts.
+    if restricted and payload.recompute is not None:
+        payload.recompute = payload.recompute.for_viewer()
+    return payload
 
 
 def _save_then_recompute(save, trigger: str) -> None:
@@ -564,19 +595,23 @@ def update_weinstein(body: WeinsteinConfigIn) -> WeinsteinConfigOut:
 # watchlisted set (deliberately broader, see the ticker-search UX
 # investigation).
 @app.get("/api/tickers/search", response_model=list[TickerSearchResult])
-async def ticker_search(q: Annotated[str, Query(max_length=100)] = "") -> list[TickerSearchResult]:
+async def ticker_search(restricted: Restricted, q: Annotated[str, Query(max_length=100)] = "") -> list[TickerSearchResult]:
     try:
-        return await search_tickers(q)
+        # Admin: the call exactly as before (live FMP search). Viewer: the tracked-universe fallback, no FMP call.
+        return await (search_tickers(q, tracked_only=True) if restricted else search_tickers(q))
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
 
 
 @app.get("/api/tickers/{ticker}/summary", response_model=TickerSummaryOut)
-async def ticker_summary(ticker: TickerPath) -> TickerSummaryOut:
+async def ticker_summary(ticker: TickerPath, restricted: Restricted = False) -> TickerSummaryOut:
     # A page view keeps the ticker in the nightly universe for 30 days and is the "last touch" the wipe reads
     # (data/tracked_universe.py). A ticker that already has a TickerView row is touched at the START of the request, so a
     # wipe cannot catch it mid-open; a ticker with no row yet gets one only after the summary succeeded (below), so an
     # invalid symbol never creates one. Both are at most one write per ticker per day and never raise.
+    if restricted:
+        # A viewer: stored data only, and no TickerView touch or record (those are writes that keep a ticker in the universe).
+        return await get_summary(ticker, cache_only=True)
     touch_existing_ticker_view(ticker)
     try:
         summary = await get_summary(ticker)
@@ -603,9 +638,10 @@ def ticker_universe_status(ticker: TickerPath) -> UniverseStatusOut:
 
 
 @app.post("/api/tickers/{ticker}/universe", response_model=UniverseAddOut)
-async def ticker_universe_add(ticker: TickerPath) -> UniverseAddOut:
+async def ticker_universe_add(ticker: TickerPath, restricted: Restricted) -> UniverseAddOut:
     try:
-        return await add_to_universe(ticker)
+        added = await add_to_universe(ticker)
+        return added.for_viewer() if restricted else added  # admin-only route: the viewer branch is defence in depth
     except TickerNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Ticker '{exc.ticker}' not found") from exc
     except UniverseRejectedError as exc:
@@ -626,14 +662,16 @@ def ticker_universe_remove(ticker: TickerPath) -> UniverseRemoveOut:
 # fetch is a normal `status: "unavailable"` body, so the Overview can say so while the Technical and
 # Chart tabs keep working.
 @app.get("/api/tickers/{ticker}/etf-overview", response_model=EtfOverviewOut)
-async def ticker_etf_overview(ticker: TickerPath) -> EtfOverviewOut:
-    return await get_etf_overview(ticker)
+async def ticker_etf_overview(ticker: TickerPath, restricted: Restricted) -> EtfOverviewOut:
+    overview = await get_etf_overview(ticker, cache_only=restricted)
+    # Why a card is unavailable (a data group is off / a fetch failed) is operational detail an admin sees, not a viewer.
+    return overview.model_copy(update={"reason": None}) if restricted else overview
 
 
 @app.get("/api/tickers/{ticker}/step1", response_model=Step1Out)
-async def ticker_step1(ticker: TickerPath) -> Step1Out:
+async def ticker_step1(ticker: TickerPath, restricted: Restricted) -> Step1Out:
     try:
-        return await get_step1_data(ticker)
+        return await get_step1_data(ticker, cache_only=restricted)
     except httpx.HTTPError as exc:
         # Not f"...{exc}": httpx's exception message embeds the full request
         # URL, apikey included -- every FMP fetch site already goes through
@@ -645,9 +683,9 @@ async def ticker_step1(ticker: TickerPath) -> Step1Out:
 
 
 @app.get("/api/tickers/{ticker}/step2", response_model=Step2Out)
-async def ticker_step2(ticker: TickerPath) -> Step2Out:
+async def ticker_step2(ticker: TickerPath, restricted: Restricted) -> Step2Out:
     try:
-        return await get_step2_data(ticker)
+        return await get_step2_data(ticker, cache_only=restricted)
     except httpx.HTTPError as exc:
         # Not f"...{exc}": httpx's exception message embeds the full request
         # URL, apikey included -- every FMP fetch site already goes through
@@ -659,7 +697,7 @@ async def ticker_step2(ticker: TickerPath) -> Step2Out:
 
 
 @app.get("/api/tickers/{ticker}/step3", response_model=Step3Out)
-async def ticker_step3(ticker: TickerPath) -> Step3Out:
+async def ticker_step3(ticker: TickerPath, restricted: Restricted) -> Step3Out:
     # Always Auto Calculation, deliberately NOT get_active_valuation -- the
     # Valuation tab's "Model Valuation" card is a fixed Auto reference point
     # to compare a custom valuation against, and must never itself switch to
@@ -669,7 +707,7 @@ async def ticker_step3(ticker: TickerPath) -> Step3Out:
     # main.py::_custom_valuation_out. The ticker header pill/Screener/
     # Watchlist still follow the active source via get_summary, unchanged.
     try:
-        return await get_step3_data(ticker)
+        return await get_step3_data(ticker, cache_only=restricted)
     except httpx.HTTPError as exc:
         # Not f"...{exc}": httpx's exception message embeds the full request
         # URL, apikey included -- every FMP fetch site already goes through
@@ -817,9 +855,9 @@ async def delete_ticker_custom_valuation_endpoint(ticker: TickerPath) -> None:
 
 
 @app.get("/api/tickers/{ticker}/step4", response_model=Step4Out)
-async def ticker_step4(ticker: TickerPath) -> Step4Out:
+async def ticker_step4(ticker: TickerPath, restricted: Restricted) -> Step4Out:
     try:
-        return await get_step4_data(ticker)
+        return await get_step4_data(ticker, cache_only=restricted)
     except httpx.HTTPError as exc:
         # Not f"...{exc}": httpx's exception message embeds the full request
         # URL, apikey included -- every FMP fetch site already goes through
@@ -831,9 +869,9 @@ async def ticker_step4(ticker: TickerPath) -> Step4Out:
 
 
 @app.get("/api/tickers/{ticker}/step5", response_model=Step5Out)
-async def ticker_step5(ticker: TickerPath) -> Step5Out:
+async def ticker_step5(ticker: TickerPath, restricted: Restricted) -> Step5Out:
     try:
-        return await get_step5_data(ticker)
+        return await get_step5_data(ticker, cache_only=restricted)
     except httpx.HTTPError as exc:
         # Not f"...{exc}": httpx's exception message embeds the full request
         # URL, apikey included -- every FMP fetch site already goes through
@@ -845,12 +883,12 @@ async def ticker_step5(ticker: TickerPath) -> Step5Out:
 
 
 @app.get("/api/tickers/{ticker}/trend-analysis", response_model=TrendAnalysisOut | None)
-async def ticker_trend_analysis(ticker: TickerPath) -> TrendAnalysisOut | None:
+async def ticker_trend_analysis(ticker: TickerPath, restricted: Restricted) -> TrendAnalysisOut | None:
     # No httpx.HTTPError handling needed here -- this never calls FMP.
     # get_trend_analysis_data already swallows a missing-bars failure
     # (ValueError) internally, same "degrade to null/stale rather than
     # error" convention as every other ticker-page data endpoint.
-    return await get_trend_analysis_data(ticker)
+    return await get_trend_analysis_data(ticker, cache_only=restricted)
 
 
 @app.get("/api/tickers/{ticker}/entry-signal", response_model=TechnicalEntrySignalOut | None)
@@ -879,7 +917,9 @@ def ticker_liquidity_zones(ticker: TickerPath) -> LiquidityZonesOut | None:
 
 
 @app.get("/api/tickers/{ticker}/chart", response_model=ChartOut)
-async def ticker_chart(ticker: TickerPath, range: Literal["2H_90D", "D_6M", "D_1Y", "D_2Y", "W_4Y"] = "D_1Y") -> ChartOut:
+async def ticker_chart(
+    ticker: TickerPath, restricted: Restricted, range: Literal["2H_90D", "D_6M", "D_1Y", "D_2Y", "W_4Y"] = "D_1Y"
+) -> ChartOut:
     # Unlike every other ticker-page endpoint above, this one DOES make a
     # live call on every request (no nightly precompute -- see
     # data/chart_data.py's own docstring for why), so the httpx.HTTPError ->
@@ -888,15 +928,19 @@ async def ticker_chart(ticker: TickerPath, range: Literal["2H_90D", "D_6M", "D_1
     # endpoints' own comment on why raising the raw exception would leak
     # the FMP apikey via httpx's own error message).
     try:
+        if restricted:
+            # No cache-only mode exists for the chart, so a viewer's request is served from a short in-memory cache
+            # (data/viewer_chart_cache.py): at most one live load per ticker and view per TTL, however many viewers ask.
+            return await viewer_chart_cache.get(ticker, range, lambda: get_chart_data(ticker, range))
         return await get_chart_data(ticker, range)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
 
 
 @app.get("/api/tickers/{ticker}/financials", response_model=FinancialsOut)
-async def ticker_financials(ticker: TickerPath) -> FinancialsOut:
+async def ticker_financials(ticker: TickerPath, restricted: Restricted) -> FinancialsOut:
     try:
-        return await get_financials_data(ticker)
+        return await get_financials_data(ticker, cache_only=restricted)
     except httpx.HTTPError as exc:
         # Not f"...{exc}": httpx's exception message embeds the full request
         # URL, apikey included -- every FMP fetch site already goes through
@@ -933,9 +977,9 @@ async def ticker_financials_cash_flow_cell_check(
 
 
 @app.get("/api/tickers/{ticker}/ratios", response_model=RatiosOut)
-async def ticker_ratios(ticker: TickerPath) -> RatiosOut:
+async def ticker_ratios(ticker: TickerPath, restricted: Restricted) -> RatiosOut:
     try:
-        return await get_ratios_data(ticker)
+        return await get_ratios_data(ticker, cache_only=restricted)
     except httpx.HTTPError as exc:
         # Not f"...{exc}": httpx's exception message embeds the full request
         # URL, apikey included -- every FMP fetch site already goes through
@@ -953,33 +997,33 @@ def ticker_pe_history(ticker: TickerPath) -> PeHistoryOut:
 
 
 @app.get("/api/tickers/{ticker}/segmentation", response_model=SegmentationOut)
-async def ticker_segmentation(ticker: TickerPath) -> SegmentationOut:
+async def ticker_segmentation(ticker: TickerPath, restricted: Restricted) -> SegmentationOut:
     try:
-        return await get_segmentation_data(ticker)
+        return await get_segmentation_data(ticker, cache_only=restricted)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
 
 
 @app.get("/api/tickers/{ticker}/analyst-ratings", response_model=AnalystRatingsOut)
-async def ticker_analyst_ratings(ticker: TickerPath) -> AnalystRatingsOut:
+async def ticker_analyst_ratings(ticker: TickerPath, restricted: Restricted) -> AnalystRatingsOut:
     try:
-        return await get_analyst_ratings_data(ticker)
+        return await get_analyst_ratings_data(ticker, cache_only=restricted)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
 
 
 @app.get("/api/tickers/{ticker}/institutional-ownership", response_model=InstitutionalOwnershipOut)
-async def ticker_institutional_ownership(ticker: TickerPath) -> InstitutionalOwnershipOut:
+async def ticker_institutional_ownership(ticker: TickerPath, restricted: Restricted) -> InstitutionalOwnershipOut:
     try:
-        return await get_institutional_ownership_data(ticker)
+        return await get_institutional_ownership_data(ticker, cache_only=restricted)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
 
 
 @app.get("/api/tickers/{ticker}/news", response_model=NewsOut)
-async def ticker_news(ticker: TickerPath) -> NewsOut:
+async def ticker_news(ticker: TickerPath, restricted: Restricted) -> NewsOut:
     try:
-        return await get_news_data(ticker)
+        return await get_news_data(ticker, cache_only=restricted)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
 
@@ -1041,10 +1085,21 @@ SCORE_STALE_AFTER = timedelta(hours=36)
 # (see nightly_score_recompute.py for the periodic sweep that covers it).
 # Still zero FMP calls either way.
 @app.get("/api/tickers/{ticker}/score", response_model=TickerScoreOut | None)
-async def ticker_score_out(ticker: TickerPath) -> TickerScoreOut | None:
+async def ticker_score_out(ticker: TickerPath, restricted: Restricted) -> TickerScoreOut | None:
     ticker = normalize_ticker(ticker)
     with Session(engine) as session:
         row = session.get(TickerScore, ticker)
+    if restricted:
+        # A viewer: strictly cache-only and write-free. The stored row is served as is (a tracked ticker's row is kept current by the
+        # nightly recompute, so the frozen-row live refresh below never applies); a missing, blank or older-weights row is
+        # re-derived from cached data and returned without being stored.
+        if row is not None and not row.is_etf and row.delisted_at is None and row.weights_version is not None and (
+            row.weights_version < load_score_weights(engine).version or row.formula_version != SCORE_FORMULA_VERSION
+        ):
+            row = await compute_ticker_score(ticker, cache_only=True, persist=False) or row
+        elif row is None or row.overall_score is None:
+            row = await compute_ticker_score(ticker, cache_only=True, persist=False)
+        return TickerScoreOut(**row.model_dump()) if row is not None else None
     # A ticker that left the nightly universe (not viewed for 30 days, see data/tracked_universe.py)
     # keeps a frozen row, so the first view after a long gap must not serve it as current: recompute,
     # live this time (cache_only=False -- the same staleness-gated fetches the page's own tabs make).
@@ -1121,9 +1176,9 @@ def ticker_moat_check(ticker: TickerPath) -> MoatCheckOut | None:
 
 
 @app.get("/api/tickers/{ticker}/speculative-growth", response_model=SpeculativeGrowthOut)
-async def ticker_speculative_growth(ticker: TickerPath) -> SpeculativeGrowthOut:
+async def ticker_speculative_growth(ticker: TickerPath, restricted: Restricted) -> SpeculativeGrowthOut:
     try:
-        return await get_speculative_growth_data(ticker)
+        return await get_speculative_growth_data(ticker, cache_only=restricted)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
 
@@ -1220,7 +1275,7 @@ def screener_meta(universe: Universe = "sp500") -> ScreenerMeta:
 
 
 @app.post("/api/screener/recompute", response_model=RecomputeSummary)
-async def screener_recompute() -> RecomputeSummary:
+async def screener_recompute(restricted: Restricted) -> RecomputeSummary:
     # recompute_all(), not recompute_ticker_scores.main() -- main() also
     # calls configure_logging()/init_db(), which would hijack this already-
     # running app's logging setup on every request (see that module's
@@ -1233,8 +1288,9 @@ async def screener_recompute() -> RecomputeSummary:
         raise _conflict(exc) from exc
     run = await wait_for_run(run_id, engine)
     if run.state == "failed":
-        raise HTTPException(status_code=500, detail=run.error or "The score recompute failed.")
-    return RecomputeSummary(**summary_for(run_id, engine))
+        raise HTTPException(status_code=500, detail="The score recompute failed." if restricted else run.error or "The score recompute failed.")
+    summary = RecomputeSummary(**summary_for(run_id, engine))
+    return summary.for_viewer() if restricted else summary  # admin-only route: the viewer branch is defence in depth
 
 
 # The ETFs screener (docs/specs/etf-screener.md). Deliberately NOT under /api/screener: the frontend's SWR keys
@@ -1495,13 +1551,13 @@ async def ticker_add_to_etf_watchlist(ticker: TickerPath) -> EtfWatchlistAddOut:
 
 
 @app.get("/api/watchlists/{watchlist_id}/rows", response_model=list[WatchlistRowOut])
-async def watchlist_rows(watchlist_id: int) -> list[WatchlistRowOut]:
+async def watchlist_rows(watchlist_id: int, restricted: Restricted) -> list[WatchlistRowOut]:
     with Session(engine) as session:
         watchlist = session.get(Watchlist, watchlist_id)
         if watchlist is None:
             raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
         tickers = list_watchlist_tickers(session, watchlist_id)
-    return await get_watchlist_rows(tickers)
+    return await (get_watchlist_rows(tickers, read_only=True) if restricted else get_watchlist_rows(tickers))
 
 
 @app.get("/api/watchlists/{watchlist_id}/etf-rows", response_model=list[EtfWatchlistRowOut])

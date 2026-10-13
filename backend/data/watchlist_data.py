@@ -70,7 +70,7 @@ async def _cached_exchange(ticker: str) -> str | None:
     return _profile_exchange(await _cached_profile(ticker))
 
 
-async def _consensus_rating(ticker: str) -> str:
+async def _consensus_rating(ticker: str, cache_only: bool = False) -> str:
     # Targeted get_or_fetch on just the "grades_consensus" cache key --
     # deliberately NOT the full get_analyst_ratings_data(cache_only=True),
     # which reads 3 more cache keys this row doesn't use (price_target_
@@ -93,14 +93,14 @@ async def _consensus_rating(ticker: str) -> str:
                         "latest",
                         lambda: fmp_client.get_grades_consensus(ticker),
                         settings.cache_staleness_days,
-                        False,
+                        cache_only,
                     ),
                 )
             )
     return grades_consensus.get("consensus") or NO_CONSENSUS_RATING
 
 
-async def _compose_row(watchlist_ticker: WatchlistTicker, last_close: float | None) -> WatchlistRowOut:
+async def _compose_row(watchlist_ticker: WatchlistTicker, last_close: float | None, read_only: bool = False) -> WatchlistRowOut:
     ticker = normalize_ticker(watchlist_ticker.ticker)
     score, exchange, step1 = await asyncio.gather(
         # cache_only=True: opening the Watchlist page must not trigger a
@@ -108,7 +108,7 @@ async def _compose_row(watchlist_ticker: WatchlistTicker, last_close: float | No
         # reasoning as the Screener page. Returns None for a ticker with no
         # cached profile at all -- that's fine, this row just renders with
         # null score fields (see below).
-        compute_ticker_score(ticker, cache_only=True),
+        compute_ticker_score(ticker, cache_only=True, persist=False) if read_only else compute_ticker_score(ticker, cache_only=True),
         _cached_exchange(ticker),
         # Same cache-only Step1Out compute_ticker_score already runs
         # internally -- re-derived here rather than widening TickerScore's
@@ -123,7 +123,10 @@ async def _compose_row(watchlist_ticker: WatchlistTicker, last_close: float | No
     # cached empty row it would write -- and carries the placeholder, which the table renders as a dash.
     # `score` is None only for a ticker with no cached profile, which cannot be known to be an ETF.
     is_etf = bool(score.is_etf) if score else False
-    rating = NO_CONSENSUS_RATING if is_etf else await _consensus_rating(ticker)
+    if is_etf:
+        rating = NO_CONSENSUS_RATING
+    else:
+        rating = await (_consensus_rating(ticker, cache_only=True) if read_only else _consensus_rating(ticker))
 
     years = step1.years[-LATEST_YEARS_SHOWN:]
     revenue = step1.revenue[-LATEST_YEARS_SHOWN:]
@@ -172,7 +175,7 @@ async def _compose_row(watchlist_ticker: WatchlistTicker, last_close: float | No
     )
 
 
-async def get_watchlist_rows(tickers: list[WatchlistTicker]) -> list[WatchlistRowOut]:
+async def get_watchlist_rows(tickers: list[WatchlistTicker], read_only: bool = False) -> list[WatchlistRowOut]:
     """Composes one row per ticker concurrently (asyncio.gather, both across
     tickers and across the sub-fetches per ticker). compute_ticker_score,
     _cached_exchange, and get_step1_data are all cache-only -- no network
@@ -180,10 +183,15 @@ async def get_watchlist_rows(tickers: list[WatchlistTicker]) -> list[WatchlistRo
     only when grades_consensus is stale/missing for that ticker -- for a
     ~20-30 ticker watchlist gather() turns what could be several sequential
     FMP round-trips into one parallel batch rather than N times a single
-    round-trip's latency."""
+    round-trip's latency.
+
+    `read_only=True` (a viewer's request) makes the consensus rating cache-only (no FMP call) and does not persist the
+    TickerScore rows it computes: no network, no write."""
     # One batched DB read of the nightly last close for the whole list (no FMP call).
     last_closes = get_cached_last_closes([normalize_ticker(t.ticker) for t in tickers])
-    return list(await asyncio.gather(*[_compose_row(t, last_closes.get(normalize_ticker(t.ticker))) for t in tickers]))
+    return list(
+        await asyncio.gather(*[_compose_row(t, last_closes.get(normalize_ticker(t.ticker)), read_only=read_only) for t in tickers])
+    )
 
 
 # The numeric/text fields an ETF watchlist row copies from the screener row (EtfWatchlistRowOut minus ticker/exchange).

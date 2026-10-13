@@ -424,3 +424,13 @@ def client_for():
         return client
 
     return make
+
+
+@pytest.fixture(autouse=True)
+def _isolate_viewer_chart_cache():
+    """data.viewer_chart_cache is a per-process in-memory cache; a test must never see another test's chart."""
+    from data.viewer_chart_cache import viewer_chart_cache
+
+    viewer_chart_cache.clear()
+    yield
+    viewer_chart_cache.clear()

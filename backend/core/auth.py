@@ -35,6 +35,7 @@ from core.config import settings
 from core.db import engine
 from core.models import User, UserSession
 from core.passwords import dummy_verify, hash_password, needs_rehash, validate_password_policy, verify_password
+from core.route_roles import role_for
 
 logger = logging.getLogger(__name__)
 
@@ -365,8 +366,6 @@ def authorize(request: Request) -> Principal | None:
     """The app-level dependency: every route needs a valid session unless core/route_roles.py declares it "public", and an "admin"
     route needs an admin (403 for a viewer). A route missing from the registry is treated as admin-only (the registry test also
     fails). Runs after the Host/Origin guard middleware."""
-    from core.route_roles import role_for
-
     route = request.scope.get("route")
     role = role_for(request.method, getattr(route, "path", None))
     if role == "public":
