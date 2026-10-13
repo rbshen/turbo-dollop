@@ -217,7 +217,15 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Fathom", lifespan=lifespan)
+def api_docs_urls(enabled: bool) -> dict[str, str | None]:
+    """FastAPI's interactive docs and schema routes: all three off unless ENABLE_API_DOCS is set (the schema
+    lists every endpoint, including the unauthenticated write ones)."""
+    if enabled:
+        return {"docs_url": "/docs", "redoc_url": "/redoc", "openapi_url": "/openapi.json"}
+    return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
+
+app = FastAPI(title="Fathom", lifespan=lifespan, **api_docs_urls(settings.enable_api_docs))
 
 
 @app.get("/api/health")

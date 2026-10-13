@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     # gets 403'd) -- override via SEC_EDGAR_USER_AGENT in .env with a real
     # app name and contact email before relying on this in production.
     sec_edgar_user_agent: str = "Fathom Fundamentals Screener (set SEC_EDGAR_USER_AGENT in .env)"
+    # FastAPI's /docs, /redoc and /openapi.json are off unless this is true (ENABLE_API_DOCS=true in the dev
+    # shell or .env). Read once at import, because the routes are registered when the app is built.
+    enable_api_docs: bool = False
 
 
 settings = Settings()
