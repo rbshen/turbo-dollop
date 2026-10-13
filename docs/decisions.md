@@ -1329,3 +1329,21 @@ Also decided: two text sets keyed by the Blue profile (the shortened "profiled" 
 **Residual / accepted.** FastAPI parses a JSON body before dependencies, so malformed JSON gets 422 before 401 (no data involved). Behind the tunnel every request is from 127.0.0.1, so the per-source throttle is effectively global. The audit table is not pruned. On a pristine database the first read of each settings page inserts its default row (old behaviour; the live database has them all). The `.claude/settings.local.json` allow entry for `curl localhost:8002/api/tickers/PM/moat-check` now returns 401 without a cookie.
 
 **Not changed:** scoring, `SCORE_FORMULA_VERSION`, cron schedules and jobs, the tracked-universe rule, the 100-ticker watchlist cap, the live services (not restarted; the new tables are created at the next start or by the first CLI call).
+
+### 2026-10-13 — Security step 4, "frontend auth" (code; the backend is unchanged)
+
+**Decision.** The frontend now signs people in and knows their role. User management stays CLI-only (no admin UI for users), data stays global, and there is no sign-up or password-reset page. **The UI hides what a viewer cannot do; the backend still refuses it (403), so nothing here is a control.** Nine commits, one per item (docs/specs/auth.md, "Frontend"):
+
+1. **Session state:** `AuthProvider` / `useAuth()` over `GET /api/auth/me`; login and logout clear the whole SWR cache; logout is a full page load.
+2. **`/login`:** generic 401 text, 429 with a `Retry-After` hint, disabled while pending, autofocus, password-manager attributes; `next` accepts only a same-origin relative path (single leading `/`, no backslash or control character, not `/login`).
+3. **Client:** a 401 (not login / logout) clears the cache and loads `/login?next=` once, never from `/login`, and settles nothing so no toast flashes; a 403 "Admin access required" reads "Admin access required — this account is view-only."; failures are an `ApiError` carrying `status` and `retryAfter`.
+4. **Gating:** `proxy.ts` redirects when the `fathom_session` cookie is absent (relative `Location`); `/styleguide` is admin-only.
+5. **Chrome:** username, role and Sign out in the top bar.
+6. **Admin controls** hidden behind `<AdminOnly>` / `isAdmin` (list in the spec); the six readable Settings sections show their values disabled with a "View only" note.
+7. **Restricted data:** a viewer's 404 is an "isn't available" state; the search empty state says "tracked"; null redacted fields read cleanly.
+8. **Admin reads never fired for a viewer:** the ticker page's data-group badge fetched the admin-only `/config/data-groups` on every tab (a 403 for every viewer); it is now skipped. Scheduled jobs and FMP data groups are not mounted for a viewer.
+9. **Tests**, including `adminGuard.test.ts`, a static check that a write or admin-only read sits behind a guard.
+
+**Choices.** (a) A 401 is made to *never settle* rather than to throw a quiet error: the page is being replaced, and any thrown error would be drawn by some component. The cost is that a request on a page that cannot redirect (a 401 while already on `/login`) throws normally. (b) The guard is file-level and static, not a proof, because the alternative (a runtime check of every rendered control) needs a browser. (c) `AdminOnly` renders nothing, not a disabled control, because a disabled Save teaches nothing; Settings shows disabled values because "read-only" is the lesson there. (d) The login redirect and the Sign out use full page loads so no module state survives from one user to the next. (e) `/auth/logout` is exempt from the 401 redirect (a sign-out of a dead session is not an event).
+
+**Not changed:** the backend, scoring, `SCORE_FORMULA_VERSION`, cron jobs, the live services (not restarted, no user created), the CSP (the comment in `next.config.ts` about a future nonce `proxy.ts` is unaffected).

@@ -1,8 +1,7 @@
 # Login accounts, roles and viewer rules (security step 3, 2026-10-13)
 
 Fathom is private: an SSH tunnel to `http://localhost:3100`, no TLS, no public access (docs/decisions.md, 2026-10-13, "lockdown"). Step 3 puts a login in front of the
-backend so that more than one person can use the tunnel without every one of them being the owner. **The backend is built and enforced; the frontend login page and
-403/401 handling are the next step.** Decisions already made and not revisited here: no universe cap, no public sign-up, accounts are created by an admin through the CLI
+backend so that more than one person can use the tunnel without every one of them being the owner. **The backend is built and enforced (step 3); the frontend login, 401/403 handling and viewer UI are built too (step 4, 2026-10-13, "Frontend" below).** Decisions already made and not revisited here: no universe cap, no public sign-up, accounts are created by an admin through the CLI
 only, and settings, watchlists and saved views stay global (no per-user data).
 
 ## Accounts
@@ -69,11 +68,55 @@ A *viewer* is anyone signed in who is not an admin (the code is fail-closed: `co
 - **Redaction.** For a viewer: `GET /api/config/score-weights` returns `recompute.error = null` (state and counts stay); `GET /etf-overview` returns `reason = null`. `RecomputeRunOut`, `RecomputeSummary` and `UniverseAddOut`
   each have a `for_viewer()` that blanks the raw exception text; the two routes that return the latter two are admin-only, so that is defence in depth. The cron-health, data-source-health and data-groups reads are admin-only outright.
 
-## What the frontend step needs
+## Frontend (security step 4, 2026-10-13)
 
-401 `{"detail": "Not authenticated"}` = no valid session (send to the login page); 403 `{"detail": "Admin access required"}` = signed in as a viewer (hide the control; the settings pages that read the three admin-only `GET`s
-get 403 for a viewer); 404 `{"detail": "Not found"}` on a ticker = not in the tracked universe for a viewer. Every write needs the session cookie (the browser sends it; same-origin through the Next proxy) **and** the existing `X-Fathom-Request`
-header. `/api/auth/me` is the way to learn the role.
+The backend contract above is unchanged; the frontend only consumes it. **The frontend hides; the backend refuses.** Nothing below is a security control, every admin write is still refused with 403 whatever the page shows, and
+`proxy.ts` is only a convenience (it checks that a cookie exists, never that it is valid).
+
+**Session state.** `lib/auth/AuthProvider.tsx` (mounted in `app/layout.tsx`) calls `GET /api/auth/me` once and exposes `useAuth()`: `user`, `role`, `isAdmin`, `isLoading`, `login()`, `logout()`. `isAdmin` is false until `/auth/me` has answered, so a viewer never sees an admin
+control flash. Login and logout clear the whole SWR cache (`lib/auth/session.ts::clearClientCache`) so one user's data cannot show for the next; logout then loads `/login` with a full page load (`lib/auth/navigate.ts`), which also drops all in-memory state.
+`lib/auth/testAuth.tsx` (`<TestAuth role=...>`) and `lib/auth/adminAuthMock.ts` (`vi.mock` of the provider as a signed-in admin, `setMockRole("viewer")` to flip) are the test seams.
+
+**`/login`** (`components/auth/LoginForm.tsx`): username and password, autofocus, `autocomplete="username"` / `"current-password"`, submit disabled while pending or while a field is empty. A 401 reads "Invalid username or password." (never the backend's wording); a 429 reads "Too many failed sign-in attempts." plus a
+wait hint from `Retry-After` ("about N minutes"); any other failure is a neutral "Couldn't sign in". After sign-in, and for a visitor who is already signed in, it loads the `next` parameter or `/screener`. **`next` is accepted only as a same-origin relative path**
+(`lib/auth/safeNext.ts::safeNextPath`): it must start with a single `/`, with no backslash, no control character (a browser drops a tab or newline inside a URL), no scheme, not `//`, not `/login`, and a parse against a throwaway origin must stay on it. The bar on this page is just the name.
+
+**API client** (`lib/api/client.ts`). Failures throw `ApiError` (`status`, `detail`, `retryAfter`; the message is still `METHOD path failed: STATUS - detail`, so existing `.includes("409")` checks and `errorDetail` work). A **401** on anything but `/auth/login` and `/auth/logout`
+clears the SWR cache and loads `/login?next=<page>` once (module flag, however many requests fail together), **never from `/login` itself** (no loop), and **settles nothing**, so no caller shows an error or toast for a page that is about to be replaced. A **403 "Admin access required"**
+becomes the detail "Admin access required — this account is view-only." through the usual `errorDetail` path. `X-Fathom-Request` and the no-raw-`fetch` rule are unchanged; `/api/health` is untouched.
+
+**Route gating** (`proxy.ts`, Next 16's `middleware`): a request without a `fathom_session` cookie is redirected to `/login?next=<path>` with a **relative** `Location` (the browser resolves it against the address it used, so the SSH-tunnel host is never rewritten). Not applied to `/login`, `/api`, `/_next` and static files. The gate cannot tell a real
+cookie from a made-up one, and an expired cookie gets through to the page, where `/auth/me` answers 401 and the client redirects. `/styleguide` is admin-only (`app/styleguide/page.tsx` gates `StyleguideContent`; a non-admin is sent to `/`).
+
+**Chrome.** The top bar shows the username, the role and **Sign out**; a signed-out visitor, and the login page, see only the name. Nothing else in the nav is hidden for a viewer (every page is readable).
+
+**What a viewer does not get** (`components/auth/AdminOnly.tsx` or `useAuth().isAdmin`; render nothing, not a disabled button, except the Settings values, which are shown disabled because they teach "read-only"):
+
+| Where | Hidden for a viewer | File |
+|---|---|---|
+| Settings, the six readable sections (Discount rate, Score weighting, Economic moat, REIT, Liquidity, Weinstein) | Save, Reset to defaults, the recompute confirmation; the fields stay, disabled in one `<fieldset>`, with a "View only" note | `components/settings/SettingsLayout.tsx` (`SettingsSection`, `SettingsFooter`) |
+| Settings > Scheduled jobs, FMP data groups | the sections are not listed or mounted (their reads are admin-only) | `app/settings/page.tsx` |
+| Ticker header | universe Add / Remove, Add to watchlist, Refresh; the ETF header's universe and ETF watchlist button | `components/ticker/TickerHeader.tsx`, `EtfHeader.tsx` |
+| Moat tab | the rating picker (the rating shows as text) | `components/ticker/EconomicMoatTab.tsx` |
+| Valuation tab, Custom valuation | Save, Activate, Revert to auto, Delete (the calculator still runs: `step3/manual` is allowed for a viewer) | `components/step3/ManualCalculationPanel.tsx` |
+| Debt tab (banks) | the CET1 / NPL form | `components/step5/Step5Card.tsx` |
+| Financials tab | the SEC cell-check magnifier (an admin-only SEC EDGAR + FMP call) | `components/ticker/FinancialsStatementTable.tsx` |
+| Stocks screener | Recompute all scores, Add to watchlist, Save current view, Delete view (applying a saved view and Reset stay) | `app/screener/page.tsx`, `components/screener/SavedFiltersBar.tsx` |
+| ETFs screener | Add to watchlist, Save / Delete view | `app/etfs/page.tsx`, the same bar |
+| Opportunities | Add to watchlist (Export stays) | `app/opportunities/page.tsx` |
+| Watchlist page | rename pencil, delete, per-row remove (Export stays) | `components/watchlist/WatchlistNameEditor.tsx`, `app/watchlist/page.tsx`, `components/watchlist/tableParts.tsx` |
+
+**Admin-only reads are never made for a viewer** (they would 403). The ticker page's "not refreshing" badge (`components/shared/GroupOffBadge.tsx`) used to fetch `/config/data-groups` on every tab; it now passes `useDataGroups(isAdmin)` and a viewer neither sees the badge nor makes the request.
+The two Settings sections that read cron-health / data-groups are not mounted for a viewer. `useDataSourceHealth` has no caller. `lib/api/adminGuard.test.ts` keeps a new component from calling a write or an admin-only read without a guard (below).
+
+**Restricted data.** A 404 on the ticker summary (`errorStatus(error) === 404`) is the "not found" page for an admin and, for a viewer, `TickerNotFound`'s "isn't available" state ("This ticker isn't tracked"), not an error line or a spinner. The search box says "No tracked ticker matches ..." for a viewer. A redacted field arrives as `null`:
+the ETF overview with `reason: null` reads "Fund details for X are not available right now."; the score-recompute failure line drops the quoted reason and no longer says "unknown error".
+
+**Tests.** `lib/auth/AuthProvider.test.tsx`, `components/auth/LoginForm.test.tsx`, `lib/auth/safeNext.test.ts`, `lib/api/clientAuth.test.ts`, `proxy.test.ts`, `components/auth/AdminOnly.test.tsx`, `components/auth/viewerControls.test.tsx` (one sample of each control group, as admin and viewer),
+`app/settings/page.roles.test.tsx` (the real sections with a recording transport: no admin-only read for a viewer), `components/ticker/viewerStates.test.tsx`, plus viewer cases in the page tests. **`lib/api/adminGuard.test.ts`** is a static check: a source file that calls `apiPost` / `apiPut` / `apiPatch` / `apiDelete`, an admin-only read, or a function that does must
+contain `AdminOnly`, `isAdmin` or `SettingsFooter`, or be imported only by files that do, up to a page. It is file-level, not a proof (it cannot see whether the guard wraps the right element), and `components/etf-screener/SavedEtfFiltersBar.tsx` is its one allowlisted file (its guard lives in `SavedFiltersBarView`).
+
+**Not verified without a browser:** the visual result, the redirects through a real browser and the SSH tunnel, cookie behaviour across the tunnel, and how each tab looks with cache-only data. See the step 4 report in docs/decisions.md for the click-through list.
 
 ## Not changed
 

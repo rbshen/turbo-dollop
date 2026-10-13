@@ -947,7 +947,7 @@ The CLI creates the three auth tables (`user`, `usersession`, `auditlog`) if the
 too but **never seeds a user** (cron jobs call it).
 
 **First admin (the app is locked to everyone until one exists):** 1. `./bin/stop.sh` and `./bin/start.sh --prod` (picks up the code). 2. `cd backend && uv run python -m core.auth_cli create-user <you> --role admin`
-(type the password twice). 3. `uv run python -m core.auth_cli list` shows it. 4. Sign in through the frontend (its login page is the next step) or, for a script, see "Scripts and curl" below.
+(type the password twice). 3. `uv run python -m core.auth_cli list` shows it. 4. Sign in at `http://localhost:3100/login` (frontend step 4, 2026-10-13; the same page ends the session with Sign out in the top bar) or, for a script, see "Scripts and curl" below. The `/login` page needs the frontend rebuilt (`./bin/start.sh --prod` does a `next build`). A `viewer` sees every page read-only: no Add to watchlist, Refresh, Settings Save, Recompute, Moat or Custom valuation edits, and Scheduled jobs / FMP data groups are not listed.
 If every admin is locked out or forgot the password: `set-password <name>` (it also clears the lock); the CLI works whether or not the app is running.
 
 **Scripts and curl.** A write needs a session cookie **and** the `X-Fathom-Request` header (the request guard). With a cookie jar:
