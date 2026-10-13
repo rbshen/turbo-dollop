@@ -75,6 +75,13 @@ and `X-Powered-By` is off. No HSTS (plain http over the SSH tunnel). The CSP all
 only under `next dev`. If a page or chart goes blank after a frontend change, open the browser console: a
 "Refused to ..." line names the directive to adjust in `next.config.ts`.
 
+**File permissions (2026-10-13).** `backend/.env` (the FMP key), `backend/fathom.db` and its `-wal` / `-shm`
+sidecars are mode `0600`, `backend/backups/` is `0700` and every file in it `0600`. SQLite gives the sidecars the
+main file's mode, so they stay `0600` while `fathom.db` is. `pipeline.backup_db` creates its temp copies and
+finished backups at `0600` and re-tightens the directory on every run, so the modes survive whatever umask cron
+runs with. If a restored or copied DB lands with looser modes: `chmod 600 backend/.env backend/fathom.db*` and
+`chmod 700 backend/backups; chmod 600 backend/backups/*`.
+
 **Pausing the FMP subscription** (no restart, no `.env` edit): Settings > FMP data groups >
 "FMP master switch" (below the group table), or from a shell
 

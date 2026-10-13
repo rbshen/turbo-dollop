@@ -11,6 +11,7 @@ Run:
 
 import gzip
 import logging
+import os
 import re
 import shutil
 import sqlite3
@@ -59,6 +60,11 @@ STALE_TEMP_MIN_AGE_HOURS = 6
 
 DEFAULT_DB_PATH = (BASE_DIR / settings.database_path).resolve()
 DEFAULT_BACKUP_DIR = BASE_DIR / "backups"
+
+# A backup is a full copy of the database, so only the owner may read it: the directory is 0700 and every backup file
+# (and the uncompressed temp copy while it exists) is 0600, whatever the cron environment's umask.
+BACKUP_DIR_MODE = 0o700
+BACKUP_FILE_MODE = 0o600
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +129,14 @@ def _check_free_space(db_path: Path, backup_dir: Path) -> None:
         )
 
 
+def _create_private_file(path: Path) -> None:
+    """Creates `path` empty at BACKUP_FILE_MODE, truncating nothing that matters (the names carry a per-second
+    timestamp, so a fresh run never finds a live file here)."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, BACKUP_FILE_MODE)
+    os.close(fd)
+    path.chmod(BACKUP_FILE_MODE)  # os.open's mode is filtered by the umask; this is exact
+
+
 def _create_backup(
     db_path: Path = DEFAULT_DB_PATH,
     backup_dir: Path = DEFAULT_BACKUP_DIR,
@@ -136,7 +150,8 @@ def _create_backup(
     point this at a throwaway SQLite file instead of the real DB -- see
     CLAUDE.md's "Ad-hoc reproduction scripts must not touch the real
     database"."""
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_dir.mkdir(mode=BACKUP_DIR_MODE, parents=True, exist_ok=True)
+    backup_dir.chmod(BACKUP_DIR_MODE)  # mkdir's mode only applies to a directory it creates
     _sweep_stale_temp_files(backup_dir, db_path.stem)
     _check_free_space(db_path, backup_dir)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -153,6 +168,10 @@ def _create_backup(
     # SIGKILL/power loss skips `finally` entirely; `_sweep_stale_temp_files`
     # above clears anything that strands, at the start of the next run.)
     try:
+        # Created by us at 0600 BEFORE sqlite opens it (sqlite would create it at the umask's 0644/0664), so no
+        # moment exists when the uncompressed copy of the DB is readable by anyone else; sqlite gives its journal
+        # sidecar the same mode as this file.
+        _create_private_file(tmp_path)
         source_conn = sqlite3.connect(str(db_path))
         try:
             dest_conn = sqlite3.connect(str(tmp_path))
@@ -163,8 +182,10 @@ def _create_backup(
         finally:
             source_conn.close()
 
+        _create_private_file(gz_tmp_path)
         with open(tmp_path, "rb") as src, gzip.open(gz_tmp_path, "wb") as dst:
             shutil.copyfileobj(src, dst)
+        gz_tmp_path.chmod(BACKUP_FILE_MODE)
         gz_tmp_path.replace(dest_path)
     finally:
         _remove_quietly(tmp_path)

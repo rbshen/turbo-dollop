@@ -325,3 +325,58 @@ def test_create_backup_sweeps_a_stranded_temp_before_the_free_space_check(tmp_pa
 
     assert seen_at_preflight == [False]  # already gone when the preflight ran
     assert [p.name for p in backup_dir.iterdir()] == [result.name]
+
+
+# --- File permissions: a backup is a full copy of the DB, so owner-only -----------------------------------------
+
+
+def _mode(path: Path) -> int:
+    return path.stat().st_mode & 0o777
+
+
+@pytest.fixture
+def open_umask():
+    """A permissive umask, the worst case for a cron environment: files would be 0644 and directories 0755."""
+    previous = os.umask(0o022)
+    yield
+    os.umask(previous)
+
+
+def test_backup_dir_is_0700_and_the_backup_file_is_0600(tmp_path, open_umask):
+    db_path = _make_db(tmp_path / "fathom.db", "x")
+    backup_dir = tmp_path / "backups"
+
+    result = backup_db.create_backup(db_path=db_path, backup_dir=backup_dir)
+
+    assert _mode(backup_dir) == 0o700
+    assert _mode(result) == 0o600
+
+
+def test_an_existing_world_readable_backup_dir_is_tightened(tmp_path, open_umask):
+    db_path = _make_db(tmp_path / "fathom.db", "x")
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir(mode=0o755)
+    backup_dir.chmod(0o755)
+
+    backup_db.create_backup(db_path=db_path, backup_dir=backup_dir)
+
+    assert _mode(backup_dir) == 0o700
+
+
+def test_temp_copies_are_never_readable_by_others_while_they_exist(tmp_path, open_umask, monkeypatch):
+    db_path = _make_db(tmp_path / "fathom.db", "x")
+    backup_dir = tmp_path / "backups"
+    seen: dict[str, int] = {}
+    real_copy = backup_db.shutil.copyfileobj
+
+    def spy(src, dst, *args, **kwargs):
+        # Mid-run: the uncompressed copy and the half-written gzip both exist.
+        for tmp in backup_dir.glob(".*tmp"):
+            seen[tmp.name] = _mode(tmp)
+        return real_copy(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(backup_db.shutil, "copyfileobj", spy)
+    backup_db.create_backup(db_path=db_path, backup_dir=backup_dir)
+
+    assert len(seen) == 2
+    assert set(seen.values()) == {0o600}
