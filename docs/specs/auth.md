@@ -40,6 +40,9 @@ An unknown, inactive or locked account pays for one dummy scrypt check, so timin
 
 - `core/main.py` builds the app with the one default dependency `core.auth.authorize`; the Host / Origin / `X-Fathom-Request` guard (`core/request_guard.py`) is middleware and runs first
   (400 / 403 before any 401). FastAPI parses a JSON body before dependencies run, so a request with malformed JSON can still get 422 before 401; no data is involved.
+- **Request body limit** (`core/body_limit.py`, cleanup batch 2026-10-13): every request body is capped at `MAX_REQUEST_BODY_BYTES` (default 1 048 576, read per request, 0 = off). A declared `Content-Length` above it is refused before the app reads a byte;
+  a body without one (chunked) or with a false one is counted as it arrives and the chunk that crosses the limit is answered **413 `{"detail": "Request body too large."}`** (generic: no size, no limit). Order, outermost first: audit, Host / Origin guard, body limit, app (auth is a dependency), so a forged
+  cross-site POST is still 403 and a bad Host 400 whatever the size, and an unauthenticated caller cannot make the server buffer more than the limit. The largest legitimate body is a saved view's filters (schema-bounded to 20 KB); a bulk add of 200 tickers is about 3 KB; the export-ids request is a GET query. Cron jobs and scripts never go through the app.
 - **`core/route_roles.py` is the one registry**: every route is `public`, `viewer` (any signed-in user) or `admin` (403 for a viewer). A route missing from it is treated as admin-only, and
   `tests/test_route_roles_registry.py` fails if a route is missing, an entry is stale, a write method is `viewer` without being in `VIEWER_ALLOWED_WRITES`, any route lacks the dependency,
   or a `{ticker}` route lacks the ticker guard. Public: `GET /api/health` (GET only; `bin/start.sh` polls it) and `POST /api/auth/login`. Viewer-allowed writes: `POST /api/auth/logout` and

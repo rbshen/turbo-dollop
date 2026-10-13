@@ -30,6 +30,7 @@ from helpers.discount_rate_config import (
     update_discount_rate_config,
 )
 from core.audit import AuditMiddleware
+from core.body_limit import BodySizeLimitMiddleware
 import core.auth as auth
 from core.auth import authorize
 from core.auth_routes import register_auth_routes
@@ -283,6 +284,8 @@ def api_docs_urls(enabled: bool) -> dict[str, str | None]:
 # Every route needs a signed-in session unless core/route_roles.py declares it public, and an admin-only route needs an admin
 # (core/auth.py::authorize). The guard middleware below runs first, so a bad Host or a cross-site write is refused before any login check.
 app = FastAPI(title="Fathom", lifespan=lifespan, dependencies=[Depends(authorize)], **api_docs_urls(settings.enable_api_docs))
+# Innermost of the three: body size cap, 413 (core/body_limit.py). Behind the guard (a forged cross-site POST is still a 403) and ahead of auth.
+app.add_middleware(BodySizeLimitMiddleware)
 # Host check on every request, cross-site check on every write (core/request_guard.py).
 app.add_middleware(RequestGuardMiddleware)
 # Outermost: records every non-GET outcome after the response is decided, guard refusals included (core/audit.py).

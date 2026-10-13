@@ -1356,3 +1356,9 @@ Also decided: two text sets keyed by the Blue profile (the shortened "profiled" 
 
 **Not changed:** the backend, scoring, cron, the CSP.
 
+
+### 2026-10-13 — Cleanup batch after security steps 1-4
+
+One commit per item; behaviour changes are listed here as they land.
+
+**1. Request body limit.** New ASGI middleware `core/body_limit.py`, default 1 MB (`MAX_REQUEST_BODY_BYTES`, 0 = off), 413 with a generic message for a declared `Content-Length` over the limit and for a streamed/chunked body counted as it arrives. It sits inside the Host / Origin guard and ahead of auth, so the guard's 400 / 403 still win and an anonymous caller cannot make the server buffer more than the limit. The 413 is sent by the middleware instead of raised from `receive`, because FastAPI turns any exception raised while reading a body into a 400. Cron jobs and scripts never go through the app and are unaffected.

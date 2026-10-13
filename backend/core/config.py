@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     allowed_host_ports: str = "8002,3100"
     # Origin (or Referer) a POST/PUT/PATCH/DELETE may come from.
     allowed_origins: str = "http://localhost:3100,http://127.0.0.1:3100"
+    # Largest request body the API accepts, in bytes (core/body_limit.py): 413 above it, whether declared by Content-Length or streamed.
+    # Re-read on every request; 0 turns the limit off. The largest legitimate body today is about 20 KB.
+    max_request_body_bytes: int = 1_048_576
 
     # Login accounts and sessions (core/auth.py, docs/specs/auth.md). The session cookie is httpOnly + SameSite=Lax + Path=/.
     # SESSION_COOKIE_SECURE stays off by default: the app is reached over plain http://localhost:3100 and Safari drops Secure cookies
