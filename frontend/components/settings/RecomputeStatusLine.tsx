@@ -18,8 +18,8 @@ export function RecomputeStatusLine() {
   if (run.state === "failed") {
     return (
       <p role="alert" className="mt-4 max-w-xl text-sm text-negative" data-testid="recompute-status">
-        The last score recompute failed: {run.error ?? "unknown error"} Your settings are saved, but stored scores may still be on the
-        previous values until you run Recompute all scores on the Stocks Screener.
+        The last score recompute failed{run.error ? `: ${run.error}` : "."} Your settings are saved, but stored scores may still be on the
+        previous values until Recompute all scores is run on the Stocks Screener.
       </p>
     );
   }

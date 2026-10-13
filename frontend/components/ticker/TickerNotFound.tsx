@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { useAuth } from "@/lib/auth/AuthProvider";
+
 interface Props {
   ticker: string;
 }
@@ -9,6 +11,29 @@ interface Props {
 // ticker doesn't exist (a 404 from GET /summary), never for a transient
 // FMP outage, which stays on the existing inline error treatment.
 export function TickerNotFound({ ticker }: Props) {
+  // A viewer's 404 means "not in the tracked universe" (the backend answers the same 404 for an unknown symbol and an untracked
+  // one, on purpose), so it is worded as unavailable rather than as a misspelling.
+  const { isAdmin } = useAuth();
+  if (!isAdmin) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 py-32 text-center" data-testid="ticker-not-available">
+        <p className="font-heading text-2xl font-bold tracking-tight text-text-primary">
+          &ldquo;{ticker}&rdquo; isn&apos;t available
+        </p>
+        <p className="max-w-md text-sm text-text-tertiary">
+          This ticker isn&apos;t tracked, so there is nothing to show for it. Search above lists only the tickers Fathom tracks.
+        </p>
+        <div className="mt-2 flex items-center gap-3">
+          <Link
+            href="/screener"
+            className="rounded-md bg-brand/15 px-3 py-1.5 text-sm font-medium text-brand hover:bg-brand/25"
+          >
+            Go to Stocks Screener
+          </Link>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 py-32 text-center">
       <p className="font-heading text-2xl font-bold tracking-tight text-text-primary">

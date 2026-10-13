@@ -87,5 +87,7 @@ export function unavailableMessage(o: EtfOverviewOut): string {
   if (o.reason === "group_off") {
     return `Fund details are unavailable: the ETF info data group is off (or not on your FMP plan) and nothing is cached for ${o.ticker}. Turn it on in Settings > FMP data groups.`;
   }
+  // A viewer is not told why (the reason is redacted to null): only that nothing is available.
+  if (o.reason === null) return `Fund details for ${o.ticker} are not available right now.`;
   return `Couldn't load fund details for ${o.ticker} from FMP just now, and nothing is cached. Try again shortly.`;
 }

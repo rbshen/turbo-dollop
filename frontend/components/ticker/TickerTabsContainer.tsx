@@ -17,6 +17,7 @@ import { TickerHeader } from "@/components/ticker/TickerHeader";
 import { TickerNotFound } from "@/components/ticker/TickerNotFound";
 import { TickerTabs } from "@/components/ticker/TickerTabs";
 import { ValuationTab } from "@/components/ticker/ValuationTab";
+import { errorStatus } from "@/lib/api/client";
 import { TAB_GROUPS } from "@/lib/dataGroups";
 import { useTickerSummary } from "@/lib/hooks/useTickerSummary";
 import { DEFAULT_TICKER_TAB, type TickerTab } from "@/lib/tickerTabs";
@@ -33,11 +34,9 @@ export function TickerTabsContainer({ ticker }: Props) {
   // Analysis, ...) is lazy-mounted below and only ever renders once this
   // resolves successfully, so a confirmed-invalid ticker never triggers
   // any of their own FMP fetches -- see the ticker-search UX investigation.
-  // The 404 check is string-based (matching the existing `.includes("409")`
-  // convention in lib/api/client.ts) since apiFetch throws a plain Error,
-  // not one carrying a structured status code.
+  // For a viewer the same 404 also means "not tracked" (TickerNotFound words it that way).
   if (error) {
-    if (error.message.includes(": 404")) {
+    if (errorStatus(error) === 404) {
       return <TickerNotFound ticker={ticker} />;
     }
     return (

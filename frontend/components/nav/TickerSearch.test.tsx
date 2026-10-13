@@ -2,8 +2,12 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { setMockRole } from "@/lib/auth/adminAuthMock";
 import { TickerSearch } from "@/components/nav/TickerSearch";
 import type { TickerSearchResult } from "@/lib/api/types";
+
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
 
 // The search box's own behaviour (typing, debounce, keys, selection) is what is pinned here, with the SWR hook
 // replaced by a controllable state so each branch (loading, error, empty, results) can be drawn on demand.
@@ -32,6 +36,7 @@ beforeEach(() => {
   openSpy = vi.spyOn(window, "open").mockReturnValue(null);
 });
 afterEach(() => {
+  setMockRole("admin");
   cleanup();
   vi.useRealTimers();
   openSpy.mockRestore();
@@ -329,5 +334,18 @@ describe("TickerSearch: the ETF label", () => {
     expect(within(etf).getByText("ETF")).toBeInTheDocument();
     expect(within(stock).queryByText("ETF")).not.toBeInTheDocument();
     expect(within(unflagged).queryByText("ETF")).not.toBeInTheDocument();
+  });
+});
+
+describe("TickerSearch: a viewer", () => {
+  it("is told an empty result means no TRACKED ticker matched (the backend searches only the tracked universe for them)", () => {
+    setMockRole("viewer");
+    hookState = { data: [], isLoading: false };
+    render(<TickerSearch />);
+    fireEvent.change(box(), { target: { value: "zzz" } });
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(screen.getByText(/No tracked ticker matches/)).toHaveTextContent("No tracked ticker matches “ZZZ”");
   });
 });

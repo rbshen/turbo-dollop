@@ -4,12 +4,15 @@ import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { useApiResource } from "@/lib/hooks/useApiResource";
 import type { TickerSearchResult } from "@/lib/api/types";
 
 const DEBOUNCE_MS = 300;
 
 export function TickerSearch() {
+  // The backend searches only the tracked universe for a viewer, so an empty result says so.
+  const { isAdmin } = useAuth();
   const [value, setValue] = useState("");
   const [debounced, setDebounced] = useState("");
   const [open, setOpen] = useState(false);
@@ -111,7 +114,9 @@ export function TickerSearch() {
           ) : error ? (
             <p className="px-2 py-1.5 text-xs text-negative">Search failed — try again</p>
           ) : !results || results.length === 0 ? (
-            <p className="px-2 py-1.5 text-xs text-text-tertiary">No matches for &ldquo;{debounced}&rdquo;</p>
+            <p className="px-2 py-1.5 text-xs text-text-tertiary">
+              {isAdmin ? <>No matches for &ldquo;{debounced}&rdquo;</> : <>No tracked ticker matches &ldquo;{debounced}&rdquo;</>}
+            </p>
           ) : (
             results.map((r, i) => (
               <button
