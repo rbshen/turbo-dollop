@@ -68,6 +68,13 @@ after a `start.sh` session was disconnected without a clean Ctrl-C.
 - `/docs`, `/redoc` and `/openapi.json` return 404. `ENABLE_API_DOCS=true` (dev shell or `.env`, read at process
   start) turns them back on.
 
+**Security headers (2026-10-13).** `frontend/next.config.ts` sends a Content-Security-Policy, `X-Frame-Options:
+DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` and a `Permissions-Policy` on every page,
+and `X-Powered-By` is off. No HSTS (plain http over the SSH tunnel). The CSP allows only this origin, with
+`'unsafe-inline'` for scripts (Next's bootstrap scripts) and styles (chart style attributes) and `'unsafe-eval'`
+only under `next dev`. If a page or chart goes blank after a frontend change, open the browser console: a
+"Refused to ..." line names the directive to adjust in `next.config.ts`.
+
 **Pausing the FMP subscription** (no restart, no `.env` edit): Settings > FMP data groups >
 "FMP master switch" (below the group table), or from a shell
 
