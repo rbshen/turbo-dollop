@@ -13,8 +13,7 @@ from core.exceptions import TickerNotFoundError
 from core.models import IndexConstituent
 from helpers.debt_metrics import compute_debt_metrics
 from helpers.earnings import most_recent_reported_earnings_date
-from helpers.coerce import clean_row, finite_number, text_or_none
-from helpers.first import _first
+from helpers.coerce import clean_row, finite_number, first_row, text_or_none
 from clients.fmp_client import fmp_client
 from core.schemas import OutlierWarning, TickerSummaryOut
 from core.tickers import normalize_ticker
@@ -272,7 +271,7 @@ async def _fetch_stock_only_data(
     # shared, not duplicated, so visiting either tab first warms it for
     # the other.
     ratios_ttm = clean_row(
-        _first(
+        first_row(
             await safe_fetch(
                 "ratios_ttm",
                 get_or_fetch_earnings_aware(
@@ -290,7 +289,7 @@ async def _fetch_stock_only_data(
         _RATIOS_TTM_NUMBERS,
     )
     financial_growth = clean_row(
-        _first(
+        first_row(
             await safe_fetch(
                 "financial_growth",
                 get_or_fetch_earnings_aware(
@@ -338,7 +337,7 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
 
     with Session(engine) as session:
         if cache_only:
-            profile = _first(
+            profile = first_row(
                 await safe_fetch(
                     "profile",
                     get_or_fetch(
@@ -388,7 +387,7 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
             else:
                 if isinstance(profile_raw, list) and not profile_raw:
                     raise TickerNotFoundError(ticker)
-            profile = _first(profile_raw)
+            profile = first_row(profile_raw)
         # Parse boundary: a wrong-typed profile field degrades to None here, before anything reads it (helpers/coerce.py).
         profile = clean_row(profile, _PROFILE_NUMBERS, _PROFILE_TEXT)
         # The app's one ETF rule (also TickerSummaryOut.is_etf below). Decided from the profile alone, which is
@@ -403,7 +402,7 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
         # (the nightly job), which still allows other fields to hit FMP but
         # doesn't need a real-time price for a background batch refresh.
         if cache_only:
-            quote = _first(
+            quote = first_row(
                 await safe_fetch(
                     "quote",
                     get_or_fetch(
@@ -412,13 +411,13 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
                 )
             )
         elif live_quote:
-            quote = _first(
+            quote = first_row(
                 await safe_fetch(
                     "quote", force_fetch(session, ticker, "quote", "latest", lambda: fmp_client.get_quote(ticker))
                 )
             )
         else:
-            quote = _first(
+            quote = first_row(
                 await safe_fetch(
                     "quote",
                     get_or_fetch(
@@ -439,7 +438,7 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
             if cached_close is not None:
                 quote = {**quote, "price": cached_close[0]}
         price_change = clean_row(
-            _first(
+            first_row(
                 await safe_fetch(
                     "price_change",
                     get_or_fetch(
@@ -469,7 +468,7 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
             else price_change
             if ticker == "SPY"
             else clean_row(
-                _first(
+                first_row(
                     await safe_fetch(
                         "price_change_spy",
                         get_or_fetch(
@@ -546,11 +545,11 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
     # so every tracked ticker quotes in USD; reported_currency is only ever
     # non-USD for a US-listed ADR of a foreign reporter (TSM/TWD etc.), which
     # is why the two can differ and the FX code is kept.
-    reported_currency = text_or_none(_first(income_quarterly).get("reportedCurrency"))
+    reported_currency = text_or_none(first_row(income_quarterly).get("reportedCurrency"))
     quote_currency = profile.get("currency") or "USD"  # a non-string currency was already degraded to None above
     debt_metrics = statement_view.debt_metrics if statement_view else compute_debt_metrics({}, [])
     shares_outstanding, shares_outstanding_source = compute_shares_outstanding(quote, income_quarterly)
-    enterprise_values_row = clean_row(_first(enterprise_values_data), _ENTERPRISE_VALUES_NUMBERS)
+    enterprise_values_row = clean_row(first_row(enterprise_values_data), _ENTERPRISE_VALUES_NUMBERS)
     # Guards against FMP's freshly-filed-quarter units defect (confirmed:
     # TEAM, FLY -- enterprise_values.numberOfShares off by ~1000x on the
     # latest quarter, dragging marketCapitalization/enterpriseValue down by

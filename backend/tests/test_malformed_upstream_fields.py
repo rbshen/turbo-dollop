@@ -26,7 +26,7 @@ from data.chart_events_data import ChartEvents
 from data.etf_data import get_etf_overview
 from data.ratios_data import get_ratios_data
 from data.ticker_summary import get_summary
-from helpers.coerce import clean_row, count_or_zero, finite_number, text_or_none
+from helpers.coerce import clean_row, count_or_zero, finite_number, first_row, text_or_none
 from helpers.first import _first
 
 NAN, INF = float("nan"), float("inf")
@@ -88,8 +88,22 @@ def test_clean_row_touches_only_listed_present_keys():
     assert row == {"a": "x", "b": 2, "c": "keep", "t": 5}  # the input is not mutated
 
 
-def test_first_ignores_a_non_dict_first_element():
-    assert _first(["a string"]) == {} and _first([5]) == {} and _first([None]) == {} and _first([{"x": 1}]) == {"x": 1}
+def test_first_row_ignores_a_non_dict_first_element():
+    assert first_row(["a string"]) == {} and first_row([5]) == {} and first_row([None]) == {} and first_row([{"x": 1}]) == {"x": 1}
+    assert first_row([]) == {} and first_row({"a": 1}) == {"a": 1} and first_row("junk") == {} and first_row(None) == {}
+
+
+def test_the_delete_path_keeps_the_old_first():
+    # purge_invalid_tickers reads "no companyName" as "confirmed-empty profile" and deletes: junk in the list must not look like that.
+    # `_first` is unchanged (it hands the stray value back, so that caller's `.get` raises instead of purging).
+    assert _first(["a string"]) == "a string" and _first([]) == {} and _first({"a": 1}) == {"a": 1}
+    from pipeline.purge_invalid_tickers import find_invalid_tickers  # noqa: F401 -- imported to pin which helper it uses
+
+    import inspect
+
+    import pipeline.purge_invalid_tickers as purge
+
+    assert "from helpers.first import _first" in inspect.getsource(purge)
 
 
 # ---- ticker summary (profile, quote, price change, ratios TTM, growth, enterprise values) ------------------------------

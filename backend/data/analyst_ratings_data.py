@@ -8,8 +8,7 @@ from sqlmodel import Session, select
 from core.cache import get_or_fetch, safe_fetch
 from core.config import settings
 from core.db import engine
-from helpers.coerce import count_or_zero, finite_number, text_or_none
-from helpers.first import _first
+from helpers.coerce import count_or_zero, finite_number, first_row, text_or_none
 from clients.fmp_client import fmp_client
 from clients.long_history_bars import get_long_history
 from core.models import FundamentalsCache, PriceTargetSnapshot
@@ -270,10 +269,10 @@ async def get_analyst_ratings_data(ticker: str, cache_only: bool = False) -> Ana
         ).first()
         grades_consensus_as_of: datetime | None = grades_consensus_row.fetched_at if grades_consensus_row else None
 
-    grades_consensus = _first(grades_consensus_data)
-    price_target_consensus = _first(price_target_consensus_data)
-    price_target_summary = _first(price_target_summary_data)
-    quote = _first(quote_data)
+    grades_consensus = first_row(grades_consensus_data)
+    price_target_consensus = first_row(price_target_consensus_data)
+    price_target_summary = first_row(price_target_summary_data)
+    quote = first_row(quote_data)
     historical_rows = sorted(
         (
             row

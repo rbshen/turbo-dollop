@@ -4,8 +4,7 @@ from core.cache import get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
 from core.db import engine
 from helpers.earnings import resolve_most_recent_earnings_date
-from helpers.coerce import finite_number, text_or_none
-from helpers.first import _first
+from helpers.coerce import finite_number, first_row, text_or_none
 from helpers.statement_view import cached_data_quality
 from clients.fmp_client import fmp_client
 from core.schemas import FinancialsGroup, FinancialsLineItem, RatiosOut
@@ -231,7 +230,7 @@ async def get_ratios_data(ticker: str, cache_only: bool = False) -> RatiosOut:
                 cache_only,
             ),
         )
-        key_metrics_ttm = _first(
+        key_metrics_ttm = first_row(
             await safe_fetch(
                 "key_metrics_ttm",
                 get_or_fetch_earnings_aware(
@@ -259,7 +258,7 @@ async def get_ratios_data(ticker: str, cache_only: bool = False) -> RatiosOut:
                 cache_only,
             ),
         )
-        ratios_ttm = _first(
+        ratios_ttm = first_row(
             await safe_fetch(
                 "ratios_ttm",
                 get_or_fetch_earnings_aware(
@@ -315,7 +314,7 @@ async def get_ratios_data(ticker: str, cache_only: bool = False) -> RatiosOut:
     # tells the frontend which currency those rows actually are.
     # ratios_annual over key_metrics_annual since money/per_share fields in
     # this schema all come from the "ratios" source (see PER_SHARE_FIELDS).
-    reported_currency = text_or_none(_first(ratios_annual).get("reportedCurrency"))
+    reported_currency = text_or_none(first_row(ratios_annual).get("reportedCurrency"))
 
     return RatiosOut(
         ticker=ticker, periods=periods, groups=groups, reported_currency=reported_currency, data_quality=data_quality

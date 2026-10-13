@@ -10,8 +10,7 @@ from core.models import FundamentalsCache
 from helpers.discount_rate_config import US_REGION, get_discount_rate_config
 from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config
-from helpers.coerce import clean_row, finite_number, text_or_none
-from helpers.first import _first
+from helpers.coerce import clean_row, finite_number, first_row, text_or_none
 from clients.fmp_client import fmp_client
 from core.tickers import normalize_ticker
 from core.schemas import (
@@ -121,13 +120,13 @@ async def _currency_to_usd_rate(
             cache_only,
         ),
     )
-    fx_rate = _first(fx_quote).get("price")
+    fx_rate = first_row(fx_quote).get("price")
     if fx_rate is not None:
         fx_row = _cached_row()
         return fx_rate, fx_row.fetched_at if fx_row else None
 
     if existing_row is not None:
-        stale_rate = _first(json.loads(existing_row.raw_json)).get("price")
+        stale_rate = first_row(json.loads(existing_row.raw_json)).get("price")
         if stale_rate is not None:
             return stale_rate, existing_row.fetched_at
 
@@ -204,7 +203,7 @@ async def get_step3_data(
         most_recent_earnings_date = await resolve_most_recent_earnings_date(session, ticker, staleness_days, cache_only)
         # Parse boundary: wrong-typed text/number fields of the profile and quote read as missing (helpers/coerce.py).
         profile = clean_row(
-            _first(
+            first_row(
                 await safe_fetch(
                     "profile",
                     get_or_fetch(
@@ -229,7 +228,7 @@ async def get_step3_data(
         # Read straight from /profile's own `country` field.
         country = profile.get("country")
         quote = clean_row(
-            _first(
+            first_row(
                 await safe_fetch(
                     "quote",
                     get_or_fetch(
@@ -287,7 +286,7 @@ async def get_step3_data(
         # can commit() this session (a live forex fetch caching its
         # result), which -- with SQLAlchemy's default expire_on_commit=True
         # -- expires every ORM object already read from this session.
-        reported_currency = text_or_none(_first(view.income_annual).get("reportedCurrency"))
+        reported_currency = text_or_none(first_row(view.income_annual).get("reportedCurrency"))
         fx_rate, fx_rate_as_of = await _resolve_fx_rate(
             session, reported_currency, quote_currency, staleness_days, cache_only
         )
@@ -709,7 +708,7 @@ async def get_step3_data(
         )
 
     # PSG inputs.
-    sales_per_share = _first(ratios_annual).get("revenuePerShare")
+    sales_per_share = first_row(ratios_annual).get("revenuePerShare")
     sales_per_share = sales_per_share * fx_rate if sales_per_share is not None else None
 
     # Additive, informational-only fields (CLAUDE.md's Bank/REIT/Insurance
@@ -737,7 +736,7 @@ async def get_step3_data(
     # fraction (e.g. 0.04), scaled *100 here to match every other percent
     # field on this model (same convention ticker_summary.py's dividend_yield
     # already uses for the TTM equivalent from /ratios-ttm).
-    dividend_yield_raw = _first(ratios_annual).get("dividendYield")
+    dividend_yield_raw = first_row(ratios_annual).get("dividendYield")
     dividend_yield_pct = dividend_yield_raw * 100 if dividend_yield_raw is not None else None
     # Known gap, deliberately deferred: dividendPerShare (a real per-share
     # monetary figure) is left un-converted here -- dpu_growth_note is

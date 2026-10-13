@@ -35,6 +35,16 @@ def count_or_zero(value: object) -> int:
     return int(number) if number is not None and number > 0 else 0
 
 
+def first_row(data: object) -> dict:
+    """The single row of an FMP answer that is a one-row list (or already an object), or {} when there is none -- including when the first
+    element of the list is not an object (a stray string or number). Same as `helpers.first._first` except for that last case, where
+    `_first` hands the stray value back and the caller's `.get` raises. Used by the read paths that feed response models; the delete path
+    (`purge_invalid_tickers`) keeps `_first`, because there "no row" means "confirmed-empty profile" and must never be inferred from junk."""
+    if isinstance(data, list):
+        data = data[0] if data else {}
+    return data if isinstance(data, dict) else {}
+
+
 def clean_row(row: dict, numbers: Iterable[str] = (), texts: Iterable[str] = ()) -> dict:
     """A copy of `row` in which every listed key that is PRESENT holds a finite number (numbers) or a string (texts), else None. Keys that
     are absent stay absent (so `row.get(k, default)` behaves as before) and unlisted keys are untouched."""

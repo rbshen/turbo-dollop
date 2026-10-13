@@ -4,8 +4,7 @@ def _first(data: dict | list) -> dict:
     ratios_data.py/etc. FMP-shaping module. Guards with isinstance(data, dict)
     rather than `data or {}` on the non-list branch, so a malformed/
     unexpected non-dict payload (e.g. a raw string) can't slip through and
-    blow up a later `.get(...)` call. The same guard applies to the first element of a list (a stray string or
-    number there is "no row", not a row).""" 
+    blow up a later `.get(...)` call."""
     if isinstance(data, list):
-        data = data[0] if data else {}
+        return data[0] if data else {}
     return data if isinstance(data, dict) else {}
