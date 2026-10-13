@@ -17,6 +17,16 @@ class Settings(BaseSettings):
 
     fmp_api_key: str = ""
     fmp_base_url: str = "https://financialmodelingprep.com/stable"
+    # Outbound FMP protection (clients/fmp_client.py). The API process paces its own requests with a token bucket
+    # (FMP_API_RATE_PER_MINUTE sustained, FMP_API_BURST at once; 0 = off); the plan limit is 300/min (Starter). Cron
+    # jobs run in their own processes and never enable it (they keep their own min_request_interval pacing).
+    fmp_api_rate_per_minute: int = 120
+    fmp_api_burst: int = 40
+    # A request that would have to wait longer than this for a token fails at once (a handled fetch failure) instead of queueing.
+    fmp_api_max_wait_seconds: float = 15.0
+    # Circuit breaker, every process: after this many 401/403 answers in a row stop sending for the cooldown (0 = off).
+    fmp_auth_breaker_threshold: int = 5
+    fmp_auth_breaker_cooldown_seconds: int = 300
     # FMP on/off is no longer an env flag: per-data-group toggles, the master
     # "disable all FMP" switch and the user's FMP plan live in the DB
     # (core/data_groups.py), editable in Settings and via

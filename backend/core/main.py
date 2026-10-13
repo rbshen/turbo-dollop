@@ -232,7 +232,12 @@ SavedViewNamePath = Annotated[str, Path(min_length=1, max_length=MAX_SAVED_VIEW_
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    yield
+    # The API process paces its own FMP traffic (FMP_API_RATE_PER_MINUTE); cron jobs are other processes and never enable this.
+    fmp_client.enable_api_rate_limit()
+    try:
+        yield
+    finally:
+        fmp_client.disable_api_rate_limit()
 
 
 def api_docs_urls(enabled: bool) -> dict[str, str | None]:

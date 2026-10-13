@@ -39,6 +39,44 @@ RATE_LIMIT_MAX_RETRIES = 2
 RATE_LIMIT_RETRY_BACKOFF_SECONDS = 65.0
 
 
+class FMPCircuitOpenError(httpx.HTTPError):
+    """Raised by FMPClient (no network call) while the auth circuit breaker is open: FMP answered 401/403
+    `fmp_auth_breaker_threshold` times in a row, so requests pause for `fmp_auth_breaker_cooldown_seconds`. A plain
+    httpx.HTTPError (like the 401 itself was), so safe_fetch and every `except httpx.HTTPError` site already handle it
+    as a failed fetch. It is not an FMPDisabledError: no data group is off, the key is the problem."""
+
+
+class FMPLocalRateLimitError(httpx.HTTPError):
+    """Raised by FMPClient (no network call) when the API process's own token bucket cannot serve a request within
+    `fmp_api_max_wait_seconds`. Handled like any failed fetch (httpx.HTTPError)."""
+
+
+class _TokenBucket:
+    """Token bucket for the API process: `rate_per_minute` tokens refill per minute up to `burst`. acquire() reserves a
+    token and sleeps until it is due; when the wait would exceed `max_wait` it raises FMPLocalRateLimitError without
+    reserving, so a flood cannot build an unbounded queue."""
+
+    def __init__(self, rate_per_minute: float, burst: int, max_wait: float) -> None:
+        self.rate = rate_per_minute / 60.0
+        self.capacity = float(max(burst, 1))
+        self.max_wait = max_wait
+        self._tokens = self.capacity
+        self._updated = time.monotonic()
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
+        async with self._lock:
+            now = time.monotonic()
+            self._tokens = min(self.capacity, self._tokens + (now - self._updated) * self.rate)
+            self._updated = now
+            wait = 0.0 if self._tokens >= 1.0 else (1.0 - self._tokens) / self.rate
+            if wait > self.max_wait:
+                raise FMPLocalRateLimitError(f"FMP request rate limit reached; retry in {wait:.0f}s")
+            self._tokens -= 1.0  # may go negative: later callers queue behind this reservation
+        if wait > 0:
+            await asyncio.sleep(wait)
+
+
 class FMPDisabledError(httpx.HTTPError):
     """Raised by FMPClient.get instead of attempting a network call when the
     endpoint's data group is not live -- subclasses httpx.HTTPError so every
@@ -137,13 +175,83 @@ class FMPClient:
     caller.
     """
 
-    def __init__(self, base_url: str | None = None, api_key: str | None = None, min_request_interval: float = 0.0) -> None:
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        min_request_interval: float = 0.0,
+        auth_breaker_threshold: int | None = None,
+        auth_breaker_cooldown_seconds: float | None = None,
+    ) -> None:
         self.base_url = base_url or settings.fmp_base_url
         self.api_key = api_key or settings.fmp_api_key
         self.min_request_interval = min_request_interval
         self.request_count = 0
         self._last_request_at: float | None = None
         self._pace_lock = asyncio.Lock()
+        # Interactive rate limit: None until the API process turns it on (enable_api_rate_limit); cron never does.
+        self._bucket: _TokenBucket | None = None
+        # Auth circuit breaker (see _note_status): consecutive 401/403 answers, and when the pause ends.
+        self.auth_breaker_threshold = settings.fmp_auth_breaker_threshold if auth_breaker_threshold is None else auth_breaker_threshold
+        self.auth_breaker_cooldown_seconds = (
+            settings.fmp_auth_breaker_cooldown_seconds if auth_breaker_cooldown_seconds is None else auth_breaker_cooldown_seconds
+        )
+        self._auth_failures = 0
+        self._breaker_open_until: float | None = None
+
+    def enable_api_rate_limit(
+        self, rate_per_minute: float | None = None, burst: int | None = None, max_wait: float | None = None
+    ) -> None:
+        """Turns the token bucket on for this process (core/main.py's lifespan calls it; the cron entry points never do,
+        so their pacing is untouched). A rate of 0 or less leaves it off."""
+        rate = settings.fmp_api_rate_per_minute if rate_per_minute is None else rate_per_minute
+        if rate <= 0:
+            self._bucket = None
+            return
+        self._bucket = _TokenBucket(
+            rate,
+            settings.fmp_api_burst if burst is None else burst,
+            settings.fmp_api_max_wait_seconds if max_wait is None else max_wait,
+        )
+
+    def disable_api_rate_limit(self) -> None:
+        self._bucket = None
+
+    @property
+    def auth_breaker_open(self) -> bool:
+        return self._breaker_open_until is not None and time.monotonic() < self._breaker_open_until
+
+    def reset_auth_breaker(self) -> None:
+        self._auth_failures = 0
+        self._breaker_open_until = None
+
+    def _check_auth_breaker(self) -> None:
+        if self.auth_breaker_open:
+            remaining = max(0.0, (self._breaker_open_until or 0.0) - time.monotonic())
+            raise FMPCircuitOpenError(
+                f"FMP requests are paused for another {remaining:.0f}s after {self._auth_failures} consecutive 401/403 "
+                f"responses; check FMP_API_KEY"
+            )
+
+    def _note_status(self, status: int, endpoint: str) -> None:
+        """Circuit breaker bookkeeping for one real answer. 401/403 count; a success or a 402 (the key was accepted, the plan
+        was not) resets the run; anything else (429, 5xx, 404) neither counts nor resets. Once the run reaches the
+        threshold the breaker opens for the cooldown; when the cooldown ends the next request goes through as a trial,
+        and one more 401/403 re-opens it at once because the run is still at the threshold."""
+        if status in (401, 403):
+            self._auth_failures += 1
+            threshold = self.auth_breaker_threshold
+            if threshold > 0 and self._auth_failures >= threshold:
+                self._breaker_open_until = time.monotonic() + self.auth_breaker_cooldown_seconds
+                detail = (
+                    f"HTTP {status} from {endpoint}, {self._auth_failures} in a row: FMP requests paused "
+                    f"{self.auth_breaker_cooldown_seconds:.0f}s (check FMP_API_KEY)"
+                )
+                logger.error("FMP auth circuit breaker open: %s", detail)
+                _safe(set_key_problem, detail)  # the existing key-problem banner (Settings > FMP data groups)
+        elif status < 400 or status == 402:
+            if self._auth_failures or self._breaker_open_until is not None:
+                self.reset_auth_breaker()
 
     async def _pace(self) -> None:
         if self.min_request_interval <= 0:
@@ -180,8 +288,11 @@ class FMPClient:
                     group=group, variant_key=restricted.variant_key, label=restricted.label,
                 )
         query = {**(params or {}), "apikey": self.api_key}
+        self._check_auth_breaker()  # before the try below: a paused call is not a group failure
         try:
             response = await self._send(endpoint, query)
+        except (FMPCircuitOpenError, FMPLocalRateLimitError):
+            raise  # our own protection, not a failing group
         except httpx.HTTPError as exc:  # transport-level (timeout/connect): a failing group, never a restriction
             record_group_failure(group, type(exc).__name__)
             raise
@@ -192,8 +303,10 @@ class FMPClient:
             _clear_key_problem_if_set()
             return response.json()
         if status in (401, 403):
-            # A key problem, not a plan restriction: global warning, no group blamed.
-            _safe(set_key_problem, f"HTTP {status} from {endpoint}")
+            # A key problem, not a plan restriction: global warning, no group blamed. (When this answer opened the
+            # circuit breaker, _note_status already wrote the richer "paused" detail; keep it.)
+            if not self.auth_breaker_open:
+                _safe(set_key_problem, f"HTTP {status} from {endpoint}")
         elif status == 402:
             if group in VARIANT_GROUPS:
                 await self._handle_variant_restriction(group, endpoint, params or {})
@@ -210,10 +323,14 @@ class FMPClient:
         """One paced request with the bounded 429 retry. Never raises for an
         HTTP error status -- the caller decides what each status means."""
         for attempt in range(RATE_LIMIT_MAX_RETRIES + 1):
+            self._check_auth_breaker()
+            if self._bucket is not None:
+                await self._bucket.acquire()
             await self._pace()
             self.request_count += 1
             async with httpx.AsyncClient(base_url=self.base_url, timeout=30.0) as client:
                 response = await client.get(endpoint, params=query)
+            self._note_status(response.status_code, endpoint)
             if response.status_code == 429 and attempt < RATE_LIMIT_MAX_RETRIES:
                 logger.warning(
                     "FMP 429 rate limit hit for %s (attempt %d/%d), backing off %.0fs",

@@ -36,6 +36,13 @@ FMP on/off is per **data group**, stored in the DB (`core/data_groups.py`, table
 
 For the exact FMP endpoint→group and cache-key→group mappings, see docs/specs/fmp-data-and-bar-cache.md.
 
+## Outbound request protection (2026-10-13)
+
+Two guards in `FMPClient._send` (`clients/fmp_client.py`), the one function every real FMP request passes through (`get`, the 402 canary probes and the re-probes).
+
+- **Token bucket, API process only.** `core/main.py`'s lifespan calls `fmp_client.enable_api_rate_limit()` (and disables it on shutdown); no cron entry point does, which `tests/test_fmp_client_protection.py` pins (the only callers are the client itself and `core/main.py`). Settings (env vars, read once at start): `FMP_API_RATE_PER_MINUTE` (default 120, 0 = off; the Starter plan allows 300), `FMP_API_BURST` (40, so one cold page open of 20-40 calls is not slowed) and `FMP_API_MAX_WAIT_SECONDS` (15). A request waits for its token; one that would wait longer fails at once with `FMPLocalRateLimitError` (an `httpx.HTTPError`, no network call), so a flood cannot build a queue. Cron jobs keep their own `min_request_interval` pacing (220/min for the nightly fundamentals job) and are unchanged.
+- **Auth circuit breaker, every process.** After `FMP_AUTH_BREAKER_THRESHOLD` (5, 0 = off) consecutive 401/403 answers the client sends nothing for `FMP_AUTH_BREAKER_COOLDOWN_SECONDS` (300) and raises `FMPCircuitOpenError` (also an `httpx.HTTPError`, so `safe_fetch` and every `except httpx.HTTPError` site treat it as the failed fetch the 401 already was; it is not an `FMPDisabledError`, so the "group off, serve the cache" branches do not take it). A success or a 402 resets the run (a 402 means the key was accepted); 429 and 5xx neither count nor reset. When the cooldown ends the next request is a trial: success closes the breaker, another 401/403 re-opens it at once. It is surfaced through the existing key-problem banner (`set_key_problem`, Settings > FMP data groups) with a "paused Ns" detail, cleared by the next successful call. A cron job that hits a revoked key now stops after 5 calls per cooldown instead of sending every remaining ticker's request; each skipped call fails exactly as a 401 did, so the job's own failure counting and `check_failure_threshold` see the same thing.
+
 ## Endpoint inventory (ground truth, 2026-09-27 audit)
 
 Every FMP request goes through `FMPClient.get` (`backend/clients/fmp_client.py`) — a repo-wide
