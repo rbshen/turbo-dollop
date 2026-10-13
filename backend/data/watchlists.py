@@ -2,6 +2,8 @@ import re
 from collections.abc import Iterable
 from datetime import datetime
 
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from core.models import EtfScreenerRow, SavedScreenerFilter, Watchlist, WatchlistTicker
@@ -188,21 +190,61 @@ def count_net_new_tickers(session: Session, watchlist_id: int, tickers: list[str
     return len(existing), len(net_new)
 
 
-def add_watchlist_ticker(session: Session, watchlist_id: int, ticker: str) -> WatchlistTicker:
+class WatchlistCapacityExceeded(Exception):
+    """Raised by the add helpers when `capacity` is given and the list would end up over it. Carries the numbers of the 400 message
+    (`existing_count` before this add, `net_new_count` it would have added)."""
+
+    def __init__(self, existing_count: int, net_new_count: int) -> None:
+        super().__init__(f"{existing_count} + {net_new_count} is over the watchlist capacity")
+        self.existing_count = existing_count
+        self.net_new_count = net_new_count
+
+
+def _member_count(session: Session, watchlist_id: int) -> int:
+    return session.exec(select(func.count()).select_from(WatchlistTicker).where(WatchlistTicker.watchlist_id == watchlist_id)).one()
+
+
+def add_watchlist_ticker(session: Session, watchlist_id: int, ticker: str, *, capacity: int | None = None) -> WatchlistTicker:
+    """Adds one member. With `capacity`, the cap is enforced INSIDE the write transaction: the insert is flushed first (which takes SQLite's
+    write lock, so no other writer can slip in between), the members are counted, and the whole add is rolled back with
+    `WatchlistCapacityExceeded` when it would pass the cap. The caller's earlier count is only the fast path; two concurrent adds to a list at
+    capacity - 1 can no longer both succeed. A concurrent add of the same ticker raises `sqlalchemy.exc.IntegrityError` (the unique
+    constraint); the caller rolls back and answers 409."""
     row = WatchlistTicker(watchlist_id=watchlist_id, ticker=normalize_ticker(ticker), added_at=datetime.now())
     session.add(row)
+    if capacity is not None:
+        session.flush()
+        total = _member_count(session, watchlist_id)
+        if total > capacity:
+            session.rollback()
+            raise WatchlistCapacityExceeded(total - 1, 1)
     session.commit()
     session.refresh(row)
     return row
 
 
-def bulk_add_watchlist_tickers(session: Session, watchlist_id: int, tickers: list[str]) -> tuple[int, int]:
+def bulk_add_watchlist_tickers(
+    session: Session, watchlist_id: int, tickers: list[str], *, capacity: int | None = None
+) -> tuple[int, int]:
     """Adds every ticker not already a member, in one session/commit.
     Returns (added, already_present) so the caller can report e.g. "Added 47
     (3 already in this watchlist)" rather than erroring on the overlap --
     same dedupe the single-add endpoint already relies on via the unique
     constraint, just checked up front instead of racing the DB for it.
-    Also naturally dedupes a caller-supplied list with repeats."""
+    Also naturally dedupes a caller-supplied list with repeats.
+
+    With `capacity`, the cap is enforced inside the write transaction exactly as in `add_watchlist_ticker` (flush, count, roll back and raise
+    `WatchlistCapacityExceeded`). If another request adds one of the same tickers between the membership read and the commit, the unique
+    constraint fires: the transaction is rolled back and the whole add is retried once from a fresh membership read, so the overlap is
+    reported as `already_present` like any other."""
+    try:
+        return _bulk_add_once(session, watchlist_id, tickers, capacity)
+    except IntegrityError:
+        session.rollback()
+        return _bulk_add_once(session, watchlist_id, tickers, capacity)
+
+
+def _bulk_add_once(session: Session, watchlist_id: int, tickers: list[str], capacity: int | None) -> tuple[int, int]:
     existing = {t.ticker for t in list_watchlist_tickers(session, watchlist_id)}
     now = datetime.now()
     added = 0
@@ -215,6 +257,12 @@ def bulk_add_watchlist_tickers(session: Session, watchlist_id: int, tickers: lis
         session.add(WatchlistTicker(watchlist_id=watchlist_id, ticker=ticker, added_at=now))
         existing.add(ticker)
         added += 1
+    if capacity is not None and added:
+        session.flush()
+        total = _member_count(session, watchlist_id)
+        if total > capacity:
+            session.rollback()
+            raise WatchlistCapacityExceeded(total - added, added)
     session.commit()
     return added, already_present
 

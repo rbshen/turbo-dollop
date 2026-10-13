@@ -218,6 +218,7 @@ from data.watchlists import (
     list_watchlists,
     remove_watchlist_ticker,
     update_watchlist,
+    WatchlistCapacityExceeded,
 )
 
 apply_redaction_filters()
@@ -1397,7 +1398,11 @@ def watchlists_create(body: WatchlistIn) -> WatchlistOut:
     with Session(engine) as session:
         if get_watchlist_by_name(session, body.name) is not None:
             raise HTTPException(status_code=409, detail=f"A watchlist named '{body.name}' already exists")
-        row = create_watchlist(session, body.name)
+        try:
+            row = create_watchlist(session, body.name)
+        except IntegrityError:  # a concurrent request took the name between the check above and the insert (unique name)
+            session.rollback()
+            raise HTTPException(status_code=409, detail=f"A watchlist named '{body.name}' already exists") from None
         return _watchlist_out(row, [])
 
 
@@ -1423,9 +1428,13 @@ def watchlists_update(watchlist_id: int, body: WatchlistUpdateIn) -> WatchlistOu
             existing = get_watchlist_by_name(session, body.name)
             if existing is not None and existing.id != watchlist_id:
                 raise HTTPException(status_code=409, detail=f"A watchlist named '{body.name}' already exists")
-        row = update_watchlist(
-            session, watchlist_id, name=body.name, sort_field=body.sort_field, sort_direction=body.sort_direction
-        )
+        try:
+            row = update_watchlist(
+                session, watchlist_id, name=body.name, sort_field=body.sort_field, sort_direction=body.sort_direction
+            )
+        except IntegrityError:  # a concurrent create / rename took the name between the check above and the update
+            session.rollback()
+            raise HTTPException(status_code=409, detail=f"A watchlist named '{body.name}' already exists") from None
         if row is None:
             raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
         return _watchlist_out(row, list_watchlist_tickers(session, watchlist_id))
@@ -1475,7 +1484,14 @@ async def watchlist_add_ticker(watchlist_id: int, body: WatchlistTickerIn) -> Wa
         existing_count, net_new_count = count_net_new_tickers(session, watchlist_id, [ticker])
         if existing_count + net_new_count > WATCHLIST_CAPACITY:
             raise _capacity_error(existing_count, net_new_count)
-        row = add_watchlist_ticker(session, watchlist_id, ticker)
+        # The cap is re-checked inside the write transaction (the count above is only the fast path): two concurrent adds cannot both pass it.
+        try:
+            row = add_watchlist_ticker(session, watchlist_id, ticker, capacity=WATCHLIST_CAPACITY)
+        except WatchlistCapacityExceeded as exc:
+            raise _capacity_error(exc.existing_count, exc.net_new_count) from None
+        except IntegrityError:  # a concurrent request added the same ticker between the check above and the insert (unique member)
+            session.rollback()
+            raise HTTPException(status_code=409, detail=f"{ticker} is already in this watchlist") from None
         out = WatchlistTickerOut(ticker=row.ticker, added_at=row.added_at)
         # The Opportunities page also records which names were chosen (insert-only, never fails the add). A 409 above is not a pick.
         record_opportunity_picks(session, body.opportunity_run_id, [ticker])
@@ -1501,7 +1517,10 @@ async def watchlist_bulk_add_tickers(watchlist_id: int, body: WatchlistBulkAddIn
         existing_count, net_new_count = count_net_new_tickers(session, watchlist_id, tickers)
         if existing_count + net_new_count > WATCHLIST_CAPACITY:
             raise _capacity_error(existing_count, net_new_count)
-        added, already_present = bulk_add_watchlist_tickers(session, watchlist_id, tickers)
+        try:
+            added, already_present = bulk_add_watchlist_tickers(session, watchlist_id, tickers, capacity=WATCHLIST_CAPACITY)
+        except WatchlistCapacityExceeded as exc:  # the cap, re-checked inside the write transaction
+            raise _capacity_error(exc.existing_count, exc.net_new_count) from None
         # Every ticker the user submitted from the Opportunities page was chosen, whether or not the list already held it.
         record_opportunity_picks(session, body.opportunity_run_id, tickers)
     await ensure_etf_screener_rows(tickers)  # best effort, one call for at most a few ETFs, never fails the add
@@ -1547,7 +1566,19 @@ async def ticker_add_to_etf_watchlist(ticker: TickerPath) -> EtfWatchlistAddOut:
                     f"Remove an ETF from it on the Watchlists page, then try again."
                 ),
             )
-        add_watchlist_ticker(session, watchlist.id, ticker)
+        try:
+            add_watchlist_ticker(session, watchlist.id, ticker, capacity=WATCHLIST_CAPACITY)
+        except WatchlistCapacityExceeded:  # filled by a concurrent add since the check above
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f'The "{watchlist.name}" watchlist is full ({WATCHLIST_CAPACITY}/{WATCHLIST_CAPACITY} tickers). '
+                    f"Remove an ETF from it on the Watchlists page, then try again."
+                ),
+            ) from None
+        except IntegrityError:  # a concurrent request added it first: this call is the idempotent no-op
+            session.rollback()
+            return EtfWatchlistAddOut(watchlist_id=watchlist.id, watchlist_name=watchlist.name, added=False)
         out = EtfWatchlistAddOut(watchlist_id=watchlist.id, watchlist_name=watchlist.name, added=True)
     await ensure_etf_screener_rows([ticker])  # the ETF's card now, not after the 1:45 job; best effort, never fails the add
     return out
