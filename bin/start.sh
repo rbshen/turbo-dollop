@@ -4,7 +4,7 @@
 # servers, each in its own process group so Ctrl-C here can stop both cleanly
 # (see the trap near the bottom).
 #
-# Two modes (default: dev):
+# Two modes (default: dev; the live app runs with --prod):
 #   dev   -- uvicorn --reload + `next dev`: hot reload for both apps, no
 #            frontend build step, fast startup. Higher memory use.
 #   prod  -- `next build` first, then uvicorn (no --reload) + `next start`:

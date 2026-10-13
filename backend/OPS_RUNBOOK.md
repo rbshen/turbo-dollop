@@ -8,23 +8,25 @@ scripts below.
 
 ## Starting / stopping the app
 
-`./bin/start.sh` from the repo root brings up both servers: preflight
-checks (`backend/.env` present with the required keys, `uv`/`node`/`npm`
+`./bin/start.sh --prod` from the repo root is **how the live app runs**. It brings up both
+servers: preflight checks (`backend/.env` present with the required keys, `uv`/`node`/`npm`
 on `PATH`), an explicit `init_db()` call, and a cheap FMP connectivity
 check (`GET /quote` for AAPL — fails loud here instead of surfacing later
-as an empty ticker page). It has two modes, switched by flag (or the
+as an empty ticker page). Two modes, switched by flag (or the
 `FATHOM_MODE=dev|prod` env var):
 
-- **dev (default)** — `./bin/start.sh` / `--dev`: backend `uvicorn --reload`
-  and frontend `next dev`, no build step, so code changes hot-reload and
-  startup is fast. Uses more memory.
-- **prod** — `./bin/start.sh --prod`: a production frontend build
+- **prod (the live app)** — `./bin/start.sh --prod`: a production frontend build
   (`next build`, before either server starts so its memory peak never
   overlaps the backend's), then backend (`uvicorn`, no `--reload`) and
   frontend (`next start`). Keeps the memory footprint down on this small
   VPS, but **there is no hot reload: a code change to either app takes
   effect only after `./bin/stop.sh` + `./bin/start.sh --prod`** (the
   restart rebuilds the frontend, which takes minutes, not seconds).
+- **dev (development only)** — `./bin/start.sh` / `--dev` (the script's no-flag
+  default, kept so day-to-day development is unchanged): backend `uvicorn --reload`
+  and frontend `next dev`, no build step, so code changes hot-reload and
+  startup is fast. Uses more memory, and `next dev` serves dev-only endpoints;
+  do not leave it running as the live app.
 
 Logs go to `backend/logs/uvicorn_dev.log` and `frontend/logs/next_dev.log`
 (which also holds the prod build output; the `_dev` in both filenames is

@@ -17,7 +17,7 @@ Fathom is a company fundamentals valuation web app. It runs a multi-step fundame
 
 ## Running the app
 
-`./bin/start.sh` from the repo root brings up both servers in **dev mode by default** (preflight checks, explicit `init_db()`, an FMP connectivity check, then `uvicorn --reload` + `next dev` with hot reload, each in its own process group); `./bin/start.sh --prod` (or `FATHOM_MODE=prod`) instead does a `next build` and runs both in production mode — lower memory, but no hot reload, so code changes need a stop/start — see `backend/OPS_RUNBOOK.md`'s "Starting / stopping the app" section for what success/failure look like. `./bin/stop.sh` stops both, safe to run anytime including when nothing is running.
+`./bin/start.sh --prod` (or `FATHOM_MODE=prod`) is **how the live app runs**: preflight checks, explicit `init_db()`, an FMP connectivity check, a `next build`, then `uvicorn` (no `--reload`) + `next start`, each in its own process group, both bound to `127.0.0.1` only (reached through an SSH tunnel at `http://localhost:3100`; hosts overridable by `BACKEND_HOST` / `FRONTEND_HOST`). There is no hot reload in prod, so code changes need a stop/start. `./bin/start.sh` with no flag (or `--dev`) is the **development** mode (`uvicorn --reload` + `next dev`, hot reload, higher memory); do not leave it running as the live app. See `backend/OPS_RUNBOOK.md`'s "Starting / stopping the app" section for what success/failure look like. `./bin/stop.sh` stops both, safe to run anytime including when nothing is running.
 
 ## Folder layout
 
