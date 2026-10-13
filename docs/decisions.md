@@ -1283,3 +1283,18 @@ Also decided: two text sets keyed by the Blue profile (the shortened "profiled" 
 **Residual risk: unchanged.** The hostname that DNS-resolves to this machine still passes the guard, and the app is not rebound. With the binary-read behaviour these are the two known gaps. The headless `claude -p` fallback was not needed and is not built.
 
 **Not changed:** code, tests, settings, `TickerMoat`, scoring, `SCORE_FORMULA_VERSION`, the 2026-10-12 entries (dated history).
+
+### 2026-10-13 — Security step 1, "lockdown" (code and config; no auth yet)
+
+**Decision.** Fathom is not public: viewers reach it through an SSH tunnel and open `http://localhost:3100`. So no TLS proxy, no domain, no HSTS. Eight changes, one commit each:
+
+1. **Bind.** uvicorn and Next listen on `127.0.0.1` only (`BACKEND_HOST` / `FRONTEND_HOST` in `bin/common.sh`, the Next `dev` / `start` scripts carry `-H 127.0.0.1`). Overridable by env var only. `next.config.ts` still proxies `/api` to `http://localhost:8002`.
+2. **Production mode** (`./bin/start.sh --prod`) is how the live app runs; the script's no-flag default stays dev (hot reload) for development. Runbook and CLAUDE.md say so.
+3. **Next 16.2.10 -> 16.4.0** (the first release past the audited range, which ended at 16.3.7): clears GHSA-2xp9-vwfh-vxw4, GHSA-vcvr-r3jv-pc5j and every other Next advisory; `npm audit fix` took the non-breaking transitive fixes. No breaking-change code edits were needed (build, lint, tsc, vitest all passed unchanged). Seven high advisories remain in `npm audit --omit=dev`, all in the `shadcn` CLI's glob chain (braces, micromatch, fast-glob, ts-morph); the only offered fix is a downgrade to shadcn 1.0.0, so they are left.
+4. **API docs off:** `/docs`, `/redoc`, `/openapi.json` return 404; `ENABLE_API_DOCS=true` re-enables them.
+5. **Request guard** (`core/request_guard.py`): Host must be localhost / 127.0.0.1 / [::1] on port 8002 or 3100 (400); every non-GET/HEAD/OPTIONS request needs an allowed Origin, or no Origin plus a non-empty `X-Fathom-Request` header (403). The frontend client sends the header on every call; the one raw `fetch` (thinkorswim export) now goes through it. The test suite's `TestClient` gets the legitimate defaults in `conftest.py`. Starlette's `TrustedHostMiddleware` was not used because it cannot match `[::1]:port`. Side effect: a hostname that DNS-resolves to this machine (the accepted moat-check residual risk) now gets 400 from the app.
+6. **Security headers** in `next.config.ts`: CSP (with `'unsafe-inline'` for scripts and styles, `'unsafe-eval'` only in dev), `X-Frame-Options: DENY`, nosniff, `Referrer-Policy: same-origin`, `Permissions-Policy`; `poweredByHeader` off; no HSTS. Nonces are the later tightening.
+7. **Log redaction** now attaches to the real logger names (`core.cache`, `clients.fmp_client`, `clients.sec_edgar`, plus `httpx` / `httpcore`), every root handler and `logging.lastResort`, and scrubs tracebacks. The old names (`cache`, `fmp_client`, `sec_edgar`) matched no logger, so only `httpx` was covered.
+8. **File permissions:** `.env` and `fathom.db*` 0600, `backups/` 0700, backup files 0600; `backup_db` creates them that way.
+
+**Not changed:** authentication, ticker validation, throttling (later steps), scoring, `SCORE_FORMULA_VERSION`, any endpoint's behaviour, `crontab.txt`, the cron jobs.
