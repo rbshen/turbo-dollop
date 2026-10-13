@@ -81,9 +81,9 @@ describe("TickerSearch: the kit input", () => {
     expect(screen.getByRole("combobox", { name: "Search ticker" })).toBe(box());
   });
 
-  it("keeps its 160px (224px from sm) width on the wrapper", () => {
+  it("fills the width the nav gives it (TopNav owns the width, so the field can shrink)", () => {
     const { container } = render(<TickerSearch />);
-    expect(container.firstElementChild).toHaveClass("w-40", "sm:w-56");
+    expect(container.firstElementChild).toHaveClass("w-full");
   });
 
   it("has no outline-none anywhere in the results panel either", () => {

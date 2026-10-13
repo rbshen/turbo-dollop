@@ -72,15 +72,18 @@ export function TopNav() {
 
   return (
     <nav className="sticky top-0 z-30 border-b border-border-subtle bg-page/90 backdrop-blur">
-      <PageContainer className="flex h-12 items-center gap-4">
+      <PageContainer className="flex h-12 items-center gap-3">
         <Link href="/screener" {...(sameTab ? {} : NEW_TAB_PROPS)} className="font-heading shrink-0 text-sm font-semibold tracking-tight text-text-primary">
           Fathom
         </Link>
-        <div className="flex min-w-0 items-center gap-0.5">
+        {/* The page links never wrap and never slide under the search or the account block: every item is one line (`whitespace-nowrap`,
+            `shrink-0`), and if the bar is still too narrow (below ~1100px) this group scrolls sideways instead (scrollbar hidden). It
+            gives way last (`shrink-[0.1]`): the search field gives way first. */}
+        <div className="flex min-w-0 shrink-[0.1] items-center gap-0.5 overflow-x-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <span
             aria-current={onTickerPage ? "page" : undefined}
             className={cn(
-              "rounded-md px-3 py-1.5 text-sm font-medium",
+              "shrink-0 whitespace-nowrap rounded-md px-2 py-1.5 text-sm font-medium",
               onTickerPage ? "bg-surface-2 text-text-primary" : "text-text-tertiary"
             )}
           >
@@ -95,7 +98,7 @@ export function TopNav() {
                 aria-current={active ? "page" : undefined}
                 {...(sameTab ? {} : NEW_TAB_PROPS)}
                 className={cn(
-                  "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  "shrink-0 whitespace-nowrap rounded-md px-2 py-1.5 text-sm font-medium transition-colors",
                   active ? "bg-surface-2 text-text-primary" : "text-text-secondary hover:bg-white/5 hover:text-text-primary"
                 )}
               >
@@ -105,14 +108,22 @@ export function TopNav() {
           })}
         </div>
         <div className="flex-1" />
-        <div className="shrink-0">
+        {/* The search field is the part that shrinks (176px down to 112px) when the bar is tight. */}
+        <div className="w-44 min-w-28 shrink">
           <TickerSearch />
         </div>
         {user && (
+          // Collapse order on a narrow bar: the role word goes first (it shows from 2xl only; it stays in the title and for a
+          // screen reader), then the username becomes its initial below lg. Sign out always stays.
           <div className="flex shrink-0 items-center gap-1 text-sm" data-testid="account">
-            <span className="text-text-primary">{user.username}</span>
-            <span className="text-text-tertiary">{user.role}</span>
-            <Button variant="ghost" size="sm" onClick={() => void logout()}>
+            <span title={`${user.username} (${user.role})`} className="max-w-28 truncate text-text-primary">
+              <span aria-hidden="true" className="uppercase lg:hidden">
+                {user.username.charAt(0)}
+              </span>
+              <span className="sr-only lg:not-sr-only">{user.username}</span>
+            </span>
+            <span className="sr-only text-text-tertiary 2xl:not-sr-only">{user.role}</span>
+            <Button variant="ghost" size="sm" className="px-2" onClick={() => void logout()}>
               Sign out
             </Button>
           </div>

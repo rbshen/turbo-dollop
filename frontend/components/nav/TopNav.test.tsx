@@ -217,3 +217,55 @@ describe("TopNav: the account block", () => {
     expect(screen.queryByTestId("search")).toBeNull();
   });
 });
+
+// Layout guard: jsdom does no layout, so these pin the classes that keep the bar from wrapping, overlapping or pushing Settings out
+// of view. They are not a substitute for looking at the bar at 1280 and 1366px (see the 2026-10-13 decision).
+describe("TopNav: the bar does not wrap or overlap", () => {
+  const draw = (role: "admin" | "viewer") =>
+    render(
+      <TestAuth role={role} username="ann">
+        <BareTopNav />
+      </TestAuth>,
+    );
+
+  it("keeps every label, Ticker Analysis included, on one line and unshrinkable", () => {
+    draw("admin");
+    for (const el of [...screen.getAllByRole("link").slice(1), screen.getByText("Ticker Analysis")]) {
+      expect(el).toHaveClass("whitespace-nowrap", "shrink-0");
+    }
+  });
+
+  it("lets the link group scroll sideways rather than run under the search or account block", () => {
+    draw("admin");
+    const group = screen.getByRole("link", { name: "Settings" }).parentElement!;
+    expect(group).toHaveClass("min-w-0", "overflow-x-auto");
+    expect(group).not.toHaveClass("shrink-0");
+  });
+
+  it("makes the search field the part that shrinks, and keeps the account block fixed", () => {
+    draw("admin");
+    const search = screen.getByTestId("search").parentElement!;
+    expect(search).toHaveClass("shrink", "min-w-28");
+    expect(screen.getByTestId("account")).toHaveClass("shrink-0");
+  });
+
+  it.each(["admin", "viewer"] as const)("collapses the account block for a %s: role word on 2xl only, username to its initial below lg", (role) => {
+    draw(role);
+    const account = screen.getByTestId("account");
+    const roleWord = screen.getByText(role);
+    expect(roleWord).toHaveClass("sr-only", "2xl:not-sr-only"); // still in the accessibility tree, drawn from 2xl
+    expect(screen.getByText("ann")).toHaveClass("sr-only", "lg:not-sr-only");
+    const initial = account.querySelector('[aria-hidden="true"]')!;
+    expect(initial).toHaveTextContent("a");
+    expect(initial).toHaveClass("lg:hidden");
+    expect(account.querySelector("[title]")).toHaveAttribute("title", `ann (${role})`);
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeVisible();
+  });
+
+  it("keeps Settings, the search field and Sign out in the bar together", () => {
+    draw("viewer");
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByTestId("search")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+  });
+});

@@ -1347,3 +1347,12 @@ Also decided: two text sets keyed by the Blue profile (the shortened "profiled" 
 **Choices.** (a) A 401 is made to *never settle* rather than to throw a quiet error: the page is being replaced, and any thrown error would be drawn by some component. The cost is that a request on a page that cannot redirect (a 401 while already on `/login`) throws normally. (b) The guard is file-level and static, not a proof, because the alternative (a runtime check of every rendered control) needs a browser. (c) `AdminOnly` renders nothing, not a disabled control, because a disabled Save teaches nothing; Settings shows disabled values because "read-only" is the lesson there. (d) The login redirect and the Sign out use full page loads so no module state survives from one user to the next. (e) `/auth/logout` is exempt from the 401 redirect (a sign-out of a dead session is not an event).
 
 **Not changed:** the backend, scoring, `SCORE_FORMULA_VERSION`, cron jobs, the live services (not restarted, no user created), the CSP (the comment in `next.config.ts` about a future nonce `proxy.ts` is unaffected).
+
+### 2026-10-13 — Frontend fixes after the step 4 go-live (proxy redirect, top bar)
+
+**proxy.ts.** The signed-out redirect used a relative `Location` built by hand; Next 16 throws `TypeError: Invalid URL` on it, so every signed-out page returned 500. It is now `NextResponse.redirect(new URL(loginUrl(path + search), request.url), 307)`. Behind the SSH tunnel `request.url` holds Next's bind address (127.0.0.1:3100), not the Host the browser sent; Next's own routing (`getRelativeURL`) turns a same-origin redirect into a path-only `Location`, so the browser stays on the origin it used. No Host header is read or trusted. The proxy tests now build a real `NextRequest`, take the real `NextResponse`, and require the `Location` to parse as an absolute URL.
+
+**Top bar.** With the account block the link group overflowed: its items could wrap ("Ticker Analysis") and shrink, the rest ran under the search field, which hid Settings. Links are `whitespace-nowrap shrink-0` with `px-2`; the search field is the part that shrinks (176px, min 112px); the role word shows from `2xl` only (kept in `title` / for screen readers); the username becomes its initial below `lg`; the link group scrolls sideways as a last resort. Class-level tests only: jsdom has no layout, so the bar still needs a look at 1280 and 1366px.
+
+**Not changed:** the backend, scoring, cron, the CSP.
+

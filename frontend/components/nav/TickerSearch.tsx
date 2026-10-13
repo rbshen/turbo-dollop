@@ -81,9 +81,9 @@ export function TickerSearch() {
   const showDropdown = open && query !== null;
 
   return (
-    // The width lives on the wrapper (160px, 224px from `sm`); the kit Input fills it, 36px high inside the nav's
-    // fixed 48px, so the nav does not change height.
-    <div ref={containerRef} className="relative w-40 sm:w-56">
+    // The width belongs to the nav (TopNav: 176px, shrinking to 112px on a tight bar); this wrapper fills it and the kit Input
+    // fills the wrapper, 36px high inside the nav's fixed 48px, so the nav does not change height.
+    <div ref={containerRef} className="relative w-full">
       <Input
         type="text"
         size="full"
