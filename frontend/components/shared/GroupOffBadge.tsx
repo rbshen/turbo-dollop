@@ -2,6 +2,7 @@
 
 import { Status } from "@/components/ui/status";
 import { asOfText, offGroupsFor, reasonText } from "@/lib/dataGroups";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { useDataGroups } from "@/lib/hooks/useDataGroups";
 import { pillLabel } from "@/lib/tierColor";
 
@@ -14,7 +15,9 @@ interface Props {
  * group that is currently off (cache-only). Renders nothing while every
  * group is live, while loading, and for groups not wired to any feature yet. */
 export function GroupOffBadge({ groups }: Props) {
-  const { data } = useDataGroups();
+  // The data-group state is admin-only on the backend: a viewer neither sees the badge nor makes the request (it would be a 403).
+  const { isAdmin } = useAuth();
+  const { data } = useDataGroups(isAdmin);
   const off = offGroupsFor(data, groups);
   if (off.length === 0) return null;
 

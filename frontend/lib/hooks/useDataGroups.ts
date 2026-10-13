@@ -10,8 +10,10 @@ const KEY = "/config/data-groups";
 // restart, so unlike the old restart-only FMP flag this polls gently.
 const REFRESH_INTERVAL_MS = 60 * 1000;
 
-export function useDataGroups() {
-  return useSWR<DataGroupsOut>(KEY, (path: string) => apiFetch<DataGroupsOut>(path), {
+/** `GET /config/data-groups` is admin-only (a viewer gets 403), so a component a viewer can see passes `enabled: false` for them:
+ * the request is then never made, and `data` stays undefined. */
+export function useDataGroups(enabled = true) {
+  return useSWR<DataGroupsOut>(enabled ? KEY : null, (path: string) => apiFetch<DataGroupsOut>(path), {
     refreshInterval: REFRESH_INTERVAL_MS,
   });
 }
