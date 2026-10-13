@@ -14,7 +14,10 @@ backend/     FastAPI app, organized into packages by role:
                (engine/init_db), schemas.py (API response models),
                config.py (Settings/BASE_DIR), cache.py (get_or_fetch/
                safe_fetch), history_merge.py (the history-protection
-               merge rule), logging_config.py.
+               merge rule), logging_config.py, request_guard.py (Host /
+               Origin guard), auth.py + passwords.py + auth_routes.py +
+               audit.py + route_roles.py + auth_cli.py (login accounts,
+               sessions, roles, the audit log; docs/specs/auth.md).
   clients/     Thin external API clients: fmp_client.py, sec_edgar.py,
                daily_bar_sources.py (the FMP daily/60m bar sources),
                shared_bars_cache.py (the SharedBarsCache get-or-fetch),

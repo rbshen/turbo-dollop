@@ -40,6 +40,8 @@ daily + weekly fetch, worst case ~0.56s in the latency investigation).
 - Known, accepted asymmetry: W/4Y shows 4 years of price, but signal-event markers (BB+RSI/Warren) only reach
   back as far as events have actually been accumulated.
 
+**Viewer requests (2026-10-13).** `GET /chart` has no cache-only mode, so for a viewer (a signed-in non-admin; docs/specs/auth.md) it is served from `data/viewer_chart_cache.py`: an in-memory cache keyed by (ticker, range), 60 s TTL (`VIEWER_CHART_CACHE_SECONDS`, 0 = off), concurrent misses share one fetch, failures are not cached. An admin's chart is always live and never fills it; the viewer's ticker must be in the tracked universe (404 otherwise).
+
 ## 2. Earnings and dividend markers
 
 Earnings-report dates ("E", cyan) and dividend ex-dates ("D", violet) on the price pane, in the four daily/weekly ranges

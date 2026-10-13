@@ -959,6 +959,11 @@ never the HTTP API, so none of them needs a login. `bin/start.sh` polls `GET /ap
 `LOGIN_MAX_FAILURES` (5 wrong passwords lock a user), `LOGIN_LOCKOUT_MINUTES` (15), `LOGIN_SOURCE_MAX_FAILURES` (30) in `LOGIN_SOURCE_WINDOW_MINUTES` (15), `VIEWER_CHART_CACHE_SECONDS` (60).
 A lockout is temporary by design; `set-password` clears it immediately. Behind the SSH tunnel every request comes from 127.0.0.1, so the per-source limit is one global limit.
 
+**Audit log.** `auditlog` has one row per non-GET request outcome and per login event (never a body, password, token or hash). Read it with
+`sqlite3 -readonly fathom.db "select ts, username, method, path, status, event, ip from auditlog order by id desc limit 50"`; a run of `login_fail` / `lockout` / `login_blocked` rows is someone guessing passwords.
+Nothing prunes it (one row per write, so growth is slow); to trim, `delete from auditlog where ts < date('now','-365 day')` while the app is stopped or idle.
+Viewers (role `viewer`) are read-only, see tracked tickers only and are served from cached data; their `/chart` loads come from a 60-second in-memory cache. Docs: docs/specs/auth.md.
+
 ## Disk space (2026-10-06 and 2026-10-09 investigations)
 
 The repo, `backend/backups`, the caches under `~/.cache`, `~/.npm` and `~/.vscode-server`, and the OS share one ext4 volume (about 25 GB). `backup_db` refuses to run
