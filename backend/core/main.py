@@ -29,6 +29,7 @@ from helpers.discount_rate_config import (
     list_discount_rate_configs,
     update_discount_rate_config,
 )
+from core.auth_routes import router as auth_router
 from core.logging_config import apply_redaction_filters
 from core.request_guard import RequestGuardMiddleware
 from data.export_safety import thinkorswim_csv
@@ -254,6 +255,7 @@ def api_docs_urls(enabled: bool) -> dict[str, str | None]:
 app = FastAPI(title="Fathom", lifespan=lifespan, **api_docs_urls(settings.enable_api_docs))
 # Host check on every request, cross-site check on every write (core/request_guard.py).
 app.add_middleware(RequestGuardMiddleware)
+app.include_router(auth_router)
 
 
 @app.get("/api/health")

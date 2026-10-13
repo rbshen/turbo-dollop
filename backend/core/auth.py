@@ -361,7 +361,7 @@ def is_restricted(principal: Principal | None) -> bool:
     return principal is None or not principal.is_admin
 
 
-def authorize(request: Request) -> None:
+def authorize(request: Request) -> Principal | None:
     """The app-level dependency: every route needs a valid session unless core/route_roles.py declares it "public", and an "admin"
     route needs an admin (403 for a viewer). A route missing from the registry is treated as admin-only (the registry test also
     fails). Runs after the Host/Origin guard middleware."""
@@ -370,10 +370,11 @@ def authorize(request: Request) -> None:
     route = request.scope.get("route")
     role = role_for(request.method, getattr(route, "path", None))
     if role == "public":
-        return
+        return None
     principal = resolve_session(session_token(request))
     if principal is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
     if role != "viewer" and not principal.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     request.scope[PRINCIPAL_SCOPE_KEY] = principal
+    return principal
