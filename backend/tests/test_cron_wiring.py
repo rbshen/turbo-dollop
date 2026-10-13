@@ -183,12 +183,12 @@ def _weekly_minutes() -> dict[str, int]:
 
 
 def test_sunday_block_finishes_before_the_daily_chain_starts():
-    """The index-list refreshes and the weekly maintenance jobs (Sundays 12:00-12:35 AM, the
+    """The index-list refreshes and the weekly maintenance jobs (Sundays 12:00-12:40 AM, the
     slowest, stale_data_health_check, ~2.6 min) run BEFORE the 1:00 AM daily chain, so a
     constituent change is picked up the same night and nothing overlaps the first job.
     Needs at least 15 minutes between the last weekly start and the first daily job."""
     weekly = _weekly_minutes()
-    assert len(weekly) == 8, f"expected the 8 weekly jobs, got {sorted(weekly)}"
+    assert len(weekly) == 9, f"expected the 9 weekly jobs, got {sorted(weekly)}"  # 9th: prune_audit_log, 12:40 (2026-10-13)
     first_daily = _daily_minute_of_day("pipeline.nightly_last_close_snapshot")
     assert max(weekly.values()) + 15 <= first_daily, (
         f"the last weekly job starts at minute {max(weekly.values())} but the daily chain starts at {first_daily}: "

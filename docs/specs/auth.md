@@ -12,7 +12,7 @@ only, and settings, watchlists and saved views stay global (no per-user data).
 - Passwords: `core/passwords.py`, stdlib `hashlib.scrypt` (N=2^15, r=8, p=1, 16-byte random salt, 32-byte key), the parameters inside the stored string
   (`scrypt$N$r$p$salt$key`) so they can be raised later (a login whose stored parameters are weaker re-hashes with the password in hand), `hmac.compare_digest`. Minimum 12
   characters, maximum 256. A hash or password is never logged, returned or put in an error message.
-- **CLI** (`core/auth_cli.py`, run from `backend/`): `create-user <name> --role admin|viewer`, `set-password`, `disable`, `enable`, `list`, `revoke-sessions [name]`. Passwords come from a
+- **CLI** (`core/auth_cli.py`, run from `backend/`): `create-user <name> --role admin|viewer`, `set-password`, `disable`, `enable`, `list`, `revoke-sessions [name]`, `prune-audit [--days N]`. Passwords come from a
   terminal prompt (twice) or one line on stdin, never argv. `list` never prints a hash. Setup steps: `backend/OPS_RUNBOOK.md`, "Login accounts".
 - Foreign keys are off in this database, so **disable, set-password and revoke-sessions delete the user's `usersession` rows explicitly**. `set-password` also clears `failed_logins` / `locked_until`.
 
@@ -51,7 +51,7 @@ An unknown, inactive or locked account pays for one dummy scrypt check, so timin
   `GET /api/tickers/{ticker}/financials/cash-flow-cell-check` (an on-demand SEC EDGAR + FMP call).
 - **Audit** (`core/audit.py`, table `auditlog`): one row per non-GET request outcome (`event = "request"`, written after the response is decided, in a worker thread, guard refusals included) and
   per login event (`login_ok`, `login_fail`, `login_blocked`, `lockout`, `logout`). Columns: `ts`, `user_id`, `username`, `method`, `path` (no query string), `status`, `ip`, `event`. **No body, password, token, hash or header.**
-  A failed login row carries a username only when the account exists (an unknown name may be a password typed in the wrong box). A failed audit write is logged and swallowed. The table is not pruned.
+  A failed login row carries a username only when the account exists (an unknown name may be a password typed in the wrong box). A failed audit write is logged and swallowed. Rows older than `AUDIT_RETENTION_DAYS` (default 180) are deleted weekly by `pipeline.prune_audit_log` (Sunday 12:40 AM UTC) or by hand with `uv run python -m core.auth_cli prune-audit [--days N]` (`core/audit.py::prune_audit_log`, `N` at least 1); users and sessions are never touched.
 
 ## Viewer rules (server-side)
 

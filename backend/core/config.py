@@ -106,6 +106,9 @@ class Settings(BaseSettings):
     # Overall limit for one background score recompute (data/score_recompute.py): the worker stops itself at it, and a run older than this is
     # reaped (its worker terminated). The job normally takes about a minute. 0 = no limit.
     score_recompute_timeout_seconds: float = 3600
+    # Audit-log retention (core/audit.py::prune_audit_log): rows older than this many days are deleted by the weekly `pipeline.prune_audit_log`
+    # job and by `python -m core.auth_cli prune-audit` (--days overrides). Users and sessions are never touched.
+    audit_retention_days: int = 180
     # Viewer GET /chart is served from an in-memory cache for this long, per (ticker, range), so viewers cannot multiply FMP calls.
     viewer_chart_cache_seconds: int = 60
 

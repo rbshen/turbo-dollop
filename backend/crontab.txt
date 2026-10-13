@@ -247,6 +247,11 @@
 # a real access-tier gap like BRK.B's known 402) is never a match.
 35 0 * * 0 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/purge_invalid_tickers.lock /home/shen/.local/bin/uv run python -m pipeline.purge_invalid_tickers >> /home/shen/fathom/backend/logs/purge_invalid_tickers_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped purge_invalid_tickers: the previous run is still going" >> /home/shen/fathom/backend/logs/purge_invalid_tickers_cron.log
 
+# 12:40 Audit-log pruning (2026-10-13): deletes `auditlog` rows older than AUDIT_RETENTION_DAYS (default 180) and logs the count. Audit table
+# only -- never a user or a session. Same function as `uv run python -m core.auth_cli prune-audit [--days N]` (docs/specs/auth.md, OPS_RUNBOOK
+# "Login accounts"). Seconds long; ends well before the nightly chain at 1:00. See pipeline/prune_audit_log.py.
+40 0 * * 0 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/prune_audit_log.lock /home/shen/.local/bin/uv run python -m pipeline.prune_audit_log >> /home/shen/fathom/backend/logs/prune_audit_log_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped prune_audit_log: the previous run is still going" >> /home/shen/fathom/backend/logs/prune_audit_log_cron.log
+
 # Weekly opportunity lists (Momentum and Reversal), ENABLED 2026-10-12. Saturdays at 4:00 AM server time (UTC): after the Friday-session
 # nightly chain (technical jobs 1:00-1:40, fundamentals 2:00, score recompute 3:25, backup 3:30) has finished, so every input it reads is
 # final. Stored data only, ZERO FMP calls, ~15 s, chunked reads (~175 MB peak). As-of = the last completed XNYS session (Friday's close;

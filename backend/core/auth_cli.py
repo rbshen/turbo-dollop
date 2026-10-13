@@ -5,6 +5,7 @@
     uv run python -m core.auth_cli disable alice | enable alice
     uv run python -m core.auth_cli list
     uv run python -m core.auth_cli revoke-sessions [alice]      (no name: every session)
+    uv run python -m core.auth_cli prune-audit [--days N]       (delete audit rows older than N days; default AUDIT_RETENTION_DAYS, 180)
 
 Passwords never come from the command line: an interactive prompt (typed twice) on a terminal, or one line on stdin when piped
 (`printf '%s\\n' "$PW" | uv run python -m core.auth_cli create-user ...`). Nothing here prints a hash or a password. The three auth
@@ -19,6 +20,8 @@ from collections.abc import Sequence
 from sqlmodel import Session, SQLModel, func, select
 
 import core.auth as auth
+from core.audit import prune_audit_log
+from core.config import settings
 from core.models import AuditLog, User, UserSession
 from core.passwords import WeakPasswordError
 
@@ -80,6 +83,12 @@ def cmd_revoke_sessions(args: argparse.Namespace) -> str:
     return f"{ended} session(s) ended for {'everyone' if args.username is None else repr(auth.normalize_username(args.username))}."
 
 
+def cmd_prune_audit(args: argparse.Namespace) -> str:
+    days = settings.audit_retention_days if args.days is None else args.days
+    deleted = prune_audit_log(days)
+    return f"Deleted {deleted} audit log row(s) older than {days} day(s). Users and sessions were not touched."
+
+
 def cmd_list(_args: argparse.Namespace) -> str:
     with Session(auth.engine) as session:
         users = session.exec(select(User).order_by(User.username)).all()
@@ -113,6 +122,9 @@ def build_parser() -> argparse.ArgumentParser:
     revoke = sub.add_parser("revoke-sessions", help="end one user's sessions, or all of them")
     revoke.add_argument("username", nargs="?")
     revoke.set_defaults(func=cmd_revoke_sessions)
+    prune = sub.add_parser("prune-audit", help="delete audit log rows older than N days (users and sessions are never touched)")
+    prune.add_argument("--days", type=int, default=None, help="age in days (default: AUDIT_RETENTION_DAYS, 180); at least 1")
+    prune.set_defaults(func=cmd_prune_audit)
     sub.add_parser("list", help="accounts, roles, last login, lock state").set_defaults(func=cmd_list)
     return parser
 

@@ -971,7 +971,7 @@ A lockout is temporary by design; `set-password` clears it immediately. Behind t
 
 **Audit log.** `auditlog` has one row per non-GET request outcome and per login event (never a body, password, token or hash). Read it with
 `sqlite3 -readonly fathom.db "select ts, username, method, path, status, event, ip from auditlog order by id desc limit 50"`; a run of `login_fail` / `lockout` / `login_blocked` rows is someone guessing passwords.
-Nothing prunes it (one row per write, so growth is slow); to trim, `delete from auditlog where ts < date('now','-365 day')` while the app is stopped or idle.
+**Pruning (2026-10-13):** the weekly job `pipeline.prune_audit_log` (Sundays 12:40 AM UTC, under flock like every cron line) deletes `auditlog` rows older than `AUDIT_RETENTION_DAYS` (default 180) and logs `Pruned N audit log row(s) older than D day(s).` in `backend/logs/prune_audit_log.log`; by hand (any time, the app can stay up): `uv run python -m core.auth_cli prune-audit [--days N]` (`N` at least 1; prints the count). Only the audit table is touched, never a user or a session. No manual `delete from auditlog` is needed any more.
 Viewers (role `viewer`) are read-only, see tracked tickers only and are served from cached data; their `/chart` loads come from a 60-second in-memory cache. Docs: docs/specs/auth.md.
 
 ## Disk space (2026-10-06 and 2026-10-09 investigations)

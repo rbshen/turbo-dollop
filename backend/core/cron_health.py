@@ -59,6 +59,7 @@ CRON_JOB_NAMES: list[str] = [
     "pipeline.audit_fixture_contamination",
     "pipeline.stale_data_health_check",
     "pipeline.purge_invalid_tickers",
+    "pipeline.prune_audit_log",
     "pipeline.nightly_price_target_snapshot",
     "pipeline.nightly_sector_industry_pe",
     "pipeline.monthly_momentum_snapshot",
@@ -97,6 +98,7 @@ _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.prune_cache": _WEEKLY_HOURS,
     "pipeline.rotate_logs": _WEEKLY_HOURS,
     "pipeline.audit_fixture_contamination": _WEEKLY_HOURS,
+    "pipeline.prune_audit_log": _WEEKLY_HOURS,
     "pipeline.stale_data_health_check": _WEEKLY_HOURS,
     "pipeline.purge_invalid_tickers": _WEEKLY_HOURS,
     "pipeline.nightly_price_target_snapshot": _DAILY_HOURS,
@@ -174,6 +176,9 @@ JOB_METADATA: dict[str, JobMetadata] = {
     ),
     "pipeline.purge_invalid_tickers": JobMetadata(
         "Delete cache rows for confirmed-invalid tickers", "weekly", "Sun 12:35 AM", 35
+    ),
+    "pipeline.prune_audit_log": JobMetadata(
+        "Delete login/request audit rows older than 180 days", "weekly", "Sun 12:40 AM", 40
     ),
     "pipeline.nightly_price_target_snapshot": JobMetadata(
         "Archive analyst price-target consensus", "daily", "3:10 AM", 3 * 60 + 10
