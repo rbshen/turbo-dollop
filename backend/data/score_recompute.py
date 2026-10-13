@@ -11,13 +11,22 @@ until the job reaches them.
 One run at a time: `claim_run` inserts the status row only when no run is `running` (a single INSERT ... WHERE NOT EXISTS), and a
 second request gets RecomputeAlreadyRunning (HTTP 409), never queued. A running row whose worker stopped reporting (no heartbeat
 for HEARTBEAT_STALE_SECONDS) or whose process exited without finishing is marked failed, so a dead worker never blocks the next run.
+
+Worker lifecycle (2026-10-13): a run reaped as failed while its worker is still alive (a hung or lock-blocked process) has that worker
+**terminated** -- SIGTERM at once, SIGKILL after TERMINATE_GRACE_SECONDS -- but only after /proc (or `ps`) confirms the pid still runs
+`python -m pipeline.score_recompute_job <that run's id>`, so a reused pid is never signalled. A run older than
+`SCORE_RECOMPUTE_TIMEOUT_SECONDS` (default 1 h, the job normally takes about a minute) is reaped the same way; the worker also stops itself at
+that limit. The worker writes its heartbeat every 10 s or every 10 tickers, whichever comes first.
 """
 
 import asyncio
 import logging
+import os
+import signal
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
@@ -26,6 +35,7 @@ from sqlalchemy import exists, insert, literal, select
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, select as sql_select
 
+from core.config import settings
 from core.db import engine
 from core.models import ScoreRecomputeRun
 from core.schemas import RecomputeRunOut
@@ -37,6 +47,9 @@ logger = logging.getLogger(__name__)
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 LOG_PATH = BACKEND_DIR / "logs" / "score_recompute_job_cron.log"
 HEARTBEAT_STALE_SECONDS = 120
+# After SIGTERM a reaped worker gets this long to exit before SIGKILL.
+TERMINATE_GRACE_SECONDS = 5.0
+WORKER_MODULE = "pipeline.score_recompute_job"
 TRIGGERS = ("weights", "reset", "moat", "screener")
 
 
@@ -66,19 +79,116 @@ def _out(run: ScoreRecomputeRun) -> RecomputeRunOut:
     )
 
 
+def _read_cmdline(pid: int) -> list[str] | None:
+    """The argv of process `pid`, or None when it does not exist, has exited (a zombie has an empty cmdline) or cannot be read. /proc where
+    there is one (Linux), else `ps` (macOS / BSD)."""
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+        parts = [part.decode(errors="replace") for part in raw.split(b"\0") if part]
+        return parts or None
+    except FileNotFoundError:
+        if Path("/proc/self").exists():
+            return None  # /proc exists, so this pid is simply gone
+    except OSError:
+        return None
+    try:
+        out = subprocess.run(["ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.split() or None
+
+
+def is_recompute_worker(pid: int, run_id: int) -> bool:
+    """True only when `pid` is running `python -m pipeline.score_recompute_job <run_id>` right now. The one test that decides whether a stored
+    pid may be signalled: a pid the OS has reused for anything else (or for another run's worker) answers False."""
+    argv = _read_cmdline(pid)
+    if not argv:
+        return False
+    for i, arg in enumerate(argv[:-2]):
+        if arg == "-m" and argv[i + 1] == WORKER_MODULE and argv[i + 2] == str(run_id):
+            return True
+    return False
+
+
+def terminate_worker(pid: int, run_id: int, *, grace_seconds: float | None = None) -> str:
+    """Stops the worker `pid` of run `run_id` if (and only if) it is still that worker: SIGTERM, then SIGKILL once `grace_seconds` have passed
+    without it exiting. The identity check is repeated before the SIGKILL (the pid could have been reused during the grace period).
+    Blocking; the reaper calls it from a daemon thread. Returns "not-ours" (nothing signalled: gone, or not this worker), "terminated"
+    (exited after SIGTERM) or "killed" (needed SIGKILL)."""
+    grace = TERMINATE_GRACE_SECONDS if grace_seconds is None else grace_seconds
+    if not is_recompute_worker(pid, run_id):
+        return "not-ours"
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return "terminated"
+    except PermissionError:
+        logger.warning("not allowed to stop recompute worker pid %s (run %s)", pid, run_id)
+        return "not-ours"
+    deadline = time.monotonic() + grace
+    while time.monotonic() < deadline:
+        if not is_recompute_worker(pid, run_id):
+            return "terminated"
+        time.sleep(0.05)
+    if not is_recompute_worker(pid, run_id):
+        return "terminated"
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return "terminated"
+    logger.warning("recompute worker pid %s (run %s) ignored SIGTERM for %.1fs; sent SIGKILL", pid, run_id, grace)
+    return "killed"
+
+
+def _terminate_in_background(pid: int, run_id: int) -> None:
+    """Default `terminator`: the SIGTERM -> grace -> SIGKILL sequence on a daemon thread, so a request that reaps a run never waits for it."""
+
+    def work() -> None:
+        try:
+            outcome = terminate_worker(pid, run_id)
+            logger.info("reaped recompute run %s: worker pid %s -> %s", run_id, pid, outcome)
+        except Exception:  # noqa: BLE001
+            logger.exception("could not stop recompute worker pid %s (run %s)", pid, run_id)
+
+    threading.Thread(target=work, name=f"recompute-reaper-{run_id}", daemon=True).start()
+
+
+# Replaceable in tests (they assert which workers would be stopped without signalling anything).
+terminator: Callable[[int, int], None] = _terminate_in_background
+
+
+def timeout_seconds() -> float:
+    """The overall limit for one run (`SCORE_RECOMPUTE_TIMEOUT_SECONDS`, default 3600); 0 or less = no limit."""
+    return settings.score_recompute_timeout_seconds
+
+
 def reap_stale_runs(session: Session, *, now: datetime | None = None) -> int:
-    """Marks every `running` row whose worker has gone quiet as failed; returns how many."""
+    """Marks every `running` row as failed whose worker has gone quiet (no heartbeat for HEARTBEAT_STALE_SECONDS) or has run longer than the
+    overall limit; returns how many. The worker of a reaped run is stopped if it is still alive (see `terminate_worker`)."""
     now = now or datetime.now()
     cutoff = now - timedelta(seconds=HEARTBEAT_STALE_SECONDS)
+    limit = timeout_seconds()
+    expiry = now - timedelta(seconds=limit) if limit > 0 else None
     reaped = 0
+    to_stop: list[tuple[int, int]] = []
     for run in session.exec(sql_select(ScoreRecomputeRun).where(ScoreRecomputeRun.state == "running")).all():
-        if run.heartbeat_at < cutoff:
+        quiet = run.heartbeat_at < cutoff
+        too_long = expiry is not None and run.started_at < expiry
+        if quiet or too_long:
             run.state, run.finished_at = "failed", now
-            run.error = "The recompute worker stopped responding. Run it again with Recompute all scores."
+            run.error = (
+                "The recompute worker stopped responding. Run it again with Recompute all scores."
+                if quiet
+                else "The recompute ran past its time limit and was stopped. Run it again with Recompute all scores."
+            )
             session.add(run)
             reaped += 1
+            if run.pid is not None:
+                to_stop.append((run.pid, run.id))
     if reaped:
         session.commit()
+    for pid, run_id in to_stop:  # after the commit: the row says "failed" before the process is touched
+        terminator(pid, run_id)
     return reaped
 
 

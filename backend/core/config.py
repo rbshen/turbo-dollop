@@ -103,6 +103,9 @@ class Settings(BaseSettings):
     login_lockout_minutes: int = 15
     login_source_max_failures: int = 30
     login_source_window_minutes: int = 15
+    # Overall limit for one background score recompute (data/score_recompute.py): the worker stops itself at it, and a run older than this is
+    # reaped (its worker terminated). The job normally takes about a minute. 0 = no limit.
+    score_recompute_timeout_seconds: float = 3600
     # Viewer GET /chart is served from an in-memory cache for this long, per (ticker, range), so viewers cannot multiply FMP calls.
     viewer_chart_cache_seconds: int = 60
 

@@ -780,6 +780,12 @@ re-scores every ticker through `compute_ticker_score` at the saved weights and s
 - **One at a time.** A second request while a run is `running` gets **409** and is not queued; a weights/Moat save is refused before
   anything is saved. A `running` row whose worker has not reported for 120 s, or whose process exited without finishing, is marked
   `failed` automatically, so a dead worker never blocks the next run.
+- **Worker lifecycle (2026-10-13).** When a run is reaped (no heartbeat for 120 s, or running longer than `SCORE_RECOMPUTE_TIMEOUT_SECONDS`,
+  default 3600 s, 0 = no limit) and its worker is still alive, the API **terminates it**: SIGTERM at once, SIGKILL after 5 s, on a background
+  thread, and only after `/proc/<pid>/cmdline` (or `ps` where there is no /proc) shows the stored pid still runs
+  `python -m pipeline.score_recompute_job <that run's id>`, so a reused pid is never signalled (log line `reaped recompute run N: worker pid P -> terminated|killed|not-ours`).
+  The worker writes its heartbeat every 10 s or every 10 tickers, stops itself with a failed run at the time limit, and stops without writing
+  `done` when its row is no longer `running`.
 - **A failed run** keeps the saved weights; the stored rows simply stay on the older `weights_version` where the worker did not reach
   them (each score row is one atomic upsert, so none is ever half written). Retry with Screener > "Recompute all scores", or
   `uv run python -m pipeline.recompute_ticker_scores` (the old script, unchanged, still runs inline and cache-only).
