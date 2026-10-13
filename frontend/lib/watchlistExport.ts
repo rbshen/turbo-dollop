@@ -11,6 +11,45 @@ export const EXPORT_FORMAT_OPTIONS: { value: ExportFormat; label: string }[] = [
   { value: "thinkorswim", label: "thinkorswim (.csv)" },
 ];
 
+// Export safety (docs/specs/watchlist-export.md, "Export safety"; backend twin: data/export_safety.py). A stored symbol is
+// already validated, so these are the second layer, applied where the files are written.
+
+// Whitespace and control characters (CR/LF/tab and the Unicode line separators), commas and double quotes.
+const CSV_UNSAFE = /[\s\u0000-\u001f\u007f,"]/g;
+// A TradingView item (symbol, exchange or sector): control and line-separator characters become a space, and "," (item
+// separator), "#" (starts a `###` section) and ":" (EXCHANGE:SYMBOL separator) are dropped.
+const TV_CONTROL = /[\u0000-\u001f\u007f\u0085\u2028\u2029]/g;
+const TV_DROPPED = /[,"#:]/g;
+const FORMULA_LEADERS = ["=", "+", "-", "@"];
+
+/** One thinkorswim .csv line's symbol: CR/LF, whitespace, commas and quotes removed, then a leading single quote when it
+ * starts with = + - @ (a spreadsheet formula). Only the first character is checked, so BRK-B and ^GSPC are unchanged.
+ * "" when nothing is left (the caller leaves it out). */
+export function neutraliseCsvSymbol(raw: string): string {
+  const cleaned = raw.replace(CSV_UNSAFE, "");
+  return FORMULA_LEADERS.some((c) => cleaned.startsWith(c)) ? `'${cleaned}` : cleaned;
+}
+
+/** thinkorswim file text: bare symbols, one per line, no header, each neutralised, empty ones dropped. */
+export function buildThinkorswimText(symbols: string[]): string {
+  return symbols
+    .map(neutraliseCsvSymbol)
+    .filter((s) => s !== "")
+    .map((s) => `${s}\n`)
+    .join("");
+}
+
+/** An exchange or sector as one TradingView list item: no comma, newline, `#` or `:` can get through, so a value cannot
+ * add an item, start a `###` section or fake an EXCHANGE:SYMBOL pair. Ordinary inner spaces ("Consumer Cyclical") stay. */
+export function cleanTradingViewItem(raw: string): string {
+  return raw.replace(TV_CONTROL, " ").replace(TV_DROPPED, "").replace(/\s+/g, " ").trim();
+}
+
+/** A ticker as one TradingView list item: the same cleaning, and no space at all. */
+export function cleanTradingViewSymbol(raw: string): string {
+  return cleanTradingViewItem(raw).replace(/\s/g, "");
+}
+
 /** What a TradingView section needs from a row: its symbol, FMP's exchange string and sector (null falls in "Other"). */
 export type ExportRow = WatchlistExportTickerOut;
 
@@ -29,7 +68,7 @@ export interface TradingViewText {
 export function buildTradingViewText(rows: ExportRow[]): TradingViewText {
   const bySector = new Map<string, ExportRow[]>();
   for (const row of rows) {
-    const key = row.sector ?? "Other";
+    const key = (row.sector != null ? cleanTradingViewItem(row.sector) : "") || "Other";
     const bucket = bySector.get(key);
     if (bucket) {
       bucket.push(row);
@@ -41,7 +80,11 @@ export function buildTradingViewText(rows: ExportRow[]): TradingViewText {
   const parts: string[] = [];
   let symbolCount = 0;
   for (const [sector, sectorRows] of bySector) {
-    const pairs = sectorRows.filter((r) => r.exchange != null).map((r) => `${r.exchange}:${r.ticker}`);
+    const pairs = sectorRows.flatMap((r) => {
+      const exchange = r.exchange != null ? cleanTradingViewItem(r.exchange) : "";
+      const symbol = cleanTradingViewSymbol(r.ticker);
+      return exchange && symbol ? [`${exchange}:${symbol}`] : [];
+    });
     if (pairs.length === 0) continue;
     parts.push(`###${sector}`, ...pairs);
     symbolCount += pairs.length;
@@ -96,8 +139,8 @@ export function buildMultiExport(lists: WatchlistExportListOut[], format: Export
     const { content, skipped, symbolCount } = buildTradingViewText(rows);
     return { content, skipped, duplicates, symbolCount, emptyLists };
   }
-  const content = rows.map((r) => `${r.ticker}\n`).join("");
-  return { content, skipped: 0, duplicates, symbolCount: rows.length, emptyLists };
+  const content = buildThinkorswimText(rows.map((r) => r.ticker));
+  return { content, skipped: 0, duplicates, symbolCount: content.split("\n").length - 1, emptyLists };
 }
 
 /** `fathom-watchlists_3-lists_2026-10-09_tradingview.txt` (local date). */

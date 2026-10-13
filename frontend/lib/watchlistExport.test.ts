@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { WatchlistExportListOut } from "@/lib/api/types";
 import {
   buildMultiExport,
+  buildThinkorswimText,
   buildTradingViewText,
+  neutraliseCsvSymbol,
   dedupeRows,
   exportResultParts,
   multiExportFilename,
@@ -115,5 +117,48 @@ describe("exportResultParts", () => {
 
   it("says so when nothing was written", () => {
     expect(exportResultParts({ content: "", skipped: 0, duplicates: 0, symbolCount: 0, emptyLists: 2 }, 2).summary).toBe("Nothing to export");
+  });
+});
+
+describe("export safety", () => {
+  it("neutralises a leading formula character on a thinkorswim line, and only the leading one", () => {
+    expect(neutraliseCsvSymbol("=1+1")).toBe("'=1+1");
+    expect(neutraliseCsvSymbol("+A")).toBe("'+A");
+    expect(neutraliseCsvSymbol("-A")).toBe("'-A");
+    expect(neutraliseCsvSymbol("@SUM(A1)")).toBe("'@SUM(A1)");
+    expect(neutraliseCsvSymbol("\t=A")).toBe("'=A"); // the tab goes, then the formula character is defused
+    expect(neutraliseCsvSymbol("BRK-B")).toBe("BRK-B");
+    expect(neutraliseCsvSymbol("^GSPC")).toBe("^GSPC");
+    expect(neutraliseCsvSymbol("0700.HK")).toBe("0700.HK");
+  });
+
+  it("cannot be split into a second line or cell", () => {
+    expect(neutraliseCsvSymbol("AAPL\r\n=cmd|' /C calc'!A0")).toBe("AAPL=cmd|'/Ccalc'!A0"); // one line; no leading formula character
+    expect(neutraliseCsvSymbol("A,B")).toBe("AB");
+    expect(neutraliseCsvSymbol('A"B')).toBe("AB");
+    expect(buildThinkorswimText(["AAPL\nMSFT", "=1+1", "", " "])).toBe("AAPLMSFT\n'=1+1\n");
+  });
+
+  it("leaves a normal multi-list thinkorswim file unchanged", () => {
+    const result = buildMultiExport([list(1, "A", [row("AAPL", "NASDAQ"), row("BRK-B", "NYSE"), row("^GSPC", null)])], "thinkorswim");
+    expect(result.content).toBe("AAPL\nBRK-B\n^GSPC\n");
+    expect(result.symbolCount).toBe(3);
+  });
+
+  it("a TradingView ticker, exchange or sector cannot add an item, start a section or fake a pair", () => {
+    const { content } = buildTradingViewText([
+      row("AAPL,NASDAQ:MSFT", "NASDAQ"),
+      row("X\nY", "NYSE", "Tech,###Evil"),
+      row("###Z", "NASDAQ:EVIL", "Consumer Cyclical"),
+    ]);
+    expect(content).not.toMatch(/[\r\n]/);
+    const items = content.split(",");
+    expect(items).toEqual(["###Other", "NASDAQ:AAPLNASDAQMSFT", "###TechEvil", "NYSE:XY", "###Consumer Cyclical", "NASDAQEVIL:Z"]);
+  });
+
+  it("drops a TradingView row whose symbol or exchange is empty after cleaning", () => {
+    const { content, skipped } = buildTradingViewText([row(",,", "NYSE"), row("AAPL", "#:"), row("MSFT", "NASDAQ")]);
+    expect(content).toBe("###Other,NASDAQ:MSFT");
+    expect(skipped).toBe(2);
   });
 });

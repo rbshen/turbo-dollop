@@ -21,6 +21,15 @@ The user ticks lists in an inline panel (`components/watchlist/MultiExportPanel.
 - **Filename:** `fathom-watchlists_<n>-lists_<YYYY-MM-DD>_tradingview.txt` or `..._thinkorswim.csv` (`n` = lists ticked, local date). No list name is used, so there is no slug logic and no special-character problem.
 - **Result line** under the panel: "Exported 42 symbols from 3 lists · 5 duplicates removed · 1 empty list skipped · 2 skipped (no cached exchange)". Zero counts are left out; the skipped-for-exchange part is drawn in the `caution` tone. If no symbol is written the line reads "Nothing to export" and no file is downloaded.
 
+## Export safety
+
+A ticker reaches a list only through the ticker validator (`core/tickers.py::is_valid_ticker`: ASCII letters/digits, `.` and `-` after the first character, one optional leading `^`, 1-12 characters), so no stored symbol can start with `=`, `+`, `-` or `@`, or hold a comma, space or line break. The writers still neutralise, as a second layer for rows that predate the validator:
+
+- **thinkorswim .csv** (`data/export_safety.py::thinkorswim_csv` for the single-list endpoint, `lib/watchlistExport.ts::buildThinkorswimText` for the multi-list file): whitespace, control characters (CR/LF/tab, Unicode line separators), commas and double quotes are removed from each symbol, a symbol that then starts with `=`, `+`, `-` or `@` gets a leading `'`, and a symbol left empty is dropped. Only the first character is tested, so `BRK-B` and `^GSPC` export as they are.
+- **TradingView .txt** (`buildTradingViewText`): symbol, exchange and sector each lose `,` `"` `#` `:` and line breaks, so a value cannot add an item, open a `###` section or fake an `EXCHANGE:SYMBOL` pair. Inner spaces in an exchange or sector ("Consumer Cyclical") stay; a row whose symbol or exchange is empty after cleaning is skipped and counted with the no-exchange rows.
+
+Tests: `backend/tests/test_export_safety.py`, `frontend/lib/watchlistExport.test.ts`.
+
 ## Known limits
 
 - US-listed tickers only (docs/specs/fmp-data-and-bar-cache.md, "US-listed tickers only"): no HK or France symbols exist on a list, so there is no mapping for them.

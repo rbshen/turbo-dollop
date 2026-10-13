@@ -30,6 +30,7 @@ from helpers.discount_rate_config import (
 )
 from core.logging_config import apply_redaction_filters
 from core.request_guard import RequestGuardMiddleware
+from data.export_safety import thinkorswim_csv
 from data.etf_data import get_etf_overview, is_known_etf
 from data.etf_screener_data import etf_screener_meta, list_etf_screener_rows
 from data.liquidity_zone_data import get_liquidity_zone_data
@@ -1510,7 +1511,7 @@ def watchlist_export_thinkorswim(watchlist_id: int) -> Response:
             raise HTTPException(status_code=404, detail=f"No watchlist with id {watchlist_id}")
         tickers = list_watchlist_tickers(session, watchlist_id)
 
-    content = "".join(f"{t.ticker}\n" for t in tickers)
+    content = thinkorswim_csv([t.ticker for t in tickers])
     filename = f"{_slugify_watchlist_name(watchlist.name)}_thinkorswim.csv"
     return Response(
         content=content,
