@@ -19,11 +19,12 @@ def redact_apikey(text: str) -> str:
 
 class RedactApiKeyFilter(logging.Filter):
     """Strips the FMP apikey query parameter from a log record's rendered
-    message before it's written anywhere. httpx logs full request URLs
-    (apikey and all) at INFO level, and the standalone scripts that use
-    this module run at INFO to capture per-ticker fetch activity -- without
-    this filter, the real API key ends up in plaintext in both the log file
-    and the terminal."""
+    message, and from its traceback text, before it's written anywhere. httpx
+    logs full request URLs (apikey and all) at INFO level, an httpx
+    HTTPStatusError's str() embeds the full URL, and the standalone scripts
+    that use this module run at INFO to capture per-ticker fetch activity --
+    without this filter, the real API key ends up in plaintext in both the
+    log file and the terminal."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
@@ -31,22 +32,52 @@ class RedactApiKeyFilter(logging.Filter):
         if redacted != message:
             record.msg = redacted
             record.args = ()
+        if record.exc_info and not record.exc_text:
+            # A logger.warning(..., exc_info=True) renders the traceback inside the handler's formatter, after any
+            # filter ran. Rendering it here and storing it as exc_text makes the formatter reuse the redacted copy.
+            record.exc_text = logging.Formatter().formatException(record.exc_info)
+        if record.exc_text:
+            record.exc_text = redact_apikey(record.exc_text)
+        if record.stack_info:
+            record.stack_info = redact_apikey(record.stack_info)
         return True
 
 
+# The loggers that can emit a raw FMP/SEC request URL, by their real names (each module logs through
+# logging.getLogger(__name__), so these are the module paths, not the bare file names; tests/test_logging_config.py
+# pins them against the modules): httpx/httpcore's own request logging, cache.py's failed-fetch warnings, the FMP
+# client and the SEC EDGAR client.
+REDACTED_LOGGER_NAMES = ("httpx", "httpcore", "core.cache", "clients.fmp_client", "clients.sec_edgar")
+
+
+def _attach(target: logging.Filterer, redact_filter: logging.Filter) -> None:
+    if not any(isinstance(f, RedactApiKeyFilter) for f in target.filters):
+        target.addFilter(redact_filter)
+
+
 def apply_redaction_filters() -> None:
-    """Attaches the redaction filter directly to the specific loggers that
-    can emit a raw FMP/SEC request URL (httpx's own request logging, and
-    cache.safe_fetch's warning on a failed fetch, which embeds the raw
-    httpx exception -- URL and apikey included -- in its message). Filters
-    attached to a logger run before that logger hands the record to any
-    handler, so this works regardless of what handler configuration is in
-    effect -- unlike configure_logging() below, it doesn't touch handlers,
-    levels, or output destination, so it's safe to call from the live
-    FastAPI app (main.py) without fighting uvicorn's own logging setup."""
+    """Attaches the redaction filter in the three places a record carrying a
+    raw FMP/SEC request URL can pass through, without touching handlers'
+    levels, formatters or output destination (so it is safe to call from the
+    live FastAPI app (main.py) without fighting uvicorn's own logging setup):
+
+    * the specific loggers above, which run it before the record reaches any
+      handler whatever the handler configuration;
+    * every handler already on the root logger -- a logger's own filters do
+      not run for records propagated up from a child logger, so this covers
+      any other module (data.*, pipeline.*) that logs an httpx exception;
+    * logging.lastResort, the stderr handler Python falls back to when the
+      root logger has no handler at all, which is the case in the uvicorn
+      process.
+
+    Idempotent: calling it again attaches nothing twice."""
     redact_filter = RedactApiKeyFilter()
-    for name in ("httpx", "cache", "fmp_client", "sec_edgar"):
-        logging.getLogger(name).addFilter(redact_filter)
+    for name in REDACTED_LOGGER_NAMES:
+        _attach(logging.getLogger(name), redact_filter)
+    for handler in logging.getLogger().handlers:
+        _attach(handler, redact_filter)
+    if logging.lastResort is not None:
+        _attach(logging.lastResort, redact_filter)
 
 
 def configure_logging(log_path: Path) -> None:
