@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { IBM_Plex_Mono, Public_Sans, Sora } from "next/font/google";
 import "./globals.css";
 import { TopNav } from "@/components/nav/TopNav";
+import { AuthProvider } from "@/lib/auth/AuthProvider";
 import { cn } from "@/lib/utils";
 
 const ibmPlexMono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-mono" });
@@ -36,8 +37,10 @@ export default function RootLayout({
       className={cn("h-full", "dark", "antialiased", publicSans.variable, sora.variable, ibmPlexMono.variable)}
     >
       <body className="min-h-full flex flex-col bg-page text-text-primary">
-        <TopNav />
-        <main className="flex flex-1 flex-col">{children}</main>
+        <AuthProvider>
+          <TopNav />
+          <main className="flex flex-1 flex-col">{children}</main>
+        </AuthProvider>
       </body>
     </html>
   );
