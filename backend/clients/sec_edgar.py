@@ -109,13 +109,24 @@ async def get_cik(session: Session, ticker: str, staleness_days: int, cache_only
         return None
 
 
+class SecInvalidResponseError(httpx.HTTPError):
+    """SEC answered 200 with a body that is not a JSON object. An httpx.HTTPError so _cross_check's existing handler
+    degrades it to "cross-check unavailable" and get_or_fetch never caches it."""
+
+
 async def _fetch_company_facts(cik: int) -> dict:
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(
             COMPANY_FACTS_URL_TEMPLATE.format(cik=cik), headers={"User-Agent": settings.sec_edgar_user_agent}
         )
         response.raise_for_status()
-        return response.json()
+        try:
+            body = response.json()
+        except ValueError:
+            raise SecInvalidResponseError("SEC company facts response was not JSON") from None
+        if not isinstance(body, dict):
+            raise SecInvalidResponseError("SEC company facts response was not a JSON object")
+        return body
 
 
 async def get_company_facts(session: Session, ticker: str, cik: int, staleness_days: int) -> dict:
@@ -127,8 +138,38 @@ async def get_company_facts(session: Session, ticker: str, cik: int, staleness_d
     )
 
 
-def _duration_days(row: dict) -> int:
-    return (date.fromisoformat(row["end"]) - date.fromisoformat(row["start"])).days
+def _duration_days(row: dict) -> int | None:
+    """Days between a fact's start and end, or None when either is missing or not an ISO date (the row then
+    matches no duration window, so a malformed fact is skipped rather than failing the whole check)."""
+    try:
+        return (date.fromisoformat(row["end"]) - date.fromisoformat(row["start"])).days
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _in_window(row: dict, minimum: int, maximum: int) -> bool:
+    days = _duration_days(row)
+    return days is not None and minimum <= days <= maximum
+
+
+def _numeric_val(row: dict) -> float | None:
+    """A fact's `val` as a number, or None (missing, null, string, bool)."""
+    value = row.get("val")
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _latest_filed(rows: list[dict]) -> dict:
+    # most-recently-filed, in case of a later restatement; a non-string `filed` sorts as ""
+    return max(rows, key=lambda r: r.get("filed") if isinstance(r.get("filed"), str) else "")
+
+
+def _usd_rows(facts: dict, tag: str) -> list[dict]:
+    """The USD fact rows of one us-gaap tag, [] when the document is not shaped as expected."""
+    gaap = facts.get("facts", {}).get("us-gaap", {}) if isinstance(facts, dict) and isinstance(facts.get("facts"), dict) else {}
+    concept = gaap.get(tag) if isinstance(gaap, dict) else None
+    units = concept.get("units") if isinstance(concept, dict) else None
+    rows = units.get("USD") if isinstance(units, dict) else None
+    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
 
 
 def find_discrete_income_statement_value(
@@ -139,22 +180,18 @@ def find_discrete_income_statement_value(
     duration in the same filing (both PEP and OXM), so a direct end-date +
     duration-window match finds the discrete figure -- no YTD subtraction
     needed here, unlike CFO below."""
-    gaap = facts.get("facts", {}).get("us-gaap", {})
     target_end_str = target_end.isoformat()
     for tag in tag_candidates:
-        concept = gaap.get(tag)
-        if not concept:
-            continue
         candidates = [
             row
-            for row in concept.get("units", {}).get("USD", [])
+            for row in _usd_rows(facts, tag)
             if row.get("end") == target_end_str
-            and DISCRETE_QUARTER_MIN_DAYS <= _duration_days(row) <= DISCRETE_QUARTER_MAX_DAYS
+            and _in_window(row, DISCRETE_QUARTER_MIN_DAYS, DISCRETE_QUARTER_MAX_DAYS)
+            and _numeric_val(row) is not None
         ]
         if not candidates:
             continue
-        best = max(candidates, key=lambda r: r.get("filed", ""))  # most-recently-filed, in case of a later restatement
-        return best["val"], tag
+        return _numeric_val(_latest_filed(candidates)), tag
     return None
 
 
@@ -168,22 +205,18 @@ def find_annual_value(facts: dict, tag_candidates: list[str], target_end: date) 
     (2024-07-01..2025-06-30) IncomeTaxesPaidNet=$28.7B, InterestPaid=$1.6B --
     both real, non-zero, and currently misread as a literal 0 in FMP's own
     cached data for every period (see INCOME_TAXES_PAID_CANDIDATE_TAGS)."""
-    gaap = facts.get("facts", {}).get("us-gaap", {})
     target_end_str = target_end.isoformat()
     for tag in tag_candidates:
-        concept = gaap.get(tag)
-        if not concept:
-            continue
         candidates = [
             row
-            for row in concept.get("units", {}).get("USD", [])
+            for row in _usd_rows(facts, tag)
             if row.get("end") == target_end_str
-            and ANNUAL_DURATION_MIN_DAYS <= _duration_days(row) <= ANNUAL_DURATION_MAX_DAYS
+            and _in_window(row, ANNUAL_DURATION_MIN_DAYS, ANNUAL_DURATION_MAX_DAYS)
+            and _numeric_val(row) is not None
         ]
         if not candidates:
             continue
-        best = max(candidates, key=lambda r: r.get("filed", ""))  # most-recently-filed, in case of a later restatement
-        return best["val"], tag
+        return _numeric_val(_latest_filed(candidates)), tag
     return None
 
 
@@ -195,30 +228,31 @@ def find_discrete_cfo_value(facts: dict, tag_candidates: list[str], target_end: 
     preceding same-fiscal-year period). If no earlier same-fiscal-year
     entry exists, target_end IS the fiscal year's first quarter, and the
     YTD value already IS the discrete value."""
-    gaap = facts.get("facts", {}).get("us-gaap", {})
     target_end_str = target_end.isoformat()
     for tag in tag_candidates:
-        concept = gaap.get(tag)
-        if not concept:
-            continue
-        rows = concept.get("units", {}).get("USD", [])
-        target_matches = [row for row in rows if row.get("end") == target_end_str]
+        # Rows without a numeric val or a string start/end cannot take part in the subtraction: left out.
+        rows = [
+            row
+            for row in _usd_rows(facts, tag)
+            if _numeric_val(row) is not None and isinstance(row.get("start"), str) and isinstance(row.get("end"), str)
+        ]
+        target_matches = [row for row in rows if row["end"] == target_end_str]
         if not target_matches:
             continue
-        target_row = max(target_matches, key=lambda r: r.get("filed", ""))
+        target_row = _latest_filed(target_matches)
         fiscal_year_start = target_row["start"]
 
         # Same fiscal year (same start date), strictly earlier end -- the
         # prior quarter-end within this same fiscal year, not just
         # whatever the second-most-recent entry happens to be.
-        same_year_prior = [row for row in rows if row.get("start") == fiscal_year_start and row["end"] < target_end_str]
+        same_year_prior = [row for row in rows if row["start"] == fiscal_year_start and row["end"] < target_end_str]
         if not same_year_prior:
-            return target_row["val"], tag
+            return _numeric_val(target_row), tag
 
         latest_prior_end = max(row["end"] for row in same_year_prior)
         prior_candidates = [row for row in same_year_prior if row["end"] == latest_prior_end]
-        prior_row = max(prior_candidates, key=lambda r: r.get("filed", ""))
-        return target_row["val"] - prior_row["val"], tag
+        prior_row = _latest_filed(prior_candidates)
+        return _numeric_val(target_row) - _numeric_val(prior_row), tag
     return None
 
 

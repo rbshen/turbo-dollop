@@ -46,6 +46,32 @@ class FMPCircuitOpenError(httpx.HTTPError):
     as a failed fetch. It is not an FMPDisabledError: no data group is off, the key is the problem."""
 
 
+class FMPInvalidResponseError(httpx.HTTPError):
+    """FMP answered HTTP 200 with something that is not data: a body that is not JSON, JSON that is neither an object
+    nor a list, or an object carrying an error key ("Error Message"). A plain httpx.HTTPError, so safe_fetch and every
+    `except httpx.HTTPError` site treat it as the failed fetch it is, and get_or_fetch never caches it. The message
+    names the endpoint only, never the body."""
+
+
+# A 200 object with one of these keys (any case) is an error answer, not data.
+_ERROR_BODY_KEYS = frozenset({"error message", "error"})
+
+
+def _checked_body(response: httpx.Response, endpoint: str) -> dict | list:
+    """The decoded JSON body of a successful FMP answer, or FMPInvalidResponseError (see above)."""
+    try:
+        body = response.json()
+    except ValueError:  # JSONDecodeError and UnicodeDecodeError
+        raise FMPInvalidResponseError(f"FMP returned a non-JSON body for {endpoint}") from None
+    if isinstance(body, dict):
+        if any(isinstance(k, str) and k.lower() in _ERROR_BODY_KEYS for k in body):
+            raise FMPInvalidResponseError(f"FMP returned an error object for {endpoint}")
+        return body
+    if isinstance(body, list):
+        return body
+    raise FMPInvalidResponseError(f"FMP returned an unexpected {type(body).__name__} body for {endpoint}")
+
+
 class FMPLocalRateLimitError(httpx.HTTPError):
     """Raised by FMPClient (no network call) when the API process's own token bucket cannot serve a request within
     `fmp_api_max_wait_seconds`. Handled like any failed fetch (httpx.HTTPError)."""
@@ -298,10 +324,16 @@ class FMPClient:
             raise
         status = response.status_code
         if status < 400:
+            try:
+                body = _checked_body(response, endpoint)
+            except FMPInvalidResponseError as exc:
+                record_group_failure(group, "invalid response")
+                logger.warning("%s", exc)
+                raise
             record_success("fmp")
             record_group_success(group)
             _clear_key_problem_if_set()
-            return response.json()
+            return body
         if status in (401, 403):
             # A key problem, not a plan restriction: global warning, no group blamed. (When this answer opened the
             # circuit breaker, _note_status already wrote the richer "paused" detail; keep it.)
@@ -410,6 +442,10 @@ class FMPClient:
         except httpx.HTTPError:
             return "inconclusive"
         if response.status_code < 400:
+            try:
+                _checked_body(response, endpoint)
+            except FMPInvalidResponseError:
+                return "inconclusive"  # a 200 that is not data proves nothing
             _safe(clear_restricted, group)
             return "ok"
         if response.status_code == 402:
@@ -431,6 +467,10 @@ class FMPClient:
         except httpx.HTTPError:
             return "inconclusive"
         if response.status_code < 400:
+            try:
+                _checked_body(response, state.endpoint)
+            except FMPInvalidResponseError:
+                return "inconclusive"  # a 200 that is not data proves nothing
             _safe(clear_variant, group, variant_key, "re-probe succeeded")
             return "ok"
         if response.status_code == 402:

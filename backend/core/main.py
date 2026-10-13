@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from datetime import date, datetime, timedelta
 from contextlib import asynccontextmanager
@@ -212,6 +213,8 @@ from data.watchlists import (
 )
 
 apply_redaction_filters()
+
+logger = logging.getLogger(__name__)
 
 
 def _validated_ticker_path(ticker: str) -> str:
@@ -1234,6 +1237,19 @@ def etf_screener_meta_route() -> EtfScreenerMeta:
         return etf_screener_meta(session)
 
 
+def _saved_filter_filters(row: SavedScreenerFilter) -> dict:
+    """The saved view's filters, or {} when its stored JSON is corrupt (the view still lists, so it can be re-saved or
+    deleted, instead of one bad row failing the whole saved-views list)."""
+    try:
+        filters = json.loads(row.filters_json)
+    except (TypeError, ValueError):
+        filters = None
+    if not isinstance(filters, dict):
+        logger.warning("Saved screener view %r (id %s) has unreadable filters_json; listing it with no filters", row.name, row.id)
+        return {}
+    return filters
+
+
 def _saved_filter_out(row: SavedScreenerFilter) -> SavedScreenerFilterOut:
     return SavedScreenerFilterOut(
         id=row.id,
@@ -1242,7 +1258,7 @@ def _saved_filter_out(row: SavedScreenerFilter) -> SavedScreenerFilterOut:
         universe=row.universe,
         sort_field=row.sort_field,
         sort_direction=row.sort_direction,
-        filters=json.loads(row.filters_json),
+        filters=_saved_filter_filters(row),
         watchlist_id=row.watchlist_id,
         created_at=row.created_at,
         updated_at=row.updated_at,

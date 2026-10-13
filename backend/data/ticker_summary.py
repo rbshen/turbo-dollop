@@ -1,4 +1,5 @@
 import logging
+import math
 from datetime import date, timedelta
 from typing import NamedTuple
 
@@ -56,47 +57,86 @@ FAIR_VALUE_METHOD_LABELS = {
 INDEX_MEMBERSHIP_ORDER = ("sp500", "nasdaq", "dow")
 
 
+def _parse_row_date(value: object) -> date | None:
+    """The calendar date of an FMP row's `date` field (ISO, first 10 characters), or None when it is missing or malformed."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        return None
+
+
+def _number(value: object) -> float | None:
+    """`value` as a finite number, or None (null, a string, a bool, NaN): a malformed upstream field degrades to
+    "no value" instead of raising in arithmetic."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if math.isfinite(value) else None
+
+
+def _pct(value: object) -> float | None:
+    number = _number(value)
+    return None if number is None else number * 100
+
+
 def _next_earnings_date(earnings: list[dict]) -> date | None:
     """The nearest not-yet-reported (epsActual is null) earnings date --
     also requires the date itself to be in the future. ETFs (SPY, QQQ, ...)
     never report earnings, so every historical row FMP returns for them has
     a null epsActual; without the date check, `min()` over the entire
     history picks the OLDEST row in the dataset (a garbage decades-old
-    "next earnings date") instead of correctly reading as "no earnings"."""
+    "next earnings date") instead of correctly reading as "no earnings".
+    A row that is not a dict, or whose date is missing or malformed, is skipped."""
     today = date.today()
     upcoming = [
-        row["date"]
+        parsed
         for row in earnings
-        if row.get("date") and row.get("epsActual") is None and date.fromisoformat(row["date"][:10]) >= today
+        if isinstance(row, dict) and row.get("epsActual") is None
+        if (parsed := _parse_row_date(row.get("date"))) is not None and parsed >= today
     ]
-    if not upcoming:
-        return None
-    return date.fromisoformat(min(upcoming)[:10])
+    return min(upcoming) if upcoming else None
+
+
+def _dated_rows(daily_prices: list[dict]) -> list[tuple[date, dict]]:
+    return [
+        (parsed, row)
+        for row in daily_prices
+        if isinstance(row, dict) and (parsed := _parse_row_date(row.get("date"))) is not None
+    ]
 
 
 def _avg_volume_30d(daily_prices: list[dict]) -> float | None:
     """Average `volume` over the trailing 30 calendar days -- NOT
     profile.averageVolume, which was confirmed empirically to track closer
-    to a ~50-63 trading-day average than a literal 30-day one."""
-    if not daily_prices:
+    to a ~50-63 trading-day average than a literal 30-day one. A row with no usable date or
+    volume is left out of the average (the field is None only when no row is usable)."""
+    dated = _dated_rows(daily_prices)
+    if not dated:
         return None
-    most_recent = date.fromisoformat(daily_prices[0]["date"][:10])
-    cutoff = most_recent - timedelta(days=30)
-    window = [row for row in daily_prices if date.fromisoformat(row["date"][:10]) >= cutoff]
-    if not window:
+    cutoff = max(d for d, _ in dated) - timedelta(days=30)
+    volumes = [v for d, row in dated if d >= cutoff and (v := _number(row.get("volume"))) is not None]
+    if not volumes:
         return None
-    return sum(row["volume"] for row in window) / len(window)
+    return sum(volumes) / len(volumes)
 
 
 def _avg_dollar_volume_20d(daily_prices: list[dict]) -> float | None:
     """Average close*volume over the trailing 20 TRADING days (a distinct,
     independently-specified window from the 30-CALENDAR-day share-volume
     average above) -- FMP returns daily rows newest-first, confirmed
-    empirically, so this is a plain positional slice."""
-    window = daily_prices[:20]
-    if not window:
+    empirically, so this is a plain positional slice. A row with no usable close or volume is
+    left out of the average."""
+    products = [
+        close * volume
+        for row in daily_prices[:20]
+        if isinstance(row, dict)
+        and (close := _number(row.get("close"))) is not None
+        and (volume := _number(row.get("volume"))) is not None
+    ]
+    if not products:
         return None
-    return sum(row["close"] * row["volume"] for row in window) / len(window)
+    return sum(products) / len(products)
 
 
 def _resolve_perf_vs_spy(
@@ -559,9 +599,7 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
         beta=profile.get("beta"),
         peg_ratio=ratios_ttm.get("priceToEarningsGrowthRatioTTM"),
         forward_peg_ratio=ratios_ttm.get("forwardPriceToEarningsGrowthRatioTTM"),
-        dividend_yield=(
-            ratios_ttm["dividendYieldTTM"] * 100 if ratios_ttm.get("dividendYieldTTM") is not None else None
-        ),
+        dividend_yield=_pct(ratios_ttm.get("dividendYieldTTM")),
         shares_outstanding=shares_outstanding,
         shares_outstanding_source=shares_outstanding_source,
         avg_volume_30d=avg_volume_30d,
@@ -578,12 +616,8 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
         week52_high=quote.get("yearHigh"),
         week52_low=quote.get("yearLow"),
         eps_growth_3_5y=step2_out.growth_rate if step2_out else None,
-        revenue_growth_yoy=(
-            financial_growth["revenueGrowth"] * 100 if financial_growth.get("revenueGrowth") is not None else None
-        ),
-        net_income_growth_yoy=(
-            financial_growth["netIncomeGrowth"] * 100 if financial_growth.get("netIncomeGrowth") is not None else None
-        ),
+        revenue_growth_yoy=_pct(financial_growth.get("revenueGrowth")),
+        net_income_growth_yoy=_pct(financial_growth.get("netIncomeGrowth")),
         pe_ratio=pe_ratio,
         next_earnings_date=_next_earnings_date(earnings),
         total_debt=debt_metrics.total_debt,
