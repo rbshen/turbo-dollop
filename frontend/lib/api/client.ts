@@ -14,10 +14,16 @@ function formatDetail(detail: unknown): string | undefined {
   return parts.length > 0 ? parts.join("; ") : undefined;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+// Sent on every request. The backend (core/request_guard.py) rejects a write that has neither an allowed Origin nor
+// this header; a cross-site HTML form cannot set it, so it marks the request as coming from this app's own code.
+export const REQUEST_HEADER = "X-Fathom-Request";
+
+// The one place the app calls fetch (apart from this file's own tests): every request carries REQUEST_HEADER, and
+// headers a caller passes are added to it instead of replacing it.
+async function send(path: string, init?: RequestInit): Promise<Response> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...init?.headers },
     ...init,
+    headers: { "Content-Type": "application/json", [REQUEST_HEADER]: "1", ...init?.headers },
   });
   if (!res.ok) {
     // Best-effort: surface the backend's own detail message (e.g. FastAPI's
@@ -35,6 +41,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new Error(`${init?.method ?? "GET"} ${path} failed: ${res.status}${detail ? ` - ${detail}` : ""}`);
   }
+  return res;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await send(path, init);
   if (res.status === 204) {
     return undefined as T;
   }
@@ -43,6 +54,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function apiFetch<T>(path: string): Promise<T> {
   return request<T>(path);
+}
+
+// A file download (CSV, text): the response body as a Blob instead of parsed JSON.
+export async function apiFetchBlob(path: string): Promise<Blob> {
+  const res = await send(path);
+  return res.blob();
 }
 
 export function apiPost<T>(path: string, body?: unknown): Promise<T> {

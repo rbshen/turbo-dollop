@@ -51,6 +51,23 @@ to `http://localhost:8002`. Cron jobs call the DB and FMP directly and never use
 "nothing to stop" per service, exits 0). Use this from a second shell, or
 after a `start.sh` session was disconnected without a clean Ctrl-C.
 
+**Request guard and API docs (2026-10-13).** The app has no login and is reached through an SSH tunnel, so
+`core/request_guard.py` (installed in `core/main.py`) protects it from the browser side:
+
+- **Host check, every request:** the `Host` header must be `localhost`, `127.0.0.1` or `[::1]` on port `8002`
+  or `3100`, else 400 (stops DNS rebinding). `/api/health` stays public and GET-only.
+- **Cross-site check, every request except GET/HEAD/OPTIONS:** an `Origin` must be one of
+  `http://localhost:3100` / `http://127.0.0.1:3100`; a request with no `Origin` must carry a non-empty
+  `X-Fathom-Request` header (the frontend's `lib/api/client.ts` adds it to every call) and, if it has a
+  `Referer`, an allowed one. Otherwise 403.
+- **Tunnel on another local port or hostname?** Set `ALLOWED_ORIGINS` (comma-separated origins),
+  `ALLOWED_HOST_PORTS` and/or `ALLOWED_HOSTS` in the environment (or `backend/.env`). `bin/start.sh` derives the
+  ports and origins from `BACKEND_PORT` / `FRONTEND_PORT` unless they are already set.
+- **A script or curl that writes to the API** (rare; cron jobs never use the API) must send
+  `-H 'X-Fathom-Request: 1'`. A 403 from a write you expected to work is almost always this.
+- `/docs`, `/redoc` and `/openapi.json` return 404. `ENABLE_API_DOCS=true` (dev shell or `.env`, read at process
+  start) turns them back on.
+
 **Pausing the FMP subscription** (no restart, no `.env` edit): Settings > FMP data groups >
 "FMP master switch" (below the group table), or from a shell
 

@@ -67,6 +67,14 @@ class Settings(BaseSettings):
     # FastAPI's /docs, /redoc and /openapi.json are off unless this is true (ENABLE_API_DOCS=true in the dev
     # shell or .env). Read once at import, because the routes are registered when the app is built.
     enable_api_docs: bool = False
+    # Request guard (core/request_guard.py), comma-separated and re-read on every request. The app is reached at
+    # http://localhost:3100 through an SSH tunnel; bin/common.sh derives the ports and origins from BACKEND_PORT /
+    # FRONTEND_PORT, so set these only when the tunnel uses another local port or hostname.
+    # Host header: hostnames and ports the backend answers to (the browser's :3100 and the Next proxy's :8002).
+    allowed_hosts: str = "localhost,127.0.0.1,[::1]"
+    allowed_host_ports: str = "8002,3100"
+    # Origin (or Referer) a POST/PUT/PATCH/DELETE may come from.
+    allowed_origins: str = "http://localhost:3100,http://127.0.0.1:3100"
 
 
 settings = Settings()

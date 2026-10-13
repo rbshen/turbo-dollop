@@ -92,6 +92,29 @@ def _forbid_writes_to_real_db():
     event.remove(real_engine, "before_cursor_execute", _forbid_write)
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _testclient_passes_request_guard():
+    """core/request_guard.py rejects a request whose Host is not localhost/127.0.0.1/[::1] on an allowed port, and a
+    write with neither an allowed Origin nor an X-Fathom-Request header. Starlette's TestClient sends Host `testserver`
+    and no header, which would fail every write test in the suite. Default every TestClient to what the real frontend
+    sends (Host localhost:8002 through the Next proxy, the custom header); an explicit `base_url=` or `headers=` wins.
+    A test of the guard itself passes `headers={"X-Fathom-Request": ""}` (an empty value counts as absent) and/or its
+    own `base_url` to drop either default."""
+    from starlette.testclient import TestClient
+
+    original_init = TestClient.__init__
+
+    def init(self, app, base_url="http://localhost:8002", *args, headers=None, **kwargs):
+        merged = dict(headers or {})
+        if not any(key.lower() == "x-fathom-request" for key in merged):
+            merged["X-Fathom-Request"] = "1"
+        original_init(self, app, base_url, *args, headers=merged, **kwargs)
+
+    TestClient.__init__ = init
+    yield
+    TestClient.__init__ = original_init
+
+
 @pytest.fixture(autouse=True)
 def _isolate_core_db_engine(monkeypatch):
     """`core.db.init_db()` and its migration helpers (`_drop_obsolete_columns`, `_add_missing_columns`, `_seed_ticker_views`, ...)

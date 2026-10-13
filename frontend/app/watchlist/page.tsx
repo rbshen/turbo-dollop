@@ -13,6 +13,7 @@ import { EtfWatchlistTable } from "@/components/watchlist/EtfWatchlistTable";
 import { WatchlistTable } from "@/components/watchlist/WatchlistTable";
 import { DEFAULT_ETF_SORT_RULES, ETF_SORT_STORAGE_KEY_PREFIX, parseEtfSortRules, type EtfSortRule } from "@/lib/etfWatchlistSort";
 import { useEtfWatchlistRows } from "@/lib/hooks/useEtfWatchlistRows";
+import { apiFetchBlob } from "@/lib/api/client";
 import { useWatchlists } from "@/lib/hooks/useWatchlists";
 import { useWatchlistRows } from "@/lib/hooks/useWatchlistRows";
 import { ETF_WATCHLIST_NAME } from "@/lib/monitoredWatchlists";
@@ -152,11 +153,13 @@ export default function WatchlistPage() {
 
   async function handleExportThinkorswim() {
     if (!active) return;
-    // Not routed through lib/api/client.ts's apiFetch -- that helper always
-    // parses the response as JSON, but this is a CSV file download.
-    const res = await fetch(`/api/watchlists/${active.id}/export/thinkorswim`);
-    if (!res.ok) return;
-    const blob = await res.blob();
+    // A CSV file download, so the client's blob helper rather than its JSON one. A failed export stays silent.
+    let blob: Blob;
+    try {
+      blob = await apiFetchBlob(`/watchlists/${active.id}/export/thinkorswim`);
+    } catch {
+      return;
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { apiPut, errorDetail } from "@/lib/api/client";
+import { apiDelete, apiFetch, apiFetchBlob, apiPatch, apiPost, apiPut, errorDetail, REQUEST_HEADER } from "@/lib/api/client";
 
 function respond(status: number, body: unknown) {
   vi.stubGlobal(
@@ -56,5 +56,41 @@ describe("request errors", () => {
     const e = await failure(422, body);
     expect((e as Error).message).toBe("PUT /config/weinstein failed: 422");
     expect(errorDetail(e)).toBeUndefined();
+  });
+});
+
+describe("request header", () => {
+  function lastHeaders(): Record<string, string> {
+    const fetchMock = vi.mocked(fetch);
+    return (fetchMock.mock.calls[fetchMock.mock.calls.length - 1][1] as RequestInit).headers as Record<string, string>;
+  }
+
+  it("is named X-Fathom-Request (the backend's request guard reads this exact name)", () => {
+    expect(REQUEST_HEADER).toBe("X-Fathom-Request");
+  });
+
+  it.each([
+    ["GET", () => apiFetch("/x")],
+    ["POST", () => apiPost("/x")],
+    ["PUT", () => apiPut("/x", { a: 1 })],
+    ["PATCH", () => apiPatch("/x", { a: 1 })],
+    ["DELETE", () => apiDelete("/x")],
+  ])("is sent on every %s, including a body-less one", async (_method, call) => {
+    respond(200, {});
+    await call();
+    expect(lastHeaders()[REQUEST_HEADER]).toBe("1");
+  });
+
+  it("is sent by the blob download helper too, which returns the body as a Blob", async () => {
+    const blob = new Blob(["a,b"]);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, blob: async () => blob }));
+    await expect(apiFetchBlob("/watchlists/1/export/thinkorswim")).resolves.toBe(blob);
+    expect(lastHeaders()[REQUEST_HEADER]).toBe("1");
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe("/api/watchlists/1/export/thinkorswim");
+  });
+
+  it("makes the blob helper throw on a failed download", async () => {
+    respond(500, undefined);
+    await expect(apiFetchBlob("/x")).rejects.toThrow("failed: 500");
   });
 });

@@ -35,6 +35,12 @@ BACKEND_PORT="${BACKEND_PORT:-8002}"
 FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
 FRONTEND_PORT="${FRONTEND_PORT:-3100}"
 
+# The backend's request guard (backend/core/request_guard.py) answers only to these Host ports and accepts writes only
+# from these Origins. Derived from the ports above so an alternate-port run works; set ALLOWED_HOST_PORTS /
+# ALLOWED_ORIGINS / ALLOWED_HOSTS in the environment to override (e.g. the SSH tunnel uses another local port).
+export ALLOWED_HOST_PORTS="${ALLOWED_HOST_PORTS:-${BACKEND_PORT},${FRONTEND_PORT}}"
+export ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-http://localhost:${FRONTEND_PORT},http://127.0.0.1:${FRONTEND_PORT}}"
+
 BACKEND_HEALTH_URL="http://localhost:${BACKEND_PORT}/api/health"
 FRONTEND_URL="http://localhost:${FRONTEND_PORT}"
 

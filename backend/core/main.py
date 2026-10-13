@@ -29,6 +29,7 @@ from helpers.discount_rate_config import (
     update_discount_rate_config,
 )
 from core.logging_config import apply_redaction_filters
+from core.request_guard import RequestGuardMiddleware
 from data.etf_data import get_etf_overview, is_known_etf
 from data.etf_screener_data import etf_screener_meta, list_etf_screener_rows
 from data.liquidity_zone_data import get_liquidity_zone_data
@@ -226,6 +227,8 @@ def api_docs_urls(enabled: bool) -> dict[str, str | None]:
 
 
 app = FastAPI(title="Fathom", lifespan=lifespan, **api_docs_urls(settings.enable_api_docs))
+# Host check on every request, cross-site check on every write (core/request_guard.py).
+app.add_middleware(RequestGuardMiddleware)
 
 
 @app.get("/api/health")
