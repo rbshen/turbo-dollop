@@ -14,6 +14,26 @@ function formatDetail(detail: unknown): string | undefined {
   return parts.length > 0 ? parts.join("; ") : undefined;
 }
 
+/** What every failed request throws. `message` keeps the original "METHOD path failed: STATUS - detail" text (callers
+ * match on it and show `errorDetail`); `status`, `detail` and `retryAfter` (seconds, from a 429's Retry-After header)
+ * are there for the callers that branch on the outcome (the login form, the viewer's "not available" state). */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly detail?: string,
+    readonly retryAfter?: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/** The HTTP status of a failed request, or undefined for any other error. */
+export function errorStatus(e: unknown): number | undefined {
+  return e instanceof ApiError ? e.status : undefined;
+}
+
 // Sent on every request. The backend (core/request_guard.py) rejects a write that has neither an allowed Origin nor
 // this header; a cross-site HTML form cannot set it, so it marks the request as coming from this app's own code.
 export const REQUEST_HEADER = "X-Fathom-Request";
@@ -39,7 +59,13 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
     } catch {
       // Non-JSON or empty error body -- no detail to add.
     }
-    throw new Error(`${init?.method ?? "GET"} ${path} failed: ${res.status}${detail ? ` - ${detail}` : ""}`);
+    const retryAfter = Number(res.headers?.get?.("Retry-After"));
+    throw new ApiError(
+      `${init?.method ?? "GET"} ${path} failed: ${res.status}${detail ? ` - ${detail}` : ""}`,
+      res.status,
+      detail,
+      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+    );
   }
   return res;
 }
