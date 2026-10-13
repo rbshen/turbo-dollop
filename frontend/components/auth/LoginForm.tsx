@@ -10,7 +10,7 @@ import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { ApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { navigate } from "@/lib/auth/session";
+import { navigate } from "@/lib/auth/navigate";
 import { DEFAULT_AFTER_LOGIN, safeNextPath } from "@/lib/auth/safeNext";
 
 /** "about a minute" / "about N minutes" from a Retry-After in seconds; empty when the server gave none. */

@@ -12,7 +12,7 @@ const h = vi.hoisted(() => ({
   navigate: vi.fn(),
 }));
 vi.mock("@/lib/api/client", () => ({ apiFetch: h.apiFetch, apiPost: h.apiPost }));
-vi.mock("@/lib/auth/session", async (orig) => ({ ...(await orig<typeof import("@/lib/auth/session")>()), navigate: h.navigate }));
+vi.mock("@/lib/auth/navigate", () => ({ navigate: h.navigate }));
 
 const seen = { auth: null as unknown as AuthState };
 function Probe() {

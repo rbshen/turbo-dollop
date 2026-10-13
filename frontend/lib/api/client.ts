@@ -1,3 +1,5 @@
+import { redirectToLogin } from "@/lib/auth/session";
+
 const BASE = "/api";
 
 // FastAPI returns a string `detail` for an HTTPException and, for a request
@@ -34,6 +36,12 @@ export function errorStatus(e: unknown): number | undefined {
   return e instanceof ApiError ? e.status : undefined;
 }
 
+/** The line a 403 shows in place of the backend's "Admin access required": what it means for the person looking at it. */
+export const ADMIN_REQUIRED_MESSAGE = "Admin access required — this account is view-only.";
+
+// A 401 on these is an answer, not a lost session: a wrong password, and a sign-out of a session that is already gone.
+const NO_LOGIN_REDIRECT = new Set(["/auth/login", "/auth/logout"]);
+
 // Sent on every request. The backend (core/request_guard.py) rejects a write that has neither an allowed Origin nor
 // this header; a cross-site HTML form cannot set it, so it marks the request as coming from this app's own code.
 export const REQUEST_HEADER = "X-Fathom-Request";
@@ -45,6 +53,11 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
     ...init,
     headers: { "Content-Type": "application/json", [REQUEST_HEADER]: "1", ...init?.headers },
   });
+  if (res.status === 401 && !NO_LOGIN_REDIRECT.has(path) && redirectToLogin()) {
+    // The session is gone and the page is being replaced by /login: settle nothing, so no caller shows an error (or a
+    // toast) for a request whose page is about to disappear.
+    return new Promise<never>(() => {});
+  }
   if (!res.ok) {
     // Best-effort: surface the backend's own detail message (e.g. FastAPI's
     // HTTPException body) so callers can show real validation feedback
@@ -59,6 +72,8 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
     } catch {
       // Non-JSON or empty error body -- no detail to add.
     }
+    // A viewer's write or admin-only read: say what it means, not the backend's bare "Admin access required".
+    if (res.status === 403 && detail === "Admin access required") detail = ADMIN_REQUIRED_MESSAGE;
     const retryAfter = Number(res.headers?.get?.("Retry-After"));
     throw new ApiError(
       `${init?.method ?? "GET"} ${path} failed: ${res.status}${detail ? ` - ${detail}` : ""}`,

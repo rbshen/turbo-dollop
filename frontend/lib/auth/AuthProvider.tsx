@@ -4,7 +4,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { useSWRConfig } from "swr";
 
 import { apiFetch, apiPost } from "@/lib/api/client";
-import { clearClientCache, navigate } from "@/lib/auth/session";
+import { navigate } from "@/lib/auth/navigate";
+import { clearClientCache } from "@/lib/auth/session";
 
 export type Role = "admin" | "viewer";
 

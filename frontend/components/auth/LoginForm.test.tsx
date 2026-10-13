@@ -8,7 +8,7 @@ import { TestAuth } from "@/lib/auth/testAuth";
 
 const h = vi.hoisted(() => ({ next: null as string | null, navigate: vi.fn() }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(h.next === null ? {} : { next: h.next }) }));
-vi.mock("@/lib/auth/session", async (orig) => ({ ...(await orig<typeof import("@/lib/auth/session")>()), navigate: h.navigate }));
+vi.mock("@/lib/auth/navigate", () => ({ navigate: h.navigate }));
 
 afterEach(cleanup);
 beforeEach(() => {
