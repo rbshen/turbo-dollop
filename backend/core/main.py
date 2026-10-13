@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Literal
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Path, Query
 from fastapi.responses import Response
 from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
@@ -129,6 +129,7 @@ from core.schemas import (
     ReitDividendYieldConfigOut,
     ScoreWeightsOut,
     SavedFilterKind,
+    MAX_SAVED_VIEW_NAME,
     SavedScreenerFilterIn,
     SavedScreenerFilterOut,
     ScreenerMeta,
@@ -223,6 +224,9 @@ def _validated_ticker_path(ticker: str) -> str:
 
 
 TickerPath = Annotated[str, Depends(_validated_ticker_path)]
+
+# A saved Screener view's name in the URL: 1 to MAX_SAVED_VIEW_NAME characters (docs/specs/overview.md, "Input size caps").
+SavedViewNamePath = Annotated[str, Path(min_length=1, max_length=MAX_SAVED_VIEW_NAME)]
 
 
 @asynccontextmanager
@@ -544,7 +548,7 @@ def update_weinstein(body: WeinsteinConfigIn) -> WeinsteinConfigOut:
 # watchlisted set (deliberately broader, see the ticker-search UX
 # investigation).
 @app.get("/api/tickers/search", response_model=list[TickerSearchResult])
-async def ticker_search(q: str = "") -> list[TickerSearchResult]:
+async def ticker_search(q: Annotated[str, Query(max_length=100)] = "") -> list[TickerSearchResult]:
     try:
         return await search_tickers(q)
     except httpx.HTTPError as exc:
@@ -834,7 +838,7 @@ async def ticker_trend_analysis(ticker: TickerPath) -> TrendAnalysisOut | None:
 
 
 @app.get("/api/tickers/{ticker}/entry-signal", response_model=TechnicalEntrySignalOut | None)
-async def ticker_entry_signal(ticker: TickerPath, signal_type: str = "bb_rsi") -> TechnicalEntrySignalOut | None:
+async def ticker_entry_signal(ticker: TickerPath, signal_type: Annotated[str, Query(max_length=32)] = "bb_rsi") -> TechnicalEntrySignalOut | None:
     # Cache-only, same as get_trend_analysis_data's degrade-to-null
     # convention -- but there's no live-fetch fallback path here at all
     # (see data/entry_signal_data.py's own docstring): this signal only
@@ -888,7 +892,9 @@ async def ticker_financials(ticker: TickerPath) -> FinancialsOut:
 
 
 @app.get("/api/tickers/{ticker}/financials/cash-flow-cell-check", response_model=SecCrossCheck)
-async def ticker_financials_cash_flow_cell_check(ticker: TickerPath, field: str, period_end: str) -> SecCrossCheck:
+async def ticker_financials_cash_flow_cell_check(
+    ticker: TickerPath, field: Annotated[str, Query(max_length=64)], period_end: Annotated[str, Query(max_length=32)]
+) -> SecCrossCheck:
     """Phase 3a (2026-08-16): on-demand SEC EDGAR cross-check for a single
     zero/blank Financials-tab cell -- see get_cash_flow_cell_sec_check's own
     docstring for why this is scoped to exactly two fields (incomeTaxesPaid,
@@ -1246,7 +1252,7 @@ def screener_filters_list(kind: SavedFilterKind = "stock") -> list[SavedScreener
 
 
 @app.put("/api/screener/filters/{name}", response_model=SavedScreenerFilterOut)
-def screener_filters_upsert(name: str, body: SavedScreenerFilterIn, kind: SavedFilterKind = "stock") -> SavedScreenerFilterOut:
+def screener_filters_upsert(name: SavedViewNamePath, body: SavedScreenerFilterIn, kind: SavedFilterKind = "stock") -> SavedScreenerFilterOut:
     with Session(engine) as session:
         row = upsert_saved_filter(
             session,
@@ -1262,7 +1268,7 @@ def screener_filters_upsert(name: str, body: SavedScreenerFilterIn, kind: SavedF
 
 
 @app.delete("/api/screener/filters/{name}", status_code=204)
-def screener_filters_delete(name: str, kind: SavedFilterKind = "stock") -> None:
+def screener_filters_delete(name: SavedViewNamePath, kind: SavedFilterKind = "stock") -> None:
     with Session(engine) as session:
         deleted = delete_saved_filter(session, name, kind)
     if not deleted:
@@ -1486,7 +1492,7 @@ def _slugify_watchlist_name(name: str) -> str:
 
 
 @app.get("/api/watchlists/export-data", response_model=list[WatchlistExportListOut])
-async def watchlists_export_data(ids: Annotated[list[int], Query(min_length=1)]) -> list[WatchlistExportListOut]:
+async def watchlists_export_data(ids: Annotated[list[int], Query(min_length=1, max_length=100)]) -> list[WatchlistExportListOut]:
     """The multi-list export's data (docs/specs/watchlist-export.md): per requested list, in the order asked, its tickers in
     added order with the cached profile's exchange and sector. Stored data only (data/watchlist_data.py::get_export_tickers):
     no score computation, no FMP call, no write. An unknown id is a 404 naming it, and nothing partial is returned."""

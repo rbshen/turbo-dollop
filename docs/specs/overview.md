@@ -366,3 +366,10 @@ grandfather backfill). A ticker that was only opened (browsed), or idle past 30 
 with no view record; its row and data stay until the wipe. There is no hidden count (`ScreenerMeta.hidden_inactive` was removed with the
 flip): the "X of Y" note counts the universe. The header chip recomputes a row older than 36 hours. Saved views store filters, not results,
 and simply show fewer rows. The sp500/dow/nasdaq universes are unchanged. The Watchlist is unaffected (it computes its rows on demand).
+
+## Input validation and size caps (2026-10-13)
+
+API boundary hardening (docs/decisions.md, 2026-10-13). None of it changes a valid request.
+
+- **Ticker shape.** One validator, `core/tickers.py::is_valid_ticker`: ASCII letters/digits, `.` and `-` after the first character, one optional leading `^`, 1-12 characters in all, checked on the normalized form (case and the BRK.B/BF.B aliases behave as `normalize_ticker` makes them) and never rewriting it. Applied to every `{ticker}` route (`main.py::TickerPath`; `tests/test_ticker_validation.py` fails for a route that lacks it), `WatchlistTickerIn`, each item of `WatchlistBulkAddIn` (one bad item rejects the whole request, 422, like the ETF-only and capacity checks) and the Weinstein benchmark. A bad symbol is `422 {"detail": "Invalid ticker symbol"}`. `pipeline/moat_check_prepare.py::TICKER_PATTERN` is a separate, stricter pattern for the Moat check and is unchanged.
+- **Size caps** (all above what the data holds today): saved-view name 1-100 (current longest 21) and watchlist name 1-100, bulk add at most 200 tickers (largest list 30, cap 100), saved-view `filters` at most 20,000 bytes serialised / depth 6 / 100 top-level keys (current largest 678 bytes / depth 2 / 20 keys), `universe`, `sort_field`, `sort_direction`, custom-valuation `method`, data-group plan/tier and discount-rate `region` at most 64 characters, the bank-metric as-of dates 32, search `q` 100, `signal_type` 32, export-data `ids` at most 100. The 100-ticker watchlist cap is unchanged.

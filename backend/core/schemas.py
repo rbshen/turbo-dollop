@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
@@ -7,6 +8,34 @@ from core.tickers import require_valid_ticker
 
 # A ticker symbol coming from a request body: validated, never rewritten (handlers still call normalize_ticker).
 TickerSymbol = Annotated[str, AfterValidator(require_valid_ticker)]
+
+# Request-body size caps (docs/specs/overview.md, "Input size caps"). Each is far above what the app stores or sends today.
+ShortText = Annotated[str, StringConstraints(max_length=64)]  # an enum-like key or sort field (current longest: 13)
+DateText = Annotated[str, StringConstraints(max_length=32)]  # an as-of date string
+MAX_BULK_TICKERS = 200  # one bulk add; a watchlist holds 100 (WATCHLIST_CAPACITY) and the largest today is 30
+MAX_SAVED_VIEW_NAME = 100  # same bound as a watchlist name (current longest: 21)
+MAX_FILTERS_JSON_BYTES = 20_000  # serialised SavedScreenerFilterIn.filters (current largest: 678)
+MAX_FILTERS_DEPTH = 6  # nesting levels of lists and objects (current deepest: 2)
+MAX_FILTERS_KEYS = 100  # top-level keys (current most: 20)
+
+
+def _json_depth(value: Any) -> int:
+    """Nesting depth of lists and dicts, computed with a stack so a hostile document cannot overflow the recursion limit."""
+    deepest = 0
+    stack: list[tuple[Any, int]] = [(value, 0)]
+    while stack:
+        node, depth = stack.pop()
+        if isinstance(node, dict):
+            children = list(node.values())
+        elif isinstance(node, list):
+            children = node
+        else:
+            continue
+        deepest = max(deepest, depth + 1)
+        if deepest > MAX_FILTERS_DEPTH:
+            return deepest
+        stack.extend((child, depth + 1) for child in children)
+    return deepest
 
 
 class SecCrossCheck(BaseModel):
@@ -778,7 +807,7 @@ class Step3ManualRequest(Step3ManualParams):
     """Manual Calculation's what-if request -- see Step3ManualParams for
     the shared parameter fields."""
 
-    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | CF_NORMALIZED | FCF_NORMALIZED | PRICE_TO_BOOK | PRICE_TO_BOOK_STANDARD | PSG
+    method: ShortText  # DCF | DFCF | DNI | DNI_NORMALIZED | CF_NORMALIZED | FCF_NORMALIZED | PRICE_TO_BOOK | PRICE_TO_BOOK_STANDARD | PSG
     # Supplied by the caller (already available from the live Auto
     # Calculation fetch) rather than re-fetched server-side.
     last_close: float | None = None
@@ -800,7 +829,7 @@ class TickerCustomValuationIn(Step3ManualParams):
     live, never saved) plus `method`. See models.py::TickerCustomValuation
     and data/custom_valuation_data.py."""
 
-    method: str  # DCF | DFCF | DNI | DNI_NORMALIZED | CF_NORMALIZED | FCF_NORMALIZED | PRICE_TO_BOOK | PRICE_TO_BOOK_STANDARD | PSG
+    method: ShortText  # DCF | DFCF | DNI | DNI_NORMALIZED | CF_NORMALIZED | FCF_NORMALIZED | PRICE_TO_BOOK | PRICE_TO_BOOK_STANDARD | PSG
 
 
 class TickerCustomValuationOut(Step3ManualParams):
@@ -866,7 +895,7 @@ class DataGroupsOut(BaseModel):
 
 class DataGroupUpdateIn(BaseModel):
     enabled: bool | None = None
-    required_tier: str | None = None
+    required_tier: ShortText | None = None
 
 
 class DataGroupMasterIn(BaseModel):
@@ -874,7 +903,7 @@ class DataGroupMasterIn(BaseModel):
 
 
 class DataGroupPlanIn(BaseModel):
-    fmp_plan: str
+    fmp_plan: ShortText
 
 
 class CronRunOut(BaseModel):
@@ -952,7 +981,7 @@ class DiscountRateConfigIn(BaseModel):
     # updating now that this isn't US-only. The single-region GET/PUT below
     # still default region to US_REGION at the query-param level for the
     # common case; this body field is what the update itself actually acts on.
-    region: str
+    region: ShortText
     risk_free_rate: float
     market_risk_premium: float
 
@@ -1068,9 +1097,9 @@ class TickerBankCapitalMetricsIn(BaseModel):
     # optional (unlike TickerMoatIn's required `moat`) since a user may set
     # only CET1 and leave NPL on auto, or only override NPL.
     cet1_ratio_pct: float | None = None
-    cet1_as_of: str | None = None
+    cet1_as_of: DateText | None = None
     npl_ratio_pct: float | None = None
-    npl_as_of: str | None = None
+    npl_as_of: DateText | None = None
 
 
 class MoatScoreConfigOut(BaseModel):
@@ -1294,13 +1323,28 @@ SavedFilterKind = Literal["stock", "etf"]
 
 
 class SavedScreenerFilterIn(BaseModel):
-    universe: str
-    sort_field: str
-    sort_direction: str
+    universe: ShortText
+    sort_field: ShortText
+    sort_direction: ShortText
     filters: dict
     # Which watchlist (if any) was selected as the Screener's base universe
     # when this view was saved -- see SavedScreenerFilter.watchlist_id.
     watchlist_id: int | None = None
+
+    @field_validator("filters")
+    @classmethod
+    def _filters_are_bounded(cls, value: dict) -> dict:
+        if len(value) > MAX_FILTERS_KEYS:
+            raise ValueError("Saved view filters are too large")
+        if _json_depth(value) > MAX_FILTERS_DEPTH:
+            raise ValueError("Saved view filters are nested too deeply")
+        try:
+            size = len(json.dumps(value))
+        except (TypeError, ValueError):
+            raise ValueError("Saved view filters must be plain JSON") from None
+        if size > MAX_FILTERS_JSON_BYTES:
+            raise ValueError("Saved view filters are too large")
+        return value
 
 
 class SavedScreenerFilterOut(BaseModel):
@@ -1368,8 +1412,8 @@ class WatchlistUpdateIn(BaseModel):
     # All optional -- PUT /api/watchlists/{id} is a partial update (rename
     # and/or sort preference), not a full-replace.
     name: WatchlistName | None = None
-    sort_field: str | None = None
-    sort_direction: str | None = None
+    sort_field: ShortText | None = None
+    sort_direction: ShortText | None = None
 
 
 class WeinsteinParamsOut(BaseModel):
@@ -1988,7 +2032,7 @@ class WatchlistTickerIn(BaseModel):
 
 class WatchlistBulkAddIn(BaseModel):
     # One invalid symbol rejects the whole request (422), like the ETF-only and capacity checks: no partial fill.
-    tickers: list[TickerSymbol]
+    tickers: list[TickerSymbol] = Field(max_length=MAX_BULK_TICKERS)
     opportunity_run_id: int | None = None  # see WatchlistTickerIn
 
 
