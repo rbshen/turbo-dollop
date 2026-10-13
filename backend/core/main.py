@@ -29,7 +29,9 @@ from helpers.discount_rate_config import (
     list_discount_rate_configs,
     update_discount_rate_config,
 )
-from core.auth_routes import router as auth_router
+from core.audit import AuditMiddleware
+from core.auth import authorize
+from core.auth_routes import register_auth_routes
 from core.logging_config import apply_redaction_filters
 from core.request_guard import RequestGuardMiddleware
 from data.export_safety import thinkorswim_csv
@@ -252,10 +254,14 @@ def api_docs_urls(enabled: bool) -> dict[str, str | None]:
     return {"docs_url": None, "redoc_url": None, "openapi_url": None}
 
 
-app = FastAPI(title="Fathom", lifespan=lifespan, **api_docs_urls(settings.enable_api_docs))
+# Every route needs a signed-in session unless core/route_roles.py declares it public, and an admin-only route needs an admin
+# (core/auth.py::authorize). The guard middleware below runs first, so a bad Host or a cross-site write is refused before any login check.
+app = FastAPI(title="Fathom", lifespan=lifespan, dependencies=[Depends(authorize)], **api_docs_urls(settings.enable_api_docs))
 # Host check on every request, cross-site check on every write (core/request_guard.py).
 app.add_middleware(RequestGuardMiddleware)
-app.include_router(auth_router)
+# Outermost: records every non-GET outcome after the response is decided, guard refusals included (core/audit.py).
+app.add_middleware(AuditMiddleware)
+register_auth_routes(app)
 
 
 @app.get("/api/health")

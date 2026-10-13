@@ -22,6 +22,7 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests", "scoring", "analysis"]
+markers = ["auth(role): the identity the default TestClient signs in as -- \"admin\" (default), \"viewer\" or \"anonymous\" (tests/conftest.py)"]
 
 [tool.uv]
 package = false

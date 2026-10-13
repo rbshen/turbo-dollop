@@ -13,6 +13,8 @@ from core.models import AuditLog, User, UserSession
 
 PW = "correct horse battery"
 
+pytestmark = pytest.mark.auth("anonymous")  # these tests start from an empty auth database and sign in themselves
+
 
 @pytest.fixture()
 def client():

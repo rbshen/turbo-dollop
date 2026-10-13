@@ -7,16 +7,13 @@ cookie (204). Both write their own audit rows (events login_ok / login_fail / lo
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 import core.auth as auth
 from core.audit import write_audit
 from core.config import settings
-
-router = APIRouter()
-
 
 class LoginIn(BaseModel):
     username: str = Field(max_length=auth.MAX_USERNAME_LENGTH)
@@ -36,7 +33,6 @@ def _cookie_args() -> dict:
     return {"httponly": True, "samesite": "lax", "secure": settings.session_cookie_secure, "path": "/"}
 
 
-@router.post("/api/auth/login", response_model=MeOut)
 def login(body: LoginIn, request: Request, response: Response) -> MeOut:
     ip, agent = client_ip(request), request.headers.get("user-agent")
     audit = {"method": "POST", "path": "/api/auth/login", "ip": ip}
@@ -56,7 +52,6 @@ def login(body: LoginIn, request: Request, response: Response) -> MeOut:
     return MeOut(username=user.username, role=user.role)
 
 
-@router.post("/api/auth/logout", status_code=204)
 def logout(request: Request, response: Response, principal: Annotated[auth.Principal | None, Depends(auth.authorize)]) -> None:
     with Session(auth.engine) as session:
         auth.delete_session(session, auth.session_token(request))
@@ -67,8 +62,15 @@ def logout(request: Request, response: Response, principal: Annotated[auth.Princ
     )
 
 
-@router.get("/api/auth/me", response_model=MeOut)
 def me(principal: Annotated[auth.Principal | None, Depends(auth.authorize)]) -> MeOut:
     if principal is None:  # unreachable: the route is "viewer" in core/route_roles.py, so authorize answered 401
         raise HTTPException(status_code=401, detail="Not authenticated")
     return MeOut(username=principal.username, role=principal.role)
+
+
+def register_auth_routes(app: FastAPI) -> None:
+    """Adds the three routes straight onto `app` (not through include_router, so they are plain APIRoutes in `app.routes` like every
+    other route and the route-role registry test sees them the same way)."""
+    app.add_api_route("/api/auth/login", login, methods=["POST"], response_model=MeOut)
+    app.add_api_route("/api/auth/logout", logout, methods=["POST"], status_code=204)
+    app.add_api_route("/api/auth/me", me, methods=["GET"], response_model=MeOut)

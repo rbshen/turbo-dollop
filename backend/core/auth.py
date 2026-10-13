@@ -374,7 +374,7 @@ def authorize(request: Request) -> Principal | None:
     principal = resolve_session(session_token(request))
     if principal is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    request.scope[PRINCIPAL_SCOPE_KEY] = principal  # before the role check, so the audit row of a 403 still names who tried
     if role != "viewer" and not principal.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
-    request.scope[PRINCIPAL_SCOPE_KEY] = principal
     return principal

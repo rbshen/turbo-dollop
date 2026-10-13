@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.pool import StaticPool
-from sqlmodel import SQLModel
+from sqlmodel import Session, SQLModel
 
 import core.data_source_health as data_source_health
 import data.ticker_summary as ticker_summary
@@ -92,6 +92,37 @@ def _forbid_writes_to_real_db():
     event.remove(real_engine, "before_cursor_execute", _forbid_write)
 
 
+AUTH_PASSWORD = "correct horse battery"
+AUTH_COOKIE_NAME = "fathom_session"
+_identity: dict = {"engine": None, "role": "admin", "tokens": {}}
+
+
+def _default_session_token() -> str | None:
+    """The session cookie the next TestClient is created with: an admin's by default, a viewer's under `@pytest.mark.auth("viewer")`,
+    none under `@pytest.mark.auth("anonymous")`. Users and sessions are created lazily, on the first TestClient of the test, in that
+    test's own auth database (so a test of the auth tables themselves, marked anonymous, starts from an empty one)."""
+    role, engine = _identity["role"], _identity["engine"]
+    if role == "anonymous" or engine is None:
+        return None
+    if role not in _identity["tokens"]:
+        import core.auth as auth
+
+        with Session(engine) as session:
+            user = auth.create_user(session, f"test-{role}", AUTH_PASSWORD, role)
+            _identity["tokens"][role] = auth.create_session(session, user, "testclient", "pytest")[0]
+    return _identity["tokens"][role]
+
+
+def session_token_for(role: str) -> str:
+    """A valid session cookie value for a `role` user of this test's auth database (created on first use)."""
+    previous = _identity["role"]
+    _identity["role"] = role
+    try:
+        return _default_session_token()
+    finally:
+        _identity["role"] = previous
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _testclient_passes_request_guard():
     """core/request_guard.py rejects a request whose Host is not localhost/127.0.0.1/[::1] on an allowed port, and a
@@ -104,11 +135,15 @@ def _testclient_passes_request_guard():
 
     original_init = TestClient.__init__
 
-    def init(self, app, base_url="http://localhost:8002", *args, headers=None, **kwargs):
+    def init(self, app, base_url="http://localhost:8002", *args, headers=None, cookies=None, **kwargs):
         merged = dict(headers or {})
         if not any(key.lower() == "x-fathom-request" for key in merged):
             merged["X-Fathom-Request"] = "1"
-        original_init(self, app, base_url, *args, headers=merged, **kwargs)
+        original_init(self, app, base_url, *args, headers=merged, cookies=cookies, **kwargs)
+        # Signed in as the test's default identity (see _test_identity below) unless the test passed its own cookies.
+        token = _default_session_token() if cookies is None else None
+        if token is not None:
+            self.cookies.set(AUTH_COOKIE_NAME, token)
 
     TestClient.__init__ = init
     yield
@@ -348,7 +383,7 @@ def _default_flags_enabled(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _isolate_auth_engine(monkeypatch):
+def _isolate_auth_engine(monkeypatch, request):
     """core.auth (accounts, sessions, throttle) and core.audit read their own `engine` reference, like every other module here, so
     every test gets a fresh in-memory database holding only the three auth tables and the real file is never opened for a
     login or an audit row (the write guard above would fail the run). scrypt is lowered to a few microseconds for the same
@@ -366,5 +401,26 @@ def _isolate_auth_engine(monkeypatch):
     monkeypatch.setattr(passwords, "SCRYPT_P", 1)
     monkeypatch.setattr(passwords, "_dummy_hash", None)
     auth.throttle.reset()
+    _identity.update(engine=test_engine, tokens={}, role="admin")
+    mark = request.node.get_closest_marker("auth")
+    if mark is not None:
+        _identity["role"] = mark.args[0]  # "admin" (default), "viewer" or "anonymous"
     yield test_engine
     auth.throttle.reset()
+    _identity.update(engine=None, tokens={}, role="admin")
+
+
+@pytest.fixture
+def client_for():
+    """`client_for("admin" | "viewer" | "anonymous")` -> a TestClient signed in as that role regardless of the test's default identity
+    (for one test that needs two roles side by side). Each call returns a fresh client."""
+    import core.main as main
+    from starlette.testclient import TestClient
+
+    def make(role: str) -> "TestClient":
+        client = TestClient(main.app, cookies={})  # explicit cookies: the default identity is not applied
+        if role != "anonymous":
+            client.cookies.set(AUTH_COOKIE_NAME, session_token_for(role))
+        return client
+
+    return make
