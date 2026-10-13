@@ -57,7 +57,7 @@ function ChartContainer({
   }
 }) {
   const uniqueId = React.useId()
-  const chartId = `chart-${id ?? uniqueId.replace(/:/g, "")}`
+  const chartId = chartDomId(`chart-${id ?? uniqueId.replace(/:/g, "")}`)
 
   return (
     <ChartContext.Provider value={{ config }}>
@@ -81,37 +81,71 @@ function ChartContainer({
   )
 }
 
-const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
-  const colorConfig = Object.entries(config).filter(
-    ([, config]) => config.theme ?? config.color
-  )
+/**
+ * A string safe to use as a CSS custom-property name part and as an unquoted attribute value: only [A-Za-z0-9_-].
+ * Series keys come from raw FMP segment names ("Data Center}", "a;b", `x"y`, "</style>"), and they end up inside a
+ * generated <style> element, so any other character is escaped as `_<hex code point>_`. The underscore itself is
+ * escaped too, which makes the mapping injective: two different names can never become the same key, so no series
+ * can shadow another's colour. An empty name maps to "_" (an escape always has a hex part, so "_" is unused).
+ */
+export function chartCssKey(name: string): string {
+  if (name === "") return "_"
+  let out = ""
+  for (const ch of name) {
+    out += /[A-Za-z0-9-]/.test(ch) ? ch : `_${ch.codePointAt(0)!.toString(16)}_`
+  }
+  return out
+}
 
-  if (!colorConfig.length) {
+// The chart's own id (a developer-supplied prop or React's useId) goes into an attribute value and an unquoted attribute selector.
+// Idempotent on purpose (the container sanitises it for the attribute, the style builder again for the selector, and both must agree);
+// ids are not FMP data, so a lossy mapping is fine here, unlike the series keys above.
+export function chartDomId(id: string): string {
+  return id.replace(/[^A-Za-z0-9_-]/g, "_")
+}
+
+// A colour is written into the style text as given (var(), oklch(), #hex, ...), so anything that could end the
+// declaration, the rule, the element or a string is refused: the variable is then simply not emitted.
+const UNSAFE_CSS_VALUE = /[;{}<>"'\\\u0000-\u001f]/
+
+/** The CSS for one chart's colour variables, or "" when no series has a (safe) colour. Pure; `ChartStyle` renders it. */
+export function buildChartCss(id: string, config: ChartConfig): string {
+  const colorConfig = Object.entries(config).filter(
+    ([, itemConfig]) => itemConfig.theme ?? itemConfig.color
+  )
+  if (!colorConfig.length) return ""
+  const chartId = chartDomId(id)
+
+  return Object.entries(THEMES)
+    .map(([theme, prefix]) => {
+      const lines = colorConfig
+        .map(([key, itemConfig]) => {
+          const color =
+            itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ??
+            itemConfig.color
+          return color && !UNSAFE_CSS_VALUE.test(color)
+            ? `  --color-${chartCssKey(key)}: ${color};`
+            : null
+        })
+        .filter((line): line is string => line !== null)
+        .join("\n")
+      return `
+${prefix} [data-chart=${chartId}] {
+${lines}
+}
+`
+    })
+    .join("\n")
+}
+
+const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
+  const css = buildChartCss(id, config)
+
+  if (!css) {
     return null
   }
 
-  return (
-    <style
-      dangerouslySetInnerHTML={{
-        __html: Object.entries(THEMES)
-          .map(
-            ([theme, prefix]) => `
-${prefix} [data-chart=${id}] {
-${colorConfig
-  .map(([key, itemConfig]) => {
-    const color =
-      itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ??
-      itemConfig.color
-    return color ? `  --color-${key}: ${color};` : null
-  })
-  .join("\n")}
-}
-`
-          )
-          .join("\n"),
-      }}
-    />
-  )
+  return <style dangerouslySetInnerHTML={{ __html: css }} />
 }
 
 const ChartTooltip = RechartsPrimitive.Tooltip
