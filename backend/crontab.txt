@@ -6,6 +6,17 @@
 # in the scripts themselves needs touching for a schedule change.
 
 # ---------------------------------------------------------------------------
+# Overlap protection (2026-10-13). Every command below runs under `flock -n -E 99` on its own
+# lock file in backend/logs/locks/ (one file per job, created on first use; `mkdir -p` makes the
+# directory, so a fresh checkout works). A run that starts while the previous run of the SAME job
+# still holds the lock does not start: it appends ONE line to the job's own log ("<date> skipped
+# <job>: the previous run is still going") and exits. Exit code 99 is flock's "lock busy" code
+# (-E 99), so a job that fails on its own is not mistaken for a skip. The job itself is untouched;
+# the lock is released when it exits, however it ends. A skipped run writes no CronRunLog row, so
+# the Scheduled jobs page shows that night's run as missing until the next one. Different jobs never
+# block each other. `flock` is /usr/bin/flock (util-linux). `%` is `\%` because cron turns a bare `%`
+# into a newline.
+# ---------------------------------------------------------------------------
 # Nightly chain (server time = UTC): technical jobs 1:00-1:40 AM, fundamentals 2:00 AM,
 # then sector/industry P/E 3:05, price-target 3:10, score recompute 3:25, backup 3:30. Schedule history: technical
 # jobs 2:00-2:40 -> 12:00-12:40 on 2026-10-01 -> 1:00-1:40 on 2026-10-02, and fundamentals
@@ -37,7 +48,7 @@
 # when the live FMP quote is unavailable. Independent of the shared bars cache,
 # so it has no ordering constraint and goes first. Skipped (a real `skipped` cron
 # status) while `daily_prices` is off. See pipeline/nightly_last_close_snapshot.py.
-0 1 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_last_close_snapshot >> /home/shen/fathom/backend/logs/nightly_last_close_snapshot_cron.log 2>&1
+0 1 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_last_close_snapshot.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_last_close_snapshot >> /home/shen/fathom/backend/logs/nightly_last_close_snapshot_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_last_close_snapshot: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_last_close_snapshot_cron.log
 
 # 1:05 Weinstein stage calculation + daily-bar cache fill (the job's "trend" name is
 # historical; the swing/BOS trend-structure calculation was removed).
@@ -45,14 +56,14 @@
 # is the ONLY job that fills the daily-bar cache -- LP, Sector and Breadth below
 # read it warm. 10-minute window (typical 1-3 min, max seen ~6 min). Reports a
 # real `skipped` status while daily_prices is off. See pipeline/nightly_trend_calculation.py.
-5 1 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_trend_calculation >> /home/shen/fathom/backend/logs/nightly_trend_calculation_cron.log 2>&1
+5 1 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_trend_calculation.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_trend_calculation >> /home/shen/fathom/backend/logs/nightly_trend_calculation_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_trend_calculation: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_trend_calculation_cron.log
 
 # 1:15 Liquidity Zone (LP, support/resistance) detection recompute. Scoped to the
 # monitored-watchlist union only (E<number> and ETF lists). Reads daily bars through the
 # shared bars cache (the same "1d" rows the 1:05 bar-cache job fills; skipped while
 # daily_prices is off). ~10s.
 # See pipeline/nightly_liquidity_zone_calculation.py.
-15 1 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_liquidity_zone_calculation >> /home/shen/fathom/backend/logs/nightly_liquidity_zone_calculation_cron.log 2>&1
+15 1 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_liquidity_zone_calculation.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_liquidity_zone_calculation >> /home/shen/fathom/backend/logs/nightly_liquidity_zone_calculation_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_liquidity_zone_calculation: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_liquidity_zone_calculation_cron.log
 
 # 1:20 BB+RSI (2h) technical entry-signal calculation. Scoped to the monitored
 # watchlist union (E<number> and ETF lists). Reads FMP 60m bars (data group
@@ -61,18 +72,18 @@
 # two jobs runs first does the night's one incremental fetch and the other reads it back (the order
 # changes who pays that fetch, never the result). 5-minute
 # window (typical 10-40s, max seen ~130s). See pipeline/nightly_entry_signal_calculation.py.
-20 1 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_entry_signal_calculation >> /home/shen/fathom/backend/logs/nightly_entry_signal_calculation_cron.log 2>&1
+20 1 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_entry_signal_calculation.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_entry_signal_calculation >> /home/shen/fathom/backend/logs/nightly_entry_signal_calculation_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_entry_signal_calculation: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_entry_signal_calculation_cron.log
 
 # 1:25 Warren RSI/ADX/WVF (2h) entry-signal calculation. Same monitored-watchlist scoping, but
 # a full 2-year lookback and a whole state-machine replay each run. Observed
 # ~100s; theoretical worst case (500 tickers) ~9 min, hence the 10-minute window.
 # See pipeline/nightly_warren_signal_calculation.py and docs/specs/warren-signal.md.
-25 1 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_warren_signal_calculation >> /home/shen/fathom/backend/logs/nightly_warren_signal_calculation_cron.log 2>&1
+25 1 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_warren_signal_calculation.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_warren_signal_calculation >> /home/shen/fathom/backend/logs/nightly_warren_signal_calculation_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_warren_signal_calculation: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_warren_signal_calculation_cron.log
 
 # 1:35 Sector ETF heatmap recompute (11 SPDR sector ETFs x 7 trailing total-return
 # windows). One shared-bars-cache batch of 11 tickers (~4s; skipped while
 # daily_prices is off). See pipeline/nightly_sector_heatmap.py.
-35 1 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_sector_heatmap >> /home/shen/fathom/backend/logs/nightly_sector_heatmap_cron.log 2>&1
+35 1 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_sector_heatmap.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_sector_heatmap >> /home/shen/fathom/backend/logs/nightly_sector_heatmap_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_sector_heatmap: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_sector_heatmap_cron.log
 
 # 1:40 Market-breadth recompute (S&P 500: % above 50-/200-day SMA, net new 52-week
 # highs minus lows). AFTER the 1:05 bar-cache job, which fetches all 503 constituents'
@@ -81,7 +92,7 @@
 # self-heals with one live ~503-request batch (~30s-5min). Skipped while
 # daily_prices is off. Raises (heartbeat failure) rather than saving a row when
 # <97% of constituents have a bar. See pipeline/nightly_market_breadth.py.
-40 1 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_market_breadth >> /home/shen/fathom/backend/logs/nightly_market_breadth_cron.log 2>&1
+40 1 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_market_breadth.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_market_breadth >> /home/shen/fathom/backend/logs/nightly_market_breadth_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_market_breadth: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_market_breadth_cron.log
 
 # 1:45 ETFs screener refresh (registered 2026-10-03, step 6 of the ETFs screener build): one
 # EtfScreenerRow per ETF in data/tracked_universe.py::load_etf_universe (~19 ETFs; fund facts
@@ -92,7 +103,7 @@
 # before the planned 1:50 corporate-events slot. Skipped (a real `skipped` status) while
 # `daily_prices` is off. Does NOT yet replace the stock-side jobs' handling of ETFs (step 7).
 # See pipeline/nightly_etf_screener.py and docs/specs/etf-screener.md.
-45 1 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_etf_screener >> /home/shen/fathom/backend/logs/nightly_etf_screener_cron.log 2>&1
+45 1 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_etf_screener.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_etf_screener >> /home/shen/fathom/backend/logs/nightly_etf_screener_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_etf_screener: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_etf_screener_cron.log
 
 # 2:45 (old slot, see below) FMP earnings/dividends/splits cache (Phase 6a) -- full-history replace per
 # ticker; feeds the Chart tab's E/D markers. ~2-4 min. Chart data, not a score
@@ -111,7 +122,7 @@
 # 406-527 requests/min, so it must finish before fundamentals starts (1:50 + ~3 min,
 # after Market Breadth ends ~1:41-1:45) and never overlap it. Change the time fields
 # when you uncomment it, and update JOB_METADATA (time_label, sort_minutes) to match.
-# 45 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_corporate_events >> /home/shen/fathom/backend/logs/nightly_corporate_events_cron.log 2>&1
+# 45 2 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_corporate_events.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_corporate_events >> /home/shen/fathom/backend/logs/nightly_corporate_events_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_corporate_events: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_corporate_events_cron.log
 
 # 2:50 Monthly Momentum snapshot (3mo/6mo/12mo composite trailing-return ranking
 # over the Moat-rated universe). Moved from 3:05 on 2026-09-30. Fundamentals now starts at 2:00,
@@ -123,7 +134,7 @@
 # (helpers/trading_calendar.py::resolve_month_end_anchor) checks whether today is
 # genuinely the first NYSE trading day of the month and no-ops (still a "success"
 # heartbeat) on every other day in this window. See pipeline/monthly_momentum_snapshot.py.
-50 2 1-5 * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.monthly_momentum_snapshot >> /home/shen/fathom/backend/logs/monthly_momentum_snapshot_cron.log 2>&1
+50 2 1-5 * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/monthly_momentum_snapshot.lock /home/shen/.local/bin/uv run python -m pipeline.monthly_momentum_snapshot >> /home/shen/fathom/backend/logs/monthly_momentum_snapshot_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped monthly_momentum_snapshot: the previous run is still going" >> /home/shen/fathom/backend/logs/monthly_momentum_snapshot_cron.log
 
 # 2:00 S&P 500 fundamentals refresh. Reuses the cache-aware fetch pipeline
 # (get_step1_data / get_step2_data / get_step4_data / get_step5_data / get_summary);
@@ -139,14 +150,14 @@
 # records a real "skipped" run (not a success) -- see CLAUDE.md "Data groups".
 # Ends with the statement recheck (<= 60 extra calls, ~1 min): flagged quarterly statements are
 # refetched on a bounded schedule -- docs/specs/statement-data-quality.md section 5.
-0 2 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_fundamentals_fetch >> /home/shen/fathom/backend/logs/nightly_fundamentals_fetch_cron.log 2>&1
+0 2 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_fundamentals_fetch.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_fundamentals_fetch >> /home/shen/fathom/backend/logs/nightly_fundamentals_fetch_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_fundamentals_fetch: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_fundamentals_fetch_cron.log
 
 # 3:05 Sector / industry average-P/E snapshot (FMP /sector-pe-snapshot and /industry-pe-snapshot, 2 x 3 exchanges
 # = 6 calls, ~5 s) for the last completed trading day, upserted into SectorIndustryPe (data layer for a future chart
 # overlay; nothing reads it yet). AFTER the 2:00 fundamentals fetch (worst seen 64.5 min, ends ~3:04), BEFORE the 3:10
 # price-target snapshot and the 3:25 recompute. Skipped (a real `skipped` status) while the `sector_industry_pe`
 # group is off. See pipeline/nightly_sector_industry_pe.py and docs/specs/sector-industry-pe.md.
-5 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_sector_industry_pe >> /home/shen/fathom/backend/logs/nightly_sector_industry_pe_cron.log 2>&1
+5 3 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_sector_industry_pe.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_sector_industry_pe >> /home/shen/fathom/backend/logs/nightly_sector_industry_pe_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_sector_industry_pe: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_sector_industry_pe_cron.log
 
 # 3:10 Daily price-target-consensus snapshot (was monthly until 2026-09-26;
 # renamed from monthly_price_target_snapshot 2026-09-27). FMP has no historical
@@ -156,7 +167,7 @@
 # shared price_target_consensus cache (1-day staleness); a same-day re-run updates
 # that day's row. Skips (recorded as "skipped") while the `analyst_ratings` data
 # group is off.
-10 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_price_target_snapshot >> /home/shen/fathom/backend/logs/nightly_price_target_snapshot_cron.log 2>&1
+10 3 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_price_target_snapshot.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_price_target_snapshot >> /home/shen/fathom/backend/logs/nightly_price_target_snapshot_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_price_target_snapshot: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_price_target_snapshot_cron.log
 
 # 3:25 Full-universe TickerScore recompute -- MUST run after every job whose
 # output compute_ticker_score copies onto TickerScore: Weinstein
@@ -166,13 +177,13 @@
 # 2:00 fetch's inline recompute; this sweep picks up the technical fields and the
 # ad-hoc tickers outside the index universe (IREN/SEZL/POOL backstop -- see
 # pipeline/nightly_score_recompute.py). Cache-only, zero FMP calls (~25s).
-25 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.nightly_score_recompute >> /home/shen/fathom/backend/logs/nightly_score_recompute_cron.log 2>&1
+25 3 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_score_recompute.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_score_recompute >> /home/shen/fathom/backend/logs/nightly_score_recompute_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_score_recompute: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_score_recompute_cron.log
 
 # 3:30 Daily SQLite backup (was 3:55 before the 2026-09-30 reorder) -- last in the
 # chain so it holds the night's full output. Compressed, timestamped copy of
 # fathom.db to backend/backups/ (gitignored); keeps the newest 7 daily + 4
 # weekly copies. ~3 min. See pipeline/backup_db.py.
-30 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.backup_db >> /home/shen/fathom/backend/logs/backup_db_cron.log 2>&1
+30 3 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/backup_db.lock /home/shen/.local/bin/uv run python -m pipeline.backup_db >> /home/shen/fathom/backend/logs/backup_db_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped backup_db: the previous run is still going" >> /home/shen/fathom/backend/logs/backup_db_cron.log
 
 # Weekly S&P 500 constituent list refresh, Sundays at 12:00 AM server time --
 # runs before the nightly chain (1:00 AM) so a freshly added/removed ticker is
@@ -184,14 +195,14 @@
 # this plan (confirmed live 2026-09-15).
 # The three index-list refreshes below skip (recorded as "skipped") while the
 # `index_membership` data group is off.
-0 0 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m scrapers.refresh_sp500_list >> /home/shen/fathom/backend/logs/sp500_list_refresh_cron.log 2>&1
+0 0 * * 0 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/refresh_sp500_list.lock /home/shen/.local/bin/uv run python -m scrapers.refresh_sp500_list >> /home/shen/fathom/backend/logs/sp500_list_refresh_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped refresh_sp500_list: the previous run is still going" >> /home/shen/fathom/backend/logs/sp500_list_refresh_cron.log
 
 # Weekly Nasdaq-100 constituent list refresh, Sundays at 12:05 AM server time
 # -- staggered a few minutes after the S&P 500 refresh above (both still run
 # before the 1 AM nightly chain) so the FMP fetches don't overlap. Sourced
 # from FMP's own /nasdaq-constituent endpoint (see nasdaq_scraper.py,
 # confirmed live 2026-09-23).
-5 0 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m scrapers.refresh_nasdaq_list >> /home/shen/fathom/backend/logs/nasdaq_list_refresh_cron.log 2>&1
+5 0 * * 0 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/refresh_nasdaq_list.lock /home/shen/.local/bin/uv run python -m scrapers.refresh_nasdaq_list >> /home/shen/fathom/backend/logs/nasdaq_list_refresh_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped refresh_nasdaq_list: the previous run is still going" >> /home/shen/fathom/backend/logs/nasdaq_list_refresh_cron.log
 
 # Weekly Dow Jones constituent list refresh, Sundays at 12:10 AM server time
 # -- staggered a few minutes after the S&P 500/Nasdaq-100 refreshes above
@@ -200,7 +211,7 @@
 # dow_scraper.py) -- not a Wikipedia scrape, since FMP Ultimate's
 # constituent endpoints became available on this plan (confirmed live
 # 2026-09-15).
-10 0 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m scrapers.refresh_dow_list >> /home/shen/fathom/backend/logs/dow_list_refresh_cron.log 2>&1
+10 0 * * 0 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/refresh_dow_list.lock /home/shen/.local/bin/uv run python -m scrapers.refresh_dow_list >> /home/shen/fathom/backend/logs/dow_list_refresh_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped refresh_dow_list: the previous run is still going" >> /home/shen/fathom/backend/logs/dow_list_refresh_cron.log
 
 # Weekly maintenance window, Sundays 12:15-12:35 AM -- staggered 5 minutes
 # apart (same pattern as the three list refreshes above), all still ahead of
@@ -210,21 +221,21 @@
 # Cache pruning: deletes FundamentalsCache rows older than
 # Settings.cache_retention_days (default 180) -- distinct from the 7-day
 # staleness window, which only controls refetching. See pipeline/prune_cache.py.
-15 0 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.prune_cache >> /home/shen/fathom/backend/logs/prune_cache_cron.log 2>&1
+15 0 * * 0 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/prune_cache.lock /home/shen/.local/bin/uv run python -m pipeline.prune_cache >> /home/shen/fathom/backend/logs/prune_cache_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped prune_cache: the previous run is still going" >> /home/shen/fathom/backend/logs/prune_cache_cron.log
 
 # Log rotation for backend/logs/ -- no system logrotate involved, see
 # pipeline/rotate_logs.py's own docstring for why.
-20 0 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.rotate_logs >> /home/shen/fathom/backend/logs/rotate_logs_cron.log 2>&1
+20 0 * * 0 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/rotate_logs.lock /home/shen/.local/bin/uv run python -m pipeline.rotate_logs >> /home/shen/fathom/backend/logs/rotate_logs_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped rotate_logs: the previous run is still going" >> /home/shen/fathom/backend/logs/rotate_logs_cron.log
 
 # Fixture-contamination audit -- promoted from manual-only to a weekly
 # scheduled job (built after the 2026-07-28 PEP/"Acme Corp" incident, see
 # CLAUDE.md's "Ad-hoc reproduction scripts must not touch the real
 # database"). Read-only, never deletes/modifies anything.
-25 0 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.audit_fixture_contamination >> /home/shen/fathom/backend/logs/audit_fixture_contamination_cron.log 2>&1
+25 0 * * 0 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/audit_fixture_contamination.lock /home/shen/.local/bin/uv run python -m pipeline.audit_fixture_contamination >> /home/shen/fathom/backend/logs/audit_fixture_contamination_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped audit_fixture_contamination: the previous run is still going" >> /home/shen/fathom/backend/logs/audit_fixture_contamination_cron.log
 
 # Stale-data health check: reports (not silently) how many universe tickers
 # haven't had a fresh nightly refresh recently. See pipeline/stale_data_health_check.py.
-30 0 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.stale_data_health_check >> /home/shen/fathom/backend/logs/stale_data_health_check_cron.log 2>&1
+30 0 * * 0 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/stale_data_health_check.lock /home/shen/.local/bin/uv run python -m pipeline.stale_data_health_check >> /home/shen/fathom/backend/logs/stale_data_health_check_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped stale_data_health_check: the previous run is still going" >> /home/shen/fathom/backend/logs/stale_data_health_check_cron.log
 
 # Invalid-ticker purge: deletes FundamentalsCache (and any TickerScore) rows
 # for tickers with a confirmed-empty FMP profile fetch (FMP responded, but
@@ -234,14 +245,14 @@
 # permanent dead weight. See pipeline/purge_invalid_tickers.py for the exact
 # criteria and why a real-but-temporarily-unreachable ticker (an FMP outage,
 # a real access-tier gap like BRK.B's known 402) is never a match.
-35 0 * * 0 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.purge_invalid_tickers >> /home/shen/fathom/backend/logs/purge_invalid_tickers_cron.log 2>&1
+35 0 * * 0 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/purge_invalid_tickers.lock /home/shen/.local/bin/uv run python -m pipeline.purge_invalid_tickers >> /home/shen/fathom/backend/logs/purge_invalid_tickers_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped purge_invalid_tickers: the previous run is still going" >> /home/shen/fathom/backend/logs/purge_invalid_tickers_cron.log
 
 # Weekly opportunity lists (Momentum and Reversal), ENABLED 2026-10-12. Saturdays at 4:00 AM server time (UTC): after the Friday-session
 # nightly chain (technical jobs 1:00-1:40, fundamentals 2:00, score recompute 3:25, backup 3:30) has finished, so every input it reads is
 # final. Stored data only, ZERO FMP calls, ~15 s, chunked reads (~175 MB peak). As-of = the last completed XNYS session (Friday's close;
 # Thursday's in a week with a Friday holiday); a rerun for the same date is a no-op. 4:00 AM UTC is 12:00 AM Saturday New York (EDT) and
 # 12:00 PM Saturday Hong Kong. See pipeline/weekly_opportunity_snapshot.py and docs/specs/opportunities.md.
-0 4 * * 6 cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.weekly_opportunity_snapshot >> /home/shen/fathom/backend/logs/weekly_opportunity_snapshot_cron.log 2>&1
+0 4 * * 6 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/weekly_opportunity_snapshot.lock /home/shen/.local/bin/uv run python -m pipeline.weekly_opportunity_snapshot >> /home/shen/fathom/backend/logs/weekly_opportunity_snapshot_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped weekly_opportunity_snapshot: the previous run is still going" >> /home/shen/fathom/backend/logs/weekly_opportunity_snapshot_cron.log
 
 # Opportunity outcome updater, ENABLED 2026-10-12. Every night at 3:40 AM server time (UTC; 11:40 AM Hong Kong): AFTER the whole nightly chain
 # and the 3:30 backup (over the last 10 nights the chain's last job, the backup, ended 3:32-3:35), and 20 minutes before the Saturday 4:00
@@ -249,7 +260,7 @@
 # (5/10/20/60 sessions after entry, price-only, SPY and sector-ETF benchmarks, a 10% intraday stop recorded beside the return) from the
 # cached daily bars: stored data only, ZERO FMP calls, chunked reads. A no-op unless SPY has a bar newer than the last run's, and a no-op
 # is a successful heartbeat (weekends, market holidays). See pipeline/opportunity_outcome_update.py and docs/specs/opportunities.md.
-40 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.opportunity_outcome_update --once >> /home/shen/fathom/backend/logs/opportunity_outcome_update_cron.log 2>&1
+40 3 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/opportunity_outcome_update.lock /home/shen/.local/bin/uv run python -m pipeline.opportunity_outcome_update --once >> /home/shen/fathom/backend/logs/opportunity_outcome_update_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped opportunity_outcome_update: the previous run is still going" >> /home/shen/fathom/backend/logs/opportunity_outcome_update_cron.log
 
 # Opportunity daily flags (Phase 2b v1), ENABLED 2026-10-12. Every night at 3:45 AM server time (UTC; 11:45 AM Hong Kong): 5 minutes AFTER the
 # 3:40 outcome updater (which prices the flags written the night before) and 15 minutes before the Saturday 4:00 weekly opportunity job. By then
@@ -257,4 +268,4 @@
 # weekly list it looks for three triggers (stored entry event, stage upgrade, pullback to the MA) on that session and stores each hit: stored
 # data only, ZERO FMP calls, ~2 s, chunked reads (~130 MB peak). A no-op (green) unless SPY has a completed bar newer than THIS job's own last-seen
 # one, or no weekly list is dated before the session. See pipeline/opportunity_daily_flags.py and docs/specs/opportunities.md ("Daily flags").
-45 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.opportunity_daily_flags --once >> /home/shen/fathom/backend/logs/opportunity_daily_flags_cron.log 2>&1
+45 3 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/opportunity_daily_flags.lock /home/shen/.local/bin/uv run python -m pipeline.opportunity_daily_flags --once >> /home/shen/fathom/backend/logs/opportunity_daily_flags_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped opportunity_daily_flags: the previous run is still going" >> /home/shen/fathom/backend/logs/opportunity_daily_flags_cron.log

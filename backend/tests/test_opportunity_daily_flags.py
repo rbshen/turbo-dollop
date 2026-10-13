@@ -601,7 +601,8 @@ def test_the_job_is_registered_and_scheduled_between_the_updater_and_the_saturda
     assert JOB_METADATA[name].sort_minutes == 3 * 60 + 45 and updater + 5 <= JOB_METADATA[name].sort_minutes and JOB_METADATA[name].sort_minutes + 15 <= weekly
     # scheduled 2026-10-12: not disabled, and its line is in crontab.txt (the wiring test requires both together)
     assert name not in DISABLED_CRON_JOBS
-    assert "45 3 * * * cd /home/shen/fathom/backend && /home/shen/.local/bin/uv run python -m pipeline.opportunity_daily_flags --once" in (backend / "crontab.txt").read_text()
+    (line,) = [l for l in (backend / "crontab.txt").read_text().splitlines() if not l.lstrip().startswith("#") and "-m pipeline.opportunity_daily_flags" in l]
+    assert line.startswith("45 3 * * * cd /home/shen/fathom/backend && ") and "/home/shen/.local/bin/uv run python -m pipeline.opportunity_daily_flags --once >> " in line  # run under flock since 2026-10-13
     assert 'cron_heartbeat("pipeline.opportunity_daily_flags")' in (backend / "pipeline" / "opportunity_daily_flags.py").read_text()
 
 

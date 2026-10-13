@@ -637,6 +637,10 @@ recorded as restricted (table `datagroupvariant`, created by `init_db` on the ne
   self-heals and a still-refused variant stays restricted without flapping.
 - A symbol-scoped 402 (BRK.B, BF.B, 0941.HK), a 429, a 5xx or a timeout restricts nothing.
 
+### Cron overlap protection (2026-10-13)
+
+Every active line in `crontab.txt` runs under `flock -n -E 99` on its own lock file, `backend/logs/locks/<job>.lock` (gitignored with `logs/`; `mkdir -p logs/locks` is part of each line, so a fresh checkout works). If the previous run of the **same** job still holds the lock, the new run does not start: it appends one line to that job's own `*_cron.log` (`<UTC date> skipped <job>: the previous run is still going`) and the cron line exits 0. Exit code 99 is flock's "busy" code, so a job that fails by itself (any other code) is never mistaken for a skip, and the lock is released however the job ends. Different jobs never block each other. A skipped run writes no `CronRunLog` row (the job never started), so the Scheduled jobs page shows that run as missing until the next one; to see skips: `grep -h "skipped" backend/logs/*_cron.log`. A stuck lock needs no cleanup (it lives in the kernel and dies with the process); to see who holds one: `fuser backend/logs/locks/<job>.lock`. No script locks on its own (`tests/test_cron_overlap.py` checks), so nothing is double-locked. **After editing `crontab.txt`, reinstall and compare:** `cd backend && crontab crontab.txt && crontab -l | diff crontab.txt -` must print nothing; install between runs, not while a job is mid-run (`pgrep -fa "python -m pipeline"`).
+
 ### Cron job heartbeat / health monitoring
 
 Cross-cutting, not one specific script — `core/cron_health.py` wraps every
