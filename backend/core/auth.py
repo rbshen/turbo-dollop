@@ -29,11 +29,11 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, Request
 from sqlalchemy import delete, update
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from core.config import settings
 from core.db import engine
-from core.models import User, UserSession
+from core.models import AuditLog, User, UserSession
 from core.passwords import dummy_verify, hash_password, needs_rehash, validate_password_policy, verify_password
 from core.route_roles import role_for
 
@@ -97,7 +97,13 @@ def create_user(session: Session, username: str, password: str, role: str, *, ha
     validate_password_policy(password)
     if _user(session, name) is not None:
         raise ValueError(f"A user named '{name}' already exists.")
-    user = User(username=name, password_hash=hasher(password), role=role, is_active=True, created_at=utcnow())
+    # SQLite reuses the largest rowid after its row is deleted; keep an id that an audit row or session still names from coming back.
+    top = max(
+        session.exec(select(func.max(User.id))).one() or 0,
+        session.exec(select(func.max(AuditLog.user_id))).one() or 0,
+        session.exec(select(func.max(UserSession.user_id))).one() or 0,
+    )
+    user = User(id=top + 1, username=name, password_hash=hasher(password), role=role, is_active=True, created_at=utcnow())
     session.add(user)
     session.commit()
     session.refresh(user)
@@ -107,6 +113,28 @@ def create_user(session: Session, username: str, password: str, role: str, *, ha
 def delete_user_sessions(session: Session, user_id: int) -> int:
     count = session.execute(delete(UserSession).where(UserSession.user_id == user_id)).rowcount
     return count or 0
+
+
+def delete_user(session: Session, username: str) -> int:
+    """Deletes the account and all its `usersession` rows (explicitly: foreign keys are off) and writes one `user_deleted` audit row,
+    in ONE transaction. Existing `auditlog` rows are kept (they carry the username as text). Refuses (ValueError, nothing changed) to
+    delete the last active admin. Returns the number of sessions ended. The username is free again afterwards; a recreated account gets a
+    new id (`create_user` never hands out an id an audit row still names)."""
+    user = get_user(session, username)
+    if user.role == "admin" and user.is_active:
+        others = session.exec(select(func.count()).select_from(User).where(User.role == "admin", User.is_active == True, User.id != user.id)).one()  # noqa: E712
+        if not others:
+            raise ValueError(f"'{user.username}' is the last active admin; create or enable another admin first.")
+    user_id, name = user.id, user.username
+    try:
+        ended = delete_user_sessions(session, user_id)
+        session.execute(delete(User).where(User.id == user_id))
+        session.add(AuditLog(ts=utcnow(), user_id=user_id, username=name, method="CLI", path="core.auth_cli delete-user", status=200, event="user_deleted"))
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return ended
 
 
 def set_password(session: Session, username: str, password: str, *, hasher=hash_password) -> int:

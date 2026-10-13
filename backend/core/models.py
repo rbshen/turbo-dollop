@@ -1824,7 +1824,7 @@ class UserSession(SQLModel, table=True):
 
 class AuditLog(SQLModel, table=True):
     """Who did what through the API (table `auditlog`; core/audit.py). One row per non-GET request outcome and per login event.
-    `event` is "request", "login_ok", "login_fail", "login_blocked", "lockout" or "logout". `path` has no query string; no request body,
+    `event` is "request", "login_ok", "login_fail", "login_blocked", "lockout", "logout" or "user_deleted" (written by `auth_cli delete-user`, method "CLI"). `path` has no query string; no request body,
     password, token or hash is ever stored. `user_id` / `username` are null for an unauthenticated request (a failed login keeps the
     username that was typed, normalized and truncated)."""
 

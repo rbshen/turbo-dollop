@@ -3,6 +3,7 @@
     uv run python -m core.auth_cli create-user alice --role admin
     uv run python -m core.auth_cli set-password alice
     uv run python -m core.auth_cli disable alice | enable alice
+    uv run python -m core.auth_cli delete-user alice [--yes]    (removes the account and its sessions; audit rows are kept; asks you to type the name unless --yes)
     uv run python -m core.auth_cli list
     uv run python -m core.auth_cli revoke-sessions [alice]      (no name: every session)
     uv run python -m core.auth_cli prune-audit [--days N]       (delete audit rows older than N days; default AUDIT_RETENTION_DAYS, 180)
@@ -77,6 +78,21 @@ def cmd_enable(args: argparse.Namespace) -> str:
     return f"Enabled '{auth.normalize_username(args.username)}'."
 
 
+def cmd_delete_user(args: argparse.Namespace) -> str:
+    name = auth.normalize_username(args.username)
+    with Session(auth.engine) as session:
+        auth.get_user(session, name)  # unknown name fails before any prompt
+    if not args.yes:
+        print(f"This permanently deletes '{name}' and ends their sessions. Audit log rows are kept.", file=sys.stderr)
+        print("Type the username to confirm: ", end="", file=sys.stderr, flush=True)
+        typed = sys.stdin.readline()
+        if auth.normalize_username(typed) != name:
+            raise ValueError("Confirmation did not match; nothing was deleted.")
+    with Session(auth.engine) as session:
+        ended = auth.delete_user(session, name)
+    return f"Deleted '{name}'; {ended} session(s) ended. Audit log rows were kept and a user_deleted entry was added."
+
+
 def cmd_revoke_sessions(args: argparse.Namespace) -> str:
     with Session(auth.engine) as session:
         ended = auth.revoke_sessions(session, args.username)
@@ -119,13 +135,17 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name, help=help_)
         p.add_argument("username")
         p.set_defaults(func=func_)
+    delete = sub.add_parser("delete-user", help="delete an account and its sessions (audit rows kept); refuses the last active admin")
+    delete.add_argument("username")
+    delete.add_argument("--yes", action="store_true", help="skip the type-the-username confirmation")
+    delete.set_defaults(func=cmd_delete_user)
     revoke = sub.add_parser("revoke-sessions", help="end one user's sessions, or all of them")
     revoke.add_argument("username", nargs="?")
     revoke.set_defaults(func=cmd_revoke_sessions)
     prune = sub.add_parser("prune-audit", help="delete audit log rows older than N days (users and sessions are never touched)")
     prune.add_argument("--days", type=int, default=None, help="age in days (default: AUDIT_RETENTION_DAYS, 180); at least 1")
     prune.set_defaults(func=cmd_prune_audit)
-    sub.add_parser("list", help="accounts, roles, last login, lock state").set_defaults(func=cmd_list)
+    sub.add_parser("list", help="accounts, roles, sessions, last login, lock state (never a hash; a deleted account is gone from it)").set_defaults(func=cmd_list)
     return parser
 
 

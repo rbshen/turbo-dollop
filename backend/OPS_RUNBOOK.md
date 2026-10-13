@@ -948,6 +948,7 @@ Every `/api` route except `GET /api/health` and `POST /api/auth/login` needs a s
 uv run python -m core.auth_cli create-user <name> --role admin|viewer   # password: prompt (typed twice) or one line on stdin
 uv run python -m core.auth_cli set-password <name>                       # ends that user's sessions, clears a login lock
 uv run python -m core.auth_cli disable <name>  |  enable <name>          # a disable ends that user's sessions
+uv run python -m core.auth_cli delete-user <name> [--yes]                # removes the account and its sessions; audit rows kept; refuses the last active admin
 uv run python -m core.auth_cli list                                      # role, active, sessions, last login, lock; never a hash
 uv run python -m core.auth_cli revoke-sessions [<name>]                  # no name: every session (everyone signs in again)
 ```
@@ -958,6 +959,7 @@ too but **never seeds a user** (cron jobs call it).
 
 **First admin (the app is locked to everyone until one exists):** 1. `./bin/stop.sh` and `./bin/start.sh --prod` (picks up the code). 2. `cd backend && uv run python -m core.auth_cli create-user <you> --role admin`
 (type the password twice). 3. `uv run python -m core.auth_cli list` shows it. 4. Sign in at `http://localhost:3100/login` (frontend step 4, 2026-10-13; the same page ends the session with Sign out in the top bar) or, for a script, see "Scripts and curl" below. The `/login` page needs the frontend rebuilt (`./bin/start.sh --prod` does a `next build`). A `viewer` sees every page read-only: no Add to watchlist, Refresh, Settings Save, Recompute, Moat or Custom valuation edits, and Scheduled jobs / FMP data groups are not listed.
+**Deleting an account:** `delete-user <name>` asks you to type the name again (`--yes` skips that; piped, it reads the name from stdin). It deletes the user and that user's sessions in one transaction, keeps every `auditlog` row and adds a `user_deleted` row (`select ts, username, event from auditlog where event = 'user_deleted'`). It refuses the last active admin (create or enable another first) and an unknown name. The name can be created again afterwards as a new account. No restart is needed: the CLI works on the database whether or not the app is running.
 If every admin is locked out or forgot the password: `set-password <name>` (it also clears the lock); the CLI works whether or not the app is running.
 
 **Scripts and curl.** A write needs a session cookie **and** the `X-Fathom-Request` header (the request guard). With a cookie jar:
