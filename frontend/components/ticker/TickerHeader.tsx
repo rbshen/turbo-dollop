@@ -1,5 +1,6 @@
 "use client";
 
+import { AdminOnly } from "@/components/auth/AdminOnly";
 import { AddToWatchlistButton } from "@/components/ticker/AddToWatchlistButton";
 import { FairValuePill } from "@/components/ticker/FairValuePill";
 import { IndexMembershipPill } from "@/components/ticker/IndexMembershipPill";
@@ -190,14 +191,15 @@ export function TickerHeader({ symbol, data }: Props) {
     <TickerHeaderView
       data={data}
       assessment={<AssessmentChip symbol={symbol} />}
+      // Every action here writes (universe, watchlist, refresh): a viewer gets the header without the cluster.
       actions={
-        <>
+        <AdminOnly>
           {universe.control}
           <AddToWatchlistButton tickers={[data.ticker]} audience="stock" />
           <RefreshButton ticker={data.ticker} />
-        </>
+        </AdminOnly>
       }
-      actionsNote={universe.note}
+      actionsNote={<AdminOnly>{universe.note}</AdminOnly>}
       moat={moatData?.moat}
       specGrowth={specGrowthData}
       trend={trendData}

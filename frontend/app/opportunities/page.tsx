@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { MarketContextStrip } from "@/components/opportunities/MarketContextStrip";
 import { OpportunitiesTable } from "@/components/opportunities/OpportunitiesTable";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { AdminOnly } from "@/components/auth/AdminOnly";
 import { AddToWatchlistButton, type AddedResult } from "@/components/ticker/AddToWatchlistButton";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
@@ -161,17 +162,19 @@ export default function OpportunitiesPage() {
               </div>
             )}
             <ExportMenu label={exportLabel} onExportTradingView={exportTradingView} onExportThinkorswim={exportThinkorswim} />
-            <AddToWatchlistButton
-              // a new selection is a new add: fresh "Added" / confirm state
-              key={selectedTickers.join(",")}
-              tickers={selectedTickers}
-              label={hasSelection ? `Add ${selectedRows.length} to watchlist` : "Add to watchlist"}
-              confirmDescription={`${selectedRows.length} selected tickers`}
-              audience={addAudience}
-              opportunityRunId={run?.id}
-              onEmptyClick={() => setNotice("Select at least one ticker")}
-              onAdded={added}
-            />
+            <AdminOnly>
+              <AddToWatchlistButton
+                // a new selection is a new add: fresh "Added" / confirm state
+                key={selectedTickers.join(",")}
+                tickers={selectedTickers}
+                label={hasSelection ? `Add ${selectedRows.length} to watchlist` : "Add to watchlist"}
+                confirmDescription={`${selectedRows.length} selected tickers`}
+                audience={addAudience}
+                opportunityRunId={run?.id}
+                onEmptyClick={() => setNotice("Select at least one ticker")}
+                onAdded={added}
+              />
+            </AdminOnly>
           </>
         }
       />

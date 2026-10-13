@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { AdminOnly } from "@/components/auth/AdminOnly";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs } from "@/components/ui/tabs";
@@ -231,9 +232,11 @@ export default function WatchlistPage() {
           underneath the user. */}
       <div className="flex items-center gap-2">
         <WatchlistNameEditor key={`name-${active.id}`} watchlist={active} />
-        {/* The "ETF" list is permanent (the backend refuses to delete it). */}
+        {/* The "ETF" list is permanent (the backend refuses to delete it). Deleting is an admin write. */}
         {active.name !== ETF_WATCHLIST_NAME && (
-          <WatchlistDeleteButton key={`delete-${active.id}`} watchlist={active} onDeleted={() => setManualActiveId(null)} />
+          <AdminOnly>
+            <WatchlistDeleteButton key={`delete-${active.id}`} watchlist={active} onDeleted={() => setManualActiveId(null)} />
+          </AdminOnly>
         )}
       </div>
 

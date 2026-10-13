@@ -6,6 +6,7 @@ import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { deleteScreenerFilter, saveScreenerFilter, useSavedFilters, type SaveViewBody } from "@/lib/hooks/useSavedFilters";
 import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
 import type { ScreenerFilterState, SortDirection, SortField } from "@/lib/screenerFilters";
@@ -98,6 +99,8 @@ export function SavedFiltersBarView<
   defaultName = "",
   defaultActiveName = null,
 }: SavedFiltersBarViewProps<TUniverse, TSort, TFilters, TSaved>) {
+  // Saving and deleting a view are admin writes; a viewer can still open the list and apply any saved view (and Reset).
+  const { isAdmin } = useAuth();
   const [listOpen, setListOpen] = useState(defaultListOpen);
   const [saveStep, setSaveStep] = useState<SaveStep>(defaultSaveStep);
   const [name, setName] = useState(defaultName);
@@ -260,22 +263,24 @@ export function SavedFiltersBarView<
                       {active && <Check size={12} aria-hidden="true" className="shrink-0 text-text-primary" />}
                       <span className="truncate">{s.name}</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(s, index)}
-                      // aria-disabled, not disabled, while deleting: the button keeps
-                      // focus, and the click is ignored in handleDelete.
-                      aria-disabled={deleting || undefined}
-                      aria-label={deleteLabel}
-                      title={deleteLabel}
-                      className={cn(
-                        "mr-1 shrink-0 rounded p-1",
-                        deleting && "opacity-50",
-                        failed ? "text-negative" : "text-text-tertiary hover:text-negative"
-                      )}
-                    >
-                      <Trash size={14} aria-hidden="true" />
-                    </button>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(s, index)}
+                        // aria-disabled, not disabled, while deleting: the button keeps
+                        // focus, and the click is ignored in handleDelete.
+                        aria-disabled={deleting || undefined}
+                        aria-label={deleteLabel}
+                        title={deleteLabel}
+                        className={cn(
+                          "mr-1 shrink-0 rounded p-1",
+                          deleting && "opacity-50",
+                          failed ? "text-negative" : "text-text-tertiary hover:text-negative"
+                        )}
+                      >
+                        <Trash size={14} aria-hidden="true" />
+                      </button>
+                    )}
                   </div>
                 );
               })
@@ -284,7 +289,7 @@ export function SavedFiltersBarView<
         )}
       </div>
 
-      {saveStep === "idle" && (
+      {isAdmin && saveStep === "idle" && (
         <Button variant="outline" size="sm" onClick={openNaming}>
           Save current view
         </Button>

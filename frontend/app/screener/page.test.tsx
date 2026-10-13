@@ -6,6 +6,10 @@ import ScreenerPage from "@/app/screener/page";
 import { saveScreenerFilter } from "@/lib/hooks/useSavedFilters";
 import type { SavedScreenerFilter, TickerScoreOut, WatchlistOut } from "@/lib/api/types";
 import { DEFAULT_FILTER_STATE } from "@/lib/screenerFilters";
+import { setMockRole } from "@/lib/auth/adminAuthMock";
+
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
 
 // Page-level tests for the Screener: what loading a saved view and pressing
 // Reset do, and (after the sidebar migration) that the sidebar survives a
@@ -491,5 +495,16 @@ describe("the Overall verdict filter on the page", () => {
   it("keeps the Overall score as a sort option and the default sort", () => {
     render(<ScreenerPage />);
     expect(sortSelect().value).toBe("overall_score");
+  });
+});
+
+describe("a viewer on the results header", () => {
+  afterEach(() => setMockRole("admin"));
+
+  it("gets no Add to watchlist (or Recompute) button; the results are unchanged", () => {
+    setMockRole("viewer");
+    render(<ScreenerPage />);
+    expect(screen.queryByTestId("add-to-watchlist-label")).toBeNull();
+    expect(screen.getAllByTestId("card").length).toBeGreaterThan(0);
   });
 });

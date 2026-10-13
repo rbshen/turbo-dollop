@@ -6,6 +6,9 @@ import { WatchlistNameEditor } from "@/components/watchlist/WatchlistNameEditor"
 import type { WatchlistOut } from "@/lib/api/types";
 import { WATCHLIST_NAME_MAX_LENGTH } from "@/lib/watchlistName";
 
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
+
 const updateWatchlist = vi.fn();
 vi.mock("@/lib/hooks/useWatchlists", () => ({
   updateWatchlist: (...args: unknown[]) => updateWatchlist(...args),

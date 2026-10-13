@@ -20,6 +20,7 @@ import { FIELD_ERROR_CLASS, FieldProvider, useFieldContextValue } from "@/compon
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/Select";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { AdminOnly } from "@/components/auth/AdminOnly";
 import { apiDelete, apiPost, apiPut, errorDetail } from "@/lib/api/client";
 import { fmtMoney, fmtNumber, fmtPct } from "@/lib/format";
 import { useTickerCustomValuation } from "@/lib/hooks/useTickerCustomValuation";
@@ -748,38 +749,42 @@ function ManualCalculationControls({
             buttons beside it, as on AddToWatchlistButton).
             Activate and Delete keep their positive and negative tone as
             colour classes on the outline button. */}
-        <div className="flex flex-wrap gap-2">
-          <Button variant="primary" size="sm" onClick={handleSave} disabled={actionPending}>
-            {actionPending ? "Working…" : "Save"}
-          </Button>
-          {saved.saved && !saved.is_active && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-positive/40 bg-positive/10 text-positive hover:border-positive hover:bg-positive/10 hover:text-positive"
-              onClick={handleActivate}
-              disabled={actionPending}
-            >
-              Activate
+        {/* Save / Activate / Revert / Delete write the saved custom valuation: admin only. The calculator above is a pure
+            calculation (POST step3/manual, allowed for a viewer), so a viewer can still try numbers; they just cannot keep them. */}
+        <AdminOnly>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="primary" size="sm" onClick={handleSave} disabled={actionPending}>
+              {actionPending ? "Working…" : "Save"}
             </Button>
-          )}
-          {saved.saved && saved.is_active && (
-            <Button variant="outline" size="sm" onClick={handleDeactivate} disabled={actionPending}>
-              Revert to auto
-            </Button>
-          )}
-          {saved.saved && !confirmingDelete && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-negative/40 bg-negative/10 text-negative hover:border-negative hover:bg-negative/10 hover:text-negative"
-              onClick={() => setConfirmingDelete(true)}
-              disabled={actionPending}
-            >
-              Delete
-            </Button>
-          )}
-        </div>
+            {saved.saved && !saved.is_active && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-positive/40 bg-positive/10 text-positive hover:border-positive hover:bg-positive/10 hover:text-positive"
+                onClick={handleActivate}
+                disabled={actionPending}
+              >
+                Activate
+              </Button>
+            )}
+            {saved.saved && saved.is_active && (
+              <Button variant="outline" size="sm" onClick={handleDeactivate} disabled={actionPending}>
+                Revert to auto
+              </Button>
+            )}
+            {saved.saved && !confirmingDelete && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-negative/40 bg-negative/10 text-negative hover:border-negative hover:bg-negative/10 hover:text-negative"
+                onClick={() => setConfirmingDelete(true)}
+                disabled={actionPending}
+              >
+                Delete
+              </Button>
+            )}
+          </div>
+        </AdminOnly>
       </div>
 
       {confirmingDelete && (

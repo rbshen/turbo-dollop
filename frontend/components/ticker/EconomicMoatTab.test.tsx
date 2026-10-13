@@ -5,6 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EconomicMoatTab } from "@/components/ticker/EconomicMoatTab";
 import type { TickerMoatOut } from "@/lib/api/types";
 
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
+
 const apiPut = vi.fn();
 const mutate = vi.fn();
 let hook: { data?: TickerMoatOut; error?: Error; isLoading?: boolean };

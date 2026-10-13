@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EtfsPage from "@/app/etfs/page";
 import type { EtfScreenerMeta, EtfScreenerRowOut, SavedEtfFilter, WatchlistOut } from "@/lib/api/types";
 import { DEFAULT_ETF_FILTER_STATE } from "@/lib/etfScreenerFilters";
+import { setMockRole } from "@/lib/auth/adminAuthMock";
+
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
 
 // Page-level tests for the ETFs page: rows, filtering, sorting, the empty states, and the saved-view round trip. The
 // data hooks and the add-to-watchlist button are mocked; the sidebar, the card, the saved-views bar and the page's own
@@ -340,5 +344,16 @@ describe("saved views (kind=etf)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Reset" }));
     expect(sortSelect().value).toBe("aum");
     expect(cards()).toEqual(["SPY", "GLD", "TLT"]);
+  });
+});
+
+describe("a viewer on the ETFs page", () => {
+  afterEach(() => setMockRole("admin"));
+
+  it("gets no Add to watchlist button; the cards are unchanged", () => {
+    setMockRole("viewer");
+    render(<EtfsPage />);
+    expect(screen.queryByTestId("add-to-watchlist")).toBeNull();
+    expect(cards().length).toBeGreaterThan(0);
   });
 });

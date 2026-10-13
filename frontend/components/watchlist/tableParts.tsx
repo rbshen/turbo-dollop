@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Check, Minus, X } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { SortHeader } from "@/components/ui/sort-header";
 import { TableCell, TableHead, TableRow } from "@/components/ui/table";
 import { removeTickerFromWatchlist } from "@/lib/hooks/useWatchlists";
@@ -92,6 +93,9 @@ export function RemoveCell({
   flow: ReturnType<typeof useRemoveFlow>;
 }) {
   const { removeState, setRemoveState, confirmRemove } = flow;
+  // Removing a ticker is an admin write: a viewer gets the empty cell, so the column keeps its place.
+  const { isAdmin } = useAuth();
+  if (!isAdmin) return <TableCell />;
   return (
     <TableCell className="text-center">
       {(removeState[ticker] ?? "idle") === "confirming" ? (

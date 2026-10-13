@@ -6,6 +6,9 @@ import { SavedFiltersBar } from "@/components/screener/SavedFiltersBar";
 import type { SavedScreenerFilter } from "@/lib/api/types";
 import { DEFAULT_FILTER_STATE } from "@/lib/screenerFilters";
 
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
+
 // Characterization of the saved-views bar: the popover, the list, loading and
 // deleting a view, the naming step and its validation, the overwrite path and
 // Reset. Written against the pre-migration markup (session 10, part 3) and kept

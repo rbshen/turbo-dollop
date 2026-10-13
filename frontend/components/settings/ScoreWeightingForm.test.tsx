@@ -6,6 +6,9 @@ import { ScoreWeightingForm } from "@/components/settings/ScoreWeightingForm";
 import { apiPost, apiPut } from "@/lib/api/client";
 import type { RecomputeRunOut, ScoreWeightsOut } from "@/lib/api/types";
 
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
+
 const h = vi.hoisted(() => ({
   data: undefined as unknown,
   running: false,

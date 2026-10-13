@@ -13,6 +13,7 @@ import { FundamentalFilters } from "@/components/screener/FundamentalFilters";
 import { TechnicalFilters } from "@/components/screener/TechnicalFilters";
 import { UniverseSelector } from "@/components/screener/UniverseSelector";
 import { WatchlistFilters } from "@/components/screener/WatchlistFilters";
+import { AdminOnly } from "@/components/auth/AdminOnly";
 import { AddToWatchlistButton } from "@/components/ticker/AddToWatchlistButton";
 import { PageHeader } from "@/components/ui/page-header";
 import type { SavedScreenerFilter, ScreenerUniverse } from "@/lib/api/types";
@@ -200,13 +201,15 @@ export default function ScreenerPage() {
         actions={
           <>
             <UniverseSelector value={universe} onChange={handleUniverseChange} />
-            <RecomputeButton />
-            <AddToWatchlistButton
-              tickers={sorted.map((row) => row.ticker)}
-              label="Add to watchlist"
-              confirmDescription={`all ${sorted.length} filtered tickers`}
-              disabled={sorted.length === 0}
-            />
+            <AdminOnly>
+              <RecomputeButton />
+              <AddToWatchlistButton
+                tickers={sorted.map((row) => row.ticker)}
+                label="Add to watchlist"
+                confirmDescription={`all ${sorted.length} filtered tickers`}
+                disabled={sorted.length === 0}
+              />
+            </AdminOnly>
           </>
         }
       />

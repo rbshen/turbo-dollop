@@ -13,6 +13,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { NumberField } from "@/components/ui/number-field";
 import { Select } from "@/components/ui/Select";
 
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
+
 afterEach(cleanup);
 
 describe("SettingsSection", () => {

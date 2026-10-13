@@ -6,6 +6,9 @@ import { EtfWatchlistTable } from "@/components/watchlist/EtfWatchlistTable";
 import type { EtfWatchlistRow, WatchlistOut } from "@/lib/api/types";
 import { DEFAULT_ETF_SORT_RULES } from "@/lib/etfWatchlistSort";
 
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
+
 const removeTickerFromWatchlist = vi.fn();
 vi.mock("@/lib/hooks/useWatchlists", () => ({
   removeTickerFromWatchlist: (...args: unknown[]) => removeTickerFromWatchlist(...args),

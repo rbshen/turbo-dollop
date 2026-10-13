@@ -8,6 +8,9 @@ import { apiPut } from "@/lib/api/client";
 import type { MoatScoreConfigOut } from "@/lib/api/types";
 import { useMoatConfig } from "@/lib/hooks/useMoatConfig";
 
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
+
 vi.mock("swr", async (importOriginal) => ({ ...(await importOriginal<typeof import("swr")>()), mutate: vi.fn() }));
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),

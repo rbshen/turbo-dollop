@@ -5,6 +5,10 @@ import { SWRConfig } from "swr";
 
 import OpportunitiesPage from "@/app/opportunities/page";
 import type { OpportunityDateOut, OpportunityRowOut, OpportunityRunOut } from "@/lib/api/types";
+import { setMockRole } from "@/lib/auth/adminAuthMock";
+
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
 
 afterEach(cleanup);
 
@@ -277,6 +281,17 @@ describe("OpportunitiesPage", () => {
     expect(screen.getByRole("menuitem", { name: "thinkorswim (.csv)" })).toBeEnabled();
     expect(screen.queryByRole("menuitem", { name: /multiple/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add to watchlist" })).toBeEnabled(); // nothing selected: still enabled, it answers on use
+  });
+
+  it("a viewer gets the export menu but no Add to watchlist button (adding picks is an admin write)", async () => {
+    setMockRole("viewer");
+    try {
+      await loaded();
+      expect(screen.getByRole("button", { name: "Export 4 shown" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Add .*to watchlist/ })).toBeNull();
+    } finally {
+      setMockRole("admin");
+    }
   });
 
   // --- selection --------------------------------------------------------------------------------------------------------------

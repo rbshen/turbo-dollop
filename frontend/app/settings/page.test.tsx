@@ -4,6 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import SettingsPage from "@/app/settings/page";
 
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
+
 const nav = vi.hoisted(() => ({ section: null as string | null }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(nav.section ? { section: nav.section } : {}) }));
 

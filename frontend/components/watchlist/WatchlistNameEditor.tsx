@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { PencilSimple } from "@phosphor-icons/react";
 
 import { errorDetail } from "@/lib/api/client";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { FIELD_ERROR_CLASS } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,7 @@ interface Props {
 // AddToWatchlistButton's "+ New watchlist" naming flow -- a plain text
 // display swaps for an input + Save/Cancel in place, no modal.
 export function WatchlistNameEditor({ watchlist, rename = updateWatchlist, defaultEditing, defaultValue, defaultError }: Props) {
+  const { isAdmin } = useAuth();
   const [status, setStatus] = useState<Status>(defaultEditing ? "editing" : "idle");
   const [value, setValue] = useState(defaultValue ?? watchlist.name);
   const [error, setError] = useState<string | null>(defaultError ?? null);
@@ -79,7 +81,8 @@ export function WatchlistNameEditor({ watchlist, rename = updateWatchlist, defau
 
   if (status === "idle") {
     // The "ETF" list is identified by its name (monitored, ETF-only), so the backend refuses to rename it: no pencil.
-    const renamable = watchlist.name !== ETF_WATCHLIST_NAME;
+    // A viewer sees the name and count, no pencil (renaming is an admin write).
+    const renamable = isAdmin && watchlist.name !== ETF_WATCHLIST_NAME;
     return (
       <div className="flex items-center gap-1.5">
         <p className="text-xs text-text-tertiary">

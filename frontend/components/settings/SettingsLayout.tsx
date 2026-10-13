@@ -18,6 +18,7 @@
 import { useId, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/section";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import {
   FIELD_ERROR_CLASS,
   FIELD_HINT_CLASS,
@@ -47,10 +48,20 @@ export function SettingsSection({
   children: ReactNode;
   className?: string;
 }) {
+  // A viewer sees the stored values, read-only: the body is one disabled <fieldset>, which disables every control inside it
+  // natively (role="none": it is a wrapper, not a labelled group), and SettingsFooter drops Save for them. (UX only: the backend answers a viewer's PUT with 403.)
+  const { isAdmin } = useAuth();
   return (
     <Section title={title} className={className}>
       {intro && <p className="max-w-xl text-sm text-text-secondary">{intro}</p>}
-      <div className="mt-4 max-w-2xl">{children}</div>
+      {!isAdmin && (
+        <p className="mt-2 text-xs text-text-tertiary" data-testid="view-only-note">
+          View only. An admin can change these settings.
+        </p>
+      )}
+      <fieldset disabled={!isAdmin} role="none" className="m-0 mt-4 min-w-0 max-w-2xl border-0 p-0">
+        {children}
+      </fieldset>
     </Section>
   );
 }
@@ -165,6 +176,7 @@ export function SettingsFooter({
   secondary?: ReactNode;
   className?: string;
 }) {
+  const { isAdmin } = useAuth();
   const message = invalid
     ? "Fix the highlighted fields to save."
     : status === "error" && errorMessage
@@ -172,16 +184,20 @@ export function SettingsFooter({
       : STATUS_TEXT[status];
   return (
     <div className={cn("mt-6 flex flex-wrap items-center gap-x-3 gap-y-1", className)}>
-      <Button variant="primary" onClick={onSave} disabled={status === "saving" || invalid || unchanged}>
-        Save
-      </Button>
-      {secondary}
-      <span
-        aria-live="polite"
-        className={cn("text-xs", status === "error" && !invalid ? "text-negative" : "text-text-secondary")}
-      >
-        {message}
-      </span>
+      {isAdmin && (
+        <>
+          <Button variant="primary" onClick={onSave} disabled={status === "saving" || invalid || unchanged}>
+            Save
+          </Button>
+          {secondary}
+          <span
+            aria-live="polite"
+            className={cn("text-xs", status === "error" && !invalid ? "text-negative" : "text-text-secondary")}
+          >
+            {message}
+          </span>
+        </>
+      )}
       <p className="text-xs text-text-tertiary">Last updated {new Date(updatedAt).toLocaleString()}</p>
     </div>
   );

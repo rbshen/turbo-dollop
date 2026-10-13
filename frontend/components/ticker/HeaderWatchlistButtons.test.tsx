@@ -6,6 +6,9 @@ import { EtfHeader } from "@/components/ticker/EtfHeader";
 import { TickerHeader } from "@/components/ticker/TickerHeader";
 import type { TickerSummaryOut } from "@/lib/api/types";
 
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
+
 // Which watchlist control each ticker-page header mounts, and for which audience. The controls themselves are tested
 // in AddToWatchlistButton.test.tsx and EtfWatchlistButton.test.tsx.
 vi.mock("@/components/ticker/AddToWatchlistButton", () => ({

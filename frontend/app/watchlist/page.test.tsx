@@ -5,6 +5,10 @@ import { SWRConfig } from "swr";
 
 import WatchlistPage from "@/app/watchlist/page";
 import type { WatchlistOut } from "@/lib/api/types";
+import { setMockRole } from "@/lib/auth/adminAuthMock";
+
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
 
 afterEach(cleanup);
 
@@ -210,5 +214,31 @@ describe("WatchlistPage", () => {
       fireEvent.click(within(panel).getByRole("button", { name: "Close" }));
       expect(screen.queryByRole("region", { name: "Export multiple lists" })).not.toBeInTheDocument();
     });
+  });
+});
+
+describe("WatchlistPage for a viewer", () => {
+  afterEach(() => setMockRole("admin"));
+
+  it("shows the lists and their tickers, with no rename, delete or per-row remove", async () => {
+    fixture = ETF_AND_STOCK_LISTS;
+    setMockRole("viewer");
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "W2" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("tab", { name: "W2" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "W2" })).toHaveAttribute("aria-selected", "true"));
+    expect(screen.queryByRole("button", { name: /^Rename / })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Delete / })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Remove / })).toBeNull();
+    expect(screen.getByRole("button", { name: /Export/ })).toBeInTheDocument();
+  });
+
+  it("the same page for an admin has them", async () => {
+    fixture = ETF_AND_STOCK_LISTS;
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "W2" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("tab", { name: "W2" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Rename W2" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Delete W2" })).toBeInTheDocument();
   });
 });

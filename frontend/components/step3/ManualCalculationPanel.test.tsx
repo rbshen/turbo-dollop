@@ -7,6 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ManualCalculationPanel } from "@/components/step3/ManualCalculationPanel";
 import type { Step3ManualOut, Step3Method, Step3Out, TickerCustomValuationOut } from "@/lib/api/types";
+import { setMockRole } from "@/lib/auth/adminAuthMock";
+
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
 
 // Characterization tests for the Custom Valuation panel (the Valuation tab's
 // "Manual Calculation" column): what each method shows, how every row parses
@@ -1181,5 +1185,18 @@ describe("ManualCalculationPanel: golden scenarios", () => {
     });
     expect(screen.getAllByText("$686.04").length).toBeGreaterThan(0);
     expect(screen.getAllByText("-78.1%").length).toBeGreaterThan(0);
+  });
+});
+
+describe("ManualCalculationPanel for a viewer", () => {
+  afterEach(() => setMockRole("admin"));
+
+  it("still calculates (a pure POST), but offers no Save, Activate, Revert or Delete", async () => {
+    setMockRole("viewer");
+    hook = { data: makeSaved({ is_active: true }) };
+    await mountPanel();
+    expect(calcBodies().length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /^(save|activate|revert to auto|delete)$/i })).toBeNull();
+    expect(screen.getByText(/Active:/)).toHaveTextContent("Active: Custom");
   });
 });

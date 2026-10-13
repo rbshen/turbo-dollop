@@ -6,6 +6,9 @@ import { EtfHeader } from "@/components/ticker/EtfHeader";
 import { TickerHeader } from "@/components/ticker/TickerHeader";
 import type { TickerSummaryOut, UniverseStatusOut } from "@/lib/api/types";
 
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
+
 // The real shared control runs inside both headers; only its data hook and the two actions are mocked.
 let universeStatus: UniverseStatusOut | undefined;
 const addToUniverse = vi.fn();

@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useState } from "react";
 import { mutate } from "swr";
 
+import { AdminOnly } from "@/components/auth/AdminOnly";
 import { MoatCheckBoundary } from "@/components/ticker/MoatCheckBoundary";
 import { MoatCheckCard } from "@/components/ticker/MoatCheckCard";
 import { Button } from "@/components/ui/button";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { apiPut } from "@/lib/api/client";
 import type { TickerMoatOut } from "@/lib/api/types";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { useTickerMoat } from "@/lib/hooks/useTickerMoat";
 import { useMoatConfig } from "@/lib/hooks/useMoatConfig";
 import {
@@ -48,6 +50,7 @@ export function EconomicMoatTab({ ticker }: Props) {
 }
 
 function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut }) {
+  const { isAdmin } = useAuth();
   const [pending, setPending] = useState<MoatValue | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -104,17 +107,28 @@ function MoatControls({ ticker, data }: { ticker: string; data: TickerMoatOut })
       <div className="space-y-4 rounded-lg border border-border-card bg-surface p-6">
         <div className="space-y-3">
           <p className="text-xs text-text-tertiary">Current rating</p>
-          <SegmentedControl
-            aria-label="Economic moat rating"
-            className="flex flex-wrap"
-            value={displayed ?? "no_moat"}
-            onValueChange={(next) => {
-              if (next !== data.moat) setPending(next as MoatValue);
-            }}
-            options={MOAT_OPTIONS.map((option) => ({ value: option, label: pillLabel(MOAT_LABELS[option]) }))}
-          />
+          {/* Setting the rating is an admin write; a viewer reads it as plain text. */}
+          <AdminOnly
+            fallback={
+              <p className="text-sm font-medium text-text-primary" data-testid="moat-rating-readonly">
+                {data.moat ? pillLabel(MOAT_LABELS[data.moat]) : "Not rated"}
+              </p>
+            }
+          >
+            <SegmentedControl
+              aria-label="Economic moat rating"
+              className="flex flex-wrap"
+              value={displayed ?? "no_moat"}
+              onValueChange={(next) => {
+                if (next !== data.moat) setPending(next as MoatValue);
+              }}
+              options={MOAT_OPTIONS.map((option) => ({ value: option, label: pillLabel(MOAT_LABELS[option]) }))}
+            />
+          </AdminOnly>
           <p className="text-sm text-text-secondary">
-            {displayed ? MOAT_DESCRIPTIONS[displayed] : "Not set — scored as No moat until you pick a rating above."}
+            {displayed
+              ? MOAT_DESCRIPTIONS[displayed]
+              : `Not set — scored as No moat until ${isAdmin ? "you pick a rating above" : "an admin sets a rating"}.`}
           </p>
         </div>
 

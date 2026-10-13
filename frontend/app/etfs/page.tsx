@@ -9,6 +9,7 @@ import { SavedEtfFiltersBar } from "@/components/etf-screener/SavedEtfFiltersBar
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Pagination } from "@/components/screener/Pagination";
 import { SortControls } from "@/components/screener/SortControls";
+import { AdminOnly } from "@/components/auth/AdminOnly";
 import { AddToWatchlistButton } from "@/components/ticker/AddToWatchlistButton";
 import { PageHeader } from "@/components/ui/page-header";
 import type { SavedEtfFilter } from "@/lib/api/types";
@@ -94,13 +95,15 @@ export default function EtfsPage() {
           )
         }
         actions={
-          <AddToWatchlistButton
-            tickers={sorted.map((row) => row.ticker)}
-            label="Add to watchlist"
-            confirmDescription={`all ${sorted.length} filtered tickers`}
-            disabled={sorted.length === 0}
-            audience="etf"
-          />
+          <AdminOnly>
+            <AddToWatchlistButton
+              tickers={sorted.map((row) => row.ticker)}
+              label="Add to watchlist"
+              confirmDescription={`all ${sorted.length} filtered tickers`}
+              disabled={sorted.length === 0}
+              audience="etf"
+            />
+          </AdminOnly>
         }
       />
 

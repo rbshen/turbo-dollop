@@ -3,6 +3,7 @@
 import { CaretDown, Info } from "@phosphor-icons/react";
 import { Fragment, useState } from "react";
 
+import { AdminOnly } from "@/components/auth/AdminOnly";
 import { SecCellCheckButton, type SecCellCheckField } from "@/components/ticker/SecCellCheckButton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { DataQualityFlag, FinancialsPeriodOut } from "@/lib/api/types";
@@ -160,12 +161,15 @@ export function FinancialsStatementTable({ ticker, periodType, data, reportedCur
                           <span className="inline-flex items-center justify-end">
                             {formatValue(value, item.unit)}
                             {showCellCheck && (
-                              <SecCellCheckButton
-                                ticker={ticker}
-                                field={cellCheckField}
-                                periodEnd={periodEnd}
-                                currency={reportedCurrency}
-                              />
+                              // The check is an on-demand SEC EDGAR + FMP call, admin-only on the backend.
+                              <AdminOnly>
+                                <SecCellCheckButton
+                                  ticker={ticker}
+                                  field={cellCheckField}
+                                  periodEnd={periodEnd}
+                                  currency={reportedCurrency}
+                                />
+                              </AdminOnly>
                             )}
                           </span>
                         </TableCell>

@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 
+import { AdminOnly } from "@/components/auth/AdminOnly";
 import { EtfWatchlistButton } from "@/components/ticker/EtfWatchlistButton";
 import { PriceChange } from "@/components/ticker/PriceChange";
 import { useUniverseControl } from "@/components/ticker/UniverseControl";
@@ -79,13 +80,14 @@ export function EtfHeader({ data }: { data: TickerSummaryOut }) {
     <EtfHeaderView
       data={data}
       assetClass={overview?.status === "ok" ? overview.asset_class : undefined}
+      // Both actions write (universe, ETF watchlist): a viewer gets the header without the cluster.
       actions={
-        <>
+        <AdminOnly>
           {universe.control}
           <EtfWatchlistButton ticker={data.ticker} />
-        </>
+        </AdminOnly>
       }
-      actionsNote={universe.note}
+      actionsNote={<AdminOnly>{universe.note}</AdminOnly>}
       trend={trend}
     />
   );

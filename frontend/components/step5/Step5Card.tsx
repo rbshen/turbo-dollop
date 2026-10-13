@@ -3,6 +3,7 @@
 import { PartialBalanceSheetNote } from "@/components/shared/DataQualityNote";
 import { OutlierWarningNote } from "@/components/shared/OutlierWarningNote";
 import { AnalysisSectionCard, type ReasoningBullet, weightScoreSuffix } from "@/components/shared/AnalysisSectionCard";
+import { AdminOnly } from "@/components/auth/AdminOnly";
 import { BankCapitalMetricsForm } from "@/components/step5/BankCapitalMetricsForm";
 import { useStep5 } from "@/lib/hooks/useStep5";
 import { fmtNumber, fmtPct, fmtTableMoney } from "@/lib/format";
@@ -288,7 +289,12 @@ export function Step5Card({ ticker }: Props) {
         notes={notes}
         bullets={bullets}
       />
-      {isBank && data.bank_capital_metrics_editable && <BankCapitalMetricsForm ticker={ticker} step5={data} />}
+      {isBank && data.bank_capital_metrics_editable && (
+        // Entering CET1 / NPL is an admin write; a viewer reads the resolved ratios in the card above.
+        <AdminOnly>
+          <BankCapitalMetricsForm ticker={ticker} step5={data} />
+        </AdminOnly>
+      )}
     </div>
   );
 }

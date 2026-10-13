@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { FmpSettingsMock } from "./FmpSettingsMock";
 import { FormControlsReference } from "./FormControlsReference";
 import { AlignmentCheckMock, DiscountRateMock, LiquidityMock, WeinsteinMock } from "./SettingsMocks";
+
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
 
 afterEach(cleanup);
 

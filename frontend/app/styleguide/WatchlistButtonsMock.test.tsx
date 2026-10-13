@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WatchlistButtonsMock } from "./WatchlistButtonsMock";
 
+// The component under test contains an admin control: render it as a signed-in admin (roles have their own tests).
+vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
+
 // Smoke tests: the reference renders from mock data alone, shows every state the
 // brief lists, the real components inside it behave, and nothing reaches the network.
 const fetchSpy = vi.fn();
