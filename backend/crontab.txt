@@ -181,7 +181,7 @@
 
 # 3:30 Daily SQLite backup (was 3:55 before the 2026-09-30 reorder) -- last in the
 # chain so it holds the night's full output. Compressed, timestamped copy of
-# fathom.db to backend/backups/ (gitignored); keeps the newest 7 daily + 4
+# fathom.db to backend/backups/ (gitignored); keeps the newest 3 daily + 4
 # weekly copies. ~3 min. See pipeline/backup_db.py.
 30 3 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/backup_db.lock /home/shen/.local/bin/uv run python -m pipeline.backup_db >> /home/shen/fathom/backend/logs/backup_db_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped backup_db: the previous run is still going" >> /home/shen/fathom/backend/logs/backup_db_cron.log
 

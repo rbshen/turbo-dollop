@@ -407,9 +407,9 @@ below) — a broken sync can make otherwise-active tickers look
 `fathom.db` to `backend/backups/` (gitignored, not synced anywhere else
 — this is on-disk-only insurance, not an off-site backup) via SQLite's
 own `Connection.backup()` API, then prunes with a tiered retention rule
-(changed 2026-09-21 from a flat "last 14"): the **newest 7 backup dates**
-(daily tier) plus **4 weekly copies** from before that window (weekly tier)
-— 11 dates at steady state, reaching back ~5 weeks. A week's copy is that
+(changed 2026-09-21 from a flat "last 14"; the daily tier went from 7 to 3 on 2026-10-03): the **newest 3 backup dates**
+(daily tier, `BACKUP_KEEP_DAILY`) plus **4 weekly copies** from before that window (weekly tier, `BACKUP_KEEP_WEEKLY`)
+— 7 dates at steady state, reaching back ~5 weeks. A week's copy is that
 ISO week's (Mon–Sun) last backup: the Sunday one normally, the latest
 earlier day if a Sunday run failed. Both tiers count backups actually on
 disk, not calendar days, so a multi-day outage never shrinks retention below

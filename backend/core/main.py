@@ -607,12 +607,13 @@ async def ticker_search(restricted: Restricted, q: Annotated[str, Query(max_leng
 
 @app.get("/api/tickers/{ticker}/summary", response_model=TickerSummaryOut)
 async def ticker_summary(ticker: TickerPath, restricted: Restricted = False) -> TickerSummaryOut:
-    # A page view keeps the ticker in the nightly universe for 30 days and is the "last touch" the wipe reads
+    # A page view does NOT put a ticker in the nightly universe (opt-in since 2026-10-03: only the owner's Add does). It records the
+    # "last touch" that sorts a ticker into `browsed` (opened within 30 days) or `expired` and that the wipe reads
     # (data/tracked_universe.py). A ticker that already has a TickerView row is touched at the START of the request, so a
     # wipe cannot catch it mid-open; a ticker with no row yet gets one only after the summary succeeded (below), so an
     # invalid symbol never creates one. Both are at most one write per ticker per day and never raise.
     if restricted:
-        # A viewer: stored data only, and no TickerView touch or record (those are writes that keep a ticker in the universe).
+        # A viewer: stored data only, and no TickerView touch or record (those are writes, and a viewer must not change the wipe's "last touch").
         return await get_summary(ticker, cache_only=True)
     touch_existing_ticker_view(ticker)
     try:
@@ -1094,7 +1095,7 @@ async def ticker_score_out(ticker: TickerPath, restricted: Restricted) -> Ticker
         elif row is None or row.overall_score is None:
             row = await compute_ticker_score(ticker, cache_only=True, persist=False)
         return TickerScoreOut(**row.model_dump()) if row is not None else None
-    # A ticker that left the nightly universe (not viewed for 30 days, see data/tracked_universe.py)
+    # A ticker outside the nightly universe (only browsed, expired or untracked, see data/tracked_universe.py)
     # keeps a frozen row, so the first view after a long gap must not serve it as current: recompute,
     # live this time (cache_only=False -- the same staleness-gated fetches the page's own tabs make).
     # Nightly keeps every universe member's row far inside the window, so this never fires for them.
