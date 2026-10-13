@@ -26,8 +26,13 @@ FRONTEND_LOG="$FRONTEND_LOG_DIR/next_dev.log"
 # overridable via env var for a one-off run (e.g. an alternate port to test
 # start.sh without colliding with an already-running instance) without
 # touching this file.
-BACKEND_HOST="${BACKEND_HOST:-0.0.0.0}"
+#
+# Both servers listen on loopback only (the app is reached through an SSH
+# tunnel, never exposed on a public interface). The bind addresses change
+# only through these env vars, never through a flag or a default edit.
+BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
 BACKEND_PORT="${BACKEND_PORT:-8002}"
+FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
 FRONTEND_PORT="${FRONTEND_PORT:-3100}"
 
 BACKEND_HEALTH_URL="http://localhost:${BACKEND_PORT}/api/health"

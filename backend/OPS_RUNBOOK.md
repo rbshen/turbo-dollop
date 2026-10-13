@@ -36,6 +36,14 @@ one times out, the preflight/DB/FMP checks already ran, so the problem is
 almost always in `uvicorn`'s own startup (check the log path printed in
 the failure message).
 
+**Bind address.** Both servers listen on `127.0.0.1` only (backend `:8002`, frontend `:3100`); the app is
+not exposed on any public interface and is reached through an SSH tunnel (`ssh -L 3100:127.0.0.1:3100 <host>`,
+then open `http://localhost:3100`). The binds change only by env var: `BACKEND_HOST` / `BACKEND_PORT` and
+`FRONTEND_HOST` / `FRONTEND_PORT` (`bin/common.sh`). `frontend/package.json`'s `dev` / `start` scripts also
+carry `-H 127.0.0.1`, so a bare `npm run dev` is loopback-only too. `next.config.ts` still proxies `/api/*`
+to `http://localhost:8002`. Cron jobs call the DB and FMP directly and never use either port. Check with
+`ss -ltnp | grep -E ':(8002|3100)'`: both must show `127.0.0.1`.
+
 `./bin/stop.sh` stops both servers via the PID files `start.sh` wrote to
 `.run/` — safe to run anytime, including when nothing is running (prints
 "nothing to stop" per service, exits 0). Use this from a second shell, or

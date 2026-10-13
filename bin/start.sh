@@ -198,10 +198,10 @@ start_backend() {
 start_frontend() {
   local npm_script=start
   [[ "$MODE" == "dev" ]] && npm_script=dev
-  log "Starting frontend (npm run $npm_script, port $FRONTEND_PORT) -> $FRONTEND_LOG"
+  log "Starting frontend (npm run $npm_script, host $FRONTEND_HOST, port $FRONTEND_PORT) -> $FRONTEND_LOG"
   mkdir -p "$FRONTEND_LOG_DIR"
   [[ "$MODE" == "dev" ]] && : > "$FRONTEND_LOG"
-  (cd "$FRONTEND_DIR" && exec setsid npm run "$npm_script" -- -p "$FRONTEND_PORT" >>"$FRONTEND_LOG" 2>&1 </dev/null) &
+  (cd "$FRONTEND_DIR" && exec setsid npm run "$npm_script" -- -H "$FRONTEND_HOST" -p "$FRONTEND_PORT" >>"$FRONTEND_LOG" 2>&1 </dev/null) &
   FRONTEND_PID=$!
   mkdir -p "$PID_DIR"
   echo "$FRONTEND_PID" > "$FRONTEND_PID_FILE"

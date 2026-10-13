@@ -14,7 +14,7 @@ What a pass may do:
   * WebSearch and ToolSearch.
   * WebFetch an http(s) URL on port 80 or 443 whose host is a dotted public-looking NAME. Denied: file: and every other scheme, localhost,
     names without a dot, IP literals in any spelling (127.0.0.1, 127.1, 0x7f000001, 2130706433, [::1]), *.local / *.localhost / *.internal /
-    *.lan / *.home / *.corp / *.intranet, user@ in the URL, and any other port. (The app listens on 0.0.0.0:8002 and answers
+    *.lan / *.home / *.corp / *.intranet, user@ in the URL, and any other port. (The app listens on 127.0.0.1:8002 (loopback only) and answers
     /api/tickers/<t>/moat, so the local network is the one place the set rating could be fetched from.) A hostname that DNS-resolves to this
     machine is NOT caught: a residual risk accepted in docs/decisions.md.
   * Every other tool is denied.
