@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { TopNav } from "@/components/nav/TopNav";
+import { TopNav as BareTopNav } from "@/components/nav/TopNav";
+import { TestAuth } from "@/lib/auth/testAuth";
 
 // Characterization of the top nav: which item reads as the current page, and where each link goes. The search box is
 // its own component with its own tests, so it is a stub here.
@@ -14,6 +15,15 @@ afterEach(cleanup);
 beforeEach(() => {
   h.pathname = "/screener";
 });
+
+// Every test below draws the bar for a signed-in admin; the account block has its own describe at the end.
+function TopNav() {
+  return (
+    <TestAuth role="admin">
+      <BareTopNav />
+    </TestAuth>
+  );
+}
 
 // How the current item is marked is the one markup-dependent part of this file.
 function isCurrent(el: HTMLElement): boolean {
@@ -156,5 +166,54 @@ describe("TopNav: the current item is neutral", () => {
     const { container } = render(<TopNav />);
     expect(screen.getByText("Ticker Analysis")).toHaveClass("bg-surface-2", "text-text-primary");
     expect(container.querySelectorAll("[aria-current]")).toHaveLength(1);
+  });
+});
+
+describe("TopNav: the account block", () => {
+  const draw = (role: "admin" | "viewer" | null, extra: { loading?: boolean; logout?: () => Promise<void> } = {}) =>
+    render(
+      <TestAuth role={role} username="ann" loading={extra.loading} overrides={extra.logout ? { logout: extra.logout } : undefined}>
+        <BareTopNav />
+      </TestAuth>,
+    );
+
+  it("shows the username, the role and a Sign out button", () => {
+    draw("viewer");
+    expect(screen.getByTestId("account")).toHaveTextContent("ann");
+    expect(screen.getByTestId("account")).toHaveTextContent("viewer");
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+  });
+
+  it("shows every nav link to a viewer too (hides nothing)", () => {
+    draw("viewer");
+    const labels = screen.getAllByRole("link").map((a) => a.textContent);
+    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Opportunities", "Momentum", "Sectors", "Breadth", "Settings"]);
+  });
+
+  it("signs out through the provider", async () => {
+    const logout = vi.fn().mockResolvedValue(undefined);
+    draw("admin", { logout });
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
+  });
+
+  it("keeps the full bar, without an account block, while the session is being checked", () => {
+    draw(null, { loading: true });
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.queryByTestId("account")).toBeNull();
+  });
+
+  it("shows only the name for a signed-out visitor", () => {
+    draw(null);
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(screen.queryByTestId("search")).toBeNull();
+    expect(screen.getByText("Fathom")).toBeInTheDocument();
+  });
+
+  it("shows only the name on the login page, even while loading", () => {
+    h.pathname = "/login";
+    draw(null, { loading: true });
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(screen.queryByTestId("search")).toBeNull();
   });
 });

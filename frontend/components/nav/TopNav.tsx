@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 
 import { PageContainer } from "@/components/layout/PageContainer";
 import { TickerSearch } from "@/components/nav/TickerSearch";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { cn } from "@/lib/utils";
 
 interface NavLink {
@@ -53,6 +55,18 @@ function openInBackgroundTab(e: ReactMouseEvent<HTMLAnchorElement>) {
 // ticker page), not a link to nowhere.
 export function TopNav() {
   const pathname = usePathname();
+  const { user, isLoading, logout } = useAuth();
+  // On the sign-in page, and for a visitor who is not signed in, there is nothing to navigate to: just the name. (While the
+  // session is still being checked the full bar shows, so a signed-in page does not flicker.)
+  if (pathname === "/login" || pathname.startsWith("/login/") || (!isLoading && !user)) {
+    return (
+      <nav className="sticky top-0 z-30 border-b border-border-subtle bg-page/90 backdrop-blur">
+        <PageContainer className="flex h-12 items-center">
+          <span className="font-heading text-sm font-semibold tracking-tight text-text-primary">Fathom</span>
+        </PageContainer>
+      </nav>
+    );
+  }
   const onTickerPage = pathname.startsWith("/tickers/");
   const sameTab = SAME_TAB_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
@@ -94,6 +108,15 @@ export function TopNav() {
         <div className="shrink-0">
           <TickerSearch />
         </div>
+        {user && (
+          <div className="flex shrink-0 items-center gap-1 text-sm" data-testid="account">
+            <span className="text-text-primary">{user.username}</span>
+            <span className="text-text-tertiary">{user.role}</span>
+            <Button variant="ghost" size="sm" onClick={() => void logout()}>
+              Sign out
+            </Button>
+          </div>
+        )}
       </PageContainer>
     </nav>
   );
