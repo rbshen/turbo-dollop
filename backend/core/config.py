@@ -86,5 +86,22 @@ class Settings(BaseSettings):
     # Origin (or Referer) a POST/PUT/PATCH/DELETE may come from.
     allowed_origins: str = "http://localhost:3100,http://127.0.0.1:3100"
 
+    # Login accounts and sessions (core/auth.py, docs/specs/auth.md). The session cookie is httpOnly + SameSite=Lax + Path=/.
+    # SESSION_COOKIE_SECURE stays off by default: the app is reached over plain http://localhost:3100 and Safari drops Secure cookies
+    # on http://localhost; turn it on only behind TLS. A session ends after session_idle_days without a request (refreshed at most
+    # every 5 minutes) or session_absolute_days after login, whichever comes first.
+    session_idle_days: float = 7
+    session_absolute_days: float = 30
+    session_cookie_secure: bool = False
+    # Login throttle: login_max_failures wrong passwords for one user (or one unknown name) lock it for login_lockout_minutes;
+    # login_source_max_failures failures from one source address inside login_source_window_minutes block that source until the
+    # oldest one ages out. All temporary. Behind the SSH tunnel every request comes from 127.0.0.1.
+    login_max_failures: int = 5
+    login_lockout_minutes: int = 15
+    login_source_max_failures: int = 30
+    login_source_window_minutes: int = 15
+    # Viewer GET /chart is served from an in-memory cache for this long, per (ticker, range), so viewers cannot multiply FMP calls.
+    viewer_chart_cache_seconds: int = 60
+
 
 settings = Settings()

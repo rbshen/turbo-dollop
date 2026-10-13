@@ -1787,3 +1787,55 @@ class MoatCheck(SQLModel, table=True):
     evidence_note: str | None = None
     pass1_json: str  # the validated record (threat_level and evidence_confidence derived in code)
     pass2_json: str
+
+
+class User(SQLModel, table=True):
+    """A login account (docs/specs/auth.md). Created by an admin through `python -m core.auth_cli` only: there is no sign-up. The
+    table is `user`. `username` is stored normalized (stripped, lowercase) under a unique index, so uniqueness is case-insensitive.
+    `role` is "admin" or "viewer", validated in code (core/auth.py::ROLES). `password_hash` is the scrypt string of core/passwords.py
+    (parameters inside it) and is never returned or logged. Timestamps are naive UTC. `failed_logins` / `locked_until` are the
+    per-user login throttle (core/auth.py): a lockout is temporary and a successful login resets both. Foreign keys are off in this
+    database, so a disable or a password change deletes the user's sessions explicitly."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    username: str = Field(unique=True, index=True)
+    password_hash: str
+    role: str
+    is_active: bool = True
+    created_at: datetime
+    last_login_at: datetime | None = None
+    failed_logins: int = 0
+    locked_until: datetime | None = None
+
+
+class UserSession(SQLModel, table=True):
+    """One signed-in browser session (table `usersession`). The cookie carries an opaque random token; only its SHA-256 is stored here
+    (`token_hash`, the primary key), so a read of the database cannot be replayed as a cookie. `expires_at` is the absolute lifetime,
+    `last_seen_at` drives the idle timeout and is refreshed at most once every few minutes (core/auth.py::SESSION_TOUCH_SECONDS)."""
+
+    token_hash: str = Field(primary_key=True)
+    user_id: int = Field(index=True)
+    created_at: datetime
+    expires_at: datetime
+    last_seen_at: datetime
+    ip: str | None = None
+    user_agent: str | None = None
+
+
+class AuditLog(SQLModel, table=True):
+    """Who did what through the API (table `auditlog`; core/audit.py). One row per non-GET request outcome and per login event.
+    `event` is "request", "login_ok", "login_fail", "login_blocked", "lockout" or "logout". `path` has no query string; no request body,
+    password, token or hash is ever stored. `user_id` / `username` are null for an unauthenticated request (a failed login keeps the
+    username that was typed, normalized and truncated)."""
+
+    __table_args__ = (Index("ix_auditlog_ts", "ts"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    ts: datetime
+    user_id: int | None = None
+    username: str | None = None
+    method: str
+    path: str
+    status: int
+    ip: str | None = None
+    event: str

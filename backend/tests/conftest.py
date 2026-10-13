@@ -345,3 +345,26 @@ def _default_flags_enabled(monkeypatch):
     shelved `news`). A test wanting a disabled state calls
     core.data_groups.set_master/set_group_enabled itself."""
     monkeypatch.setattr(settings, "cron_health_enabled", True)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_auth_engine(monkeypatch):
+    """core.auth (accounts, sessions, throttle) and core.audit read their own `engine` reference, like every other module here, so
+    every test gets a fresh in-memory database holding only the three auth tables and the real file is never opened for a
+    login or an audit row (the write guard above would fail the run). scrypt is lowered to a few microseconds for the same
+    reason the suite uses in-memory databases: ~5,000 tests must not pay 100 ms per login. The login throttle's in-memory
+    counters start empty."""
+    import core.auth as auth
+    import core.passwords as passwords
+    from core.models import AuditLog, User, UserSession
+
+    test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(test_engine, tables=[User.__table__, UserSession.__table__, AuditLog.__table__])
+    monkeypatch.setattr(auth, "engine", test_engine)
+    monkeypatch.setattr(passwords, "SCRYPT_N", 2**4)
+    monkeypatch.setattr(passwords, "SCRYPT_R", 1)
+    monkeypatch.setattr(passwords, "SCRYPT_P", 1)
+    monkeypatch.setattr(passwords, "_dummy_hash", None)
+    auth.throttle.reset()
+    yield test_engine
+    auth.throttle.reset()

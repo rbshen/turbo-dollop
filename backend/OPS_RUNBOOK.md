@@ -930,6 +930,35 @@ No automated alerting exists for this yet (out of scope for now) -- this
 is a manual check to run if a ticker's index membership looks stale or
 wrong in the app.
 
+## Login accounts (security step 3, 2026-10-13)
+
+Every `/api` route except `GET /api/health` and `POST /api/auth/login` needs a signed-in session (docs/specs/auth.md). Accounts are created **only** with the CLI, run from `backend/`:
+
+```
+uv run python -m core.auth_cli create-user <name> --role admin|viewer   # password: prompt (typed twice) or one line on stdin
+uv run python -m core.auth_cli set-password <name>                       # ends that user's sessions, clears a login lock
+uv run python -m core.auth_cli disable <name>  |  enable <name>          # a disable ends that user's sessions
+uv run python -m core.auth_cli list                                      # role, active, sessions, last login, lock; never a hash
+uv run python -m core.auth_cli revoke-sessions [<name>]                  # no name: every session (everyone signs in again)
+```
+
+Passwords are never read from argv (12 characters minimum). Piped form: `printf '%s\n' "$PW" | uv run python -m core.auth_cli create-user alice --role admin`.
+The CLI creates the three auth tables (`user`, `usersession`, `auditlog`) if they are missing, so it works before the app has restarted on this code; `init_db()` creates them
+too but **never seeds a user** (cron jobs call it).
+
+**First admin (the app is locked to everyone until one exists):** 1. `./bin/stop.sh` and `./bin/start.sh --prod` (picks up the code). 2. `cd backend && uv run python -m core.auth_cli create-user <you> --role admin`
+(type the password twice). 3. `uv run python -m core.auth_cli list` shows it. 4. Sign in through the frontend (its login page is the next step) or, for a script, see "Scripts and curl" below.
+If every admin is locked out or forgot the password: `set-password <name>` (it also clears the lock); the CLI works whether or not the app is running.
+
+**Scripts and curl.** A write needs a session cookie **and** the `X-Fathom-Request` header (the request guard). With a cookie jar:
+`curl -c jar -H 'X-Fathom-Request: 1' -H 'Content-Type: application/json' -d '{"username":"alice","password":"..."}' http://localhost:8002/api/auth/login`, then
+`curl -b jar -H 'X-Fathom-Request: 1' -X PUT ... http://localhost:8002/api/...`. Cron jobs, `pipeline/`, `scripts/` and the Moat-check pipeline read and write the database and call FMP directly,
+never the HTTP API, so none of them needs a login. `bin/start.sh` polls `GET /api/health`, which stays public.
+
+**Settings (env vars, read at start).** `SESSION_IDLE_DAYS` (7), `SESSION_ABSOLUTE_DAYS` (30), `SESSION_COOKIE_SECURE` (false: leave it off on plain `http://localhost`, Safari discards Secure cookies there; turn it on only behind TLS),
+`LOGIN_MAX_FAILURES` (5 wrong passwords lock a user), `LOGIN_LOCKOUT_MINUTES` (15), `LOGIN_SOURCE_MAX_FAILURES` (30) in `LOGIN_SOURCE_WINDOW_MINUTES` (15), `VIEWER_CHART_CACHE_SECONDS` (60).
+A lockout is temporary by design; `set-password` clears it immediately. Behind the SSH tunnel every request comes from 127.0.0.1, so the per-source limit is one global limit.
+
 ## Disk space (2026-10-06 and 2026-10-09 investigations)
 
 The repo, `backend/backups`, the caches under `~/.cache`, `~/.npm` and `~/.vscode-server`, and the OS share one ext4 volume (about 25 GB). `backup_db` refuses to run
