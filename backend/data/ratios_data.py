@@ -4,6 +4,7 @@ from core.cache import get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
 from core.db import engine
 from helpers.earnings import resolve_most_recent_earnings_date
+from helpers.coerce import finite_number, text_or_none
 from helpers.first import _first
 from helpers.statement_view import cached_data_quality
 from clients.fmp_client import fmp_client
@@ -133,6 +134,19 @@ CATEGORIES: list[tuple[str, list[FieldSpec]]] = [
 ]
 
 
+def _year_label(row: dict) -> str:
+    """The fiscal-year label of one annual row: `fiscalYear` (FMP sends a string, a number is read as its whole value), else the first four
+    characters of `date`, else "—" -- a wrong-typed value never reaches the response model (helpers/coerce.py)."""
+    fiscal_year = row.get("fiscalYear")
+    if isinstance(fiscal_year, str) and fiscal_year:
+        return fiscal_year
+    number = finite_number(fiscal_year)
+    if number is not None and number == int(number):
+        return str(int(number))
+    date_text = text_or_none(row.get("date"))
+    return date_text[:4] if date_text else "—"
+
+
 def _annual_years(*row_sources: list[dict], count: int = ANNUAL_WINDOW) -> list[str]:
     # Same convention as step4_data.py::_annual_years -- picks fiscal-year
     # labels from the first non-empty source rather than a per-field
@@ -145,17 +159,22 @@ def _annual_years(*row_sources: list[dict], count: int = ANNUAL_WINDOW) -> list[
         if rows:
             trimmed = list(reversed(rows[:count]))
             pad = count - len(trimmed)
-            return ["—"] * pad + [row.get("fiscalYear", row.get("date", "")[:4]) for row in trimmed]
+            return ["—"] * pad + [_year_label(row) for row in trimmed]
     return ["—"] * count
 
 
 def _annual_series(annual_rows: list[dict], field: str, unit: str, count: int = ANNUAL_WINDOW) -> list[float | None]:
     rows = list(reversed(annual_rows[:count]))
     pad = count - len(rows)
-    values = [None] * pad + [row.get(field) for row in rows]
+    values = [None] * pad + [finite_number(row.get(field)) for row in rows]
     if unit == "percent":
         values = [v * 100 if v is not None else None for v in values]
     return values
+
+
+def _dict_rows(rows: object) -> list[dict]:
+    """The list rows of an FMP answer that are objects; anything else (a non-list answer, a stray string in the list) is left out."""
+    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
 
 
 def _strip_ttm_suffix(row: dict) -> dict:
@@ -167,7 +186,7 @@ def _strip_ttm_suffix(row: dict) -> dict:
 
 
 def _ttm_value(stripped_row: dict, field: str, unit: str) -> float | None:
-    value = stripped_row.get(field)
+    value = finite_number(stripped_row.get(field))
     if value is not None and unit == "percent":
         value = value * 100
     return value
@@ -278,14 +297,14 @@ async def get_ratios_data(ticker: str, cache_only: bool = False) -> RatiosOut:
         # the cached statements FMP's ratios are computed from. Cache read, no fetch; no row below is altered by it.
         data_quality = cached_data_quality(session, ticker)
 
-    key_metrics_annual = key_metrics_annual if isinstance(key_metrics_annual, list) else []
-    ratios_annual = ratios_annual if isinstance(ratios_annual, list) else []
+    key_metrics_annual = _dict_rows(key_metrics_annual)
+    ratios_annual = _dict_rows(ratios_annual)
     key_metrics_ttm = _strip_ttm_suffix(key_metrics_ttm)
     ratios_ttm = _strip_ttm_suffix(ratios_ttm)
-    balance_sheet_quarterly = balance_sheet_quarterly if isinstance(balance_sheet_quarterly, list) else []
+    balance_sheet_quarterly = _dict_rows(balance_sheet_quarterly)
 
     years = _annual_years(key_metrics_annual, ratios_annual)
-    ttm_date = balance_sheet_quarterly[0].get("date") if balance_sheet_quarterly else None
+    ttm_date = text_or_none(balance_sheet_quarterly[0].get("date")) if balance_sheet_quarterly else None
     periods = years + [f"TTM ({ttm_date})" if ttm_date else "TTM"]
 
     groups = _build_groups(key_metrics_annual, ratios_annual, key_metrics_ttm, ratios_ttm)
@@ -296,7 +315,7 @@ async def get_ratios_data(ticker: str, cache_only: bool = False) -> RatiosOut:
     # tells the frontend which currency those rows actually are.
     # ratios_annual over key_metrics_annual since money/per_share fields in
     # this schema all come from the "ratios" source (see PER_SHARE_FIELDS).
-    reported_currency = _first(ratios_annual).get("reportedCurrency")
+    reported_currency = text_or_none(_first(ratios_annual).get("reportedCurrency"))
 
     return RatiosOut(
         ticker=ticker, periods=periods, groups=groups, reported_currency=reported_currency, data_quality=data_quality

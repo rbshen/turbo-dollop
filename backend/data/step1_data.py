@@ -67,7 +67,7 @@ def _is_commodity_company(sector: str, industry: str | None, ticker: str | None)
         return False
     if ticker and ticker.upper() in COMMODITY_EXEMPTION_TICKER_OVERRIDES:
         return False
-    industry = (industry or "").strip()
+    industry = (industry if isinstance(industry, str) else "").strip()
     return not industry or industry in COMMODITY_PRODUCER_INDUSTRIES
 
 
@@ -91,7 +91,7 @@ def _detect_exemption(
     Step 1 exemption either (falling through to `None` here is correct --
     an ETF has no CFO to de-emphasize/swap, it just naturally scores
     insufficient_data on real, non-Bank-shaped Revenue/CFO series)."""
-    sector = (sector or "").strip()
+    sector = (sector if isinstance(sector, str) else "").strip()  # parse boundary: non-text reads as missing (helpers/coerce.py)
     shared_type = classify_company_type(sector, industry, ticker, is_fund=is_fund)
     if shared_type in ("Bank", "Insurance"):
         return shared_type

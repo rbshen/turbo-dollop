@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 from core.cache import get_or_fetch, safe_fetch
 from core.config import settings
 from core.db import engine
+from helpers.coerce import count_or_zero, finite_number, text_or_none
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from clients.long_history_bars import get_long_history
@@ -37,24 +38,37 @@ SNAPSHOT_TOLERANCE_DAYS = 45
 
 logger = logging.getLogger(__name__)
 
+# Parse boundary (helpers/coerce.py): an analyst count that is not a whole non-negative number reads as 0, a price or average that is not
+# a finite number reads as missing, and a text or date field of the wrong type reads as missing -- one bad field never fails the tab.
 def _counts_from_grades_consensus(raw: dict) -> dict:
     return {
-        "strong_buy": raw.get("strongBuy", 0) or 0,
-        "buy": raw.get("buy", 0) or 0,
-        "hold": raw.get("hold", 0) or 0,
-        "sell": raw.get("sell", 0) or 0,
-        "strong_sell": raw.get("strongSell", 0) or 0,
+        "strong_buy": count_or_zero(raw.get("strongBuy")),
+        "buy": count_or_zero(raw.get("buy")),
+        "hold": count_or_zero(raw.get("hold")),
+        "sell": count_or_zero(raw.get("sell")),
+        "strong_sell": count_or_zero(raw.get("strongSell")),
     }
 
 
 def _counts_from_grades_historical_row(row: dict) -> dict:
     return {
-        "strong_buy": row.get("analystRatingsStrongBuy", 0) or 0,
-        "buy": row.get("analystRatingsBuy", 0) or 0,
-        "hold": row.get("analystRatingsHold", 0) or 0,
-        "sell": row.get("analystRatingsSell", 0) or 0,
-        "strong_sell": row.get("analystRatingsStrongSell", 0) or 0,
+        "strong_buy": count_or_zero(row.get("analystRatingsStrongBuy")),
+        "buy": count_or_zero(row.get("analystRatingsBuy")),
+        "hold": count_or_zero(row.get("analystRatingsHold")),
+        "sell": count_or_zero(row.get("analystRatingsSell")),
+        "strong_sell": count_or_zero(row.get("analystRatingsStrongSell")),
     }
+
+
+def _row_date(value: object) -> date | None:
+    """The calendar date of an FMP row's `date` (ISO, first 10 characters), or None when it is missing, not a string or malformed."""
+    text = text_or_none(value)
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
 
 
 def _collapse_3bucket(counts: dict) -> tuple[int, int, int]:
@@ -93,9 +107,9 @@ def _nearest_by_date(rows: list, target_date: date, date_key: str):
     best_diff = None
     for row in rows:
         raw_date = row.get(date_key) if isinstance(row, dict) else getattr(row, date_key, None)
-        if not raw_date:
+        row_date = raw_date if isinstance(raw_date, date) else _row_date(raw_date)
+        if row_date is None:
             continue
-        row_date = raw_date if isinstance(raw_date, date) else date.fromisoformat(str(raw_date)[:10])
         diff = abs((row_date - target_date).days)
         if best_diff is None or diff < best_diff:
             best_diff, best_row = diff, row
@@ -160,13 +174,13 @@ def _recency_buckets(raw: dict) -> list[PriceTargetRecencyBucket]:
         ("Last Year", "lastYearAvgPriceTarget", "lastYearCount"),
         ("All Time", "allTimeAvgPriceTarget", "allTimeCount"),
     ):
-        count = raw.get(count_key, 0) or 0
+        count = count_or_zero(raw.get(count_key))
         # FMP returns a literal 0 (not null) for the average when no analyst
         # issued a target within this window -- confirmed live (a quiet
         # ticker's lastMonthCount=0, lastMonthAvgPriceTarget=0). Without this
         # guard, a literal 0 reads downstream as a real $0.00 price target
         # rather than "no data for this period".
-        avg = raw.get(avg_key) if count > 0 else None
+        avg = finite_number(raw.get(avg_key)) if count > 0 else None
         buckets.append(PriceTargetRecencyBucket(label=label, avg_price_target=avg, analyst_count=count))
     return buckets
 
@@ -261,29 +275,33 @@ async def get_analyst_ratings_data(ticker: str, cache_only: bool = False) -> Ana
     price_target_summary = _first(price_target_summary_data)
     quote = _first(quote_data)
     historical_rows = sorted(
-        (row for row in (grades_historical_data if isinstance(grades_historical_data, list) else []) if row.get("date")),
+        (
+            row
+            for row in (grades_historical_data if isinstance(grades_historical_data, list) else [])
+            if isinstance(row, dict) and _row_date(row.get("date")) is not None
+        ),
         key=lambda row: row["date"],
     )
 
     current_counts = _counts_from_grades_consensus(grades_consensus)
     buy_count, hold_count, sell_count = _collapse_3bucket(current_counts)
     banner = ConsensusBanner(
-        rating=grades_consensus.get("consensus") or "N/A",
+        rating=text_or_none(grades_consensus.get("consensus")) or "N/A",
         analyst_count=sum(current_counts.values()),
         buy_count=buy_count,
         hold_count=hold_count,
         sell_count=sell_count,
     )
 
-    current_price = quote.get("price")
-    target_consensus = price_target_consensus.get("targetConsensus")
+    current_price = finite_number(quote.get("price"))
+    target_consensus = finite_number(price_target_consensus.get("targetConsensus"))
     upside_pct = (target_consensus / current_price - 1) * 100 if current_price and target_consensus else None
     price_target = PriceTargetSummary(
         current_price=current_price,
         target_consensus=target_consensus,
-        target_high=price_target_consensus.get("targetHigh"),
-        target_low=price_target_consensus.get("targetLow"),
-        target_median=price_target_consensus.get("targetMedian"),
+        target_high=finite_number(price_target_consensus.get("targetHigh")),
+        target_low=finite_number(price_target_consensus.get("targetLow")),
+        target_median=finite_number(price_target_consensus.get("targetMedian")),
         upside_pct=upside_pct,
     )
 
@@ -293,7 +311,7 @@ async def get_analyst_ratings_data(ticker: str, cache_only: bool = False) -> Ana
         total = sum(counts.values())
         if total == 0:
             continue
-        row_date = date.fromisoformat(row["date"][:10])
+        row_date = _row_date(row["date"])
         snapshot = _nearest_by_date(snapshots, row_date, "snapshot_date")
         history.append(
             RatingHistoryPoint(
@@ -332,7 +350,7 @@ async def get_analyst_ratings_data(ticker: str, cache_only: bool = False) -> Ana
 
     columns = [
         _details_column(
-            "Current", current_counts, _weighted_score(current_counts), grades_consensus.get("consensus"), target_consensus
+            "Current", current_counts, _weighted_score(current_counts), text_or_none(grades_consensus.get("consensus")), target_consensus
         )
     ]
     for label, months in (("2M Ago", 2), ("6M Ago", 6), ("1Y Ago", 12)):

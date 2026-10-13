@@ -10,6 +10,7 @@ from core.models import FundamentalsCache
 from helpers.discount_rate_config import US_REGION, get_discount_rate_config
 from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config
+from helpers.coerce import clean_row, finite_number, text_or_none
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.tickers import normalize_ticker
@@ -201,13 +202,18 @@ async def get_step3_data(
 
     with Session(engine) as session:
         most_recent_earnings_date = await resolve_most_recent_earnings_date(session, ticker, staleness_days, cache_only)
-        profile = _first(
-            await safe_fetch(
-                "profile",
-                get_or_fetch(
-                    session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days, cache_only
-                ),
-            )
+        # Parse boundary: wrong-typed text/number fields of the profile and quote read as missing (helpers/coerce.py).
+        profile = clean_row(
+            _first(
+                await safe_fetch(
+                    "profile",
+                    get_or_fetch(
+                        session, ticker, "profile", "latest", lambda: fmp_client.get_profile(ticker), staleness_days, cache_only
+                    ),
+                )
+            ),
+            numbers=("beta",),
+            texts=("currency", "country", "sector", "industry"),
         )
         # Trading/quote currency (USD for every US listing, ADRs
         # included, though they may REPORT in another currency) -- the FX conversion TARGET, generalized from the old
@@ -222,13 +228,16 @@ async def get_step3_data(
         # (e.g. a USD-quoted ADR of a non-US company).
         # Read straight from /profile's own `country` field.
         country = profile.get("country")
-        quote = _first(
-            await safe_fetch(
-                "quote",
-                get_or_fetch(
-                    session, ticker, "quote", "latest", lambda: fmp_client.get_quote(ticker), staleness_days, cache_only
-                ),
-            )
+        quote = clean_row(
+            _first(
+                await safe_fetch(
+                    "quote",
+                    get_or_fetch(
+                        session, ticker, "quote", "latest", lambda: fmp_client.get_quote(ticker), staleness_days, cache_only
+                    ),
+                )
+            ),
+            numbers=("price", "marketCap"),
         )
         # Classified here (it only needs the profile) because the statement view below gates the balance sheet on
         # the debt basis the company type implies (REIT/Property Developer: totalDebt; otherwise short + long term).
@@ -278,7 +287,7 @@ async def get_step3_data(
         # can commit() this session (a live forex fetch caching its
         # result), which -- with SQLAlchemy's default expire_on_commit=True
         # -- expires every ORM object already read from this session.
-        reported_currency = _first(view.income_annual).get("reportedCurrency")
+        reported_currency = text_or_none(_first(view.income_annual).get("reportedCurrency"))
         fx_rate, fx_rate_as_of = await _resolve_fx_rate(
             session, reported_currency, quote_currency, staleness_days, cache_only
         )
@@ -467,7 +476,7 @@ async def get_step3_data(
     # market cap / price is preferred, the newest reported weighted count is the fallback), not the aligned list.
     shares_outstanding, shares_source = compute_shares_outstanding(quote, view.raw.income_quarterly)
 
-    beta = profile.get("beta")
+    beta = finite_number(profile.get("beta"))  # parse boundary: a wrong-typed beta reads as missing (helpers/coerce.py)
     capm = None
     discount_rate = None
     if beta is not None:

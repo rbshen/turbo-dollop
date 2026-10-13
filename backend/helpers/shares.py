@@ -1,3 +1,5 @@
+from helpers.coerce import finite_number
+
 # Reverse splits on major exchanges essentially never exceed low-double-
 # digit ratios (even distressed penny stocks rarely go beyond ~1:100) -- a
 # magnitude shift past this multiple in a shares/market-cap/enterprise-value
@@ -29,11 +31,12 @@ def compute_shares_outstanding(quote: dict, income_quarterly: list[dict]) -> tup
     (ticker_summary.py) so the two can never disagree -- /stable/profile has
     no sharesOutstanding field on our FMP plan (confirmed empirically), so
     this derivation is the only source either call site has."""
-    market_cap, price = quote.get("marketCap"), quote.get("price")
+    # Parse boundary (helpers/coerce.py): a wrong-typed figure counts as missing, so the fallback applies instead of a TypeError.
+    market_cap, price = finite_number(quote.get("marketCap")), finite_number(quote.get("price"))
     if market_cap and price:
         return market_cap / price, "marketCap / price (latest quote)"
-    latest_quarter = income_quarterly[0] if income_quarterly else {}
-    shares = latest_quarter.get("weightedAverageShsOutDil")
+    latest_quarter = income_quarterly[0] if income_quarterly and isinstance(income_quarterly[0], dict) else {}
+    shares = finite_number(latest_quarter.get("weightedAverageShsOutDil"))
     if shares:
         return shares, "weightedAverageShsOutDil (latest quarter, diluted)"
     return None, None

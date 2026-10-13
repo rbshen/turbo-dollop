@@ -108,6 +108,7 @@ from data.warren_signal_data import (
     signal_candles,
     volume_guard_applies,
 )
+from helpers.coerce import finite_number
 from helpers.liquidity_zone_config import get_liquidity_zone_settings, to_engine_settings
 from helpers.weinstein_config import load_weinstein_params
 
@@ -151,6 +152,22 @@ def _empty_ohlcv() -> pd.DataFrame:
     return pd.DataFrame(columns=_EMPTY_OHLCV_COLUMNS)
 
 
+def _clean_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    """Parse boundary for bars read live from FMP (helpers/coerce.py): a price or volume that is not a finite number (a string, "N/A", NaN,
+    inf, an object) is missing. A bar with no usable close is dropped; a missing open/high/low takes the close (a flat bar), a missing
+    volume is 0. Without this one bad cell makes `float(row[...])` raise while the bars are built and the whole chart answers 500."""
+    if df.empty:
+        return df
+    out = df.copy()
+    for col in _EMPTY_OHLCV_COLUMNS:
+        out[col] = pd.Series([finite_number(v) for v in out[col]], index=out.index, dtype="float64")
+    out = out.dropna(subset=["close"])
+    for col in ("open", "high", "low"):
+        out[col] = out[col].fillna(out["close"])
+    out["volume"] = out["volume"].fillna(0)
+    return out
+
+
 async def _fetch_fmp_weekly_bars(ticker: str, history_days: int) -> pd.DataFrame | None:
     """Weekly bars from the FMP long-history store, or None when there are none. Never
     raises: a store/FMP problem must degrade to an empty chart, not fail the request. The
@@ -187,10 +204,12 @@ async def _fetch_bars(ticker: str, range_key: str) -> tuple[pd.DataFrame, str]:
     if not group_live("daily_prices"):
         return _empty_ohlcv(), "fmp"
     try:
-        df = fmp_rows_to_frame(
-            await fmp_client.get_historical_price_eod(ticker, start.isoformat(), end.isoformat(), group="daily_prices")
+        df = _clean_ohlcv(
+            fmp_rows_to_frame(
+                await fmp_client.get_historical_price_eod(ticker, start.isoformat(), end.isoformat(), group="daily_prices")
+            )
         )
-    except (httpx.HTTPError, ValueError):
+    except (httpx.HTTPError, ValueError, TypeError):
         logger.warning("FMP daily-bar fetch failed for %s (%s)", ticker, range_key)
         return _empty_ohlcv(), "fmp"
     if df.empty:
@@ -477,7 +496,11 @@ async def _fetch_intraday_uncached(ticker: str, now: datetime, lookback_days: in
             logger.warning("FMP 60m answer for %s was not a list", ticker)
             return _empty_ohlcv()
         rows.extend(result)
-    frame = fmp_intraday_rows_to_frame(rows, _most_recent_completed_intraday_bar_start(now))
+    try:
+        frame = _clean_ohlcv(fmp_intraday_rows_to_frame(rows, _most_recent_completed_intraday_bar_start(now)))
+    except (ValueError, TypeError):  # a malformed date or row shape: all-or-nothing, like a failed window
+        logger.warning("FMP 60m answer for %s was malformed", ticker)
+        return _empty_ohlcv()
     if frame.empty:
         return _empty_ohlcv()
     frame.index = frame.index.tz_localize("America/New_York")

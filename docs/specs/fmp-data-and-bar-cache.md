@@ -47,6 +47,27 @@ Two guards in `FMPClient._send` (`clients/fmp_client.py`), the one function ever
 
 `FMPClient.get` decodes and checks every HTTP 2xx body before it counts as a success (`_checked_body`): a body that is not JSON, JSON that is neither an object nor a list, or an object with an `Error Message` / `error` key (any case) raises `FMPInvalidResponseError`, a plain `httpx.HTTPError` (the same class the 401/429 `HTTPStatusError` already was, so every existing handler takes it). It is recorded as a group failure, not a success, so it never reaches `core/cache.py`'s write path: **no cache key stores an error answer** (the `HISTORY_KEYS` merge rule already kept a non-empty row over one; this covers the snapshot keys too, and a row with nothing cached stays unwritten). The message names the endpoint only. `probe_group` / `probe_variant` apply the same check, so a 200 that is not data never clears a restriction. The SEC company-facts fetch has the twin (`SecInvalidResponseError`), and the SEC finders and `data/ticker_summary.py` skip a malformed row (a missing/malformed date, a null or non-numeric value) instead of raising.
 
+### Field type check at the parse boundary (2026-10-13)
+
+`_checked_body` (above) vets the *shape* of an answer; the *type of each field* is vetted where a value enters a typed response model, by `helpers/coerce.py`: **a field of the wrong type degrades to None (a count to 0) and nothing else about the response changes.** A number is a finite `int`/`float` (not a `bool`; a numeric *string*, NaN and +-inf are not), text is a `str`. Before this a string `beta` raised in `Step3Inputs` / `TickerSummaryOut` and the whole ticker answered 500. Nothing is cached differently (the raw answer is stored as sent) and no scoring rule changes; a clean value is read exactly as before.
+
+Covered (all read-time):
+
+| Group | Where | Fields |
+|---|---|---|
+| Ticker summary (`data/ticker_summary.py`) | profile | `companyName`, `exchange(ShortName)`, `sector`, `industry`, `description`, `currency` (text); `beta`, `mktCap` |
+| | quote | `price`, `change`, `changePercentage`/`changesPercentage`, `marketCap`, `yearHigh`, `yearLow` |
+| | price change | `1M`, `6M`, `ytd`, `1Y`, `5Y`, `10Y`, `max` (also SPY's row) |
+| | ratios TTM / growth / EV | `priceToEarningsGrowthRatioTTM`, `forwardPriceToEarningsGrowthRatioTTM`, `dividendYieldTTM`, `netIncomePerShareTTM`, `priceToEarningsRatioTTM`; `revenueGrowth`, `netIncomeGrowth`; `enterpriseValue`, `numberOfShares`; income `reportedCurrency` |
+| Valuation inputs (`data/step3_data.py`, `helpers/shares.py`) | profile / quote / statements | `beta` (CAPM is skipped as for a missing beta), `currency`, `country`, `sector`, `industry`, quote `price` / `marketCap`, income `reportedCurrency`, `weightedAverageShsOutDil` |
+| Classification (`scoring/classification.py`, Step 1 exemption) | profile | a `sector` / `industry` that is not text reads as missing |
+| Ratios tab (`data/ratios_data.py`) | key-metrics / ratios rows | every cell (annual and TTM), the year label (`fiscalYear`, else the first 4 characters of `date`, else "—"), the TTM `date`, `reportedCurrency`; a non-object row is dropped |
+| Analyst ratings (`data/analyst_ratings_data.py`) | grades / targets / quote | the five analyst counts (non-number -> 0), `consensus` label, all price targets and recency averages, `price`; grade rows without a parseable `date` are dropped |
+| ETF overview (`data/etf_data.py`) | `/etf/info`, cached profile / quote | already tolerant of wrong types; now also NaN / +-inf (they made the JSON answer itself fail) for `expenseRatio`, AUM, `holdingsCount`, NAV, volume, sector `exposure`, and the Trading data beta / dividend / 52-week range |
+| Chart (`data/chart_data.py`) | live daily and 60m bars | an OHLC cell that is not a finite number: a bar with no usable close is dropped, a missing open/high/low takes the close, a missing volume is 0; a malformed `date` makes the whole answer an empty chart (never a 500) |
+
+`helpers/first.py::_first` also treats a non-object first element of a list as "no row". **Not covered** (unchanged): the statement rows behind Steps 1-5 and the Financials tab (their own read-time guards, docs/specs/statement-data-quality.md), `isEtf` / `isFund` (read as truthiness), stored corporate events, the Segmentation, News and Institutional Ownership tabs, the nightly bar cache (`fmp_rows_to_frame` is shared with it and unchanged). Tests: `tests/test_malformed_upstream_fields.py`.
+
 ## Endpoint inventory (ground truth, 2026-09-27 audit)
 
 Every FMP request goes through `FMPClient.get` (`backend/clients/fmp_client.py`) — a repo-wide

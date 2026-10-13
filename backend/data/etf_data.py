@@ -10,6 +10,7 @@ No holdings, country-weight or asset-exposure endpoint is used; the sector weigh
 convention)."""
 
 import logging
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -63,15 +64,17 @@ _CASH_AND_OTHERS = "cash & others"
 
 
 def _number(value) -> float | None:
+    """A finite number: an int/float, or a numeric string (FMP sends some /etf/info figures as text, "0.40%" included). Null, a bool, a
+    list, NaN, +-inf and any other text are None -- a non-finite value would also make the JSON answer itself fail."""
     if isinstance(value, bool):
         return None
-    if isinstance(value, (int, float)):
-        return float(value)
     if isinstance(value, str):
         try:
-            return float(value.strip().rstrip("%"))
+            value = float(value.strip().rstrip("%"))
         except ValueError:
             return None
+    if isinstance(value, (int, float)):
+        return float(value) if math.isfinite(value) else None
     return None
 
 

@@ -1,5 +1,4 @@
 import logging
-import math
 from datetime import date, timedelta
 from typing import NamedTuple
 
@@ -14,6 +13,7 @@ from core.exceptions import TickerNotFoundError
 from core.models import IndexConstituent
 from helpers.debt_metrics import compute_debt_metrics
 from helpers.earnings import most_recent_reported_earnings_date
+from helpers.coerce import clean_row, finite_number, text_or_none
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from core.schemas import OutlierWarning, TickerSummaryOut
@@ -51,6 +51,17 @@ FAIR_VALUE_METHOD_LABELS = {
     "PSG": "PSG",
 }
 
+# The upstream fields of each row that reach TickerSummaryOut (directly or through arithmetic). Anything else in a row is not read here.
+_PROFILE_TEXT = ("companyName", "exchangeShortName", "exchange", "sector", "industry", "description", "currency")
+_PROFILE_NUMBERS = ("beta", "mktCap")
+_QUOTE_NUMBERS = ("price", "change", "changePercentage", "changesPercentage", "marketCap", "yearHigh", "yearLow")
+_PRICE_CHANGE_NUMBERS = ("1M", "6M", "ytd", "1Y", "5Y", "10Y", "max")
+_RATIOS_TTM_NUMBERS = (
+    "priceToEarningsGrowthRatioTTM", "forwardPriceToEarningsGrowthRatioTTM", "dividendYieldTTM", "netIncomePerShareTTM", "priceToEarningsRatioTTM",
+)
+_FINANCIAL_GROWTH_NUMBERS = ("revenueGrowth", "netIncomeGrowth")
+_ENTERPRISE_VALUES_NUMBERS = ("enterpriseValue", "numberOfShares")
+
 # Fixed left-to-right display order for the ticker-header index-membership
 # pill (frontend/components/ticker/IndexMembershipPill.tsx) -- a ticker's
 # actual IndexConstituent rows carry no ordering of their own.
@@ -67,12 +78,9 @@ def _parse_row_date(value: object) -> date | None:
         return None
 
 
-def _number(value: object) -> float | None:
-    """`value` as a finite number, or None (null, a string, a bool, NaN): a malformed upstream field degrades to
-    "no value" instead of raising in arithmetic."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    return float(value) if math.isfinite(value) else None
+# One definition of "a number" for every upstream field (helpers/coerce.py): a malformed field degrades to "no value" instead of
+# raising in arithmetic or failing the response model.
+_number = finite_number
 
 
 def _pct(value: object) -> float | None:
@@ -263,35 +271,41 @@ async def _fetch_stock_only_data(
     # Same cache key ratios_data.py (the Ratios tab) already populates --
     # shared, not duplicated, so visiting either tab first warms it for
     # the other.
-    ratios_ttm = _first(
-        await safe_fetch(
-            "ratios_ttm",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
-                "ratios",
-                "ttm",
-                lambda: fmp_client.get_ratios_ttm(ticker),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
+    ratios_ttm = clean_row(
+        _first(
+            await safe_fetch(
+                "ratios_ttm",
+                get_or_fetch_earnings_aware(
+                    session,
+                    ticker,
+                    "ratios",
+                    "ttm",
+                    lambda: fmp_client.get_ratios_ttm(ticker),
+                    staleness_days,
+                    most_recent_earnings_date,
+                    cache_only,
+                ),
+            )
+        ),
+        _RATIOS_TTM_NUMBERS,
     )
-    financial_growth = _first(
-        await safe_fetch(
-            "financial_growth",
-            get_or_fetch_earnings_aware(
-                session,
-                ticker,
+    financial_growth = clean_row(
+        _first(
+            await safe_fetch(
                 "financial_growth",
-                "annual",
-                lambda: fmp_client.get_financial_growth(ticker, "annual", 1),
-                staleness_days,
-                most_recent_earnings_date,
-                cache_only,
-            ),
-        )
+                get_or_fetch_earnings_aware(
+                    session,
+                    ticker,
+                    "financial_growth",
+                    "annual",
+                    lambda: fmp_client.get_financial_growth(ticker, "annual", 1),
+                    staleness_days,
+                    most_recent_earnings_date,
+                    cache_only,
+                ),
+            )
+        ),
+        _FINANCIAL_GROWTH_NUMBERS,
     )
     return _StockOnlyData(
         earnings_data,
@@ -375,6 +389,8 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
                 if isinstance(profile_raw, list) and not profile_raw:
                     raise TickerNotFoundError(ticker)
             profile = _first(profile_raw)
+        # Parse boundary: a wrong-typed profile field degrades to None here, before anything reads it (helpers/coerce.py).
+        profile = clean_row(profile, _PROFILE_NUMBERS, _PROFILE_TEXT)
         # The app's one ETF rule (also TickerSummaryOut.is_etf below). Decided from the profile alone, which is
         # always the first fetch, so a never-seen ETF is recognised before any stock-only call is made.
         is_etf = bool(profile.get("isEtf") or profile.get("isFund"))
@@ -410,6 +426,7 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
                     ),
                 )
             )
+        quote = clean_row(quote, _QUOTE_NUMBERS)
         if not cache_only and (not group_live("profile_quote") or not quote.get("price")):
             # The live FMP quote is unavailable -- the profile_quote group is off, or the
             # fetch failed (safe_fetch degraded it to {}): serve the last official close
@@ -421,19 +438,22 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
             cached_close = get_cached_last_close(ticker)
             if cached_close is not None:
                 quote = {**quote, "price": cached_close[0]}
-        price_change = _first(
-            await safe_fetch(
-                "price_change",
-                get_or_fetch(
-                    session,
-                    ticker,
+        price_change = clean_row(
+            _first(
+                await safe_fetch(
                     "price_change",
-                    "latest",
-                    lambda: fmp_client.get_price_change(ticker),
-                    staleness_days,
-                    cache_only,
-                ),
-            )
+                    get_or_fetch(
+                        session,
+                        ticker,
+                        "price_change",
+                        "latest",
+                        lambda: fmp_client.get_price_change(ticker),
+                        staleness_days,
+                        cache_only,
+                    ),
+                )
+            ),
+            _PRICE_CHANGE_NUMBERS,
         )
         # SPY's own 5Y return, for the "vs SPY" performance pill/metric below.
         # Same cache key shape as `price_change` above, just under ticker="SPY"
@@ -448,13 +468,16 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
             if is_etf
             else price_change
             if ticker == "SPY"
-            else _first(
-                await safe_fetch(
-                    "price_change_spy",
-                    get_or_fetch(
-                        session, "SPY", "price_change", "latest", lambda: fmp_client.get_price_change("SPY"), staleness_days, cache_only
-                    ),
-                )
+            else clean_row(
+                _first(
+                    await safe_fetch(
+                        "price_change_spy",
+                        get_or_fetch(
+                            session, "SPY", "price_change", "latest", lambda: fmp_client.get_price_change("SPY"), staleness_days, cache_only
+                        ),
+                    )
+                ),
+                _PRICE_CHANGE_NUMBERS,
             )
         )
         # Stock-only fetches (statements, ratios, growth, earnings, enterprise values): a fund has none of
@@ -523,11 +546,11 @@ async def get_summary(ticker: str, cache_only: bool = False, live_quote: bool = 
     # so every tracked ticker quotes in USD; reported_currency is only ever
     # non-USD for a US-listed ADR of a foreign reporter (TSM/TWD etc.), which
     # is why the two can differ and the FX code is kept.
-    reported_currency = _first(income_quarterly).get("reportedCurrency")
-    quote_currency = profile.get("currency") or "USD"
+    reported_currency = text_or_none(_first(income_quarterly).get("reportedCurrency"))
+    quote_currency = profile.get("currency") or "USD"  # a non-string currency was already degraded to None above
     debt_metrics = statement_view.debt_metrics if statement_view else compute_debt_metrics({}, [])
     shares_outstanding, shares_outstanding_source = compute_shares_outstanding(quote, income_quarterly)
-    enterprise_values_row = _first(enterprise_values_data)
+    enterprise_values_row = clean_row(_first(enterprise_values_data), _ENTERPRISE_VALUES_NUMBERS)
     # Guards against FMP's freshly-filed-quarter units defect (confirmed:
     # TEAM, FLY -- enterprise_values.numberOfShares off by ~1000x on the
     # latest quarter, dragging marketCapitalization/enterpriseValue down by

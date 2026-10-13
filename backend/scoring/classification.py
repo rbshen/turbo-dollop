@@ -82,8 +82,9 @@ def classify_company_type(sector: str | None, industry: str | None, ticker: str 
     need it -- only NON_LENDER_TICKER_OVERRIDES does."""
     if is_fund:
         return "ETF"
-    sector = (sector or "").strip()
-    industry_lower = (industry or "").strip().lower()
+    # Parse boundary (helpers/coerce.py): a sector/industry that is not text reads as missing instead of raising on `.strip()`.
+    sector = (sector if isinstance(sector, str) else "").strip()
+    industry_lower = (industry if isinstance(industry, str) else "").strip().lower()
     if sector == "Financial Services" and "insurance" in industry_lower:
         return "Insurance"
     if sector == "Financial Services" and any(kw in industry_lower for kw in _BANK_INDUSTRY_KEYWORDS):
