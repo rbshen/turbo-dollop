@@ -165,7 +165,7 @@ configured):
 | Nightly market breadth | `nightly_market_breadth.log` / `_cron.log` |
 | Nightly ETFs screener | `nightly_etf_screener.log` / `_cron.log` |
 | Nightly sector/industry P/E | `nightly_sector_industry_pe.log` / `_cron.log` |
-| Nightly corporate-events cache (earnings/dividends/splits) | `nightly_corporate_events.log` / `_cron.log` |
+| Weekly corporate-events cache (earnings/dividends/splits) | `nightly_corporate_events.log` / `_cron.log` |
 | Nightly last-close cache (header price fallback) | `nightly_last_close_snapshot.log` / `_cron.log` |
 | Nightly Warren RSI/ADX/WVF entry-signal calculation | `nightly_warren_signal_calculation.log` / `_cron.log` |
 | Weekly S&P 500 list refresh | `sp500_list_refresh.log` / `_cron.log` |
@@ -300,34 +300,28 @@ under a fresh date). The page prints its own as-of date, so a job that has
 quietly stopped reads as an old date. Check `Processed` first -- a
 shortfall is FMP not serving a fund or a renamed symbol.
 
-**`nightly_corporate_events`** — **DISABLED since 2026-10-01 pending investigation** (about 1,165 calls per run at 406-527
-requests/min, over Starter's 300/min). Its `crontab.txt` line is commented out and the installed crontab matches (pre-change
-copy: `backend/crontab.backup-2026-10-01.txt`); the code, tables and cached rows are untouched. The Scheduled Jobs page shows it
-as "Skipped — Disabled since 2026-10-01: ..." (`core/cron_health.py::DISABLED_CRON_JOBS`), not Overdue. Effect: the Chart tab's
-E/D markers (the cache's only reader) keep serving the frozen cache; newly reported earnings and newly declared dividends get no
-marker, and a ticker first opened after 10-01 02:47 has none at all until you run
-`uv run python -m pipeline.nightly_corporate_events --tickers X,Y` for it (details: docs/specs/corporate-events.md). Nothing else
-depends on it (no job reads its output). **Re-enable:** (1) uncomment the `45 2 * * *` line in `backend/crontab.txt`; (2) delete
-the `pipeline.nightly_corporate_events` entry from `DISABLED_CRON_JOBS` in `backend/core/cron_health.py` (the wiring test fails
-if only one of the two is done); (3) from `backend/` run `crontab crontab.txt`, then `crontab -l` and confirm the line is there;
-(4) **use the planned slot 1:50 AM (`50 1 * * *`), not the old 2:45 line** that stays commented in `crontab.txt`: the job runs at 406-527 requests/min for ~2-4 min, fundamentals starts at 2:00 (since the 2026-10-02 reschedule), so it must end before 2:00 and never overlap it; 1:50 follows Market Breadth (ends ~1:41, worst ~1:45). Edit the commented line's time fields when you uncomment it and update `JOB_METADATA` (`time_label` "1:50 AM", `sort_minutes` 110) to match; `test_corporate_events_runs_after_technical_jobs_and_before_fundamentals` goes live again and passes at 1:50.
-**Roll back this change:** `crontab backend/crontab.backup-2026-10-01.txt` restores the installed crontab, and `git revert` of the
-disabling commit restores the repo.
-
-(Description of the job when enabled, 2:45 AM, Phase 6a:) refreshes the FMP-backed earnings /
-dividends / splits cache (`CorporateEvent`, `CorporateEventFetch`; `data/corporate_events_data.py`)
-for every US-listed tracked ticker: two calls per ticker nightly (`/earnings`, `/dividends`, group
-`corporate_events`) plus `/splits` weekly (when never fetched or last fetched >= 6 days ago), each
-**upserting** by (ticker, type, date) -- a stored row is never deleted because FMP omitted it (safe
-against a plan downgrade to a shorter history window) -- so the first run is the backfill. The run then
-prunes rows whose event date is older than 4 years (`RETENTION_DAYS`, independent of FMP/plan; the log
-line shows `Pruned`). ~1,180 calls on an ordinary night, ~1,770 on a splits night, ~1-2 min. Feeds the Chart tab's E/D markers,
-which read this cache first. Success: `Corporate-events refresh complete. Processed: N. With a failed
-endpoint: M. ... FMP calls: C. Pruned ...` in `backend/logs/nightly_corporate_events.log`. A failed endpoint keeps that ticker's
-old rows for that type (listed under `Tickers with failures`); the job raises (heartbeat "failure")
-only if **every** ticker failed. Skipped (real `skipped` status) while `corporate_events` is off — the
-cache then keeps serving. Check it: `select event_type, count(*) from corporateevent group by 1` and
-`select max(fetched_at) from corporateeventfetch`.
+**`nightly_corporate_events`** — **a WEEKLY job since 2026-10-14: Saturdays 6:00 AM server time (UTC)**, `0 6 * * 6` (the name is
+historical: it ran nightly at 2:45 until it was disabled on 2026-10-01, about 1,165 calls per run at 406-527 requests/min, over Starter's
+300/min). It refreshes the FMP-backed earnings / dividends / splits cache (`CorporateEvent`, `CorporateEventFetch`;
+`data/corporate_events_data.py`) for every US-listed tracked ticker, which feeds ONLY the Chart tab's E/D markers (nothing else reads it; the
+scores, the fundamentals jobs and the next-earnings date read `FundamentalsCache`'s own `earnings`/`latest` row), so a week-old cache is fine.
+Three calls per ticker per run (`/earnings`, `/dividends`, `/splits`, group `corporate_events`), each asking for the **full history** and
+**upserting** by (ticker, type, date) -- a stored row is never deleted because FMP omitted it (safe against a plan downgrade to a shorter
+history window) -- so the first run is the backfill, a run after any downtime costs exactly a normal run, and no event is missed between runs.
+The run then prunes rows whose event date is older than 4 years (`RETENTION_DAYS`, independent of FMP/plan; the log line shows `Pruned`).
+**~582 tickers x 3 = ~1,750 calls, paced by the job itself at half the plan rate (150 calls/min on Starter) = about 12 minutes** (about 20 at
+~1,000 tickers). Saturday 6:00 overlaps no FMP job: the last nightly FMP job (price-target) ends ~3:20, the backup 3:30-3:35, the Saturday 4:00
+opportunity job uses no FMP, and the next FMP job is the Sunday 12:30 AM stale-data check. Success: `Corporate-events refresh complete.
+Processed: N. With a failed endpoint: M. ... FMP calls: C. Pruned ...` in `backend/logs/nightly_corporate_events.log`. A failed endpoint keeps
+that ticker's old rows for that type (listed under `Tickers with failures`); the job raises (heartbeat "failure") only if **every** ticker
+failed. Skipped (real `skipped` status) while `corporate_events` is off -- the cache then keeps serving. The Scheduled Jobs page lists it under
+weekly jobs ("Sat 6:00 AM", overdue after 8 days, `JOB_METADATA` + `_EXPECTED_CADENCE_HOURS`); the running backend reads those from code, so a
+**backend restart** (`./bin/stop.sh` then `./bin/start.sh --prod`) is what makes the page show the weekly entry after the 2026-10-14 change.
+Check it: `select event_type, count(*) from corporateevent group by 1` and `select max(fetched_at) from corporateeventfetch`. A ticker first
+opened between runs has no markers until the next Saturday, or `uv run python -m pipeline.nightly_corporate_events --tickers X,Y`.
+**To disable it again:** comment out its `crontab.txt` line, add a `DISABLED_CRON_JOBS` entry in `backend/core/cron_health.py` (the wiring test
+fails if only one is done), then `crontab crontab.txt` from `backend/` and check `crontab -l`. **Roll back the weekly re-enable:** `git revert`
+the commits and reinstall the crontab (`crontab crontab.txt`). (The `crontab.backup-2026-10-01.txt` file older notes mention is not in the repo.)
 
 **`nightly_last_close_snapshot`** (1:00 AM, Phase 6a) — caches each US-listed tracked ticker's last
 official close (`TickerLastClose`, latest-only; `data/last_close_data.py`), one
@@ -709,7 +703,7 @@ job's own `backend/logs/<job>.log` ("Tickers with failures: ...").
 
 A job commented out of the crontab on purpose goes in `core/cron_health.py::DISABLED_CRON_JOBS` (job -> date + reason): it stays in
 `CRON_JOB_NAMES`, shows as "Skipped — Disabled since <date>: <reason>" instead of aging into Overdue, and `test_cron_wiring.py`
-requires it to be absent from `crontab.txt`. Currently: `nightly_corporate_events`.
+requires it to be absent from `crontab.txt`. Currently: none (`nightly_corporate_events` was disabled 2026-10-01 and is weekly again since 2026-10-14).
 
 `CRON_JOB_NAMES` in `core/cron_health.py` is the single source of truth for
 which 15 jobs exist — `tests/test_cron_wiring.py` fails loudly if

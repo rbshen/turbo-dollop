@@ -52,7 +52,7 @@ amount). They are drawn on a **fixed row along the price pane's floor, independe
 
 ### Data
 
-- **Source:** the nightly `CorporateEvent` cache (`docs/specs/corporate-events.md`). `fetch_chart_events`
+- **Source:** the weekly-refreshed (Saturday 6:00 AM) `CorporateEvent` cache (`docs/specs/corporate-events.md`). `fetch_chart_events`
   reads the cache only: no FMP call per chart request, no timeout wrapper, and it never raises. An uncached
   ticker or a read error gives `events_source=None` with empty lists, and the chart renders without
   markers. An empty stored list is a real answer (TSLA pays no dividend). The events are fetched

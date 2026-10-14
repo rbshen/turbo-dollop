@@ -9,26 +9,27 @@ marker reads them yet.
 
 ## Refresh job
 
-**Disabled 2026-10-01 pending investigation** (about 1,165 FMP calls per run at 406-527 requests/min, over Starter's
-300/min; see `docs/decisions.md`). The cron line is commented out and the job is listed in
-`core/cron_health.py::DISABLED_CRON_JOBS`; the code, tables and rows are untouched and the cache serves as-is.
-What degrades while it is off: the Chart tab's E/D markers are the cache's **only** reader (the next-earnings date,
-the scores and the fundamentals jobs read the separate `earnings`/`latest` row in `FundamentalsCache`, group
-`fundamentals`, and are unaffected). Nothing fetches on demand, so (1) a company that reports after the last run (the
-2026-10-01 02:47 refresh) gets no new "E" marker, because a marker needs back-filled actuals (as of 10-01: 2 tickers
-report within 7 days, 25 within 14, about 300 within 30, about 530 within 60); (2) a dividend declared after that run has
-no "D" marker (441 dividend payers; 70 had a future ex-date row cached, 371 did not); (3) a ticker never cached, such as
-anything first opened after 10-01 02:47 (the ETFs GLD, IBIT, QQQ, SMH, SOXX, XLK, XLV), has no markers at all until
-`uv run python -m pipeline.nightly_corporate_events --tickers X,Y` is run for it (2 calls per ticker, plus 1 for splits
-when due). No retention prune runs either, which is harmless. To re-enable, see `backend/OPS_RUNBOOK.md`; the planned slot is **1:50 AM** (after Market Breadth, ending before the 2:00 fundamentals start, never overlapping it).
+**Weekly since 2026-10-14: Saturdays 6:00 AM server time (UTC)** (`0 6 * * 6`, 2:00 PM Saturday in Hong Kong), registered as a
+weekly job in `core/cron_health.py` (`JOB_METADATA` "Sat 6:00 AM", expected every 8 days like the other weekly jobs, so the
+Scheduled Jobs page never reads it overdue on a non-run day). It was nightly at 2:45 until it was disabled on 2026-10-01
+(about 1,165 FMP calls per run at 406-527 requests/min, over Starter's 300/min); `docs/decisions.md` 2026-10-14 records why it is
+weekly: the cache's **only** reader is the Chart tab's E/D markers (the next-earnings date, the scores and the fundamentals jobs
+read the separate `earnings`/`latest` row in `FundamentalsCache`, group `fundamentals`, and do not depend on this job), so a marker
+that appears up to a week late costs nothing. What a week of staleness means: a company that reports after a run gets its "E" marker
+at the next run (a marker needs back-filled actuals anyway), a newly declared dividend gets its "D" marker at the next run, and a
+ticker first opened between runs has no markers until the next Saturday, or until
+`uv run python -m pipeline.nightly_corporate_events --tickers X,Y` is run for it (3 calls per ticker).
 
-`pipeline/nightly_corporate_events.py` (cron 2:45 AM server time when enabled; registered in `core/cron_health.py`).
-Earnings and dividends refresh nightly. Splits refresh **weekly** (`SPLITS_REFRESH_DAYS = 6`, via
-`splits_due`): a ticker's splits are due when never fetched, or last successfully fetched at least 6 days
-ago. The check is judged off `CorporateEventFetch`, not the weekday, so a missed run self-heals the next
-night (6 rather than 7 so a nightly run's few seconds of drift never skips the weekly slot). The first run
-is the backfill. This cut the nightly calls per ticker from 3 to 2: ~1,770 to ~1,180 on an ordinary night,
-and ~1,770 on the weekly splits night. The run summary carries `fmp_calls` and `pruned`.
+**Cost and window.** Every call asks for the ticker's **full history** (`EARNINGS_LIMIT` 1000, `DIVIDENDS_LIMIT` 2000, all splits), not a date
+window, so no event can fall between two weekly runs and a run after two weeks of downtime costs exactly what a normal one does. About 582
+US-listed tracked tickers x 3 calls = ~1,750 calls per run (splits are due on every weekly run: they are due when never fetched or last
+fetched at least `SPLITS_REFRESH_DAYS` = 6 days ago, and runs are 7 days apart). The job paces ticker starts itself at half the plan's rate
+(`FMP_PLAN_REQUESTS_PER_MIN` x `FMP_RATE_FRACTION`, 150 calls/min on Starter), so a run is about 12 minutes (about 20 at ~1,000 tickers); it
+overlaps no other FMP job (Saturday 6:00 is two and a half hours after the last nightly FMP job, price-target, ends at ~3:20, and 18 hours
+before the next one, the Sunday 12:30 AM stale-data check). `crontab.txt` carries the reasoning next to the line.
+
+`pipeline/nightly_corporate_events.py` (the name is historical; registered in `core/cron_health.py`). The check for splits is judged off
+`CorporateEventFetch`, not the weekday; the first run is the backfill. The run summary carries `fmp_calls` and `pruned`.
 
 The universe is every US-listed tracked ticker, the same universe as the price-target and last-close jobs
 (`nightly_price_target_snapshot.load_us_price_target_universe`, scoped by `route_by_source` /
@@ -54,7 +55,7 @@ date only; this store needed no change.
 
 ## 4-year trailing retention
 
-`RETENTION_DAYS = 365 * 4` and `prune_old_events`, run at the end of every `nightly_corporate_events` run.
+`RETENTION_DAYS = 365 * 4` and `prune_old_events`, run at the end of every `nightly_corporate_events` (weekly) run.
 Incoming rows older than the cutoff are not stored either. Retention is by **event** date (not fetch date),
 applies to all three types, is independent of FMP and the plan, and keeps a row exactly on the cutoff. It
 **equals the Chart tab's longest view** (`RANGE_CONFIG["W_4Y"]["visible_days"]` = 365 * 4 = 1460, pinned by
