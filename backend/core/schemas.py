@@ -2486,23 +2486,6 @@ class AnalystRatingsOut(BaseModel):
     grades_consensus_as_of: datetime | None = None
 
 
-class NewsArticle(BaseModel):
-    title: str
-    publisher: str
-    site: str
-    snippet: str
-    image: str | None = None
-    url: str
-    # FMP's raw "YYYY-MM-DD HH:MM:SS" string, passed through as-is -- no
-    # timezone is documented, so no UTC/local conversion is attempted here.
-    published_at: str
-
-
-class NewsOut(BaseModel):
-    ticker: str
-    articles: list[NewsArticle]
-
-
 class InstitutionalOwnershipQuarterOut(BaseModel):
     """One quarter's point on the ownership-%/holder-count trend chart --
     see data/institutional_ownership_data.py. Only quarters that were both

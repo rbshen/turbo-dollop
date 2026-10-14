@@ -86,7 +86,6 @@ GROUPS: dict[str, GroupMeta] = {
         ("Analyst Ratings tab", "Watchlist rating column", "Nightly price-target snapshot"),
     ),
     "segmentation": GroupMeta("Segmentation", "Starter", True, True, ("Segmentation card",)),
-    "news": GroupMeta("News", "Starter", False, True, ("News tab (shelved)",)),
     "index_membership": GroupMeta(
         "Index membership", "Premium", True, True,
         ("S&P 500 / Dow / Nasdaq constituent lists", "Screener universe", "Weekly index refresh jobs", "Delisted-ticker flags"),
@@ -131,11 +130,10 @@ GROUPS: dict[str, GroupMeta] = {
         "Sector & industry P/E", "Starter", True, True,
         ("Nightly sector/industry P/E snapshot", "Sector/industry P/E history (data layer; no UI yet)"),
     ),
-    # Shelved 2026-09-27 (see CLAUDE.md's "Institutional Ownership" entry) -- same
-    # reasoning as `news`: tried against real tickers, judged low decision-value for
-    # short-premium/short-term trading (13F's quarterly cadence + 45+ day reporting lag
-    # doesn't inform week-to-week decisions). default_enabled=False, mirroring `news`;
-    # everything else (endpoints, mapping, canary) stays live/registered so re-enabling
+    # Shelved 2026-09-27 (see CLAUDE.md's "Institutional Ownership" entry): tried
+    # against real tickers, judged low decision-value for short-premium/short-term
+    # trading (13F's quarterly cadence + 45+ day reporting lag doesn't inform
+    # week-to-week decisions). default_enabled=False; everything else (endpoints, mapping, canary) stays live/registered so re-enabling
     # is a one-line flip, no logic change.
     "institutional_ownership": GroupMeta(
         "Institutional ownership", "Ultimate", False, True,
@@ -181,7 +179,6 @@ ENDPOINT_GROUP: dict[str, str] = {
     "/splits": "corporate_events",
     "/revenue-product-segmentation": "segmentation",
     "/revenue-geographic-segmentation": "segmentation",
-    "/news/stock": "news",
     "/grades-consensus": "analyst_ratings",
     "/grades-historical": "analyst_ratings",
     "/price-target-consensus": "analyst_ratings",
@@ -231,7 +228,6 @@ PROBE_ENDPOINTS: dict[str, tuple[str, dict]] = {
     "profile_quote": ("/quote", {"symbol": "AAPL"}),
     "analyst_ratings": ("/grades-consensus", {"symbol": "AAPL"}),
     "segmentation": ("/revenue-product-segmentation", {"symbol": "AAPL"}),
-    "news": ("/news/stock", {"symbols": "AAPL", "limit": 1}),
     "index_membership": ("/dowjones-constituent", {}),
     "corporate_events": ("/dividends", {"symbol": "AAPL", "limit": 1}),
     "daily_prices": ("/historical-price-eod/full", {"symbol": "AAPL", "from": "2024-01-02", "to": "2024-01-05"}),
@@ -363,7 +359,6 @@ STATEMENT_TYPE_GROUP: dict[str, str] = {
     "price_target_consensus": "analyst_ratings",
     "price_target_summary": "analyst_ratings",
     "price_target_news": "analyst_ratings",
-    "news": "news",
     # Not an FMP call (SEC EDGAR), but cached through the same gate and feeds
     # the Debt/fundamentals cross-check; it was paused by the old global flag,
     # so it rides with `fundamentals` to keep that behaviour.

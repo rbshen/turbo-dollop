@@ -15,7 +15,8 @@ Three classes:
 `newssentimentcache` has no SQLModel class: it is a leftover of the Alpha Vantage News-Sentiment feature (added in
 68dc559, removed entirely in c81e9b6, which deleted the model but not the live table, 3 rows). It is registered here
 as a WIPE table with its own DDL (`legacy_ddl`) so a temp DB can be built with it and the guard sees it. `dataqualityflag` is the
-same case (the data-quality feature, removed 2026-10-10: model deleted, 163 rows left in the live table). `tickersignalsnapshot` is too (the stuck-check
+same case (the data-quality feature, removed 2026-10-10: model deleted, 163 rows left in the live table), as is `newscache` (the FMP news
+cache, removed 2026-10-14: model deleted, 9 rows left in the live table). `tickersignalsnapshot` is too (the stuck-check
 feature's daily signal log, removed 2026-10-10: model deleted, 0 rows in the live table).
 
 `unclassified_ticker_tables(engine)` is the guard: every table in a real schema with a ticker-like column
@@ -44,7 +45,6 @@ from core.models import (
     LongHistoryBars,
     MoatCheck,
     MomentumSnapshot,
-    NewsCache,
     OpportunityDailyFlag,
     OpportunityDailyRun,
     OpportunityFlagOutcome,
@@ -121,7 +121,16 @@ _ORDERED: tuple[TickerTable, ...] = (
         "every FMP statement type; the forex_rate rows are keyed EURUSD, CADUSD... (not tickers) and are never touched",
         keep_where="statement_type = 'forex_rate'",
     ),
-    _t(NewsCache, TableClass.WIPE, "short-TTL news cache"),
+    TickerTable(
+        "newscache",
+        "ticker",
+        TableClass.WIPE,
+        "legacy: FMP /news/stock cache (feature removed 2026-10-14, model deleted, live table left behind)",
+        legacy_ddl=(
+            "CREATE TABLE newscache (ticker VARCHAR NOT NULL, fetched_at DATETIME NOT NULL, "
+            "raw_json VARCHAR NOT NULL, PRIMARY KEY (ticker))"
+        ),
+    ),
     TickerTable(
         "newssentimentcache",
         "ticker",

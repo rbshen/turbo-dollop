@@ -61,7 +61,6 @@ SNAPSHOT_STATEMENT_TYPES: frozenset[str] = frozenset(
     {
         "profile", "quote", "price_change", "forex_rate", "etf_info",  # one current snapshot
         "grades_consensus", "price_target_consensus", "price_target_summary", "price_target_news",  # one current snapshot
-        "news",  # shelved
         "sec_company_facts",  # SEC EDGAR, not FMP, one blob
         "institutional_ownership_summary", "institutional_ownership_holders",  # one row per quarter label; shelved
         "earnings",  # 8 rows incl. scheduled dates: a rescheduled date would leave a phantom past "report"

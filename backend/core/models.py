@@ -17,18 +17,6 @@ class FundamentalsCache(SQLModel, table=True):
     raw_json: str
 
 
-class NewsCache(SQLModel, table=True):
-    """Short-TTL cache for FMP's /news/stock response per ticker (see
-    news_data.py) -- deliberately its own table, not a FundamentalsCache
-    row, since news is refreshed on the order of minutes
-    (`Settings.news_cache_ttl_minutes`) rather than days, and has no
-    statement_type/period dimension to key on."""
-
-    ticker: str = Field(primary_key=True)
-    fetched_at: datetime
-    raw_json: str
-
-
 class SharedBarsCache(SQLModel, table=True):
     """Raw OHLCV bars shared across every consumer of a given (ticker,
     interval) combination -- Liquidity Zones and Trend/Weinstein Stage both

@@ -50,7 +50,7 @@ def clear_ticker_cache(ticker: str) -> RefreshResult:
     cache keys (step1/2/4/5 + summary) synchronously within the same
     request, so TickerScore is never left stale after a refresh. Every
     other tab's cache keys (Financials' fuller statements, Ratios,
-    Segmentation, Analyst Ratings, News) still repopulate lazily the normal
+    Segmentation, Analyst Ratings) still repopulate lazily the normal
     way, via the frontend's own GETs after this cache-clear. Either path
     reuses the same safe_fetch/get_or_fetch error handling every cold-start
     ticker already goes through -- no new FMP-failure path to handle here."""

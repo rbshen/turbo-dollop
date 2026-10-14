@@ -59,11 +59,6 @@ class Settings(BaseSettings):
     # ticker inside that universe is upserted in place forever, never
     # accumulating rows) -- see pipeline/prune_cache.py.
     cache_retention_days: int = 180
-    # News is far more time-sensitive than fundamentals -- a short TTL
-    # (minutes, not days) so repeat tab views within a session don't each
-    # hit FMP, without pretending news is as static as financials. See
-    # news_data.py.
-    news_cache_ttl_minutes: int = 20
     # ETF /etf/info (fund facts, NAV, AUM, avg volume, sector weights). Fetched only when an ETF page's
     # Overview tab is opened (no nightly job), one small row per ETF. NAV/AUM/avg volume move daily,
     # the descriptive fields essentially never do, so a 1-day window keeps the numbers current without
