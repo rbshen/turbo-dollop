@@ -5,8 +5,8 @@ import { TAB_GROUPS, asOfText, disableWarning, offGroupsFor, reasonText, unavail
 
 function group(over: Partial<DataGroupOut> = {}): DataGroupOut {
   return {
-    key: "news",
-    label: "News",
+    key: "institutional_ownership",
+    label: "Institutional ownership",
     wired: true,
     enabled: true,
     state: "live",
@@ -15,7 +15,7 @@ function group(over: Partial<DataGroupOut> = {}): DataGroupOut {
     restricted_since: null,
     last_success_at: null,
     last_error: null,
-    feeds: ["News tab"],
+    feeds: ["Institutional ownership tab"],
     can_toggle: true,
     ...over,
   };
@@ -32,18 +32,18 @@ const wrap = (groups: DataGroupOut[]): DataGroupsOut => ({
 
 describe("offGroupsFor", () => {
   it("returns nothing while loading or when every group is live/failing", () => {
-    expect(offGroupsFor(undefined, ["news"])).toEqual([]);
-    expect(offGroupsFor(wrap([group()]), ["news"])).toEqual([]);
-    expect(offGroupsFor(wrap([group({ state: "failing" })]), ["news"])).toEqual([]);
+    expect(offGroupsFor(undefined, ["institutional_ownership"])).toEqual([]);
+    expect(offGroupsFor(wrap([group()]), ["institutional_ownership"])).toEqual([]);
+    expect(offGroupsFor(wrap([group({ state: "failing" })]), ["institutional_ownership"])).toEqual([]);
   });
 
   it("returns off groups that feed the page, ignoring unrelated and not-wired ones", () => {
     const data = wrap([
-      group({ key: "news", state: "cached_only", reason: "user_off" }),
+      group({ key: "institutional_ownership", state: "cached_only", reason: "user_off" }),
       group({ key: "segmentation", label: "Segmentation", state: "restricted", reason: "restricted" }),
       group({ key: "daily_prices", label: "Daily prices", wired: false, state: "cached_only", reason: "user_off" }),
     ]);
-    expect(offGroupsFor(data, ["news", "daily_prices"]).map((g) => g.key)).toEqual(["news"]);
+    expect(offGroupsFor(data, ["institutional_ownership", "daily_prices"]).map((g) => g.key)).toEqual(["institutional_ownership"]);
   });
 });
 
@@ -66,7 +66,7 @@ describe("text helpers", () => {
   });
 
   it("disableWarning lists dependent features, and says so when nothing reads the group", () => {
-    expect(disableWarning(group({ feeds: ["News tab", "Digest"] }))).toContain("• News tab\n• Digest");
+    expect(disableWarning(group({ feeds: ["Institutional ownership tab", "Digest"] }))).toContain("• Institutional ownership tab\n• Digest");
     expect(disableWarning(group({ wired: false }))).toContain("Nothing reads it yet");
   });
 
@@ -82,9 +82,9 @@ describe("text helpers", () => {
     expect(TAB_GROUPS.technical).toEqual(["daily_prices", "intraday_bars"]);
   });
 
-  it("never watches `news` -- shelved, not broken, must never trigger the badge", () => {
+  it("never watches `institutional_ownership` -- shelved, not broken, must never trigger the badge", () => {
     for (const groups of Object.values(TAB_GROUPS)) {
-      expect(groups).not.toContain("news");
+      expect(groups).not.toContain("institutional_ownership");
     }
   });
 });

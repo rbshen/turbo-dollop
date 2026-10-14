@@ -47,7 +47,7 @@ function mockData(groups: DataGroupOut[]) {
 
 describe("FmpDataGroupsSection", () => {
   it("renders a cached_only group with the neutral Badge tone, not a raw zinc class", () => {
-    mockData([group({ key: "news", label: "News", state: "cached_only", reason: "user_off" })]);
+    mockData([group({ key: "institutional_ownership", label: "Institutional ownership", state: "cached_only", reason: "user_off" })]);
     render(<FmpDataGroupsSection />);
 
     const pill = screen.getByText("Cached only");

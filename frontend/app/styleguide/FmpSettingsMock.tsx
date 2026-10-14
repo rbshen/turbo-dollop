@@ -33,7 +33,7 @@ function group(overrides: Partial<DataGroupOut>): DataGroupOut {
 
 const GROUPS: DataGroupOut[] = [
   group({}),
-  group({ key: "news", label: "News", enabled: false, state: "cached_only", reason: "user_off", feeds: ["News tab"], last_success_at: null }),
+  group({ key: "segmentation", label: "Segmentation", enabled: false, state: "cached_only", reason: "user_off", feeds: ["Segmentation card"], last_success_at: null }),
   group({
     key: "analyst_ratings",
     label: "Analyst ratings",
@@ -122,7 +122,7 @@ export function FmpSettingsMock() {
     <div className="flex flex-col gap-14">
       <div>
         <Caption>
-          Interactive: on (Fundamentals), off (News), not toggleable because it is above the plan (Analyst ratings,
+          Interactive: on (Fundamentals), off (Segmentation), not toggleable because it is above the plan (Analyst ratings,
           dimmed, with its reason as a tooltip), and not wired yet (Institutional ownership). The Switch and the tier
           Select apply the moment they change: there is no Save. The state badges are static in this mock.
         </Caption>
@@ -154,7 +154,7 @@ export function FmpSettingsMock() {
           idPrefix="sg-fmp-error"
           groups={GROUPS}
           data={status({ master_on: false, key_problem_at: "2026-09-29T10:00:00Z", key_problem_detail: "HTTP 401" })}
-          failure={{ key: "news", message: "enabled: Input should be a valid boolean" }}
+          failure={{ key: "segmentation", message: "enabled: Input should be a valid boolean" }}
           message="fmp_plan: Input should be 'Starter', 'Premium' or 'Ultimate'"
         />
       </div>

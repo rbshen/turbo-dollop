@@ -190,7 +190,7 @@ describe("FmpSettingsMock", () => {
     render(<FmpSettingsMock />);
     const [first] = screen.getAllByRole("table");
     expect(within(first).getByRole("switch", { name: "Enable Fundamentals" })).toBeChecked();
-    expect(within(first).getByRole("switch", { name: "Enable News" })).not.toBeChecked();
+    expect(within(first).getByRole("switch", { name: "Enable Segmentation" })).not.toBeChecked();
     expect(within(first).getByRole("switch", { name: "Enable Analyst ratings" })).toBeDisabled();
     expect(within(first).getByText(/not wired yet/)).toBeInTheDocument();
   });
@@ -198,8 +198,8 @@ describe("FmpSettingsMock", () => {
   it("the interactive panel applies a change at once, with no Save and no API call", () => {
     render(<FmpSettingsMock />);
     const [first] = screen.getAllByRole("table");
-    fireEvent.click(within(first).getByRole("switch", { name: "Enable News" }));
-    expect(within(first).getByRole("switch", { name: "Enable News" })).toBeChecked();
+    fireEvent.click(within(first).getByRole("switch", { name: "Enable Segmentation" }));
+    expect(within(first).getByRole("switch", { name: "Enable Segmentation" })).toBeChecked();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 
