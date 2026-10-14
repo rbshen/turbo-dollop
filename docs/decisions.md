@@ -338,8 +338,7 @@ Cron times unchanged.
 
 ### 2026-10-01 — nightly_corporate_events disabled pending investigation
 
-The job's crontab line is commented out (`backend/crontab.txt`, and the installed crontab via `crontab crontab.txt`;
-the pre-change crontab is saved as `backend/crontab.backup-2026-10-01.txt`). **Reason:** it makes about 1,165 FMP
+The job's crontab line is commented out (`backend/crontab.txt`, and the installed crontab via `crontab crontab.txt`). **Reason:** it makes about 1,165 FMP
 calls per run (2 per ticker, `/earnings` + `/dividends`, about 1,770 on the weekly splits night) at 406 to 527
 requests per minute (concurrency-bound, 10 per second at peak), over the Starter tier's 300 per minute; the owner is
 investigating why and will decide separately how to bring it back. Nothing else moved (the reschedule is paused).

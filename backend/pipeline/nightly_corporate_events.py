@@ -117,7 +117,7 @@ def record_outcome(result: dict, run) -> None:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Nightly FMP earnings/dividends/splits cache refresh.")
+    parser = argparse.ArgumentParser(description="Weekly FMP earnings/dividends/splits cache refresh.")
     parser.add_argument("--tickers", type=str, default=None, help="Comma-separated explicit ticker list (for testing).")
     return parser.parse_args()
 

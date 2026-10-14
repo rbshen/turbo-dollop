@@ -1763,8 +1763,8 @@ export interface ChartOut {
   // demand for every ticker, monitored or not.
   zones: ChartZoneOut[];
   zones_available: boolean;
-  // Earnings-report dates / dividend ex-dates in the visible window, read from the nightly CorporateEvent
-  // cache. events_source is null when the ticker isn't cached -- the only way to tell "couldn't
+  // Earnings-report dates / dividend ex-dates in the visible window, read from the CorporateEvent
+  // cache (refreshed weekly, Saturday 06:00 UTC). events_source is null when the ticker isn't cached -- the only way to tell "couldn't
   // fetch" from a genuinely empty list (a non-dividend payer). The chart omits both marker types silently
   // either way.
   earnings_markers: ChartEarningsMarkerOut[];

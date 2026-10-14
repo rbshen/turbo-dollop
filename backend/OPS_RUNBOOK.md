@@ -321,7 +321,7 @@ Check it: `select event_type, count(*) from corporateevent group by 1` and `sele
 opened between runs has no markers until the next Saturday, or `uv run python -m pipeline.nightly_corporate_events --tickers X,Y`.
 **To disable it again:** comment out its `crontab.txt` line, add a `DISABLED_CRON_JOBS` entry in `backend/core/cron_health.py` (the wiring test
 fails if only one is done), then `crontab crontab.txt` from `backend/` and check `crontab -l`. **Roll back the weekly re-enable:** `git revert`
-the commits and reinstall the crontab (`crontab crontab.txt`). (The `crontab.backup-2026-10-01.txt` file older notes mention is not in the repo.)
+the commits and reinstall the crontab (`crontab crontab.txt`).
 
 **`nightly_last_close_snapshot`** (1:00 AM, Phase 6a) — caches each US-listed tracked ticker's last
 official close (`TickerLastClose`, latest-only; `data/last_close_data.py`), one
