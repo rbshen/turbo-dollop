@@ -1,8 +1,9 @@
 """Standalone script: refreshes the stored Dow Jones Industrial Average
 constituent list from FMP's /dowjones-constituent endpoint (see
 dow_scraper.py; this replaced the prior Wikipedia-scrape pipeline
-2026-09-15, once FMP Ultimate's constituent endpoints became available on
-this plan -- previously 402). Intended for a weekly cron entry (see
+2026-09-15, once FMP's constituent endpoints became available on the then
+Ultimate plan -- previously 402; Premium tier, so 402 again on the Starter plan
+since 2026-10-14, where this job skips). Intended for a weekly cron entry (see
 crontab.txt) -- index membership changes a handful of times a year, not
 nightly, so this is deliberately separate from nightly_fundamentals_fetch.py.
 Mirrors refresh_sp500_list.py exactly.

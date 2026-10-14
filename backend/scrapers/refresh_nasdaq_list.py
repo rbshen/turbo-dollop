@@ -1,5 +1,6 @@
 """Standalone script: refreshes the stored Nasdaq-100 constituent list from
-FMP's /nasdaq-constituent endpoint (see nasdaq_scraper.py). Mirrors
+FMP's /nasdaq-constituent endpoint (see nasdaq_scraper.py; Premium tier, 402 on
+the Starter plan since 2026-10-14, where this job skips). Mirrors
 refresh_dow_list.py/refresh_sp500_list.py exactly. Intended for a weekly
 cron entry (see crontab.txt) -- index membership changes a handful of times
 a year, not nightly, so this is deliberately separate from

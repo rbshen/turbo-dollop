@@ -117,6 +117,10 @@
 # disabled, not overdue. To re-enable: uncomment the line below, delete the
 # DISABLED_CRON_JOBS entry, then `crontab crontab.txt` from backend/ and check
 # `crontab -l`. See backend/OPS_RUNBOOK.md (nightly_corporate_events).
+# 2026-10-14 (plan Starter, 300/min): the job's own pacer already runs at half the plan rate (150/min on Starter), so
+# ~1,165 calls take about 8 minutes, not the ~2.6 of the old 406-527/min runs; 1:50 + 8 min ends ~1:58, a thin margin
+# before the 2:00 fundamentals start (a flock does not stop two different jobs overlapping). Per-symbol /earnings,
+# /dividends and /splits answer 200 on Starter with full history.
 # PLANNED RE-ENABLE SLOT: 1:50 AM (`50 1 * * *`), NOT the 2:45 line below: since the
 # 2026-10-02 reschedule fundamentals starts at 2:00, and this job runs ~1,165 calls at
 # 406-527 requests/min, so it must finish before fundamentals starts (1:50 + ~3 min,
@@ -185,14 +189,20 @@
 # weekly copies. ~3 min. See pipeline/backup_db.py.
 30 3 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/backup_db.lock /home/shen/.local/bin/uv run python -m pipeline.backup_db >> /home/shen/fathom/backend/logs/backup_db_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped backup_db: the previous run is still going" >> /home/shen/fathom/backend/logs/backup_db_cron.log
 
+# PLAN NOTE (2026-10-14): the plan is Starter and the three constituent endpoints answer 402 on it (Premium tier; the
+# `index_membership` group is recorded Premium, so it reads "Not on plan"). While the plan stays Starter the three
+# jobs below start, skip before any FMP call (a real `skipped` status, no error, no alert), and leave the stored lists
+# untouched; the Sunday 12:30 stale-data check skips its delisted sync the same way. They resume on their own after an
+# upgrade to Premium or higher.
+#
 # Weekly S&P 500 constituent list refresh, Sundays at 12:00 AM server time --
 # runs before the nightly chain (1:00 AM) so a freshly added/removed ticker is
 # reflected the same night (again so since 2026-10-02; 2026-10-01 to 10-02 it ran
 # after the chain and a change landed a night late). Index membership only changes a handful of
 # times a year, hence weekly rather than nightly. Sourced from FMP's own
 # /sp500-constituent endpoint (see sp500_scraper.py) -- not a Wikipedia
-# scrape, since FMP Ultimate's constituent endpoints became available on
-# this plan (confirmed live 2026-09-15).
+# scrape, since FMP's constituent endpoints became available on the then
+# Ultimate plan (confirmed live 2026-09-15; Premium tier, 402 on Starter).
 # The three index-list refreshes below skip (recorded as "skipped") while the
 # `index_membership` data group is off.
 0 0 * * 0 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/refresh_sp500_list.lock /home/shen/.local/bin/uv run python -m scrapers.refresh_sp500_list >> /home/shen/fathom/backend/logs/sp500_list_refresh_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped refresh_sp500_list: the previous run is still going" >> /home/shen/fathom/backend/logs/sp500_list_refresh_cron.log
@@ -201,18 +211,21 @@
 # -- staggered a few minutes after the S&P 500 refresh above (both still run
 # before the 1 AM nightly chain) so the FMP fetches don't overlap. Sourced
 # from FMP's own /nasdaq-constituent endpoint (see nasdaq_scraper.py,
-# confirmed live 2026-09-23).
+# confirmed live 2026-09-23 on the then Ultimate plan; 402 on Starter).
 5 0 * * 0 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/refresh_nasdaq_list.lock /home/shen/.local/bin/uv run python -m scrapers.refresh_nasdaq_list >> /home/shen/fathom/backend/logs/nasdaq_list_refresh_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped refresh_nasdaq_list: the previous run is still going" >> /home/shen/fathom/backend/logs/nasdaq_list_refresh_cron.log
 
 # Weekly Dow Jones constituent list refresh, Sundays at 12:10 AM server time
 # -- staggered a few minutes after the S&P 500/Nasdaq-100 refreshes above
 # (both still run before the 1:00 AM nightly chain) so the FMP fetches don't
 # overlap. Sourced from FMP's own /dowjones-constituent endpoint (see
-# dow_scraper.py) -- not a Wikipedia scrape, since FMP Ultimate's
-# constituent endpoints became available on this plan (confirmed live
-# 2026-09-15).
+# dow_scraper.py) -- not a Wikipedia scrape, since FMP's constituent
+# endpoints became available on the then Ultimate plan (confirmed live
+# 2026-09-15; Premium tier, 402 on Starter).
 10 0 * * 0 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/refresh_dow_list.lock /home/shen/.local/bin/uv run python -m scrapers.refresh_dow_list >> /home/shen/fathom/backend/logs/dow_list_refresh_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped refresh_dow_list: the previous run is still going" >> /home/shen/fathom/backend/logs/dow_list_refresh_cron.log
 
+# The Sunday 12:30 stale-data check also pages FMP's /delisted-companies (page 0 only on Starter, page 1 onward 402): under
+# the same `index_membership` group it is skipped with zero calls on Starter and never clears an existing delisted flag.
+#
 # Weekly maintenance window, Sundays 12:15-12:35 AM -- staggered 5 minutes
 # apart (same pattern as the three list refreshes above), all still ahead of
 # the 1:00 AM nightly chain. See backend/OPS_RUNBOOK.md for what each of these

@@ -1,7 +1,8 @@
 """Generic FMP-backed constituent-list pipeline shared by every stock-index
-constituent module (sp500_scraper.py, dow_scraper.py, ...). FMP Ultimate now
-serves its own /sp500-constituent and /dowjones-constituent endpoints
-(confirmed live 2026-09-15 -- previously 402 on this plan, which is why this
+constituent module (sp500_scraper.py, dow_scraper.py, ...). FMP's
+/sp500-constituent and /dowjones-constituent endpoints are Premium tier
+(confirmed live 2026-09-15 on the then Ultimate plan; 402 on Starter, 2026-10-14,
+where the refresh jobs skip and the stored lists freeze -- previously 402 on the earlier plan, which is why this
 pipeline originally scraped Wikipedia's own constituent tables via httpx +
 BeautifulSoup; see git history for that implementation). Each concrete index
 module supplies its own FMP-fetch callable and index_name, and gets the same

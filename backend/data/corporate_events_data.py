@@ -4,7 +4,7 @@
 all data group `corporate_events`) and UPSERTS them by the natural key (ticker,
 event_type, event_date): new events are inserted, existing ones updated, and a stored
 row is NEVER deleted because a response omitted it. That matters for a plan downgrade --
-Starter/Premium answer with ~1 year of history where Ultimate returns everything, and a
+a lower plan could answer with less history (a Starter key measured 2026-10-14 still returns it all), and a
 delete-and-replace would silently wipe the older cached rows on the next run. The only
 deletion is the deliberate `prune_old_events` housekeeping (RETENTION_DAYS trailing
 days by EVENT date, independent of FMP's answer or the plan). A successful refresh also

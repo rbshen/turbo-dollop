@@ -412,9 +412,10 @@ class IndexConstituent(SQLModel, table=True):
     Populated directly from FMP's own dedicated constituent endpoints
     (/sp500-constituent, /dowjones-constituent, /nasdaq-constituent) via the
     shared scrapers/index_scraper.py pipeline -- not scraped from Wikipedia;
-    that was the original approach before FMP Ultimate's constituent
-    endpoints became available on this plan (confirmed live 2026-09-15 for
-    sp500/dow, 2026-09-23 for nasdaq -- see git history for the Wikipedia
+    that was the original approach before FMP's constituent endpoints
+    became available (Premium tier: confirmed live 2026-09-15 for
+    sp500/dow, 2026-09-23 for nasdaq, on the then Ultimate plan; 402 on the
+    Starter plan since 2026-10-14, where the stored lists freeze -- see git history for the Wikipedia
     implementation). Refreshed weekly (see crontab.txt), gated by
     the FMP master switch, independent of the nightly per-ticker fundamentals fetch --
     index membership changes a handful of times a year, not nightly."""
