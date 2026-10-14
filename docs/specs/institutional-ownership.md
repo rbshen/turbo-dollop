@@ -18,14 +18,14 @@ the backend.
   tab's, since nothing on Summary surfaces institutional-ownership data). The `InstitutionalOwnershipTab`
   component and the `useInstitutionalOwnership` hook are unchanged and currently unimported.
 - It never had a cron job, so Scheduled Jobs needed nothing. Settings > FMP data groups is fully data-driven off the
-  live group list (same as `news`), so a disabled group just shows as an off toggle row; there is no
+  live group list (like every group), so a disabled group just shows as an off toggle row; there is no
   separate "shelved" listing to prune.
 - All backend/frontend code and its tests are left in the tree, each carrying a short revival comment
   (mirroring Insider Activity's own).
 - The two cache statement types (`institutional_ownership_summary`, `institutional_ownership_holders`) were
   purged from `FundamentalsCache` on 2026-09-27 (224 rows, 23 tickers; real production usage between
   shipping and shelving, not test contamination).
-- The seeded conftest state has `institutional_ownership` off (alongside `news`); the feature's own tests
+- The seeded conftest state has `institutional_ownership` off (it is also the generic example group in the data-group tests); the feature's own tests
   turn it on explicitly.
 
 **To revive:** turn the `institutional_ownership` Data Group on in Settings > FMP data groups (no restart), then

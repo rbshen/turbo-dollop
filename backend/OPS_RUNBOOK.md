@@ -93,7 +93,7 @@ uv run python -m pipeline.data_groups resume      # master ON (per-group setting
 ```
 
 Takes effect within ~5 s in every process (state is in the DB). Individual
-groups (fundamentals, news, ...) can be toggled in Settings > FMP data groups; `start.sh`'s
+groups (fundamentals, analyst_ratings, ...) can be toggled in Settings > FMP data groups; `start.sh`'s
 FMP preflight is skipped when the master or `profile_quote` is off, and a 402
 there only warns. A nightly job whose group is off records a **skipped** run
 (blue dot in Scheduled Jobs, "Skipped since <date>") -- if a job shows skipped

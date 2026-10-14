@@ -30,7 +30,7 @@ backend/     FastAPI app, organized into packages by role:
   data/        Per-tab data orchestration (the get_stepN_data pattern):
                step1_data.py .. step5_data.py, ticker_summary.py,
                financials_data.py, ratios_data.py, analyst_ratings_data.py,
-               news_data.py, segmentation_data.py, moat.py,
+               segmentation_data.py, moat.py,
                etf_data.py (ETF page Overview + "known ETF" lookups),
                watchlist_data.py, watchlists.py, saved_screener_filters.py,
                tracked_universe.py (the one nightly-universe definition),

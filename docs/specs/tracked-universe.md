@@ -126,7 +126,7 @@ added and idle.
 
 - `data/ticker_data_registry.py`: every table with a per-ticker key, classified WIPE (with the deletion order, `TickerView` last), PROTECTING (`IndexConstituent`,
   `WatchlistTicker`, `TickerMoat`, `TickerCustomValuation`, `TickerBankCapitalMetrics`, `GrowthCatalystNote`) or KEEP (`SectorEtfReturn`). `newssentimentcache` (a leftover
-  of the removed Alpha Vantage feature, no model) is registered by name with its own DDL. `FundamentalsCache` rows with `statement_type = 'forex_rate'` are never
+  of the removed Alpha Vantage feature, no model) and `newscache` (the removed FMP news cache, 2026-10-14, 9 rows left in the live table) are registered by name with their own DDL. `FundamentalsCache` rows with `statement_type = 'forex_rate'` are never
   touched. `unclassified_ticker_tables(engine)` is the guard: `tests/test_ticker_data_registry.py` fails when a table with a ticker-like column is not classified,
   and `--apply` refuses on one.
 - `pipeline/wipe_untouched_tickers.py` (manual, **not registered**: no crontab line, no `CRON_JOB_NAMES`/cadence/metadata entry, no heartbeat). Dry run is the
