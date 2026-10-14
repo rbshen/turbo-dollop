@@ -167,7 +167,7 @@ _ORDERED: tuple[TickerTable, ...] = (
     _t(SharedBarsCache, TableClass.WIPE, "shared daily/60m bars cache (the largest table)"),
     _t(LongHistoryBars, TableClass.WIPE, "on-demand ~10-year daily history"),
     _t(PriceTargetSnapshot, TableClass.WIPE, "nightly price-target snapshots (history that cannot be re-created)"),
-    _t(CorporateEvent, TableClass.WIPE, "earnings/dividend/split cache (its nightly job is disabled: not rebuilt by cron)"),
+    _t(CorporateEvent, TableClass.WIPE, "earnings/dividend/split cache (rebuilt by the weekly Saturday corporate-events job)"),
     _t(CorporateEventFetch, TableClass.WIPE, "per-(ticker, event_type) last-fetch marker for CorporateEvent"),
     # --- WIPE: the state itself, last ---------------------------------------------------------------------------
     _t(TickerView, TableClass.WIPE, "the last-touch clock; deleted last so a half-done wipe stays retryable"),

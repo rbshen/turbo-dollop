@@ -25,10 +25,8 @@
 # later (technical data is the higher priority). Order, each job in its own slot:
 #   last close -> Weinstein + bar-cache fill -> Liquidity Zone (support/resistance)
 #   -> BB+RSI -> Warren -> Sector ETF heatmap -> Market Breadth -> ETFs screener
-#   -> (corporate events: DISABLED 2026-10-01, planned slot 1:50 AM, see below)
 #   -> FMP fundamentals -> sector/industry P/E snapshot -> analyst price-target -> score recompute -> SQLite backup
-# Nothing else runs between 1:50 and 2:00, which the planned corporate-events slot needs (the ETFs
-# screener job at 1:45 is short, ~1-3 min, and ends before 1:50).
+# (The earnings/dividends/splits cache is NOT in the nightly chain: it is a weekly Saturday job, see below.)
 # Hard ordering constraints (pinned by tests/test_cron_wiring.py):
 #   * the Weinstein/bar-cache job (pipeline.nightly_trend_calculation -- the "trend" name is
 #     historical) fills the shared daily-bar cache; LP, Sector and Breadth read it warm
@@ -100,33 +98,10 @@
 # the Warren/BB+RSI/LP signal fields). AFTER the 1:05 bar-cache job (bars) and LP, BB+RSI and
 # Warren (signals; Warren worst seen ~5.4 min, ends by ~1:31), BEFORE the 3:25 recompute and 3:30
 # backup. Steady state ~1-2 min (fresh caches make no FMP call; first run ~40 calls), and it ends
-# before the planned 1:50 corporate-events slot. Skipped (a real `skipped` status) while
+# well before the 2:00 fundamentals start. Skipped (a real `skipped` status) while
 # `daily_prices` is off. Does NOT yet replace the stock-side jobs' handling of ETFs (step 7).
 # See pipeline/nightly_etf_screener.py and docs/specs/etf-screener.md.
 45 1 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_etf_screener.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_etf_screener >> /home/shen/fathom/backend/logs/nightly_etf_screener_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_etf_screener: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_etf_screener_cron.log
-
-# 2:45 (old slot, see below) FMP earnings/dividends/splits cache (Phase 6a) -- full-history replace per
-# ticker; feeds the Chart tab's E/D markers. ~2-4 min. Chart data, not a score
-# input, so it sits after the technical signals and before fundamentals.
-# See pipeline/nightly_corporate_events.py.
-#
-# DISABLED 2026-10-01 pending investigation: ~1,165 FMP calls per run at 406-527
-# requests/min, over the Starter tier's 300/min. The code, cache and data are
-# untouched (the Chart tab keeps serving the cached E/D markers). Also listed in
-# core/cron_health.py::DISABLED_CRON_JOBS so the Scheduled Jobs page shows it as
-# disabled, not overdue. To re-enable: uncomment the line below, delete the
-# DISABLED_CRON_JOBS entry, then `crontab crontab.txt` from backend/ and check
-# `crontab -l`. See backend/OPS_RUNBOOK.md (nightly_corporate_events).
-# 2026-10-14 (plan Starter, 300/min): the job's own pacer already runs at half the plan rate (150/min on Starter), so
-# ~1,165 calls take about 8 minutes, not the ~2.6 of the old 406-527/min runs; 1:50 + 8 min ends ~1:58, a thin margin
-# before the 2:00 fundamentals start (a flock does not stop two different jobs overlapping). Per-symbol /earnings,
-# /dividends and /splits answer 200 on Starter with full history.
-# PLANNED RE-ENABLE SLOT: 1:50 AM (`50 1 * * *`), NOT the 2:45 line below: since the
-# 2026-10-02 reschedule fundamentals starts at 2:00, and this job runs ~1,165 calls at
-# 406-527 requests/min, so it must finish before fundamentals starts (1:50 + ~3 min,
-# after Market Breadth ends ~1:41-1:45) and never overlap it. Change the time fields
-# when you uncomment it, and update JOB_METADATA (time_label, sort_minutes) to match.
-# 45 2 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_corporate_events.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_corporate_events >> /home/shen/fathom/backend/logs/nightly_corporate_events_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_corporate_events: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_corporate_events_cron.log
 
 # 2:50 Monthly Momentum snapshot (3mo/6mo/12mo composite trailing-return ranking
 # over the Moat-rated universe). Moved from 3:05 on 2026-09-30. Fundamentals now starts at 2:00,
@@ -271,6 +246,20 @@
 # Thursday's in a week with a Friday holiday); a rerun for the same date is a no-op. 4:00 AM UTC is 12:00 AM Saturday New York (EDT) and
 # 12:00 PM Saturday Hong Kong. See pipeline/weekly_opportunity_snapshot.py and docs/specs/opportunities.md.
 0 4 * * 6 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/weekly_opportunity_snapshot.lock /home/shen/.local/bin/uv run python -m pipeline.weekly_opportunity_snapshot >> /home/shen/fathom/backend/logs/weekly_opportunity_snapshot_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped weekly_opportunity_snapshot: the previous run is still going" >> /home/shen/fathom/backend/logs/weekly_opportunity_snapshot_cron.log
+
+# Corporate events cache (FMP earnings / dividends / splits; feeds ONLY the Chart tab's E/D markers), WEEKLY since 2026-10-14. Saturdays at 6:00 AM
+# server time (UTC; 2:00 PM Saturday Hong Kong). The job was nightly until it was disabled on 2026-10-01 (about 1,165 calls at 406-527 requests/min,
+# over Starter's 300/min); it is back as a weekly job because the markers do not need daily freshness (a newly reported quarter or a newly declared
+# dividend shows up within a week) and nothing else reads the table (the scores, the fundamentals jobs and the next-earnings date read the separate
+# `earnings`/`latest` row in FundamentalsCache). Every run refetches each ticker's FULL history (no date window), so nothing is missed between runs
+# and a run after any downtime costs the same as a normal one. Cost: about 582 US-listed tracked tickers x 3 calls (earnings, dividends, splits:
+# splits are due every weekly run) = about 1,750 calls, paced by the job itself at half the plan rate (150 calls/min on Starter) = about 12 minutes,
+# up to ~20 if the universe grows to ~1,000. Why Saturday 6:00: the Friday-session nightly chain (the last FMP job, price-target, ends by ~3:20), the
+# 3:30 backup and the Saturday 4:00 opportunity job are all long finished (>= 2 h clear), and the next FMP-using job is the Sunday 12:30 AM stale-data
+# check, 18 h away, so no other FMP job or writer overlaps it. Skipped (a real `skipped` cron status) while the `corporate_events` group is off.
+# The cron-health page treats it as a weekly job (overdue after 8 days). See pipeline/nightly_corporate_events.py (name kept from when it was
+# nightly), docs/specs/corporate-events.md and docs/decisions.md 2026-10-14.
+0 6 * * 6 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_corporate_events.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_corporate_events >> /home/shen/fathom/backend/logs/nightly_corporate_events_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_corporate_events: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_corporate_events_cron.log
 
 # Opportunity outcome updater, ENABLED 2026-10-12. Every night at 3:40 AM server time (UTC; 11:40 AM Hong Kong): AFTER the whole nightly chain
 # and the 3:30 backup (over the last 10 nights the chain's last job, the backup, ended 3:32-3:35), and 20 minutes before the Saturday 4:00

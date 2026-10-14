@@ -83,7 +83,7 @@ _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.nightly_fundamentals_fetch": _DAILY_HOURS,
     "pipeline.nightly_score_recompute": _DAILY_HOURS,
     "pipeline.nightly_trend_calculation": _DAILY_HOURS,
-    "pipeline.nightly_corporate_events": _DAILY_HOURS,
+    "pipeline.nightly_corporate_events": _WEEKLY_HOURS,  # weekly (Saturday 6:00) since 2026-10-14; the name is historical
     "pipeline.nightly_last_close_snapshot": _DAILY_HOURS,
     "pipeline.nightly_entry_signal_calculation": _DAILY_HOURS,
     "pipeline.nightly_warren_signal_calculation": _DAILY_HOURS,
@@ -139,7 +139,7 @@ JOB_METADATA: dict[str, JobMetadata] = {
         "Weinstein stage + daily-bar cache fill", "daily", "1:05 AM", 60 + 5
     ),
     "pipeline.nightly_corporate_events": JobMetadata(
-        "Earnings / dividends / splits cache from FMP (Chart E/D markers)", "daily", "2:45 AM", 2 * 60 + 45
+        "Earnings / dividends / splits cache from FMP (Chart E/D markers), weekly", "weekly", "Sat 6:00 AM", 6 * 60
     ),
     "pipeline.nightly_last_close_snapshot": JobMetadata(
         "Last official close per ticker from FMP (header price fallback)", "daily", "1:00 AM", 60
@@ -220,13 +220,8 @@ class DisabledJob(NamedTuple):
 # disabling are each one two-line step that cannot be half done.
 # To re-enable a job: uncomment its crontab.txt line, delete its entry here, run
 # `crontab crontab.txt` from backend/ and check `crontab -l`.
-DISABLED_CRON_JOBS: dict[str, DisabledJob] = {
-    "pipeline.nightly_corporate_events": DisabledJob(
-        date(2026, 10, 1),
-        "pending investigation: about 1,165 FMP calls per run at 406-527 requests/min, over Starter's 300/min. "
-        "The Chart tab serves the cached E/D markers.",
-    ),
-}
+# Empty since 2026-10-14, when pipeline.nightly_corporate_events came back as a WEEKLY job (Saturday 6:00; disabled 2026-10-01).
+DISABLED_CRON_JOBS: dict[str, DisabledJob] = {}
 
 
 # Failure-rate rule shared by every job that reports attempted/failed counts (see

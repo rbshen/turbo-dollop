@@ -298,7 +298,7 @@ class TechnicalEntrySignalEvent(SQLModel, table=True):
     result already computed for the TechnicalEntrySignal upsert -- no
     change to check_buy_signal/compute_entry_signal's detection logic);
     and (historically) via a one-time backfill script, since deleted, that scanned the
-    730-day 2h-interval history using compute_historical_entry_signals
+    730-day (the app's own fetch window) 2h-interval history using compute_historical_entry_signals
     (analysis/entry_signal/engine.py).
 
     Surrogate `id` PK (not composite, unlike TechnicalEntrySignal) since
@@ -1367,7 +1367,7 @@ class TickerView(SQLModel, table=True):
 
 class CorporateEvent(SQLModel, table=True):
     """FMP-sourced earnings dates, dividends and splits per ticker (Phase 6a), refreshed
-    by pipeline/nightly_corporate_events.py with an UPSERT on (ticker, event_type,
+    by the weekly pipeline/nightly_corporate_events.py with an UPSERT on (ticker, event_type,
     event_date) -- a row is never deleted because FMP's response omitted it (plan-
     downgrade safe) -- and pruned to the trailing 4 years by event date. Feeds the Chart tab's E/D markers (data/chart_events_data.py).
 

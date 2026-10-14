@@ -9,9 +9,8 @@ delete-and-replace would silently wipe the older cached rows on the next run. Th
 deletion is the deliberate `prune_old_events` housekeeping (RETENTION_DAYS trailing
 days by EVENT date, independent of FMP's answer or the plan). A successful refresh also
 stamps CorporateEventFetch, which is what lets the reader tell "fetched, FMP has none"
-(TSLA pays no dividend) from "never fetched". Earnings/dividends are refreshed nightly,
-splits weekly (`SPLITS_REFRESH_DAYS`), by pipeline/nightly_corporate_events.py (the first
-run is the backfill).
+(TSLA pays no dividend) from "never fetched". All three types are refreshed by the WEEKLY
+pipeline/nightly_corporate_events.py (Saturdays; the first run is the backfill).
 
 `read_cached_chart_events` feeds the Chart tab's E/D markers
 (data/chart_events_data.py): it rebuilds FMP-shaped rows from the table and reuses that
@@ -47,9 +46,10 @@ DIVIDENDS_LIMIT = 2000
 RETENTION_DAYS = 365 * 4
 
 # Splits are rare next to earnings/dividends: refreshed when never fetched or last fetched
-# at least this long ago (6, not 7, so a nightly run's few seconds of drift never skips
-# the weekly slot). Judged off CorporateEventFetch, not the weekday, so a missed run
-# self-heals the next night.
+# at least this long ago (6, not 7, so a run's few seconds of drift never skips the weekly
+# slot). Judged off CorporateEventFetch, not the weekday. Since the job went weekly (2026-10-14)
+# every run is at least 7 days after the last, so splits are due on every run; the rule only
+# matters for a manual `--tickers` run in between, or if the job is ever run more often again.
 SPLITS_REFRESH_DAYS = 6
 NIGHTLY_EVENT_TYPES = (EARNINGS, DIVIDEND)
 
@@ -197,7 +197,7 @@ def read_cached_chart_events(ticker: str) -> ChartEvents | None:
     """Earnings + dividend events for the Chart tab from the cache, or None when the
     ticker's earnings OR dividends were never successfully fetched (the caller then
     reads as no markers). Serves whatever is cached however old -- freshness
-    is the nightly job's concern, and the cache is the designed answer while the
+    is the weekly job's concern, and the cache is the designed answer while the
     `corporate_events` group is off."""
     with Session(engine) as session:
         fetched = {

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
@@ -195,16 +195,25 @@ def test_cron_health_disabled_reports_enabled_false_and_no_jobs(monkeypatch):
     assert response.json() == {"enabled": False, "jobs": []}
 
 
+def _disable_corporate_events(monkeypatch):
+    """DISABLED_CRON_JOBS is empty since nightly_corporate_events came back as a weekly job (2026-10-14), so these tests disable it by hand
+    to exercise the mechanism (the job it was disabled with, 2026-10-01)."""
+    monkeypatch.setitem(
+        cron_health.DISABLED_CRON_JOBS, "pipeline.nightly_corporate_events", cron_health.DisabledJob(date(2026, 10, 1), "pending investigation")
+    )
+
+
 def test_disabled_job_reads_skipped_with_a_disabled_message_never_overdue(monkeypatch):
-    # nightly_corporate_events is commented out of the crontab (DISABLED_CRON_JOBS). Its last
-    # success is far older than the 36 h daily window, which would read "overdue".
+    # A job commented out of the crontab (DISABLED_CRON_JOBS). Its last success is far older than its
+    # expected window, which would read "overdue".
+    _disable_corporate_events(monkeypatch)
     engine = _fresh_engine(monkeypatch)
     with Session(engine) as session:
         session.add(
             CronRunLog(
                 job_name="pipeline.nightly_corporate_events",
-                started_at=datetime.now() - timedelta(days=9),
-                finished_at=datetime.now() - timedelta(days=9),
+                started_at=datetime.now() - timedelta(days=20),
+                finished_at=datetime.now() - timedelta(days=20),
                 status="success",
             )
         )
@@ -219,6 +228,7 @@ def test_disabled_job_reads_skipped_with_a_disabled_message_never_overdue(monkey
 
 
 def test_disabled_job_with_no_runs_is_skipped_not_unknown(monkeypatch):
+    _disable_corporate_events(monkeypatch)
     _fresh_engine(monkeypatch)
     with TestClient(app) as client:
         response = client.get("/api/config/cron-health")
@@ -234,3 +244,30 @@ def test_every_other_job_is_unaffected_by_the_disabled_list(monkeypatch):
     for job in response.json()["jobs"]:
         if job["job_name"] not in cron_health.DISABLED_CRON_JOBS:
             assert job["health_status"] == "unknown"
+
+
+def _corporate_events_run(engine, days_ago: float) -> None:
+    when = datetime.now() - timedelta(days=days_ago)
+    with Session(engine) as session:
+        session.add(CronRunLog(job_name="pipeline.nightly_corporate_events", started_at=when, finished_at=when, status="success"))
+        session.commit()
+
+
+def test_weekly_corporate_events_is_ok_on_every_non_run_day_and_overdue_only_after_eight_days(monkeypatch):
+    """Weekly Saturday job (2026-10-14): a success 6 days old (the day before the next run) is healthy, not overdue, and the page
+    only flags it once a whole run has been missed (> 8 days)."""
+    engine = _fresh_engine(monkeypatch)
+    assert "pipeline.nightly_corporate_events" not in cron_health.DISABLED_CRON_JOBS
+    _corporate_events_run(engine, 6.5)
+    with TestClient(app) as client:
+        job = _job(client.get("/api/config/cron-health").json(), "pipeline.nightly_corporate_events")
+    assert job["health_status"] == "ok"
+    assert job["cadence_group"] == "weekly" and job["time_label"] == "Sat 6:00 AM"
+
+
+def test_weekly_corporate_events_reads_overdue_after_a_missed_week(monkeypatch):
+    engine = _fresh_engine(monkeypatch)
+    _corporate_events_run(engine, 9)
+    with TestClient(app) as client:
+        job = _job(client.get("/api/config/cron-health").json(), "pipeline.nightly_corporate_events")
+    assert job["health_status"] == "overdue"

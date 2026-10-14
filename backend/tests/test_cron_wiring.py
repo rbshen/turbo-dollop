@@ -144,14 +144,39 @@ def test_nightly_chain_runs_in_the_agreed_order():
         )
 
 
-def test_corporate_events_runs_after_technical_jobs_and_before_fundamentals():
-    if "pipeline.nightly_corporate_events" in DISABLED_CRON_JOBS:
-        # Disabled 2026-10-01 (see DISABLED_CRON_JOBS): no schedule to check. Re-enabling
-        # it makes this assertion live again.
-        return
-    events = _daily_minute_of_day("pipeline.nightly_corporate_events")
-    assert _daily_minute_of_day("pipeline.nightly_market_breadth") < events
-    assert events < _daily_minute_of_day("pipeline.nightly_fundamentals_fetch")
+def test_corporate_events_is_a_weekly_saturday_job_clear_of_every_other_fmp_job():
+    """Weekly since 2026-10-14 (it feeds only the Chart E/D markers; disabled 2026-10-01 while it ran nightly at 406-527 calls/min). Saturday
+    6:00 UTC. A run is ~582 tickers x 3 calls = ~1,750 calls paced at 150/min on Starter = ~12 min (about 20 at ~1,000 tickers); a catch-up run after
+    downtime costs the same, because every call asks for the full history. So the slot must keep a 30-minute run window clear by >= 10 minutes on both
+    sides of every other FMP-using job: the last nightly FMP job is price-target (3:10, ends ~3:20), the Saturday 4:00 opportunity job uses no FMP,
+    and the next FMP-using job is the Sunday 12:30 AM stale-data check."""
+    name = "pipeline.nightly_corporate_events"
+    assert name in CRON_JOB_NAMES and name not in DISABLED_CRON_JOBS
+    minute, hour, dom, month, dow = _crontab_schedule()[name]
+    assert (dom, month, dow) == ("*", "*", "6"), f"{name} is a Saturday job, got {(minute, hour, dom, month, dow)}"
+    start = int(hour) * 60 + int(minute)
+    window = 30  # covers the ~12 min normal run and the ~20 min run at ~1,000 tickers
+    assert start == JOB_METADATA[name].sort_minutes == 6 * 60
+    # Every nightly (daily) FMP job has long finished on the Saturday morning: the latest daily start is 3:45 (no FMP), price-target 3:10.
+    last_daily_fmp = _daily_minute_of_day("pipeline.nightly_price_target_snapshot")
+    assert start >= last_daily_fmp + 10 + 10, "must start after the price-target job (worst seen ~10 min) with >= 10 min margin"
+    assert start >= _daily_minute_of_day("pipeline.backup_db") + 10
+    minute, hour, *_ = _crontab_schedule()["pipeline.weekly_opportunity_snapshot"]
+    assert start >= int(hour) * 60 + int(minute) + 10  # the Saturday 4:00 job (stored data only) is long done
+    # The next day's first FMP job is the Sunday block (00:00 onward, i.e. 24:00 on the Saturday clock) and the 1:00 daily chain.
+    assert start + window + 10 <= 24 * 60
+    # Saturday's own nightly chain starts at 1:00, 5 hours before.
+    assert start > _daily_minute_of_day("pipeline.nightly_score_recompute")
+
+
+def test_corporate_events_is_a_weekly_job_with_a_weekly_cadence_not_a_disabled_one():
+    from core.cron_health import _EXPECTED_CADENCE_HOURS, _WEEKLY_HOURS
+
+    name = "pipeline.nightly_corporate_events"
+    assert name not in DISABLED_CRON_JOBS, "re-enabled weekly 2026-10-14: it must not be listed as disabled again without a decision"
+    assert _EXPECTED_CADENCE_HOURS[name] == _WEEKLY_HOURS == 24 * 8, "weekly cadence: overdue only after 8 days, never on a non-run day"
+    metadata = JOB_METADATA[name]
+    assert metadata.cadence_group == "weekly" and metadata.time_label == "Sat 6:00 AM"
 
 
 def test_no_two_daily_jobs_share_a_minute():
@@ -165,12 +190,13 @@ def test_no_two_daily_jobs_share_a_minute():
         seen[key] = module
 
 
-_SATURDAY_JOBS = {"pipeline.weekly_opportunity_snapshot"}
+_SATURDAY_JOBS = {"pipeline.weekly_opportunity_snapshot", "pipeline.nightly_corporate_events"}
 
 
 def _weekly_minutes() -> dict[str, int]:
-    """module -> minute-of-day, for every job in the Sunday block. The one weekly job NOT in it is the Saturday 4:00 AM opportunity
-    snapshot (`_SATURDAY_JOBS`), which runs after the whole nightly chain and the backup; any other weekday is a mistake."""
+    """module -> minute-of-day, for every job in the Sunday block. The weekly jobs NOT in it are the Saturday 4:00 AM opportunity
+    snapshot and the Saturday 6:00 AM corporate-events refresh (`_SATURDAY_JOBS`), which run after the whole nightly chain and the
+    backup; any other weekday is a mistake."""
     out = {}
     for module, (minute, hour, dom, month, dow) in _crontab_schedule().items():
         if module in _SATURDAY_JOBS:
@@ -221,8 +247,6 @@ def test_etf_screener_runs_after_its_inputs_with_room_on_both_sides():
     assert etf + 10 <= _daily_minute_of_day("pipeline.nightly_fundamentals_fetch")
     assert etf + 10 <= _daily_minute_of_day("pipeline.nightly_score_recompute")
     assert etf + 10 <= _daily_minute_of_day("pipeline.backup_db")
-    if "pipeline.nightly_corporate_events" not in DISABLED_CRON_JOBS:
-        assert etf + 5 <= _daily_minute_of_day("pipeline.nightly_corporate_events")
 
 
 def test_sector_industry_pe_runs_after_fundamentals_and_before_the_jobs_that_follow():

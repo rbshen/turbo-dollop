@@ -31,7 +31,7 @@ this module embodies:
     uncached. `ChartOut.source` is always "fmp".
 
 4. **Earnings/dividend markers (2026-09-20)**: data/chart_events_data.py reads them from the
-   nightly CorporateEvent cache (Phase 6a; no live fetch). Fetched concurrently with
+   weekly-refreshed CorporateEvent cache (Phase 6a; no live fetch). Fetched concurrently with
    the candles and never able to fail or stall them.
 
 5. **2H_90D (2026-10-02)**: the last 90 calendar days of 2h session candles, with Warren/BB+RSI/LP all computed

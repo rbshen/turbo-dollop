@@ -1,19 +1,23 @@
-"""Standalone script: nightly refresh of the FMP-backed earnings / dividends / splits
-cache (CorporateEvent, Phase 6a) for every US-listed tracked ticker -- the same
-universe as the price-target and last-close jobs (`load_us_price_target_universe`).
-Feeds the Chart tab's E/D markers (data/chart_events_data.py reads the cache first).
+"""Standalone script: WEEKLY refresh (Saturdays 6:00 AM server time, UTC; since 2026-10-14) of the
+FMP-backed earnings / dividends / splits cache (CorporateEvent, Phase 6a) for every US-listed tracked
+ticker -- the same universe as the price-target and last-close jobs (`load_us_price_target_universe`).
+Feeds the Chart tab's E/D markers (data/chart_events_data.py reads the cache first), which is the only
+reader, so a week-old cache is fine. The module and job name keep "nightly" from when it ran nightly
+(it was disabled 2026-10-01, then re-enabled weekly); renaming it would touch the cron registry, the
+log files and the run history for no behaviour change.
 
-Each run UPSERTS a ticker's rows from FMP's answer (`/earnings`, `/dividends` nightly;
-`/splits` weekly -- see data/corporate_events_data.py::splits_due; group
-`corporate_events`), so the first run after deploy IS the backfill and a later run picks
-up newly announced report dates, newly declared dividends and newly filled-in EPS
-actuals. Nothing is deleted because FMP's response omitted it (plan-downgrade safe); the
-one deletion is the 4-year trailing prune (`prune_old_events`) that closes each run.
-~590 tickers x 2 calls = ~1,180 calls on an ordinary night (was ~1,770), ~1,770 on the
-week's splits night, paced to half the plan's documented rate (~1-2 min). A failed
-endpoint keeps that ticker's previous rows for that type.
+Each run UPSERTS a ticker's rows from FMP's answer (`/earnings`, `/dividends`, `/splits`; group
+`corporate_events`), so the first run IS the backfill and a later run picks up newly announced report
+dates, newly declared dividends and newly filled-in EPS actuals. Every call asks for the ticker's FULL
+history (no date window), so a run after any downtime fetches exactly what a normal one does and no
+event is missed between runs. Nothing is deleted because FMP's response omitted it (plan-downgrade
+safe); the one deletion is the 4-year trailing prune (`prune_old_events`) that closes each run.
+~590 tickers x 3 calls = ~1,750 calls per run (splits are due every weekly run: see
+data/corporate_events_data.py::splits_due), paced by the job at half the plan's documented rate (150
+calls/min on Starter), so about 12 minutes. A failed endpoint keeps that ticker's previous rows for that
+type.
 
-Default schedule: 2:45 AM server time (UTC). Skipped (a real `skipped` cron status)
+Schedule: Saturday 6:00 AM server time (UTC), see crontab.txt. Skipped (a real `skipped` cron status)
 while the `corporate_events` group is not live -- the cache then serves as-is.
 
 Run manually (this is also the one-time backfill):

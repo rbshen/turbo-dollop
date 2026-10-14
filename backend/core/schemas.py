@@ -1818,7 +1818,7 @@ class ChartOut(BaseModel):
     zones: list[ChartZoneOut] = []
     zones_available: bool
     # Earnings-report dates / dividend ex-dates within this response's visible
-    # window (see data/chart_events_data.py + chart_data.py), read from the nightly
+    # window (see data/chart_events_data.py + chart_data.py), read from the weekly
     # CorporateEvent cache. `events_source` is "fmp", or
     # None when the ticker isn't cached -- the only way to tell "couldn't fetch"
     # from a genuinely empty list (a non-dividend payer). The UI omits both
