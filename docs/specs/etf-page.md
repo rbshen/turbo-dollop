@@ -97,8 +97,8 @@ zones and the chart are all bar-based, so none needed hiding. Adapted:
 - Group `etf_info` ("ETF info"), feeds the Overview tab. Endpoint `/etf/info` only (`ENDPOINT_GROUP`); cache key
   `FundamentalsCache(ticker, "etf_info", "latest")` (`STATEMENT_TYPE_GROUP`). No new table, no cron job.
 - **Tier: `Starter`**, the owner's recorded value (Settings > FMP data groups, 2026-10-02), now also the code default
-  (`GROUPS["etf_info"]`). It is not FMP-verified: FMP's docs and pricing pages return 403 to our fetcher and the API does
-  not report tiers. The code default only matters when the row is first created: `core/data_groups.py::_seed` creates
+  (`GROUPS["etf_info"]`). Verified on a Starter key 2026-10-14 (`/etf/info?symbol=SPY` answers 200; FMP's docs and pricing pages
+  return 403 to our fetcher and the API does not report tiers). The code default only matters when the row is first created: `core/data_groups.py::_seed` creates
   *missing* rows and never rewrites an existing one, so a live DB value (Premium, Starter or anything else) is left alone.
   The tier is editable in Settings and the 402 safety net corrects a wrong value at runtime. (Until 2026-10-02 the seed was
   Premium, a conservative guess.)

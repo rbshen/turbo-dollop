@@ -31,7 +31,7 @@ Every cron entry in `crontab.txt` invokes its script as `-m package.module` (e.g
 
 ## Data source
 
-[Financial Modeling Prep (FMP)](https://financialmodelingprep.com) (paid tier) is the **sole** data source for fundamentals, company classification, and Fundamentals 1-5/Overall Assessment scoring, via `backend/clients/fmp_client.py`. FMP is the **only** external data source for everything, price/OHLCV bars included, with no fallback provider anywhere. (SEC EDGAR, `clients/sec_edgar.py`, remains only as a fundamentals cross-check source, not a market-data one.) See docs/specs/fmp-data-and-bar-cache.md.
+[Financial Modeling Prep (FMP)](https://financialmodelingprep.com) (paid tier; **plan Starter since 2026-10-14**, which serves everything except index constituents, the delisted list past page 0 and 1min bars: docs/specs/fmp-data-and-bar-cache.md, "FMP plan: Starter") is the **sole** data source for fundamentals, company classification, and Fundamentals 1-5/Overall Assessment scoring, via `backend/clients/fmp_client.py`. FMP is the **only** external data source for everything, price/OHLCV bars included, with no fallback provider anywhere. (SEC EDGAR, `clients/sec_edgar.py`, remains only as a fundamentals cross-check source, not a market-data one.) See docs/specs/fmp-data-and-bar-cache.md.
 
 ## Watchlists
 

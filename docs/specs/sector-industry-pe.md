@@ -32,15 +32,15 @@ no overlay (it is never substituted from another exchange).
 
 All four endpoints map to it (`core/data_groups.py::ENDPOINT_GROUP`): `/sector-pe-snapshot`, `/industry-pe-snapshot`,
 `/historical-sector-pe`, `/historical-industry-pe`. Label "Sector & industry P/E", listed in Settings > FMP data groups
-like every group (the list comes from the API). Probe: `/sector-pe-snapshot?date=2024-01-02&exchange=NASDAQ` (symbol-less,
-so the failing call is its own canary).
+like every group (the list comes from the API). Probe: `/sector-pe-snapshot?date=<today minus 30 days>&exchange=NASDAQ` (symbol-less,
+so the failing call is its own canary; the date is computed when the probe runs, because a fixed past date such as `2024-01-02` answers 402 on Starter).
 
-**Required tier: Starter — best known, UNVERIFIED.** Source: FMP's developer docs pages for these endpoints 403 to our
-fetcher (as every FMP docs/pricing page does) and the search results name no plan for them. FMP's pricing page (via
-search summary, 2026-10-09) gives Basic and Starter **5 years** of history and Premium/Ultimate **30+ years**, and our
-backfill window is exactly 5 years, so Starter is the lowest tier at which the full window should be served. Our key is
-Ultimate, so nothing can be tested; the 402 safety net corrects a wrong value at runtime (a canary-confirmed 402 marks the
-group `plan_restricted`, re-probed weekly). Edit the tier in Settings if FMP's page says otherwise.
+**Required tier: Starter, verified 2026-10-14** on a Starter key: both snapshot endpoints answer 200 for a date within about the last
+**12 months** and **402 for an older one** (`2024-01-02`), and `/historical-sector-pe` served the full 5-year window (1,279 rows for
+Technology/NYSE; `/historical-industry-pe` was not tested). So the nightly snapshot (the last completed trading day), the backfill (it reads the
+two snapshots at the window END, i.e. recent, then the historical series) and the chart (last year) all work on Starter; only a snapshot request for an
+old date is refused. The stored 5 years (backfilled 2026-10-09 on Ultimate) are kept: the table is upsert-only and nothing deletes. If FMP ever
+refuses the historical series on this plan, the 402 safety net marks the group `plan_restricted` (re-probed weekly with the relative-date probe).
 
 ## FMP facts (confirmed live 2026-10-09)
 

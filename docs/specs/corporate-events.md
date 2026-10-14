@@ -42,7 +42,7 @@ ticker's previous rows for that type. The job is skipped (a real `skipped` cron 
 
 `upsert_events` writes by the natural key `(ticker, event_type, event_date)`: new events are inserted,
 existing ones updated in place, and **a stored row is never removed because FMP's response omitted it**.
-This matters for a plan downgrade (Starter/Premium return ~1y of history where Ultimate returns everything);
+This matters for a plan downgrade (FMP's *calendar* endpoints are limited to a short window on lower plans; the per-symbol endpoints used here were measured on a Starter key on 2026-10-14 and still returned the whole history: 40 earnings rows, 92 dividends back to 1987, 5 splits for AAPL);
 a delete-and-replace would silently wipe older cached history. `CorporateEventFetch.row_count` is the
 **stored** count after the upsert. A successful refresh also stamps `CorporateEventFetch`, which is what
 lets the reader tell "fetched, FMP has none" (TSLA pays no dividend) from "never fetched". FMP returns the

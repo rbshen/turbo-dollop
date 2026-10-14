@@ -15,13 +15,14 @@ it are the endpoint inventory and the technical/investigation record.
 
 FMP on/off is per **data group**, stored in the DB (`core/data_groups.py`, tables `DataGroupSetting` -- one row per group -- and the singleton `DataGroupGlobal`; lazy-seeded like `LiquidityZoneConfig`, 5 s in-process cache invalidated on write) and edited live from Settings > FMP data groups, with no restart. Cron jobs are separate processes and read the same DB. There is no global env flag (no `FMP_ENABLED` or `INSIDER_ACTIVITY_ENABLED`); only `FMP_API_KEY`/`FMP_BASE_URL` are read from `.env`.
 
-- **Groups:** `fundamentals`, `profile_quote`, `analyst_ratings`, `segmentation`, `index_membership`, `corporate_events`, `daily_prices` and `daily_prices_long` (both via `/historical-price-eod/full`, split by history depth) and `intraday_bars` (via `/historical-chart/1hour`; all three wired to live FMP endpoints -- see docs/specs/fmp-data-and-bar-cache.md), `sector_industry_pe` (FMP sector/industry average P/E, 4 endpoints, tier Starter best known and unverified; feeds the Ratios-tab P/E history chart, docs/specs/sector-industry-pe.md), `etf_info` (`/etf/info` only, feeds the ETF page Overview tab; tier Starter (the owner's recorded value and the code default; not FMP-verified); its canary/probe symbol is **SPY**, not AAPL, because AAPL returns `200 []` -- `CANARY_SYMBOL_OVERRIDES`; see docs/specs/etf-page.md). **For the price groups, off = cached-only, and the nightly bar jobs report `skipped`**.
+- **Groups:** `fundamentals`, `profile_quote`, `price_change` (`/stock-price-change`) and `ticker_search` (`/search-symbol`, `/search-name`) (both split out of `profile_quote` 2026-10-14 so a refusal of one cannot switch off the header's profile and quote), `analyst_ratings`, `segmentation`, `index_membership`, `corporate_events`, `daily_prices` and `daily_prices_long` (both via `/historical-price-eod/full`, split by history depth) and `intraday_bars` (via `/historical-chart/1hour`; all three wired to live FMP endpoints -- see docs/specs/fmp-data-and-bar-cache.md), `sector_industry_pe` (FMP sector/industry average P/E, 4 endpoints, tier Starter, verified 2026-10-14; feeds the Ratios-tab P/E history chart, docs/specs/sector-industry-pe.md), `etf_info` (`/etf/info` only, feeds the ETF page Overview tab; tier Starter (verified on a Starter key 2026-10-14); its canary/probe symbol is **SPY**, not AAPL, because AAPL returns `200 []` -- `CANARY_SYMBOL_OVERRIDES`; see docs/specs/etf-page.md). **For the price groups, off = cached-only, and the nightly bar jobs report `skipped`**.
 - **Effective state** = master switch on AND group enabled AND required tier <= my plan AND status != `plan_restricted`. Off means **cache-only**: the last cached row is served (even if stale), nothing is ever wiped.
-- **Required tier per group is a user-editable value** (Starter/Premium/Ultimate) -- the seeded values are unverified guesses from the 2026-09-24 investigation. "My FMP plan" is one more editable value (seeded Ultimate); a group above the plan reads "Not on plan" and is treated as off.
+- **Required tier per group is a user-editable value** (Starter/Premium/Ultimate) -- re-verified against a live Starter key on 2026-10-14 (see "FMP plan: Starter" below; the live DB and the code seeds agree). "My FMP plan" is one more editable value (seeded Ultimate for a fresh install, **Starter on the live DB since 2026-10-14**); a group above the plan reads "Not on plan" and is treated as off.
 - **Master switch** ("disable all FMP", same semantics the old `FMP_ENABLED=false` had): Settings > FMP data groups (the status card below the group table), or `uv run python -m pipeline.data_groups pause-all | resume | status` when the API is down.
 - **Single gate, two layers.** `FMPClient.get` maps endpoint -> group (`ENDPOINT_GROUP`; the two endpoints shared by two features pass an explicit `group=`: `/earnings`, `/quote`) and raises `FMPGroupDisabledError`, a `FMPDisabledError` subclass, so existing `except httpx.HTTPError`/`safe_fetch` sites need no edits. `core/cache.py`'s `get_or_fetch`/`get_or_fetch_earnings_aware`/`force_fetch` gate per `statement_type` -> group (`STATEMENT_TYPE_GROUP`) with the original cache-only semantics (stale row served; `force_fetch` raises if nothing cached). `tests/test_data_groups_registry.py` **fails if any FMP endpoint or cached statement_type used in the code is unmapped**, and pins that any bulk/batch endpoint must be Ultimate (none is used; never call one). An unmapped endpoint fails closed.
 - **What degrades when a group is off:**
-  - `profile_quote`: search falls back to the tracked-ticker universe (symbol only); the ticker header's `price` uses the last official close cached nightly (`TickerLastClose`), every other quote field stays at the last cached FMP value; `/refresh` 503s.
+  - `ticker_search` (or `profile_quote`): search falls back to the tracked-ticker universe (symbol only). `price_change`: the header's 1M-10Y changes and the 5Y-vs-SPY pill serve the last cached row.
+  - `profile_quote`: the ticker header's `price` uses the last official close cached nightly (`TickerLastClose`), every other quote field stays at the last cached FMP value; `/refresh` 503s.
   - `analyst_ratings` / `segmentation` / `fundamentals`: their tabs/scores serve cached data; the nightly fundamentals fetch, the nightly price-target snapshot and the index-list refresh jobs skip.
   - `corporate_events`: chart E/D markers are served from the cached `CorporateEvent` rows (however old).
   - `insider`: no `insider` data group exists (the feature was shelved and fully removed); do not reintroduce it without an explicit decision.
@@ -35,6 +36,48 @@ FMP on/off is per **data group**, stored in the DB (`core/data_groups.py`, table
 **What stays unaffected:** `pipeline/nightly_score_recompute.py` (already `cache_only=True` throughout, zero FMP calls regardless of any group state), and any read whose cache is still within its normal staleness window — which, on a warm cache, is most of the app most of the time.
 
 For the exact FMP endpoint→group and cache-key→group mappings, see docs/specs/fmp-data-and-bar-cache.md.
+
+## FMP plan: Starter (2026-10-14)
+
+The owner set "My FMP plan" to **Starter** (300 calls/min; Premium 750, Ultimate 3000). Live key test on 2026-10-14 (status codes only,
+no database write; `docs/decisions.md` 2026-10-14):
+
+| Answers 200 on Starter | Answers 402 on Starter |
+|---|---|
+| profile, quote, stock-price-change, search-symbol, search-name; income/balance/cash-flow statements annual and quarterly; key-metrics and ratios (annual and TTM); financial-growth, enterprise-values (quarter), as-reported (annual and quarter), analyst-estimates (annual); EOD daily bars (also a window 8 years back); `/historical-chart/1hour` and `/5min`; per-symbol earnings (40 rows), dividends (92 rows back to 1987), splits; segmentation (annual, both); grades-consensus, grades-historical, price-target-consensus / -summary / -news; `/etf/info` (US); `/sector-pe-snapshot` and `/industry-pe-snapshot` for a date within about the last 12 months; `/historical-sector-pe` for the full 5 years (1,279 rows); `/delisted-companies` page 0; `/aftermarket-quote`, `/aftermarket-trade` | `/sp500-constituent`, `/dowjones-constituent`, `/nasdaq-constituent`; `/delisted-companies` page 1 onward; `/historical-chart/1min`; a sector/industry **snapshot** dated more than about 12 months ago (`2024-01-02`); quarterly key-metrics, ratios, analyst-estimates and segmentation (the app requests none of them); bulk endpoints; HK/FR data beyond profile and etf-info (not used) |
+
+**Recorded tier vs state (live DB, 2026-10-14).** Every group is recorded **Starter** and live except `index_membership`, recorded **Premium**
+(constituents and delisted list are Premium): on Starter it reads `above_plan` (chip "Not on plan", `reason = above_plan`, nothing probes it).
+`daily_prices_long` was Premium and is now Starter; `intraday_bars` was already Starter in the DB (its code seed was Premium, now Starter);
+`price_change` and `ticker_search` are new rows (Starter, enabled). The leftover `news`, `insider` and `institutional_ownership` rows were deleted
+(nothing read them: `_load` keeps only keys in `GROUPS`). `index_membership` stays *enabled* on purpose, so a later upgrade to Premium resumes it with no step.
+
+**What the frozen index membership does.** The Sunday jobs `scrapers.refresh_sp500_list` (00:00), `refresh_nasdaq_list` (00:05), `refresh_dow_list` (00:10)
+return before any fetch via `job_skip_reason("index_membership")` and record a real **`skipped`** status; the delisted sync inside
+`pipeline.stale_data_health_check` (00:30) returns `skipped` with zero calls and **never clears an existing delisted flag**. `IndexConstituent` is not
+touched (`tests/test_starter_plan.py`). The screener universe and the nightly tracked universe keep reading the stored lists, so a ticker added to or
+dropped from an index is not seen until the plan is Premium again; the stale-data check reports the same universe it always did, and a
+frozen-but-complete list never reads as stale (it checks the `profile` fetch of each ticker, not the list's age). A delisting is not flagged while frozen.
+
+**Pacing.** `clients/daily_bar_sources.py::FMP_PLAN_REQUESTS_PER_MIN` is `{"Starter": 300, "Premium": 750, "Ultimate": 3000}`, read from
+`DataGroupGlobal.fmp_plan` by the four `_Pacer` users (daily bars, intraday bars, last close, corporate events) at `FMP_RATE_FRACTION = 0.5`, so
+Starter paces at 150 calls/min per process. Fixed, not plan-aware: the nightly fundamentals and price-target jobs (`TARGET_REQUESTS_PER_MINUTE = 220`),
+the API's own token bucket (`FMP_API_RATE_PER_MINUTE = 120`). Each process paces itself; there is no cross-process limiter, so two jobs
+overlapping at 150/min each would reach 300/min.
+
+**Probes use today-relative dates** (`core/data_groups.py::PROBE_ENDPOINTS`, built at read time): the sector/industry snapshot probe is dated 30 days
+ago (the fixed `2024-01-02` is now 402 on Starter), the daily and 1hour probes end a week ago, the long-history probe is a 7-day window about 8 years back.
+
+**Split groups.** A non-variant group is marked `plan_restricted` whole by a single canary-confirmed 402, so an endpoint that may sit in a different plan
+tier must not share a group with the header's data. `/stock-price-change` is group `price_change`; `/search-symbol` and `/search-name` are group
+`ticker_search`; each has its own probe, tier and Settings row, and `/stock-price-change` is shown on the Summary tab's "not refreshing" badge.
+Groups of one endpoint family stay together; the endpoint inventory is `ENDPOINT_GROUP` (checked by `tests/test_data_groups_registry.py`).
+Deliberately **not** split: the `fundamentals` endpoints (`/enterprise-values`, `/financial-growth`, `/financial-statement-full-as-reported`,
+key-metrics, ratios, estimates, `/earnings` for staleness; the group is a `VARIANT_GROUP`, so a 402 restricts that one request variant and never the
+group), `/earnings` in `corporate_events` (a deliberate second mapping by explicit `group=`, the Chart's 40-row history), and `/price-target-news`
+(mapped to `analyst_ratings`, called by no app code, so no group). Residual risk, unchanged: `corporate_events` (earnings, dividends, splits),
+`analyst_ratings` (consensus, historical grades, price-target consensus/summary) and `segmentation` (product, geographic) each hold several endpoints in
+one non-variant group; opting a group into `VARIANT_GROUPS` is the one-line fix if one of those endpoints is ever refused alone.
 
 ## Outbound request protection (2026-10-13)
 
@@ -105,9 +148,9 @@ and `/historical-price-eod/full` are each reached by two groups via an explicit 
 - `/delisted-companies` is filed under `index_membership` (moved from `corporate_events` 2026-09-27; it's a
   market-wide tracked-ticker-universe check, the same job family as the index scrapers, not per-ticker
   corporate-action data). `/splits` stays in `corporate_events` but currently feeds no chart marker.
-- `/search-symbol`, `/search-name`, `/stock-price-change` sit under `profile_quote` ("Profile &
-  quote") though search/price-change aren't obviously in the same FMP product tier as
-  profile/quote.
+- `/search-symbol`, `/search-name` (group `ticker_search`) and `/stock-price-change` (group `price_change`) were split
+  out of `profile_quote` on 2026-10-14: a non-variant group is marked `plan_restricted` whole by one confirmed 402, so a
+  refusal of either would have switched the header's profile and quote to cache-only.
 - 6 endpoints (`/enterprise-values`, `/financial-growth`, `/key-metrics(-ttm)`, `/ratios(-ttm)`,
   `/analyst-estimates`, `/financial-statement-full-as-reported`) are all lumped under
   `fundamentals` — FMP's own catalogue may split these across tiers; the group's one recorded
@@ -128,14 +171,14 @@ runs — not investigated further (the index scrapers only run on Sundays). (A s
 ### ETF endpoint (2026-10-01)
 
 `/etf/info` -> group `etf_info` (cache key `etf_info`), the only ETF endpoint used; see `docs/specs/etf-page.md`. Its tier
-is Starter (the owner's recorded value, seeded as the code default since 2026-10-02; not FMP-verified). Its canary/probe symbol is **SPY**, not AAPL (`CANARY_SYMBOL_OVERRIDES` in
+is Starter (the owner's recorded value, seeded as the code default since 2026-10-02; verified on a Starter key 2026-10-14). Its canary/probe symbol is **SPY**, not AAPL (`CANARY_SYMBOL_OVERRIDES` in
 `core/data_groups.py`), because AAPL answers `200 []`. `/etf/holdings`, `/etf/sector-weightings`,
 `/etf/country-weightings` and `/etf/asset-exposure` are deliberately not registered or called.
 
 ### Sector / industry P/E endpoints (2026-10-09)
 
 `/sector-pe-snapshot`, `/industry-pe-snapshot`, `/historical-sector-pe`, `/historical-industry-pe` -> group `sector_industry_pe`
-(own table `SectorIndustryPe`, upsert-only, not `FundamentalsCache`). Tier Starter, best known and unverified; every call
+(own table `SectorIndustryPe`, upsert-only, not `FundamentalsCache`). Tier Starter, verified 2026-10-14 (snapshots limited to about the last 12 months); every call
 passes `exchange` and the historical calls explicit from/to. Detail: `docs/specs/sector-industry-pe.md`.
 
 ### Unwired, dead, one-shot, or shelved
@@ -423,11 +466,11 @@ accounted for) and the Analyst Ratings tab's **10-year price overlay** on the pr
 chart. Both are served from a dedicated store, `LongHistoryBars` (PK `(ticker, bar_time)`),
 **not** `SharedBarsCache["1d"]` and **not** a `FundamentalsCache` blob.
 
-**Group / tier.** `daily_prices_long` (Premium: FMP documents 30y history on Premium, 5y on
-Starter) = history beyond the nightly ~5y, feeding W_4Y and the overlay. Seeded unverified
-(docs-only — the key returned 10y+ with no 402). `FMPClient.get_historical_price_eod` takes
+**Group / tier.** `daily_prices_long` (**Starter since 2026-10-14**: a Starter key serves EOD bars 8+ years back; it was
+recorded Premium from FMP's documented 5y-on-Starter figure, which made a switch of the plan to Starter turn the 10y
+chart and overlay off) = history beyond the nightly ~5y, feeding W_4Y and the overlay. `FMPClient.get_historical_price_eod` takes
 `group=` (default `daily_prices`); `/historical-price-eod/full` is in
-`ENDPOINT_GROUP_OVERRIDES_USED`; the `PROBE_ENDPOINTS` canary is AAPL over a 2016 window. The
+`ENDPOINT_GROUP_OVERRIDES_USED`; the `PROBE_ENDPOINTS` canary is AAPL over a 7-day window about 8 years before today (computed at call time, not a fixed date). The
 store is `clients/long_history_bars.py::get_long_history`, one full ~10y copy per ticker on the
 FMP `full` basis (`from = today - 10y`).
 
@@ -483,7 +526,7 @@ as Phase 2's nightly bars; no splits-only endpoint exists.
 
 ## Intraday bars: FMP (Phase 4, 2026-09-26)
 
-FMP `/historical-chart/1hour` (data group `intraday_bars`, Premium, seeded unverified) is the
+FMP `/historical-chart/1hour` (data group `intraday_bars`, recorded **Starter** since 2026-10-14: 1hour answers 200 on a Starter key, 1min does not) is the
 source of the shared **`"60m"`** `SharedBarsCache` rows behind Warren and BB+RSI, for
 **US-listed** tickers (non-US tickers get no 60m bars). Both consumers share the rows; neither
 engine changed. Since Phase 6b there is no fallback provider: with the group off, the cached rows
@@ -773,16 +816,16 @@ different ones, the restriction clears and the next real call re-marks it.
 
 | Group | Probe vs possible failing request | Risk |
 |---|---|---|
-| `daily_prices` | probe is a 4-day 2024 window; a failing call is a long window (Chart 5y, nightly 1,825 days) | **High** if a window-length cap answers 402 |
-| `intraday_bars` | probe is a 1-day window; real calls are a 730-day window with paging | **High** under the same cap |
+| `daily_prices` | probe is a 7-day window ending a week ago (relative to today since 2026-10-14); a failing call is a long window (Chart 5y, nightly 1,825 days) | **High** if a window-length cap answers 402 |
+| `intraday_bars` | probe is a 7-day window ending a week ago; real calls are a 730-day window with paging | **High** under the same cap |
 | `corporate_events` | probe `/dividends limit=1`; failing could be `/earnings limit=1000`, `/dividends limit=2000`, `/splits` (job disabled today) | Medium |
 | `analyst_ratings` | probe `/grades-consensus`; failing could be `/grades-historical limit=120` or `/price-target-*` | Medium |
 | `index_membership` | probe `/dowjones-constituent`; failing could be S&P 500, Nasdaq-100 or `/delisted-companies`; above plan on Starter, so never probed today | Medium (latent) |
-| `profile_quote` | probe `/quote`; failing could be `/stock-price-change` or `/search-*` | Low-medium |
+| `profile_quote` | probe `/quote`; `/stock-price-change` and `/search-*` now have their own groups (2026-10-14) | Low |
 | `segmentation` | probe product; failing could be geographic | Low |
-| `daily_prices_long` | probe is a 2016 window, the real call a 10-year window | Low |
+| `daily_prices_long` | probe is a 7-day window about 8 years back, the real call a 10-year window | Low |
 | `etf_info` | one endpoint, probe = replay | none |
-| `sector_industry_pe` | probe is a snapshot; the real calls are snapshots and 5-year series (same family, symbol-less) | Low |
+| `sector_industry_pe` | probe is a snapshot dated 30 days ago (a Starter key serves snapshots only for about the last 12 months); the real calls are snapshots and 5-year series (same family, symbol-less) | Low |
 
 ### Registry fields a later per-variant tier would need
 
@@ -798,6 +841,12 @@ Settings tier Select (a row per variant); and the per-plan limit clamps (change-
 ## Endpoint feasibility work not yet wired into the app
 
 ### Extended-hours pricing (P5, unbuilt)
+
+**Starter note (2026-10-14).** The plan is Starter and `GET /historical-chart/1min` answers **402 on it** (with and without
+`extended=true`), so the pre/post-market read specified below cannot be built on this plan. Same key, same day:
+`/historical-chart/5min` answers 200, and `/aftermarket-quote` and `/aftermarket-trade` answer 200 (neither was tested for
+pre-market coverage or freshness, so a Starter P5 would be a new feasibility test, not this spec). The text below is the
+2026-09-24 feasibility record on an Ultimate key and is otherwise unchanged.
 
 A standalone feasibility test (2026-09-24, no app code touched) confirmed the current FMP plan
 *can* support a real pre-market/regular/post-market/overnight "latest price" read, but needs two
