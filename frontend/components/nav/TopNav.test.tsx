@@ -19,7 +19,7 @@ beforeEach(() => {
 // Every test below draws the bar for a signed-in admin; the account block has its own describe at the end.
 function TopNav() {
   return (
-    <TestAuth role="admin">
+    <TestAuth role="admin" username="ann">
       <BareTopNav />
     </TestAuth>
   );
@@ -167,7 +167,7 @@ describe("TopNav: the Markets dropdown", () => {
     expect(screen.queryByRole("link", { name: "Breadth" })).toBeNull();
     const order = [...document.querySelectorAll("nav a, nav button")].map((el) => el.textContent);
     expect(order.indexOf("Momentum")).toBeLessThan(order.indexOf("Markets"));
-    expect(order.indexOf("Markets")).toBeLessThan(order.indexOf("User"));
+    expect(order.indexOf("Markets")).toBeLessThan(order.indexOf("ann"));
   });
 
   it("lists Sectors then Breadth once opened", async () => {
@@ -267,17 +267,44 @@ describe("TopNav: the account block", () => {
     );
 
   const openUser = async () => {
-    fireEvent.click(screen.getByRole("button", { name: "User" }));
+    fireEvent.click(screen.getByRole("button", { name: "ann" }));
     return screen.findAllByRole("menuitem");
   };
 
-  it("shows the username, the role and one User menu (no separate Sign out or Settings in the bar)", () => {
+  it("labels the menu trigger with the login id, once, and shows the role beside it", () => {
     draw("viewer");
-    expect(screen.getByTestId("account")).toHaveTextContent("ann");
+    const trigger = screen.getByRole("button", { name: "ann" });
+    expect(trigger).toHaveTextContent("ann");
+    expect(trigger).toHaveAttribute("title", "ann");
+    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
     expect(screen.getByTestId("account")).toHaveTextContent("viewer");
-    expect(screen.getByRole("button", { name: "User" })).toHaveAttribute("aria-haspopup", "menu");
+    expect(screen.getAllByText("ann")).toHaveLength(1); // no separate id text next to the menu
+    expect(screen.queryByRole("button", { name: "User" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
+  });
+
+  it("falls back to the label User when the login id is empty", () => {
+    render(
+      <TestAuth role="admin" username="  ">
+        <BareTopNav />
+      </TestAuth>,
+    );
+    const trigger = screen.getByRole("button", { name: "User" });
+    expect(trigger).toHaveTextContent("User");
+    expect(trigger).toHaveAttribute("title", "User");
+  });
+
+  it("truncates a long id with an ellipsis and keeps the full id in the title and accessible name", () => {
+    const id = "a-very-long-login-identifier-for-testing";
+    render(
+      <TestAuth role="viewer" username={id}>
+        <BareTopNav />
+      </TestAuth>,
+    );
+    const trigger = screen.getByRole("button", { name: id });
+    expect(trigger).toHaveAttribute("title", id);
+    expect(trigger.querySelector("span")).toHaveClass("truncate", "max-w-28");
   });
 
   it("shows every other nav link to a viewer too", () => {
@@ -305,7 +332,7 @@ describe("TopNav: the account block", () => {
   it("opens Settings in the same tab from a same-tab page, and marks the menu current on Settings", async () => {
     h.pathname = "/settings";
     draw("admin");
-    expect(screen.getByRole("button", { name: "User" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "ann" })).toHaveAttribute("aria-current", "page");
     const [settings] = await openUser();
     expect(settings).not.toHaveAttribute("target");
   });
@@ -323,7 +350,7 @@ describe("TopNav: the account block", () => {
     await openUser();
     fireEvent.keyDown(screen.getAllByRole("menuitem")[0], { key: "Escape" });
     await waitFor(() => expect(screen.queryAllByRole("menuitem")).toHaveLength(0));
-    expect(screen.getByRole("button", { name: "User" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "ann" })).toHaveAttribute("aria-expanded", "false");
   });
 
   it("closes on a click outside the menu", async () => {
@@ -337,7 +364,7 @@ describe("TopNav: the account block", () => {
 
   it("opens from the keyboard (ArrowDown on the trigger)", async () => {
     draw("viewer");
-    fireEvent.keyDown(screen.getByRole("button", { name: "User" }), { key: "ArrowDown" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "ann" }), { key: "ArrowDown" });
     expect(await screen.findByRole("menuitem", { name: "Sign out" })).toBeInTheDocument();
   });
 
@@ -377,7 +404,7 @@ describe("TopNav: the bar does not wrap or overlap", () => {
     for (const el of [
       ...screen.getAllByRole("link").slice(1),
       screen.getByRole("button", { name: "Markets" }),
-      screen.getByRole("button", { name: "User" }),
+      screen.getByRole("button", { name: "ann" }),
       screen.getByText("Ticker Analysis"),
     ]) {
       expect(el).toHaveClass("whitespace-nowrap", "shrink-0");
@@ -398,22 +425,16 @@ describe("TopNav: the bar does not wrap or overlap", () => {
     expect(screen.getByTestId("account")).toHaveClass("shrink-0");
   });
 
-  it.each(["admin", "viewer"] as const)("collapses the account block for a %s: role word on 2xl only, username to its initial below lg", (role) => {
+  it.each(["admin", "viewer"] as const)("shows the role word on 2xl only for a %s, and the id once as the trigger label", (role) => {
     draw(role);
-    const account = screen.getByTestId("account");
-    const roleWord = screen.getByText(role);
-    expect(roleWord).toHaveClass("sr-only", "2xl:not-sr-only"); // still in the accessibility tree, drawn from 2xl
-    expect(screen.getByText("ann")).toHaveClass("sr-only", "lg:not-sr-only");
-    const initial = account.querySelector('[aria-hidden="true"]')!;
-    expect(initial).toHaveTextContent("a");
-    expect(initial).toHaveClass("lg:hidden");
-    expect(account.querySelector("[title]")).toHaveAttribute("title", `ann (${role})`);
-    expect(screen.getByRole("button", { name: "User" })).toBeVisible();
+    expect(screen.getByText(role)).toHaveClass("sr-only", "2xl:not-sr-only"); // still in the accessibility tree, drawn from 2xl
+    expect(screen.getAllByText("ann")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "ann" })).toBeVisible();
   });
 
   it("keeps the search field and the User menu in the bar together", () => {
     draw("viewer");
     expect(screen.getByTestId("search")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "User" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ann" })).toBeInTheDocument();
   });
 });

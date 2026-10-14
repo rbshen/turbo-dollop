@@ -39,20 +39,21 @@ function draw(role: "admin" | "viewer" | null, loading = false) {
   );
 }
 
-const labels = () => screen.getAllByRole("button").map((b) => b.textContent);
+const labels = () => screen.getAllByRole("tab").map((b) => b.textContent);
 
 describe("Settings page by role", () => {
-  it("lists all eight sections for an admin, and the first one reads cron health", async () => {
+  it("lists all eight sections for an admin, and the default tab (FMP data groups) reads the data groups", async () => {
     draw("admin");
     expect(labels()).toHaveLength(8);
-    await waitFor(() => expect(h.requested).toContain("/config/cron-health"));
-    expect(h.replace).not.toHaveBeenCalled();
+    await waitFor(() => expect(h.requested).toContain("/config/data-groups"));
+    expect(h.requested).not.toContain("/config/cron-health"); // Scheduled jobs is not mounted until its tab is chosen
+    expect(h.replace).not.toHaveBeenCalledWith("/");
   });
 
   it("sends a viewer home and mounts nothing: no heading, no section, no request", async () => {
     draw("viewer");
     await waitFor(() => expect(h.replace).toHaveBeenCalledWith("/"));
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
     expect(screen.queryByRole("heading", { name: "Settings" })).toBeNull();
     expect(h.requested).toEqual([]);
   });
@@ -74,13 +75,13 @@ describe("Settings page by role", () => {
     draw(null, true);
     expect(h.requested).toEqual([]);
     expect(h.replace).not.toHaveBeenCalled();
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
   });
 
   it("keeps an admin on the page when they switch sections", async () => {
     draw("admin");
-    fireEvent.click(screen.getByRole("button", { name: "Weinstein" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Weinstein" }));
     await waitFor(() => expect(h.requested).toContain("/config/weinstein"));
-    expect(h.replace).not.toHaveBeenCalled();
+    expect(h.replace).not.toHaveBeenCalledWith("/");
   });
 });

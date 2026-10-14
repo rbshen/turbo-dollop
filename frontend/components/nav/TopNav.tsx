@@ -106,10 +106,24 @@ function MarketsMenu({ pathname, sameTab }: { pathname: string; sameTab: boolean
   );
 }
 
-// The account menu: "User" opens Settings (admin only; a viewer has no Settings page) and Sign out. Same Base UI Menu as Markets, so the
+// The account menu: its trigger is labelled with the login id ("User" until the id is known), truncated with an ellipsis when long, the full
+// id in the title and the accessible name. It opens Settings (admin only; a viewer has no Settings page) and Sign out. Same Base UI Menu as Markets, so the
 // keyboard and dismiss behaviour is the same: Enter/Space/ArrowDown open it, arrow keys move, Esc closes and returns focus to the trigger,
 // an outside click closes it. The Settings item is a real link and follows the nav's new-tab rule.
-function UserMenu({ pathname, sameTab, isAdmin, onSignOut }: { pathname: string; sameTab: boolean; isAdmin: boolean; onSignOut: () => void }) {
+function UserMenu({
+  pathname,
+  sameTab,
+  isAdmin,
+  loginId,
+  onSignOut,
+}: {
+  pathname: string;
+  sameTab: boolean;
+  isAdmin: boolean;
+  loginId?: string;
+  onSignOut: () => void;
+}) {
+  const label = loginId?.trim() ? loginId : "User";
   const onSettings = isUnder(pathname, SETTINGS_HREF);
   const itemClass =
     "block w-full rounded px-2 py-1.5 text-left text-sm text-text-secondary outline-none transition-colors data-[highlighted]:bg-surface-2 data-[highlighted]:text-text-primary";
@@ -117,6 +131,8 @@ function UserMenu({ pathname, sameTab, isAdmin, onSignOut }: { pathname: string;
     <Menu.Root>
       <Menu.Trigger
         aria-current={onSettings ? "page" : undefined}
+        aria-label={label}
+        title={label}
         className={cn(
           "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1.5 text-sm font-medium transition-colors",
           onSettings
@@ -124,7 +140,7 @@ function UserMenu({ pathname, sameTab, isAdmin, onSignOut }: { pathname: string;
             : "text-text-secondary hover:bg-white/5 hover:text-text-primary data-[popup-open]:bg-white/5 data-[popup-open]:text-text-primary"
         )}
       >
-        User
+        <span className="max-w-28 truncate">{label}</span>
         <CaretDown size={12} weight="bold" aria-hidden="true" className="text-text-tertiary" />
       </Menu.Trigger>
       <Menu.Portal>
@@ -218,17 +234,11 @@ export function TopNav() {
           <TickerSearch />
         </div>
         {user && (
-          // Collapse order on a narrow bar: the role word goes first (it shows from 2xl only; it stays in the title and for a
-          // screen reader), then the username becomes its initial below lg. The User menu always stays.
+          // The login id is the User menu's own label (truncated there); the role word is the only text beside it. It shows from 2xl
+          // only and stays in the accessibility tree.
           <div className="flex shrink-0 items-center gap-1 text-sm" data-testid="account">
-            <span title={`${user.username} (${user.role})`} className="max-w-28 truncate text-text-primary">
-              <span aria-hidden="true" className="uppercase lg:hidden">
-                {user.username.charAt(0)}
-              </span>
-              <span className="sr-only lg:not-sr-only">{user.username}</span>
-            </span>
             <span className="sr-only text-text-tertiary 2xl:not-sr-only">{user.role}</span>
-            <UserMenu pathname={pathname} sameTab={sameTab} isAdmin={isAdmin} onSignOut={() => void logout()} />
+            <UserMenu pathname={pathname} sameTab={sameTab} isAdmin={isAdmin} loginId={user.username} onSignOut={() => void logout()} />
           </div>
         )}
       </PageContainer>

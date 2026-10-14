@@ -8,9 +8,10 @@ import SettingsPage from "@/app/settings/page";
 vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
 
 const nav = vi.hoisted(() => ({ section: null as string | null }));
+const replace = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(nav.section ? { section: nav.section } : {}),
-  useRouter: () => ({ replace: vi.fn() }),
+  useRouter: () => ({ replace }),
 }));
 
 // The sections fetch their own data; this test is about the nav only.
@@ -26,32 +27,41 @@ vi.mock("@/components/settings/WeinsteinSettingsForm", () => ({ WeinsteinSetting
 afterEach(() => {
   cleanup();
   nav.section = null;
+  replace.mockReset();
 });
 
-describe("Settings nav", () => {
-  it("lists every section, in order, with sentence-case labels", () => {
+describe("Settings tabs", () => {
+  it("lists every section as a tab, in order, with sentence-case labels", () => {
     render(<SettingsPage />);
-    const labels = screen.getAllByRole("button").map((b) => b.textContent);
+    expect(screen.queryAllByRole("button")).toHaveLength(0); // no side pane
+    const labels = screen.getAllByRole("tab").map((t) => t.textContent);
     expect(labels).toEqual([
-      "Scheduled jobs",
       "FMP data groups",
-      "Discount rate by country",
+      "Scheduled jobs",
       "Score weighting",
       "Economic moat",
       "REIT",
       "Liquidity",
       "Weinstein",
+      "Discount rate by country",
     ]);
   });
 
-  it("switches the section content when a label is clicked", () => {
+  it("opens FMP data groups by default", () => {
     render(<SettingsPage />);
-    expect(screen.getByText("scheduled jobs content")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Economic moat" }));
+    expect(screen.getByRole("tab", { name: "FMP data groups" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("fmp content")).toBeInTheDocument();
+  });
+
+  it("switches the content and writes the section to the URL when a tab is clicked", () => {
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole("tab", { name: "Economic moat" }));
     expect(screen.getByText("moat content")).toBeInTheDocument();
-    expect(screen.queryByText("scheduled jobs content")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Discount rate by country" }));
+    expect(screen.queryByText("fmp content")).toBeNull();
+    expect(replace).toHaveBeenLastCalledWith("/settings?section=economic-moat", { scroll: false });
+    fireEvent.click(screen.getByRole("tab", { name: "Discount rate by country" }));
     expect(screen.getByText("discount content")).toBeInTheDocument();
+    expect(replace).toHaveBeenLastCalledWith("/settings?section=discount-rate", { scroll: false });
   });
 });
 
@@ -66,12 +76,19 @@ describe("Settings deep link", () => {
     nav.section = "economic-moat";
     render(<SettingsPage />);
     expect(screen.getByText("moat content")).toBeInTheDocument();
-    expect(screen.queryByText("scheduled jobs content")).toBeNull();
+    expect(screen.queryByText("fmp content")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Economic moat" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("opens Scheduled jobs for ?section=scheduled-jobs", () => {
+    nav.section = "scheduled-jobs";
+    render(<SettingsPage />);
+    expect(screen.getByText("scheduled jobs content")).toBeInTheDocument();
   });
 
   it("opens the first section for a missing or unknown value", () => {
     nav.section = "nonsense";
     render(<SettingsPage />);
-    expect(screen.getByText("scheduled jobs content")).toBeInTheDocument();
+    expect(screen.getByText("fmp content")).toBeInTheDocument();
   });
 });
