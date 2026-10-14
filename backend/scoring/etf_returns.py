@@ -62,7 +62,7 @@ def _last_bar_on_or_before(series: pd.Series, target: pd.Timestamp) -> tuple[pd.
     return eligible.index[-1], float(eligible.iloc[-1])
 
 
-def compute_window_returns(adj_close: pd.Series, anchor: pd.Timestamp) -> list[WindowReturn]:
+def compute_window_returns(close: pd.Series, anchor: pd.Timestamp) -> list[WindowReturn]:
     """All 8 windows, in WINDOWS order, for one fund's price-only
     split-adjusted close series (DatetimeIndex, any order/tz -- normalized here).
 
@@ -72,7 +72,7 @@ def compute_window_returns(adj_close: pd.Series, anchor: pd.Timestamp) -> list[W
     than MAX_STALE_DAYS old (in which case ALL windows are None -- a fund
     that stopped printing bars shouldn't show a return ending in the past
     beside its neighbours' current ones)."""
-    series = adj_close.dropna().sort_index()
+    series = close.dropna().sort_index()
     if series.index.tz is not None:
         series = series.tz_localize(None)
     series.index = series.index.normalize()
