@@ -13,7 +13,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, func, select
 
 from data.analyst_ratings_data import get_analyst_ratings_data
-from data.institutional_ownership_data import get_institutional_ownership_data
 from helpers.bank_capital_metrics import get_ticker_bank_capital_metrics, set_ticker_bank_capital_metrics
 from core.cache import track_fetch_failures
 from core.config import settings  # noqa: F401  (tests patch main.settings)
@@ -113,7 +112,6 @@ from core.schemas import (
     DataGroupPlanIn,
     DataGroupUpdateIn,
     DataGroupsOut,
-    InstitutionalOwnershipOut,
     LiquidityZoneConfigIn,
     WeinsteinConfigIn,
     WeightsIn,
@@ -1011,14 +1009,6 @@ async def ticker_segmentation(ticker: TickerPath, restricted: Restricted) -> Seg
 async def ticker_analyst_ratings(ticker: TickerPath, restricted: Restricted) -> AnalystRatingsOut:
     try:
         return await get_analyst_ratings_data(ticker, cache_only=restricted)
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="FMP request failed") from exc
-
-
-@app.get("/api/tickers/{ticker}/institutional-ownership", response_model=InstitutionalOwnershipOut)
-async def ticker_institutional_ownership(ticker: TickerPath, restricted: Restricted) -> InstitutionalOwnershipOut:
-    try:
-        return await get_institutional_ownership_data(ticker, cache_only=restricted)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
 
