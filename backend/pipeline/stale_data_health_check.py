@@ -382,7 +382,7 @@ if __name__ == "__main__":
         if delisted.get("cleared"):
             message += f"; delisted flag cleared: {', '.join(delisted['cleared'])}"
         if delisted.get("skipped"):
-            message += "; delisted sync skipped (corporate_events off)"
+            message += "; delisted sync skipped (index_membership not live)"
         elif not delisted.get("complete", True):
             message += "; delisted list incomplete"
         non_us = result.get("non_us") or {}

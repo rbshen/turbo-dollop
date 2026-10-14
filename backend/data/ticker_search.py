@@ -56,7 +56,7 @@ def _rank_key(index: int, symbol: str, name: str | None, query: str) -> tuple[in
 
 
 def _search_tracked_universe(query: str, tracked_only: bool = False) -> list[TickerSearchResult]:
-    """the profile_quote group is off fallback -- prefix/substring match against the
+    """the profile_quote / ticker_search group is off fallback -- prefix/substring match against the
     app's own tracked ticker universe (index constituents + ever-viewed +
     watchlisted, see load_all_known_tickers) instead of FMP's live
     symbol/name search. That function returns bare ticker symbols only, no
@@ -116,7 +116,7 @@ async def search_tickers(query: str, tracked_only: bool = False) -> list[TickerS
     Deduped by symbol (best-ranked occurrence wins, not first-seen-in-
     FMP's-raw-order), capped at SEARCH_RESULT_LIMIT total.
 
-    While the profile_quote group is not live, falls back to
+    While the profile_quote or ticker_search group is not live, falls back to
     _search_tracked_universe instead of calling FMP directly -- this
     function is the one call site in the app that never went through
     core.cache (deliberately uncached, see above), so it needs its own
@@ -127,7 +127,7 @@ async def search_tickers(query: str, tracked_only: bool = False) -> list[TickerS
         return []
 
     # tracked_only (a viewer's request): never a live FMP call, and only tickers a viewer can open.
-    if tracked_only or not group_live("profile_quote"):
+    if tracked_only or not group_live("profile_quote") or not group_live("ticker_search"):
         return _search_tracked_universe(query, tracked_only=tracked_only)
 
     symbol_matches, name_matches = await asyncio.gather(

@@ -33,8 +33,9 @@ independently (the per-module engine-isolation convention)."""
 import json
 import logging
 import time
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import func
 from sqlmodel import Session, SQLModel, select
@@ -68,24 +69,36 @@ class GroupMeta:
 
 
 GROUPS: dict[str, GroupMeta] = {
-    # Seed defaults below (fundamentals/daily_prices/index_membership/segmentation/
-    # analyst_ratings) synced 2026-09-27 to match the live DB's confirmed-correct
-    # required_tier values -- they only matter at first-time row creation (a fresh
-    # install, or a reseeded row) and had gone stale after the live values were
-    # corrected by hand at some point without the constant being updated to match.
+    # Seed defaults below only matter at first-time row creation (a fresh install, or a reseeded row): an
+    # existing row is never touched, so the live DB's recorded tier is the one that counts.
+    # Tiers re-verified against the live key 2026-10-14 (plan Starter, docs/decisions.md): every group below
+    # answered 200 on Starter except `index_membership`, whose three constituent endpoints and /delisted-companies
+    # beyond page 0 answer 402 (Premium).
     "fundamentals": GroupMeta(
         "Fundamentals", "Starter", True, True,
         ("Analysis tab (Steps 1-5)", "Valuation", "Screener scores", "Watchlist scores", "Nightly fundamentals fetch"),
     ),
     "profile_quote": GroupMeta(
         "Profile & quote", "Starter", True, True,
-        ("Ticker header (price, change, market cap)", "Ticker search", "Refresh button"),
+        ("Ticker header (price, market cap, profile)", "Refresh button"),
     ),
+    # Split out of profile_quote 2026-10-14: a non-variant group is marked plan_restricted whole by one confirmed
+    # 402, so a refusal of /stock-price-change or the search endpoints would have switched the header's profile and
+    # quote to cache-only. Starter (200 on a Starter key).
+    "price_change": GroupMeta(
+        "Price change", "Starter", True, True,
+        ("Ticker header performance (1M to 10Y change)", "\"5Y vs SPY\" comparison"),
+    ),
+    "ticker_search": GroupMeta("Ticker search", "Starter", True, True, ("Ticker search box (FMP symbol and name search)",)),
     "analyst_ratings": GroupMeta(
         "Analyst ratings", "Starter", True, True,
         ("Analyst Ratings tab", "Watchlist rating column", "Nightly price-target snapshot"),
     ),
     "segmentation": GroupMeta("Segmentation", "Starter", True, True, ("Segmentation card",)),
+    # Premium, confirmed on a Starter key 2026-10-14: /sp500-constituent, /dowjones-constituent and
+    # /nasdaq-constituent answer 402, and /delisted-companies serves page 0 only. On Starter the group reads
+    # `above_plan` (chip "Not on plan"): the three Sunday list refreshes and the delisted sync skip, and the stored
+    # lists freeze, untouched.
     "index_membership": GroupMeta(
         "Index membership", "Premium", True, True,
         ("S&P 500 / Dow / Nasdaq constituent lists", "Screener universe", "Weekly index refresh jobs", "Delisted-ticker flags"),
@@ -105,27 +118,30 @@ GROUPS: dict[str, GroupMeta] = {
     ),
     # P3: US history beyond the nightly ~5y -- fetched on demand into the
     # dedicated long-history table (clients/long_history_bars.py).
+    # Starter (2026-10-14): a Starter key serves EOD bars back more than 8 years (probe below), so the recorded tier
+    # is Starter; the old Premium value made a plan change to Starter switch the 10y weekly chart off.
     "daily_prices_long": GroupMeta(
-        "Daily prices (long history)", "Premium", True, True,
+        "Daily prices (long history)", "Starter", True, True,
         ("Chart tab (weekly 4y range)", "Analyst Ratings price overlay (10y)"),
     ),
     # P4 (2026-09-26): FMP `/historical-chart/1hour` (RTH-only, split- not dividend-adjusted)
     # feeds the shared "60m" bars behind Warren and BB+RSI for US-listed tickers. Off = cached-only.
+    # Starter (2026-10-14): 1hour bars work on Starter (1min does not, and is not used).
     "intraday_bars": GroupMeta(
-        "Intraday bars", "Premium", True, True,
+        "Intraday bars", "Starter", True, True,
         ("Warren RSI/ADX/WVF entry signal (2h)", "BB+RSI entry signal (2h)", "Chart tab entry-signal markers"),
     ),
     # ETF page Overview tab (fund facts + sector weights): `/etf/info` only -- no holdings,
     # country-weight or asset-exposure endpoint is used. Starter is the owner's recorded tier (set in
-    # Settings 2026-10-02; FMP's docs/pricing pages 403 to our fetcher, so it is not FMP-verified). The seed
+    # Settings 2026-10-02; verified on a Starter key 2026-10-14). The seed
     # only matters at first-time row creation -- an existing row (_seed) is never touched. The 402 safety
     # net (canary SPY, see CANARY_SYMBOL_OVERRIDES) corrects a wrong value at runtime.
     "etf_info": GroupMeta("ETF info", "Starter", True, True, ("ETF page Overview tab",)),
     # Sector / industry average P/E (FMP /sector-pe-snapshot, /industry-pe-snapshot, /historical-sector-pe,
     # /historical-industry-pe): the data layer for a future chart overlay (docs/specs/sector-industry-pe.md). Starter is
-    # BEST KNOWN, UNVERIFIED: FMP's docs pages 403 to our fetcher and name no plan for these four endpoints; its
-    # pricing page gives Basic/Starter 5 years of history (Premium/Ultimate 30+), which is exactly our 5-year window.
-    # The key is Ultimate, so nothing can be tested; the 402 safety net corrects a wrong value at runtime.
+    # Starter, verified 2026-10-14 on a Starter key: both snapshots answer 200 for a date within about the last
+    # 12 months and 402 for an older one (2024-01-02), and /historical-sector-pe serves the full 5-year window
+    # (1,279 rows). So the snapshot probe uses a date relative to today (a fixed past date would start failing).
     "sector_industry_pe": GroupMeta(
         "Sector & industry P/E", "Starter", True, True,
         ("Nightly sector/industry P/E snapshot", "Sector/industry P/E history (data layer; no UI yet)"),
@@ -142,9 +158,9 @@ GROUPS: dict[str, GroupMeta] = {
 ENDPOINT_GROUP: dict[str, str] = {
     "/profile": "profile_quote",
     "/quote": "profile_quote",
-    "/stock-price-change": "profile_quote",
-    "/search-symbol": "profile_quote",
-    "/search-name": "profile_quote",
+    "/stock-price-change": "price_change",
+    "/search-symbol": "ticker_search",
+    "/search-name": "ticker_search",
     "/analyst-estimates": "fundamentals",
     "/ratios": "fundamentals",
     "/ratios-ttm": "fundamentals",
@@ -173,6 +189,7 @@ ENDPOINT_GROUP: dict[str, str] = {
     "/grades-consensus": "analyst_ratings",
     "/grades-historical": "analyst_ratings",
     "/price-target-consensus": "analyst_ratings",
+    # Mapped (fail-closed) but not called by the app today: no data group of its own on purpose.
     "/price-target-news": "analyst_ratings",
     "/price-target-summary": "analyst_ratings",
     "/sp500-constituent": "index_membership",
@@ -212,22 +229,52 @@ ENDPOINT_GROUP_OVERRIDES_USED: dict[str, dict[str, str]] = {
 # Canary request per live group, used by FMPClient.probe_group (weekly and on
 # plan edit) to see whether a plan_restricted group works again. AAPL
 # (SPY for the ETF group, see CANARY_SYMBOL_OVERRIDES) and always a cheap single-row call.
-PROBE_ENDPOINTS: dict[str, tuple[str, dict]] = {
-    "fundamentals": ("/income-statement", {"symbol": "AAPL", "period": "annual", "limit": 1}),
-    "profile_quote": ("/quote", {"symbol": "AAPL"}),
-    "analyst_ratings": ("/grades-consensus", {"symbol": "AAPL"}),
-    "segmentation": ("/revenue-product-segmentation", {"symbol": "AAPL"}),
-    "index_membership": ("/dowjones-constituent", {}),
-    "corporate_events": ("/dividends", {"symbol": "AAPL", "limit": 1}),
-    "daily_prices": ("/historical-price-eod/full", {"symbol": "AAPL", "from": "2024-01-02", "to": "2024-01-05"}),
-    # A long-history canary: a window older than the 5y Starter horizon.
-    "daily_prices_long": ("/historical-price-eod/full", {"symbol": "AAPL", "from": "2016-01-04", "to": "2016-01-08"}),
-    "intraday_bars": ("/historical-chart/1hour", {"symbol": "AAPL", "from": "2024-01-02", "to": "2024-01-03"}),
+# Dates are built at call time, relative to today (a fixed date eventually falls outside a plan's history window:
+# the sector/industry snapshot is limited to about the last 12 months on Starter, 1hour bars to 5 years); each window
+# is wide enough to hold trading days around a holiday.
+
+
+def _days_ago(n: int) -> str:
+    return (date.today() - timedelta(days=n)).isoformat()
+
+
+_PROBE_BUILDERS: dict[str, tuple[str, Callable[[], dict]]] = {
+    "fundamentals": ("/income-statement", lambda: {"symbol": "AAPL", "period": "annual", "limit": 1}),
+    "profile_quote": ("/quote", lambda: {"symbol": "AAPL"}),
+    "price_change": ("/stock-price-change", lambda: {"symbol": "AAPL"}),
+    "ticker_search": ("/search-symbol", lambda: {"query": "AAPL", "limit": 1}),
+    "analyst_ratings": ("/grades-consensus", lambda: {"symbol": "AAPL"}),
+    "segmentation": ("/revenue-product-segmentation", lambda: {"symbol": "AAPL"}),
+    "index_membership": ("/dowjones-constituent", lambda: {}),
+    "corporate_events": ("/dividends", lambda: {"symbol": "AAPL", "limit": 1}),
+    "daily_prices": ("/historical-price-eod/full", lambda: {"symbol": "AAPL", "from": _days_ago(14), "to": _days_ago(7)}),
+    # A long-history canary: a window about 8 years back, older than the 5y nightly window.
+    "daily_prices_long": (
+        "/historical-price-eod/full", lambda: {"symbol": "AAPL", "from": _days_ago(2920), "to": _days_ago(2913)},
+    ),
+    "intraday_bars": ("/historical-chart/1hour", lambda: {"symbol": "AAPL", "from": _days_ago(14), "to": _days_ago(7)}),
     # SPY, not AAPL (the one exception to "always AAPL"): AAPL is a stock, /etf/info returns `200 []` for it.
-    "etf_info": ("/etf/info", {"symbol": "SPY"}),
-    # Symbol-less, so the failing call is its own canary; a fixed past date keeps the probe stable.
-    "sector_industry_pe": ("/sector-pe-snapshot", {"date": "2024-01-02", "exchange": "NASDAQ"}),
+    "etf_info": ("/etf/info", lambda: {"symbol": "SPY"}),
+    # Symbol-less, so the failing call is its own canary; 30 days back stays inside the 12-month Starter window.
+    "sector_industry_pe": ("/sector-pe-snapshot", lambda: {"date": _days_ago(30), "exchange": "NASDAQ"}),
 }
+
+
+class _ProbeEndpoints(Mapping):
+    """`PROBE_ENDPOINTS[group]` -> (endpoint, params), with the dates computed when it is read."""
+
+    def __getitem__(self, group: str) -> tuple[str, dict]:
+        endpoint, params = _PROBE_BUILDERS[group]
+        return endpoint, params()
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(_PROBE_BUILDERS)
+
+    def __len__(self) -> int:
+        return len(_PROBE_BUILDERS)
+
+
+PROBE_ENDPOINTS = _ProbeEndpoints()
 
 # ---------------------------------------------------------------------------
 # Request variants (2026-10-02): a 402 restricts ONE variant, not the group
@@ -324,7 +371,7 @@ BULK_ENDPOINTS: frozenset[str] = frozenset()
 STATEMENT_TYPE_GROUP: dict[str, str] = {
     "profile": "profile_quote",
     "quote": "profile_quote",
-    "price_change": "profile_quote",
+    "price_change": "price_change",
     "forex_rate": "fundamentals",
     "income_statement": "fundamentals",
     "cash_flow_statement": "fundamentals",

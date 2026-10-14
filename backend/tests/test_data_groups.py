@@ -29,11 +29,13 @@ def test_above_plan_is_off():
     dg.set_fmp_plan("Starter")
     assert dg.effective_state("index_membership") == (False, "above_plan")
     assert dg.effective_state("profile_quote") == (True, "live")
+    # Long history and 1hour bars work on a Starter key (verified 2026-10-14): both are recorded Starter.
+    assert dg.effective_state("daily_prices_long") == (True, "live")
+    assert dg.effective_state("intraday_bars") == (True, "live")
     dg.set_fmp_plan("Premium")
-    assert dg.effective_state("daily_prices_long") == (True, "live")  # Premium
     assert dg.group_live("index_membership")
     dg.set_fmp_plan("Starter")
-    assert dg.effective_state("daily_prices_long") == (False, "above_plan")
+    assert dg.effective_state("index_membership") == (False, "above_plan")
 
 
 def test_restricted_then_cleared():

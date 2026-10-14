@@ -114,7 +114,7 @@ def test_every_cached_statement_type_is_mapped():
 
 def test_group_metadata_is_complete():
     assert list(dg.GROUPS) == [
-        "fundamentals", "profile_quote", "analyst_ratings", "segmentation",
+        "fundamentals", "profile_quote", "price_change", "ticker_search", "analyst_ratings", "segmentation",
         "index_membership", "corporate_events", "daily_prices", "daily_prices_long", "intraday_bars",
         "etf_info", "sector_industry_pe",
     ]
@@ -124,7 +124,7 @@ def test_group_metadata_is_complete():
 
 def test_p3_long_group_is_live_and_has_a_canary():
     long_ = dg.GROUPS["daily_prices_long"]
-    assert long_.default_tier == "Premium"
+    assert long_.default_tier == "Starter"  # a Starter key serves 8+ years of EOD bars (2026-10-14)
     assert long_.live and long_.default_enabled
     for g in ("daily_prices", "daily_prices_long"):
         assert dg.PROBE_ENDPOINTS[g][0] == "/historical-price-eod/full"

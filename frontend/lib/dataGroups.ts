@@ -61,7 +61,7 @@ export function asOfText(group: DataGroupOut): string {
  */
 export const TAB_GROUPS: Record<string, readonly string[]> = {
   overview: ["etf_info"],
-  summary: ["profile_quote", "fundamentals", "segmentation"],
+  summary: ["profile_quote", "price_change", "fundamentals", "segmentation"],
   financials: ["fundamentals"],
   ratios: ["fundamentals"],
   analysis: ["fundamentals"],
