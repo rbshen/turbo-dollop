@@ -22,16 +22,16 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 // health-summary card moved into FMP data groups, 2026-09-30).
 // The whole page is admin only (2026-10-14): a viewer is sent home and none of this is mounted, so nothing is fetched for them. The
 // backend refuses a viewer's calls to every Settings-only endpoint too (core/route_roles.py); the redirect is UX only.
-// Shown as tabs, in this order; "Discount rate by country" is not in the owner's seven, so it follows them.
+// Shown as tabs, in this order.
 const SECTIONS = [
   { key: "fmp-data-groups", label: "FMP data groups", Component: FmpDataGroupsSection },
   { key: "scheduled-jobs", label: "Scheduled jobs", Component: StatusSection },
   { key: "score-weighting", label: "Score weighting", Component: ScoreWeightingForm },
   { key: "economic-moat", label: "Economic moat", Component: MoatSettingsForm },
+  { key: "discount-rate", label: "Discount rate by country", Component: DiscountRateSettingsForm },
   { key: "reit", label: "REIT", Component: ReitDividendYieldSettingsForm },
   { key: "liquidity", label: "Liquidity", Component: LiquidityZoneSettingsForm },
   { key: "weinstein", label: "Weinstein", Component: WeinsteinSettingsForm },
-  { key: "discount-rate", label: "Discount rate by country", Component: DiscountRateSettingsForm },
 ] as const;
 
 type SectionKey = (typeof SECTIONS)[number]["key"];

@@ -271,13 +271,13 @@ describe("TopNav: the account block", () => {
     return screen.findAllByRole("menuitem");
   };
 
-  it("labels the menu trigger with the login id, once, and shows the role beside it", () => {
+  it("labels the menu trigger with the login id, once, with no role word beside it", () => {
     draw("viewer");
     const trigger = screen.getByRole("button", { name: "ann" });
     expect(trigger).toHaveTextContent("ann");
     expect(trigger).toHaveAttribute("title", "ann");
     expect(trigger).toHaveAttribute("aria-haspopup", "menu");
-    expect(screen.getByTestId("account")).toHaveTextContent("viewer");
+    expect(screen.getByTestId("account")).toHaveTextContent(/^ann$/); // the id only: no role word
     expect(screen.getAllByText("ann")).toHaveLength(1); // no separate id text next to the menu
     expect(screen.queryByRole("button", { name: "User" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
@@ -425,9 +425,9 @@ describe("TopNav: the bar does not wrap or overlap", () => {
     expect(screen.getByTestId("account")).toHaveClass("shrink-0");
   });
 
-  it.each(["admin", "viewer"] as const)("shows the role word on 2xl only for a %s, and the id once as the trigger label", (role) => {
+  it.each(["admin", "viewer"] as const)("shows no role word for a %s, and the id once as the trigger label", (role) => {
     draw(role);
-    expect(screen.getByText(role)).toHaveClass("sr-only", "2xl:not-sr-only"); // still in the accessibility tree, drawn from 2xl
+    expect(screen.queryByText(role)).toBeNull();
     expect(screen.getAllByText("ann")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "ann" })).toBeVisible();
   });

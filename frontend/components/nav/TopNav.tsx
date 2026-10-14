@@ -234,10 +234,8 @@ export function TopNav() {
           <TickerSearch />
         </div>
         {user && (
-          // The login id is the User menu's own label (truncated there); the role word is the only text beside it. It shows from 2xl
-          // only and stays in the accessibility tree.
-          <div className="flex shrink-0 items-center gap-1 text-sm" data-testid="account">
-            <span className="sr-only text-text-tertiary 2xl:not-sr-only">{user.role}</span>
+          // The login id is the User menu's own label (truncated there); nothing else sits beside it.
+          <div className="flex shrink-0 items-center" data-testid="account">
             <UserMenu pathname={pathname} sameTab={sameTab} isAdmin={isAdmin} loginId={user.username} onSignOut={() => void logout()} />
           </div>
         )}

@@ -40,10 +40,10 @@ describe("Settings tabs", () => {
       "Scheduled jobs",
       "Score weighting",
       "Economic moat",
+      "Discount rate by country",
       "REIT",
       "Liquidity",
       "Weinstein",
-      "Discount rate by country",
     ]);
   });
 
