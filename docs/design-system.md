@@ -393,7 +393,7 @@ sampled.
    variable anywhere in `globals.css` or any component. The old `--chart-1..5` tokens this
    section said to "leave alone" no longer exist either — `grep` finds zero definitions and zero
    consumers; every former `chart-1..5` reader (`MarketBreadthCharts.tsx`,
-   `PriceTargetTrendChart.tsx`, the shelved `InstitutionalOwnershipTab.tsx`) now reads
+   `PriceTargetTrendChart.tsx`, and the since-removed `InstitutionalOwnershipTab.tsx`) now reads
    `--color-series-1..5` instead (see `docs/design-system-charts.md`'s own series-token rules).
 2. **Steppers — restyled and kept, then superseded and deleted (2026-09-30).**
    `components/ui/NumberStepper.tsx` was kept in the 2026-09-29 verification (brought onto the

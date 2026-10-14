@@ -15,7 +15,7 @@ it are the endpoint inventory and the technical/investigation record.
 
 FMP on/off is per **data group**, stored in the DB (`core/data_groups.py`, tables `DataGroupSetting` -- one row per group -- and the singleton `DataGroupGlobal`; lazy-seeded like `LiquidityZoneConfig`, 5 s in-process cache invalidated on write) and edited live from Settings > FMP data groups, with no restart. Cron jobs are separate processes and read the same DB. There is no global env flag (no `FMP_ENABLED` or `INSIDER_ACTIVITY_ENABLED`); only `FMP_API_KEY`/`FMP_BASE_URL` are read from `.env`.
 
-- **Groups:** `fundamentals`, `profile_quote`, `analyst_ratings`, `segmentation`, `institutional_ownership` (seeded **off** -- the shelved feature), `index_membership`, `corporate_events`, `daily_prices` and `daily_prices_long` (both via `/historical-price-eod/full`, split by history depth) and `intraday_bars` (via `/historical-chart/1hour`; all three wired to live FMP endpoints -- see docs/specs/fmp-data-and-bar-cache.md), `sector_industry_pe` (FMP sector/industry average P/E, 4 endpoints, tier Starter best known and unverified; feeds the Ratios-tab P/E history chart, docs/specs/sector-industry-pe.md), `etf_info` (`/etf/info` only, feeds the ETF page Overview tab; tier Starter (the owner's recorded value and the code default; not FMP-verified); its canary/probe symbol is **SPY**, not AAPL, because AAPL returns `200 []` -- `CANARY_SYMBOL_OVERRIDES`; see docs/specs/etf-page.md). **For the price groups, off = cached-only, and the nightly bar jobs report `skipped`**.
+- **Groups:** `fundamentals`, `profile_quote`, `analyst_ratings`, `segmentation`, `index_membership`, `corporate_events`, `daily_prices` and `daily_prices_long` (both via `/historical-price-eod/full`, split by history depth) and `intraday_bars` (via `/historical-chart/1hour`; all three wired to live FMP endpoints -- see docs/specs/fmp-data-and-bar-cache.md), `sector_industry_pe` (FMP sector/industry average P/E, 4 endpoints, tier Starter best known and unverified; feeds the Ratios-tab P/E history chart, docs/specs/sector-industry-pe.md), `etf_info` (`/etf/info` only, feeds the ETF page Overview tab; tier Starter (the owner's recorded value and the code default; not FMP-verified); its canary/probe symbol is **SPY**, not AAPL, because AAPL returns `200 []` -- `CANARY_SYMBOL_OVERRIDES`; see docs/specs/etf-page.md). **For the price groups, off = cached-only, and the nightly bar jobs report `skipped`**.
 - **Effective state** = master switch on AND group enabled AND required tier <= my plan AND status != `plan_restricted`. Off means **cache-only**: the last cached row is served (even if stale), nothing is ever wiped.
 - **Required tier per group is a user-editable value** (Starter/Premium/Ultimate) -- the seeded values are unverified guesses from the 2026-09-24 investigation. "My FMP plan" is one more editable value (seeded Ultimate); a group above the plan reads "Not on plan" and is treated as off.
 - **Master switch** ("disable all FMP", same semantics the old `FMP_ENABLED=false` had): Settings > FMP data groups (the status card below the group table), or `uv run python -m pipeline.data_groups pause-all | resume | status` when the API is down.
@@ -30,7 +30,7 @@ FMP on/off is per **data group**, stored in the DB (`core/data_groups.py`, table
 - **Nightly jobs** whose group is off log `skipped (group X ...)` and record a real **`skipped` cron status** (`run.skip(reason)` -> `CronRunLog.status="skipped"`; health view `skipped` with `skipped_since` = start of the current streak; never `ok`/`overdue` while skipped, `last_success_at` still shows the last real run).
 - **API/UI:** `GET /api/config/data-groups` (+ `PUT .../master`, `.../plan`, `.../{group}`). Settings > FMP data groups shows one row per group (Switch, chip Live / Cached only / Not on plan / Restricted by FMP / Failing, last success, tier select, feeds list; disabling warns with the dependent features), with the plan select and master switch in a status card below the table. Ticker-page tabs show a "not refreshing -- as of [date]" badge for off groups (`GroupOffBadge`).
 - `bin/start.sh` skips the AAPL `/quote` preflight when master or `profile_quote` is not live; a 402 there warns and startup continues.
-- Tests get a fresh in-memory group config per test (`conftest._isolate_data_groups_engine`: master on, plan Ultimate, everything live except `institutional_ownership`, shelved and default-off; it is also the tests' generic example group); a test wanting an off state calls `core.data_groups.set_master`/`set_group_enabled`.
+- Tests get a fresh in-memory group config per test (`conftest._isolate_data_groups_engine`: master on, plan Ultimate, everything live; `segmentation` is the tests' generic example group, `analyst_ratings` with `get_grades_consensus` / the `grades_consensus` statement type their single-symbol restricted endpoint and cached type); a test wanting an off state calls `core.data_groups.set_master`/`set_group_enabled`.
 
 **What stays unaffected:** `pipeline/nightly_score_recompute.py` (already `cache_only=True` throughout, zero FMP calls regardless of any group state), and any read whose cache is still within its normal staleness window — which, on a warm cache, is most of the app most of the time.
 
@@ -624,7 +624,7 @@ list item 1). Code: `core/history_merge.py` (the rule, the registry, the tracker
 | `FundamentalsCache` `income_statement`, `cash_flow_statement`, `balance_sheet_statement` x `annual`, `quarterly` | overwrite | **merge** |
 | `key_metrics/annual`, `ratios/annual_10y`, `ratios/latest`, `financial_growth/annual`, `enterprise_values/quarter`, `financial_statement_full_as_reported` x `annual`, `quarterly` | overwrite | **merge** (the limit-1 keys degenerate to "replace, unless the body is empty") |
 | `analyst_estimates/latest`, `grades_historical/latest`, `revenue_product_segmentation/annual`, `revenue_geographic_segmentation/annual` | overwrite | **merge** |
-| `key_metrics/ttm`, `ratios/ttm`, `profile`, `quote`, `price_change`, `forex_rate`, `etf_info`, `grades_consensus`, `price_target_*`, `sec_company_facts`, `institutional_ownership_*`, `earnings/latest`, `historical_price_eod/*` | overwrite | unchanged (single snapshots, shelved, or not history). `earnings/latest` is deliberately not merged: its 8 rows include scheduled dates, and a rescheduled date would leave a phantom past "report" behind |
+| `key_metrics/ttm`, `ratios/ttm`, `profile`, `quote`, `price_change`, `forex_rate`, `etf_info`, `grades_consensus`, `price_target_*`, `sec_company_facts`, `earnings/latest`, `historical_price_eod/*` | overwrite | unchanged (single snapshots or not history). `earnings/latest` is deliberately not merged: its 8 rows include scheduled dates, and a rescheduled date would leave a phantom past "report" behind |
 | `SharedBarsCache` `1d` and `60m`, replace path (weekly Sunday resync, coverage gap, restatement) | delete the ticker's bars, insert the answer (any answer of 20+ bars) | **upsert instead** when FMP answered with less history than the cache holds AND than was asked for AND the overlap agrees; otherwise unchanged (see below) |
 | `SharedBarsCache` incremental top-up | upsert per bar | unchanged (already safe) |
 | `LongHistoryBars` | cold: replace (nothing to lose); warm: top-up upsert; restatement: replace | unchanged behaviour, a restated AND shorter answer is now logged and counted |
@@ -763,7 +763,7 @@ current behaviour, input for the later Step 5 annual-fallback task; scoring was 
 | Ratios tab | TTM column kept (values from the TTM endpoints), its label loses the date: "TTM" instead of "TTM (2026-06-27)" |
 | Speculative Growth | `cfo_recent_direction` and `cash_runway_years` `None`; qualification still evaluated |
 | Step 2 | not affected (annual estimates) |
-| Banks' as-reported quarterly (`step5_data`), backfill scripts, shelved institutional ownership | same `safe_fetch`/`except` paths; not separately exercised |
+| Banks' as-reported quarterly (`step5_data`), backfill scripts | same `safe_fetch`/`except` paths; not separately exercised |
 
 ### Other groups at the same flapping risk (report only; unchanged)
 
@@ -781,7 +781,7 @@ different ones, the restriction clears and the next real call re-marks it.
 | `profile_quote` | probe `/quote`; failing could be `/stock-price-change` or `/search-*` | Low-medium |
 | `segmentation` | probe product; failing could be geographic | Low |
 | `daily_prices_long` | probe is a 2016 window, the real call a 10-year window | Low |
-| `etf_info`, `institutional_ownership` | one endpoint, probe = replay | none |
+| `etf_info` | one endpoint, probe = replay | none |
 | `sector_industry_pe` | probe is a snapshot; the real calls are snapshots and 5-year series (same family, symbol-less) | Low |
 
 ### Registry fields a later per-variant tier would need

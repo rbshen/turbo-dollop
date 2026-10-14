@@ -60,7 +60,7 @@ A *viewer* is anyone signed in who is not an admin (the code is fail-closed: `co
 
 - **Tracked tickers only.** `core/main.py::TickerPath` (on every `{ticker}` route) answers a generic **404 `{"detail": "Not found"}`** for any ticker that `classify_one` does not put in the stock or ETF
   universe, *before* the handler: no fetch, no cache write, no `TickerView` / `TickerScore` write. Admins are unaffected.
-- **Cache only, write free.** For a viewer `summary`, `step1/2/3/4/5`, `financials`, `ratios`, `segmentation`, `analyst-ratings`, `institutional-ownership`, `speculative-growth`,
+- **Cache only, write free.** For a viewer `summary`, `step1/2/3/4/5`, `financials`, `ratios`, `segmentation`, `analyst-ratings`, `speculative-growth`,
   `etf-overview` and `trend-analysis` run with `cache_only=True` (a new parameter on `get_etf_overview`; the `news` route was removed 2026-10-13); `summary` skips `touch_existing_ticker_view` / `record_ticker_view`;
   `etf-overview` does no daily-bar warm-up. `/score` serves the stored row, or re-derives a missing / blank / older-weights row from cached data with `persist=False`. Watchlist `rows` uses
   `read_only=True` (the consensus rating is cache-only and the computed `TickerScore` rows are not stored). Everything else a viewer can read was already stored-data-only.

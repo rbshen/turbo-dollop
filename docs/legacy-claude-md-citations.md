@@ -50,7 +50,7 @@ Two more things to know:
 | Cron job heartbeat / health monitoring | 1 | CLAUDE.md (gotcha paragraph); backend/OPS_RUNBOOK.md | 376-445 (gotcha 435-444; mechanism 376-400 deleted as duplicate of OPS_RUNBOOK) | docs/archive/claude-md-history-features.md (block 401-433) | RESOLVED | Cited from `backend/.env.example:10`. |
 | Shared bars cache (cited as "2026-09-18 investigation, see CLAUDE.md") | 1 | docs/specs/fmp-data-and-bar-cache.md | 3440-3543; 2780-2823 | docs/archive/claude-md-history-technical-signals.md (blocks 3500-3537, 2780-2823) | RESOLVED (inferred) | Cited without a section name. |
 | Daily prices: FMP | 1 | docs/specs/fmp-data-and-bar-cache.md | 3544-3598 | docs/archive/claude-md-history-fmp-migration.md (blocks 3544-3549, 3581-3598) | RESOLVED |  |
-| Institutional Ownership entry | 1 | docs/specs/institutional-ownership.md | 4201-4298 | none (moved 100% into the spec) | RESOLVED |  |
+| Institutional Ownership entry | 1 | none (docs/specs/institutional-ownership.md was deleted 2026-10-14 with the feature) | 4201-4298 | docs/archive/CLAUDE.original.md (original lines only) | RESOLVED | The one citing comment (`core/data_groups.py`) was removed with the feature; the counts in this file are a snapshot and were not recomputed. |
 | "deferred-revenue/one-off precedent (surface it, don't guess)" | 1 | docs/specs/debt.md (deferred-revenue rescue) | 1061-1073 (nearest) | docs/archive/claude-md-history-scoring.md (block 1061-1073) | AMBIGUOUS | Not a heading; cited from `helpers/ttm.py:9` for the "surface it, don't alter it" convention. |
 
 ## Citations that name no section (or name it on another line)
