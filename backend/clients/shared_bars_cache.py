@@ -88,10 +88,14 @@ _INTRADAY_BAR_END_MINUTES = [60, 120, 180, 240, 300, 360, 390]
 # the nearest covering value, same "over-fetch a little rather than fetch
 # at exact precision" convention already used throughout this codebase
 # (see data/chart_data.py's own RANGE_CONFIG comment). Intraday (60m) bars
-# have no "5y"/"10y"/"max" tier at all -- the real 60m-interval history
-# limit is ~730 calendar days (confirmed in the BB+RSI historical-backfill
-# investigation), so requesting further back than that would silently
-# return less than asked for regardless of the period string used.
+# have no "5y"/"10y"/"max" tier: the top step is "2y" (730 days) because that
+# is the widest window any consumer asks for, NOT because the provider stops
+# there. 730 days is our own fetch choice, carried over from the Yahoo era
+# (Yahoo's 60m limit was ~730 calendar days, found in the BB+RSI historical-
+# backfill investigation). FMP's published Starter limit for `/historical-chart/1hour`
+# is 5 years, and a Starter key served hourly bars back to 2004 (AAPL) and 2005 (SPY)
+# in a 2026-10-14 check (2003 answered empty). A consumer needing more than 730 days
+# would add a longer step here (and move RETENTION_DAYS and its test with it).
 _DAILY_PERIOD_STEPS: list[tuple[str, int]] = [
     ("1mo", 30), ("3mo", 90), ("6mo", 180), ("1y", 365), ("2y", 730), ("5y", 1825), ("10y", 3650),
 ]
@@ -336,10 +340,11 @@ def _is_stale(last_bar_time: datetime | None, interval: str, reference: datetime
 # retains fails CI rather than refetching its full window every night
 # only to have the weekly prune trim it again.
 #
-# The 60m window is deliberately wider than any consumer needs today:
-# 60m history is only available ~730 days back, so a pruned 60m bar can
-# never be re-fetched -- it is the only way this app could ever hold more
-# intraday history than the provider will hand over in one request.
+# The 60m window is deliberately wider than any consumer needs today (730
+# days fetched, 3 years kept): stored bars simply accumulate past the fetch
+# window until they age out here. A pruned 60m bar is not unrecoverable --
+# FMP serves hourly bars for years back (published Starter limit 5 years) --
+# it just is not refetched, because no consumer asks for more than 730 days.
 RETENTION_DAYS: dict[str, int] = {
     DAILY_INTERVAL: 6 * 365,
     INTRADAY_INTERVAL: 3 * 365,

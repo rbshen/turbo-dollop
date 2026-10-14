@@ -126,7 +126,9 @@ GROUPS: dict[str, GroupMeta] = {
     ),
     # P4 (2026-09-26): FMP `/historical-chart/1hour` (RTH-only, split- not dividend-adjusted)
     # feeds the shared "60m" bars behind Warren and BB+RSI for US-listed tickers. Off = cached-only.
-    # Starter (2026-10-14): 1hour bars work on Starter (1min does not, and is not used).
+    # Starter (2026-10-14): 1hour bars work on Starter (1min does not, and is not used). FMP's published Starter
+    # limit for 1hour bars is 5 years and a Starter key served them back to 2004 (AAPL) / 2005 (SPY) on 2026-10-14;
+    # the app's 730-day fetch is its own choice (carried over from the Yahoo era), not a provider limit.
     "intraday_bars": GroupMeta(
         "Intraday bars", "Starter", True, True,
         ("Warren RSI/ADX/WVF entry signal (2h)", "BB+RSI entry signal (2h)", "Chart tab entry-signal markers"),

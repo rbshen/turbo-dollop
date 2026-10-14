@@ -24,7 +24,7 @@ FMP on/off is per **data group**, stored in the DB (`core/data_groups.py`, table
   - `ticker_search` (or `profile_quote`): search falls back to the tracked-ticker universe (symbol only). `price_change`: the header's 1M-10Y changes and the 5Y-vs-SPY pill serve the last cached row.
   - `profile_quote`: the ticker header's `price` uses the last official close cached nightly (`TickerLastClose`), every other quote field stays at the last cached FMP value; `/refresh` 503s.
   - `analyst_ratings` / `segmentation` / `fundamentals`: their tabs/scores serve cached data; the nightly fundamentals fetch, the nightly price-target snapshot and the index-list refresh jobs skip.
-  - `corporate_events`: chart E/D markers are served from the cached `CorporateEvent` rows (however old).
+  - `corporate_events`: chart E/D markers are served from the cached `CorporateEvent` rows (however old; the weekly Saturday job refreshes them, and skips while the group is off).
   - `insider`: no `insider` data group exists (the feature was shelved and fully removed); do not reintroduce it without an explicit decision.
 - **`POST /api/tickers/{t}/refresh`** returns **503** if any group it would clear (the ticker's cached statement types) or must re-fetch through (`profile_quote`, `fundamentals`, always needed by the immediate score recompute) is not live -- never a partial clear (`pipeline/refresh.py::groups_blocking_refresh`).
 - **402 safety net** (`FMPClient._handle_plan_restriction`): on HTTP 402 it probes a canary (AAPL, same endpoint); only if the canary also 402s is the group marked `plan_restricted` (a symbol-scoped 402 leaves it live). **Exception, 2026-10-02: the `fundamentals` group (`VARIANT_GROUPS`) restricts a request VARIANT, not the group.** A canary-confirmed 402 (the failing request's `period`/`limit` replayed for AAPL) is recorded in `DataGroupVariant` (`/income-statement?limit=12&period=quarter`); the group stays **live**, annual and every other endpoint keep working, and a restricted variant makes `FMPClient.get` raise `FMPVariantUnavailableError` (an `FMPDisabledError`, so `safe_fetch` reads it as no data) with no call; `core.cache` serves the stale cached row and writes nothing for it. Only that variant's own replay clears it (weekly `stale_data_health_check`, a plan edit, Settings > FMP data groups **Re-test**, or `pipeline.data_groups retest|clear-variant`), so it cannot flap. `nightly_fundamentals_fetch` reports `N variant-unavailable (V request types refused by the plan)` (informational, never red). 429, 5xx, timeouts and a symbol-scoped 402 restrict nothing. Every other group still uses the group-level canary (docs/specs/fmp-data-and-bar-cache.md, "Request variants", lists which could flap). 401/403 = a *key* problem (global warning in Settings, no group blamed); 429 never marks anything; 5xx/transport errors count toward a "Failing" chip after 3 in a row and never disable a group. Restricted groups (and variants) are re-probed weekly (`pipeline.stale_data_health_check`) and whenever the plan is edited.
@@ -286,8 +286,9 @@ Key mechanics:
   window back. Whichever overlapping job runs first each night does the one live fetch; correctness
   never depends on the cron order (BB+RSI 1:20, Warren 1:25 is a convention: it only decides which of the two
   pays for the fetch and its runtime). Width tiers: daily `1mo/3mo/6mo/1y/2y/5y/10y` (30/90/180/365/730/
-  1825/3650 days), 60m `1mo..2y` only (no longer tier — the real 60m history limit is ~730
-  calendar days).
+  1825/3650 days), 60m `1mo..2y` only (no longer tier: 730 days is the widest window any consumer asks for. It is our own
+  fetch choice, carried over from the Yahoo era, **not an FMP limit**: FMP's published Starter limit for `/historical-chart/1hour` is 5 years,
+  and a Starter key served hourly bars back to 2004 (AAPL) and 2005 (SPY) in a 2026-10-14 check, 2003 answering empty).
 - **Freshness is close-aware, never a flat TTL** (`_is_stale`): a row is trusted only if its LAST
   bar matches the most recently completed session for its interval. Daily:
   `_most_recent_completed_trading_date()` — holiday- and early-close-aware since 2026-10-03 (same
@@ -324,8 +325,8 @@ Key mechanics:
   as too narrow. `tests/test_shared_bars_cache_prune.py` pins both invariants against the
   consumers' real `LOOKBACK_DAYS` constants — a new consumer needing more than a window retains
   fails CI instead of refetching its full width every night. The 60m window is deliberately
-  wider than any consumer needs: the 60m history that can be fetched is ~730 days deep, so a
-  pruned 60m bar can never be re-fetched. Simulated (104 watchlist tickers, 469 Trend-only,
+  wider than any consumer needs (730 days fetched, 3 years kept): a pruned 60m bar is not unrecoverable (FMP serves hourly bars
+  for years back), it is just not refetched because no consumer asks for more than 730 days. Simulated (104 watchlist tickers, 469 Trend-only,
   176 B/row) five years out: unpruned 2.46M rows / ~430 MB vs. pruned 1.47M rows / ~250 MB
   (plateaus; unpruned growth is ~+57 MB/yr forever). A DELETE doesn't shrink the SQLite file —
   the freed pages are reused by later inserts, so it plateaus rather than shrinks; nothing

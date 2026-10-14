@@ -98,8 +98,9 @@ STALE_AFTER_DAYS = 7
 
 # How long a WarrenSignalEvent row is kept before prune_warren_signal_events
 # deletes it (4 years; raised from 730 on 2026-09-19). This is only a ceiling
-# on STORED history, not a fetch limit: only ~730 days of 60m bars are available, so
-# nothing older than that can be recomputed or backfilled -- retention above 730
+# on STORED history, not a fetch limit: the app fetches 730 days of 60m bars (our own
+# choice, carried over from the Yahoo era; FMP's published Starter limit is 5 years), so
+# nothing older than that is recomputed or backfilled -- retention above 730
 # just stops deleting events once they age past the old cutoff, and depth grows
 # by a day per day until it reaches this value. Safe to raise only because of
 # EVENT_WRITE_WARMUP_DAYS below: before that buffer, the unreliable leading-edge

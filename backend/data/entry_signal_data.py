@@ -40,11 +40,12 @@ STALE_AFTER_DAYS = 7
 
 # How long a TechnicalEntrySignalEvent row is kept before
 # prune_entry_signal_events deletes it (4 years; raised from 730 on 2026-09-19).
-# This is only a ceiling on STORED history, not a fetch limit: only ~730
-# days of 2h/60m bars are available (see the historical-backfill investigation), so nothing
-# older can be recomputed -- retention above 730 just stops deleting events once
+# This is only a ceiling on STORED history, not a fetch limit: the app fetches
+# 730 days of 2h/60m bars (our own fetch choice, carried over from the Yahoo era; FMP's
+# published Starter limit is 5 years, see clients/shared_bars_cache.py), so nothing
+# older is recomputed -- retention above 730 just stops deleting events once
 # they age past the old cutoff, and depth grows a day per day until it reaches
-# this value. The original 730 was chosen to match that 730-day limit, after a real
+# this value. The original 730 was chosen to match that 730-day window, after a real
 # measurement (2026-09-11, isolated marker-query cost, 5 real tickers spanning
 # the actual event-row-count range, all 4 Chart tab ranges, 30 iterations each)
 # showed the full window added NEGLIGIBLE Chart load time: mean marginal cost

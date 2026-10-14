@@ -60,7 +60,10 @@ from data.watchlists import MONITORED_WATCHLIST_PATTERN, list_monitored_tickers
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_warren_signal_calculation.log"
 
-# 2 calendar years -- the 60m-interval history window (~730 days).
+# 2 calendar years of 60m bars. 730 days is our own fetch choice, carried over from the Yahoo era
+# (Yahoo's 60m limit), NOT an FMP limit: FMP's published Starter limit for 1hour bars is 5 years, and
+# a Starter key served them back to 2004 (AAPL) / 2005 (SPY) in a 2026-10-14 check. Changing it moves
+# the Chart 2H range's lookback (pinned equal), the shared-cache "2y" tier and RETENTION_DAYS' tests.
 LOOKBACK_DAYS = 730
 
 logger = logging.getLogger(__name__)

@@ -94,7 +94,7 @@ output is byte-identical to before (pinned in `test_state_machine.py`; also chec
 - **Scope and data state (re-verified 2026-10-09).** All four are on the monitored `ETF` list (added 2026-10-04, 07:54-08:02), so the nightly job
   processes them and each has `TechnicalEntrySignal` and `WarrenSignalEvent` rows: 65 events in all (QQQ 19, TECL 17, SPY 16, TQQQ 13), first
   written 2026-10-04 08:48 (no BB+RSI events). The Chart tab's
-  2H range computes the profiled signal on demand as well (live, uncached, nothing stored). FMP returns the full 730 days of
+  2H range computes the profiled signal on demand as well (live, uncached, nothing stored). FMP returns the full 730 days (the window the app asks for) of
   `/historical-chart/1hour` for all four: 499 sessions, 494 with 7 bars and 5 half-days with 4, RTH only. **Events are insert-only (`_upsert` writes with `on_conflict_do_nothing`; the only delete is the age prune), so a row written before a later profile edit is never rewritten and
   there is no purge or profile-version mechanism: editing a profile's thresholds later (or adding a ticker to `TICKER_PROFILES` after it
   already has stored events) leaves the old Blue rows behind.** Not built; out of scope of the 2026-10-04 change.
@@ -232,7 +232,9 @@ as context and are ~0% wrong.
   which asserts it is byte-identical with the buffer on and off even when the last event itself falls inside
   the buffer. `warren_last_buy_fired_at` is read off the event table, so it does follow the buffer
   (`test_last_buy_signal_fired_at_reads_the_events_that_were_written`).
-- **Why the buffer can't come from fetching more:** 60m history beyond ~730 days cannot be fetched. The
+- **Why the buffer does not come from fetching more:** the app fetches 730 days of 60m bars. That is our own fetch choice, carried over from the Yahoo
+  era, not an FMP limit (FMP's published Starter limit is 5 years; a Starter key served hourly bars back to 2004 for AAPL and 2005 for SPY in a
+  2026-10-14 check). Fetching more is possible; it has not been built or tested. The
   buffer was also the prerequisite for raising retention (below): raising retention without it would have
   frozen phantom rows permanently (simulated: insert-only accumulates ~3.2x phantom rows vs. correct ones).
 - **Known edge, left for a decision: recently-listed tickers.** A ticker with less history than the window
@@ -248,8 +250,8 @@ as context and are ~0% wrong.
 (4 years)**. They are the ceiling that `prune_warren_signal_events` / `prune_entry_signal_events` use, called
 with no argument by both nightly jobs (no call site hardcodes a number).
 
-- **It is a ceiling on stored history, not a fetch limit, and does NOT backfill.** Only ~730 days of 60m/2h
-  bars are fetchable, so nothing older can be computed. The raise just stops deleting events once they pass 2
+- **It is a ceiling on stored history, not a fetch limit, and does NOT backfill.** The app fetches only 730 days of 60m/2h
+  bars (our own window, not an FMP limit), so nothing older is computed. The raise just stops deleting events once they pass 2
   years old, and depth then grows a day per day. Timeline (oldest stored event + 1460d): BB+RSI (oldest
   2024-09-27) reaches a full 4 years around **2028-09-26**; Warren (oldest 2025-03-24, because the
   2026-09-19 cleanup removed the earlier rows) around **2029-03-23**. Depth is also per ticker: a ticker
