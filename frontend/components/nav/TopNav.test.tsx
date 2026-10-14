@@ -30,8 +30,15 @@ function isCurrent(el: HTMLElement): boolean {
   return el.getAttribute("aria-current") === "page";
 }
 
+// Markets is a menu: its links exist in the DOM only while it is open. Base UI treats a click with no pointer detail as a keyboard
+// activation, which opens the menu.
+function openMarkets() {
+  fireEvent.click(screen.getByRole("button", { name: "Markets" }));
+  return screen.findAllByRole("menuitem");
+}
+
 describe("TopNav", () => {
-  it("links to every page, and opens each in a new tab", () => {
+  it("links to every page, and opens each in a new tab", async () => {
     render(<TopNav />);
     const expected: [string, string][] = [
       ["Fathom", "/screener"],
@@ -40,14 +47,18 @@ describe("TopNav", () => {
       ["Watchlist", "/watchlist"],
       ["Opportunities", "/opportunities"],
       ["Momentum", "/momentum"],
-      ["Sectors", "/sectors"],
-      ["Breadth", "/breadth"],
       ["Settings", "/settings"],
     ];
     for (const [name, href] of expected) {
       const link = screen.getByRole("link", { name });
       expect(link).toHaveAttribute("href", href);
       expect(link).toHaveAttribute("target", "_blank");
+    }
+    const items = await openMarkets();
+    for (const [name, href] of [["Sectors", "/sectors"], ["Breadth", "/breadth"]]) {
+      const item = items.find((el) => el.textContent === name)!;
+      expect(item).toHaveAttribute("href", href);
+      expect(item).toHaveAttribute("target", "_blank");
     }
   });
 
@@ -82,10 +93,10 @@ describe("TopNav", () => {
 
   it.each(["/opportunities", "/momentum", "/sectors", "/breadth", "/breadth/XLK", "/settings"])(
     "on %s, every nav link and the logo navigate in the same tab",
-    (path) => {
+    async (path) => {
       h.pathname = path;
       render(<TopNav />);
-      for (const link of screen.getAllByRole("link")) {
+      for (const link of [...screen.getAllByRole("link"), ...(await openMarkets())]) {
         expect(link).not.toHaveAttribute("target");
       }
       const seen: MouseEvent[] = [];
@@ -104,16 +115,17 @@ describe("TopNav", () => {
     h.pathname = "/momentum";
     render(<TopNav />);
     expect(isCurrent(screen.getByRole("link", { name: "Momentum" }))).toBe(true);
-    for (const name of ["Stocks", "ETFs", "Watchlist", "Sectors", "Breadth", "Settings"]) {
+    for (const name of ["Stocks", "ETFs", "Watchlist", "Settings"]) {
       expect(isCurrent(screen.getByRole("link", { name }))).toBe(false);
     }
+    expect(isCurrent(screen.getByRole("button", { name: "Markets" }))).toBe(false);
     expect(isCurrent(screen.getByText("Ticker Analysis"))).toBe(false);
   });
 
   it("lists the pages in order: Stocks, ETFs, Watchlist, then the rest", () => {
     render(<TopNav />);
     const labels = screen.getAllByRole("link").map((a) => a.textContent);
-    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Opportunities", "Momentum", "Sectors", "Breadth", "Settings"]);
+    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Opportunities", "Momentum", "Settings"]);
     expect(screen.queryByRole("link", { name: "Screener" })).not.toBeInTheDocument();
   });
 
@@ -121,7 +133,7 @@ describe("TopNav", () => {
     h.pathname = "/etfs";
     render(<TopNav />);
     expect(isCurrent(screen.getByRole("link", { name: "ETFs" }))).toBe(true);
-    for (const name of ["Stocks", "Watchlist", "Momentum", "Sectors", "Breadth", "Settings"]) {
+    for (const name of ["Stocks", "Watchlist", "Momentum", "Settings"]) {
       expect(isCurrent(screen.getByRole("link", { name }))).toBe(false);
     }
   });
@@ -138,24 +150,102 @@ describe("TopNav", () => {
     render(<TopNav />);
     expect(isCurrent(screen.getByText("Ticker Analysis"))).toBe(true);
     expect(screen.queryByRole("link", { name: "Ticker Analysis" })).not.toBeInTheDocument();
-    for (const name of ["Stocks", "ETFs", "Watchlist", "Momentum", "Sectors", "Breadth", "Settings"]) {
+    for (const name of ["Stocks", "ETFs", "Watchlist", "Momentum", "Settings"]) {
       expect(isCurrent(screen.getByRole("link", { name }))).toBe(false);
     }
+    expect(isCurrent(screen.getByRole("button", { name: "Markets" }))).toBe(false);
+  });
+});
+
+describe("TopNav: the Markets dropdown", () => {
+  it("is a menu button, not a link, sitting between Momentum and Settings", () => {
+    render(<TopNav />);
+    const trigger = screen.getByRole("button", { name: "Markets" });
+    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).not.toHaveAttribute("href");
+    expect(screen.queryByRole("link", { name: "Sectors" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Breadth" })).toBeNull();
+    const order = [...document.querySelectorAll("nav a, nav button")].map((el) => el.textContent);
+    expect(order.indexOf("Momentum")).toBeLessThan(order.indexOf("Markets"));
+    expect(order.indexOf("Markets")).toBeLessThan(order.indexOf("Settings"));
   });
 
-  it("matches the path exactly, so /breadth/XLK does not mark Breadth", () => {
-    h.pathname = "/breadth/XLK";
+  it("lists Sectors then Breadth once opened", async () => {
     render(<TopNav />);
-    expect(isCurrent(screen.getByRole("link", { name: "Breadth" }))).toBe(false);
+    const items = await openMarkets();
+    expect(items.map((i) => i.textContent)).toEqual(["Sectors", "Breadth"]);
+    expect(screen.getByRole("button", { name: "Markets" })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it.each([
+    ["/sectors", "Sectors"],
+    ["/breadth", "Breadth"],
+    ["/breadth/XLK", "Breadth"],
+  ])("on %s, marks Markets and the %s item", async (path, item) => {
+    h.pathname = path;
+    render(<TopNav />);
+    const trigger = screen.getByRole("button", { name: "Markets" });
+    expect(isCurrent(trigger)).toBe(true);
+    expect(trigger).toHaveClass("bg-surface-2", "text-text-primary");
+    const items = await openMarkets();
+    for (const el of items) expect(isCurrent(el)).toBe(el.textContent === item);
+  });
+
+  it("does not mark Markets on another page, and leaves its items unmarked", async () => {
+    h.pathname = "/momentum";
+    render(<TopNav />);
+    expect(isCurrent(screen.getByRole("button", { name: "Markets" }))).toBe(false);
+    for (const el of await openMarkets()) expect(isCurrent(el)).toBe(false);
+  });
+
+  it("closes on Escape and returns focus to the trigger", async () => {
+    render(<TopNav />);
+    const trigger = screen.getByRole("button", { name: "Markets" });
+    const [first] = await openMarkets();
+    await waitFor(() => expect(first).toHaveFocus());
+    fireEvent.keyDown(first, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menuitem")).toBeNull());
+    expect(trigger).toHaveFocus();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("moves between items with the arrow keys", async () => {
+    render(<TopNav />);
+    const [sectors, breadth] = await openMarkets();
+    await waitFor(() => expect(sectors).toHaveFocus());
+    fireEvent.keyDown(sectors, { key: "ArrowDown" });
+    await waitFor(() => expect(breadth).toHaveFocus());
+    fireEvent.keyDown(breadth, { key: "ArrowUp" });
+    await waitFor(() => expect(sectors).toHaveFocus());
+  });
+
+  it("closes when an item is selected", async () => {
+    render(<TopNav />);
+    const [sectors] = await openMarkets();
+    const spy = (e: Event) => e.preventDefault(); // jsdom has no navigation
+    document.addEventListener("click", spy);
+    fireEvent.click(sectors);
+    document.removeEventListener("click", spy);
+    await waitFor(() => expect(screen.queryByRole("menuitem")).toBeNull());
+  });
+
+  it("closes on an outside click", async () => {
+    render(<TopNav />);
+    await openMarkets();
+    fireEvent.pointerDown(document.body);
+    fireEvent.mouseDown(document.body);
+    fireEvent.click(document.body);
+    await waitFor(() => expect(screen.queryByRole("menuitem")).toBeNull());
   });
 });
 
 // Session 16: the current page is neutral (a surface-2 fill with text-primary) and says so with aria-current, never brand blue.
 describe("TopNav: the current item is neutral", () => {
   it("draws the current link with surface-2 and text-primary, and no brand blue anywhere in the nav", () => {
-    h.pathname = "/sectors";
+    h.pathname = "/momentum";
     const { container } = render(<TopNav />);
-    const current = screen.getByRole("link", { name: "Sectors" });
+    const current = screen.getByRole("link", { name: "Momentum" });
     expect(current).toHaveClass("bg-surface-2", "text-text-primary");
     expect(screen.getByRole("link", { name: "Stocks" })).not.toHaveClass("bg-surface-2");
     expect(container.innerHTML).not.toMatch(/(bg|text|border)-brand/);
@@ -187,7 +277,8 @@ describe("TopNav: the account block", () => {
   it("shows every nav link to a viewer too (hides nothing)", () => {
     draw("viewer");
     const labels = screen.getAllByRole("link").map((a) => a.textContent);
-    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Opportunities", "Momentum", "Sectors", "Breadth", "Settings"]);
+    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Opportunities", "Momentum", "Settings"]);
+    expect(screen.getByRole("button", { name: "Markets" })).toBeInTheDocument();
   });
 
   it("signs out through the provider", async () => {
@@ -230,7 +321,7 @@ describe("TopNav: the bar does not wrap or overlap", () => {
 
   it("keeps every label, Ticker Analysis included, on one line and unshrinkable", () => {
     draw("admin");
-    for (const el of [...screen.getAllByRole("link").slice(1), screen.getByText("Ticker Analysis")]) {
+    for (const el of [...screen.getAllByRole("link").slice(1), screen.getByRole("button", { name: "Markets" }), screen.getByText("Ticker Analysis")]) {
       expect(el).toHaveClass("whitespace-nowrap", "shrink-0");
     }
   });

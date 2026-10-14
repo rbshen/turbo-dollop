@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import type { MouseEvent as ReactMouseEvent } from "react";
+import { Fragment, type MouseEvent as ReactMouseEvent } from "react";
 import { usePathname } from "next/navigation";
+import { Menu } from "@base-ui/react/menu";
+import { CaretDown } from "@phosphor-icons/react";
 
 import { PageContainer } from "@/components/layout/PageContainer";
 import { TickerSearch } from "@/components/nav/TickerSearch";
@@ -21,10 +23,20 @@ const NAV_LINKS: NavLink[] = [
   { href: "/watchlist", label: "Watchlist" },
   { href: "/opportunities", label: "Opportunities" },
   { href: "/momentum", label: "Momentum" },
-  { href: "/sectors", label: "Sectors" },
-  { href: "/breadth", label: "Breadth" },
   { href: "/settings", label: "Settings" },
 ];
+
+// "Markets" is a dropdown, not a page: it sits between Momentum and Settings and groups the two market-wide views. It is active on
+// either route and on their sub-routes (/breadth/[sector]).
+const MARKETS_LINKS: NavLink[] = [
+  { href: "/sectors", label: "Sectors" },
+  { href: "/breadth", label: "Breadth" },
+];
+const MARKETS_AFTER = "/momentum";
+
+function isUnder(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 // Nav links open in a new tab, except on the pages below. A script can't open a tab without taking focus (window.open and target="_blank" both
 // foreground it), but a modifier-click is the browser's own "open in background tab" gesture -- so a plain click is
@@ -48,6 +60,53 @@ function openInBackgroundTab(e: ReactMouseEvent<HTMLAnchorElement>) {
   a.remove();
 }
 
+// Base UI's Menu supplies the disclosure behaviour: Enter/Space/ArrowDown open it, arrow keys move, Esc closes and returns focus to
+// the trigger, an outside click closes it, and it sets aria-haspopup / aria-expanded. The popup is portalled, so the link group's
+// overflow-x-auto does not clip it. Items are real links and carry the same new-tab behaviour as the other nav links.
+function MarketsMenu({ pathname, sameTab }: { pathname: string; sameTab: boolean }) {
+  const active = MARKETS_LINKS.some(({ href }) => isUnder(pathname, href));
+  return (
+    <Menu.Root>
+      <Menu.Trigger
+        aria-current={active ? "page" : undefined}
+        className={cn(
+          "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1.5 text-sm font-medium transition-colors",
+          active
+            ? "bg-surface-2 text-text-primary"
+            : "text-text-secondary hover:bg-white/5 hover:text-text-primary data-[popup-open]:bg-white/5 data-[popup-open]:text-text-primary"
+        )}
+      >
+        Markets
+        <CaretDown size={12} weight="bold" aria-hidden="true" className="text-text-tertiary" />
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Positioner side="bottom" align="start" sideOffset={6} className="z-40">
+          <Menu.Popup className="min-w-36 rounded-md border border-border-input bg-surface p-1 shadow-popover outline-none">
+            {MARKETS_LINKS.map(({ href, label }) => {
+              const current = isUnder(pathname, href);
+              return (
+                <Menu.LinkItem
+                  key={href}
+                  href={href}
+                  closeOnClick
+                  aria-current={current ? "page" : undefined}
+                  {...(sameTab ? {} : NEW_TAB_PROPS)}
+                  className={cn(
+                    "block rounded px-2 py-1.5 text-sm outline-none transition-colors data-[highlighted]:bg-surface-2 data-[highlighted]:text-text-primary",
+                    current ? "bg-surface-2 text-text-primary" : "text-text-secondary"
+                  )}
+                >
+                  {label}
+                </Menu.LinkItem>
+              );
+            })}
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
+  );
+}
+
 // Ticker Analysis has no landing page of its own -- per the design
 // handoff, it's "reached by searching a ticker or navigating from
 // Stocks/ETFs/Watchlist," not by clicking this item directly. It renders as
@@ -68,7 +127,7 @@ export function TopNav() {
     );
   }
   const onTickerPage = pathname.startsWith("/tickers/");
-  const sameTab = SAME_TAB_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  const sameTab = SAME_TAB_PREFIXES.some((p) => isUnder(pathname, p));
 
   return (
     <nav className="sticky top-0 z-30 border-b border-border-subtle bg-page/90 backdrop-blur">
@@ -92,18 +151,20 @@ export function TopNav() {
           {NAV_LINKS.map(({ href, label }) => {
             const active = pathname === href;
             return (
-              <Link
-                key={href}
-                href={href}
-                aria-current={active ? "page" : undefined}
-                {...(sameTab ? {} : NEW_TAB_PROPS)}
-                className={cn(
-                  "shrink-0 whitespace-nowrap rounded-md px-2 py-1.5 text-sm font-medium transition-colors",
-                  active ? "bg-surface-2 text-text-primary" : "text-text-secondary hover:bg-white/5 hover:text-text-primary"
-                )}
-              >
-                {label}
-              </Link>
+              <Fragment key={href}>
+                <Link
+                  href={href}
+                  aria-current={active ? "page" : undefined}
+                  {...(sameTab ? {} : NEW_TAB_PROPS)}
+                  className={cn(
+                    "shrink-0 whitespace-nowrap rounded-md px-2 py-1.5 text-sm font-medium transition-colors",
+                    active ? "bg-surface-2 text-text-primary" : "text-text-secondary hover:bg-white/5 hover:text-text-primary"
+                  )}
+                >
+                  {label}
+                </Link>
+                {href === MARKETS_AFTER && <MarketsMenu pathname={pathname} sameTab={sameTab} />}
+              </Fragment>
             );
           })}
         </div>
