@@ -57,10 +57,7 @@ export function asOfText(group: DataGroupOut): string {
 /** Which data groups feed each ticker-page tab. Drives the "not refreshing"
  * badge above a tab's content. With no fallback provider an off price group
  * means cached data only -- and an EMPTY Chart tab when no bars are cached -- so the badge is the
- * explanation for both. `institutional_ownership` is deliberately
- * absent from every list here (2026-09-27): it is intentionally shelved
- * (default off, no tab/card exists in the UI), not broken, so it must never
- * trigger this badge on a tab it doesn't actually feed anything visible on.
+ * explanation for both.
  */
 export const TAB_GROUPS: Record<string, readonly string[]> = {
   overview: ["etf_info"],

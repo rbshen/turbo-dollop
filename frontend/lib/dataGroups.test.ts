@@ -5,8 +5,8 @@ import { TAB_GROUPS, asOfText, disableWarning, offGroupsFor, reasonText, unavail
 
 function group(over: Partial<DataGroupOut> = {}): DataGroupOut {
   return {
-    key: "institutional_ownership",
-    label: "Institutional ownership",
+    key: "segmentation",
+    label: "Segmentation",
     wired: true,
     enabled: true,
     state: "live",
@@ -15,7 +15,7 @@ function group(over: Partial<DataGroupOut> = {}): DataGroupOut {
     restricted_since: null,
     last_success_at: null,
     last_error: null,
-    feeds: ["Institutional ownership tab"],
+    feeds: ["Segmentation tab"],
     can_toggle: true,
     ...over,
   };
@@ -32,18 +32,18 @@ const wrap = (groups: DataGroupOut[]): DataGroupsOut => ({
 
 describe("offGroupsFor", () => {
   it("returns nothing while loading or when every group is live/failing", () => {
-    expect(offGroupsFor(undefined, ["institutional_ownership"])).toEqual([]);
-    expect(offGroupsFor(wrap([group()]), ["institutional_ownership"])).toEqual([]);
-    expect(offGroupsFor(wrap([group({ state: "failing" })]), ["institutional_ownership"])).toEqual([]);
+    expect(offGroupsFor(undefined, ["segmentation"])).toEqual([]);
+    expect(offGroupsFor(wrap([group()]), ["segmentation"])).toEqual([]);
+    expect(offGroupsFor(wrap([group({ state: "failing" })]), ["segmentation"])).toEqual([]);
   });
 
   it("returns off groups that feed the page, ignoring unrelated and not-wired ones", () => {
     const data = wrap([
-      group({ key: "institutional_ownership", state: "cached_only", reason: "user_off" }),
-      group({ key: "segmentation", label: "Segmentation", state: "restricted", reason: "restricted" }),
+      group({ key: "segmentation", state: "cached_only", reason: "user_off" }),
+      group({ key: "analyst_ratings", label: "Analyst ratings", state: "restricted", reason: "restricted" }),
       group({ key: "daily_prices", label: "Daily prices", wired: false, state: "cached_only", reason: "user_off" }),
     ]);
-    expect(offGroupsFor(data, ["institutional_ownership", "daily_prices"]).map((g) => g.key)).toEqual(["institutional_ownership"]);
+    expect(offGroupsFor(data, ["segmentation", "daily_prices"]).map((g) => g.key)).toEqual(["segmentation"]);
   });
 });
 
@@ -66,7 +66,7 @@ describe("text helpers", () => {
   });
 
   it("disableWarning lists dependent features, and says so when nothing reads the group", () => {
-    expect(disableWarning(group({ feeds: ["Institutional ownership tab", "Digest"] }))).toContain("• Institutional ownership tab\n• Digest");
+    expect(disableWarning(group({ feeds: ["Segmentation tab", "Digest"] }))).toContain("• Segmentation tab\n• Digest");
     expect(disableWarning(group({ wired: false }))).toContain("Nothing reads it yet");
   });
 
@@ -80,12 +80,6 @@ describe("text helpers", () => {
     // Price groups have no fallback provider: an off one is what explains a stale/empty Chart or Technical tab.
     expect(TAB_GROUPS.chart).toEqual(expect.arrayContaining(["daily_prices", "daily_prices_long", "intraday_bars"]));
     expect(TAB_GROUPS.technical).toEqual(["daily_prices", "intraday_bars"]);
-  });
-
-  it("never watches `institutional_ownership` -- shelved, not broken, must never trigger the badge", () => {
-    for (const groups of Object.values(TAB_GROUPS)) {
-      expect(groups).not.toContain("institutional_ownership");
-    }
   });
 });
 

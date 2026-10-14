@@ -43,15 +43,16 @@ const GROUPS: DataGroupOut[] = [
     can_toggle: false,
     feeds: ["Analyst Ratings tab", "Price-target snapshot"],
   }),
+  // A placeholder, not a real group: no registered group is unwired today, but the table still has the state.
   group({
-    key: "institutional_ownership",
-    label: "Institutional ownership",
+    key: "planned_group",
+    label: "Planned group",
     enabled: false,
     wired: false,
     state: "cached_only",
     reason: "user_off",
     required_tier: "Ultimate",
-    feeds: ["Institutional Ownership (shelved)"],
+    feeds: ["Not built yet"],
     last_success_at: null,
   }),
 ];
@@ -123,7 +124,7 @@ export function FmpSettingsMock() {
       <div>
         <Caption>
           Interactive: on (Fundamentals), off (Segmentation), not toggleable because it is above the plan (Analyst ratings,
-          dimmed, with its reason as a tooltip), and not wired yet (Institutional ownership). The Switch and the tier
+          dimmed, with its reason as a tooltip), and not wired yet (Planned group, a placeholder). The Switch and the tier
           Select apply the moment they change: there is no Save. The state badges are static in this mock.
         </Caption>
         <Panel

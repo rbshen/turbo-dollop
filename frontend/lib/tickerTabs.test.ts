@@ -17,11 +17,6 @@ describe("tickerTabs", () => {
     ]);
   });
 
-  it("does not expose the shelved Institutional Ownership tab", () => {
-    expect(TICKER_TABS.map((t) => t.key)).not.toContain("institutionalOwnership");
-    expect(TICKER_TABS.map((t) => t.label)).not.toContain("Institutional Ownership");
-  });
-
   it("every tab has a unique key", () => {
     const keys = TICKER_TABS.map((t) => t.key);
     expect(new Set(keys).size).toBe(keys.length);

@@ -38,7 +38,7 @@ function group(overrides: Partial<DataGroupOut>): DataGroupOut {
 }
 
 const FUNDAMENTALS = group({});
-const SHELVED = group({ key: "institutional_ownership", label: "Institutional ownership", enabled: false, state: "cached_only", reason: "user_off", feeds: ["Institutional ownership tab"] });
+const OFF_GROUP = group({ key: "segmentation", label: "Segmentation", enabled: false, state: "cached_only", reason: "user_off", feeds: ["Segmentation tab"] });
 const ANALYST = group({
   key: "analyst_ratings",
   label: "Analyst ratings",
@@ -56,7 +56,7 @@ function payload(overrides: Partial<DataGroupsOut> = {}): DataGroupsOut {
     tiers: ["Starter", "Premium", "Ultimate"],
     key_problem_at: null,
     key_problem_detail: null,
-    groups: [FUNDAMENTALS, SHELVED, ANALYST],
+    groups: [FUNDAMENTALS, OFF_GROUP, ANALYST],
     ...overrides,
   };
 }
@@ -102,7 +102,7 @@ describe("FMP settings controls: kit primitives and accessible names", () => {
     await renderSection();
     expect(master()).toHaveAccessibleName("FMP master switch");
     expect(plan()).toHaveAccessibleName("My FMP plan");
-    for (const label of ["Fundamentals", "Institutional ownership", "Analyst ratings"]) {
+    for (const label of ["Fundamentals", "Segmentation", "Analyst ratings"]) {
       expect(enable(label)).toHaveAccessibleName(`Enable ${label}`);
       expect(tier(label)).toHaveAccessibleName(`Required tier for ${label}`);
     }
@@ -113,7 +113,7 @@ describe("FMP settings controls: kit primitives and accessible names", () => {
 
   it("uses the medium size token for the plan and tier selects (Ultimate does not fit the 96px short field)", async () => {
     await renderSection();
-    for (const select of [plan(), tier("Fundamentals"), tier("Institutional ownership"), tier("Analyst ratings")]) {
+    for (const select of [plan(), tier("Fundamentals"), tier("Segmentation"), tier("Analyst ratings")]) {
       expect(select.parentElement).toHaveClass("w-44");
       expect(select).toHaveClass("h-9");
       expect(select.className).not.toMatch(/outline-none/);
@@ -122,7 +122,7 @@ describe("FMP settings controls: kit primitives and accessible names", () => {
 
   it("never suppresses the focus ring on a Switch or Select", async () => {
     await renderSection();
-    for (const el of [master(), enable("Institutional ownership")]) {
+    for (const el of [master(), enable("Segmentation")]) {
       expect((el.nextElementSibling as HTMLElement).className).toMatch(/peer-focus-visible:outline-2/);
       expect(el.className).not.toMatch(/outline-none/);
     }
@@ -131,8 +131,8 @@ describe("FMP settings controls: kit primitives and accessible names", () => {
   it("keeps the table a table: headers, one row per group, controls in the cells", async () => {
     await renderSection();
     expect(within(tableEl()).getAllByRole("row")).toHaveLength(1 + 3);
-    expect(within(rowOf("Institutional ownership")).getByRole("switch")).toBe(enable("Institutional ownership"));
-    expect(within(rowOf("Institutional ownership")).getByRole("combobox")).toBe(tier("Institutional ownership"));
+    expect(within(rowOf("Segmentation")).getByRole("switch")).toBe(enable("Segmentation"));
+    expect(within(rowOf("Segmentation")).getByRole("combobox")).toBe(tier("Segmentation"));
     expect(document.body.querySelector("[class*='grid-cols-[minmax']")).toBeNull(); // no Settings rows
   });
 });
@@ -143,7 +143,7 @@ describe("FMP settings controls: state comes from the data", () => {
     expect(master()).toBeChecked();
     expect(plan().value).toBe("Starter");
     expect(Array.from(plan().options).map((o) => o.value)).toEqual(["Starter", "Premium", "Ultimate"]);
-    expect([enable("Fundamentals").checked, enable("Institutional ownership").checked, enable("Analyst ratings").checked]).toEqual([true, false, true]);
+    expect([enable("Fundamentals").checked, enable("Segmentation").checked, enable("Analyst ratings").checked]).toEqual([true, false, true]);
     expect(tier("Analyst ratings").value).toBe("Premium");
   });
 
@@ -272,17 +272,17 @@ describe("FMP settings controls: per-group Switch", () => {
   it("turning a group on needs no confirmation", async () => {
     const confirm = vi.spyOn(window, "confirm");
     await renderSection();
-    await act(async () => fireEvent.click(enable("Institutional ownership")));
+    await act(async () => fireEvent.click(enable("Segmentation")));
     expect(confirm).not.toHaveBeenCalled();
-    expect(mockedPut).toHaveBeenCalledWith("/config/data-groups/institutional_ownership", { enabled: true });
+    expect(mockedPut).toHaveBeenCalledWith("/config/data-groups/segmentation", { enabled: true });
   });
 
   it("disables EVERY control in the table while any request is in flight", async () => {
     let release: (v: DataGroupsOut) => void = () => {};
     mockedPut.mockReturnValue(new Promise((resolve) => { release = resolve; }));
     await renderSection();
-    await act(async () => fireEvent.click(enable("Institutional ownership")));
-    for (const el of [enable("Institutional ownership"), enable("Fundamentals"), tier("Institutional ownership"), tier("Fundamentals"), tier("Analyst ratings")]) {
+    await act(async () => fireEvent.click(enable("Segmentation")));
+    for (const el of [enable("Segmentation"), enable("Fundamentals"), tier("Segmentation"), tier("Fundamentals"), tier("Analyst ratings")]) {
       expect(el).toBeDisabled();
     }
     await act(async () => release(payload()));
@@ -290,13 +290,13 @@ describe("FMP settings controls: per-group Switch", () => {
   });
 
   it("a failed request shows the server's message in that group's row and keeps the true state", async () => {
-    mockedPut.mockRejectedValue(new Error("PUT /config/data-groups/institutional_ownership failed: 422 - enabled: Input should be a valid boolean"));
+    mockedPut.mockRejectedValue(new Error("PUT /config/data-groups/segmentation failed: 422 - enabled: Input should be a valid boolean"));
     await renderSection();
-    await act(async () => fireEvent.click(enable("Institutional ownership")));
-    const alert = within(rowOf("Institutional ownership")).getByRole("alert");
+    await act(async () => fireEvent.click(enable("Segmentation")));
+    const alert = within(rowOf("Segmentation")).getByRole("alert");
     expect(alert).toHaveTextContent("enabled: Input should be a valid boolean");
-    expect(enable("Institutional ownership")).not.toBeChecked(); // still the real (off) state
-    expect(enable("Institutional ownership")).toBeEnabled();
+    expect(enable("Segmentation")).not.toBeChecked(); // still the real (off) state
+    expect(enable("Segmentation")).toBeEnabled();
     expect(within(rowOf("Fundamentals")).queryByRole("alert")).toBeNull();
     // the next action clears it
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -316,7 +316,7 @@ describe("FMP settings controls: per-group tier select", () => {
 
   it("offers the tiers from the data and shows each group's tier", async () => {
     await renderSection();
-    expect(Array.from(tier("Institutional ownership").options).map((o) => o.value)).toEqual(["Starter", "Premium", "Ultimate"]);
+    expect(Array.from(tier("Segmentation").options).map((o) => o.value)).toEqual(["Starter", "Premium", "Ultimate"]);
     expect(tier("Fundamentals").value).toBe("Starter");
   });
 
