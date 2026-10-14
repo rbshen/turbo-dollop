@@ -20,9 +20,9 @@ def test_get_lists_every_group_with_defaults():
     assert list(groups) == list(dg.GROUPS)
     assert groups["fundamentals"]["state"] == "live"
     assert groups["fundamentals"]["required_tier"] == "Starter"
-    assert groups["institutional_ownership"]["state"] == "cached_only" and groups["institutional_ownership"]["enabled"] is False
+    assert groups["segmentation"]["state"] == "live" and groups["segmentation"]["enabled"] is True
     assert groups["daily_prices"]["wired"] is True and groups["intraday_bars"]["wired"] is True
-    assert "Institutional Ownership tab (shelved)" in groups["institutional_ownership"]["feeds"]
+    assert "Analyst Ratings tab" in groups["analyst_ratings"]["feeds"]
 
 
 def test_old_fmp_status_endpoint_is_gone():
@@ -42,10 +42,10 @@ def test_master_switch_makes_every_group_cached_only_and_untoggleable():
 
 def test_toggle_a_group_and_edit_tier():
     with TestClient(app) as client:
-        body = client.put("/api/config/data-groups/institutional_ownership", json={"enabled": False}).json()
-        assert _by_key(body)["institutional_ownership"]["state"] == "cached_only"
-        body = client.put("/api/config/data-groups/institutional_ownership", json={"required_tier": "Premium"}).json()
-    assert _by_key(body)["institutional_ownership"]["required_tier"] == "Premium"
+        body = client.put("/api/config/data-groups/segmentation", json={"enabled": False}).json()
+        assert _by_key(body)["segmentation"]["state"] == "cached_only"
+        body = client.put("/api/config/data-groups/segmentation", json={"required_tier": "Premium"}).json()
+    assert _by_key(body)["segmentation"]["required_tier"] == "Premium"
 
 
 def test_group_above_plan_reads_not_on_plan():
@@ -59,27 +59,25 @@ def test_group_above_plan_reads_not_on_plan():
 def test_validation_and_unknown_group():
     with TestClient(app) as client:
         assert client.put("/api/config/data-groups/nope", json={"enabled": True}).status_code == 404
-        assert client.put("/api/config/data-groups/institutional_ownership", json={"required_tier": "Gold"}).status_code == 422
+        assert client.put("/api/config/data-groups/segmentation", json={"required_tier": "Gold"}).status_code == 422
         assert client.put("/api/config/data-groups/plan", json={"fmp_plan": "Gold"}).status_code == 422
 
 
 def test_restricted_and_failing_states_and_key_problem_surface():
-    dg.set_group_enabled("institutional_ownership", True)  # shelved, default off -- just this test's example group
     dg.mark_restricted("segmentation", "simulated 402")
     for _ in range(dg.FAILING_AFTER_CONSECUTIVE):
-        dg.record_group_failure("institutional_ownership", "HTTP 500")
+        dg.record_group_failure("analyst_ratings", "HTTP 500")
     dg.set_key_problem("HTTP 401 from /profile")
     with TestClient(app) as client:
         body = client.get("/api/config/data-groups").json()
     groups = _by_key(body)
     assert groups["segmentation"]["state"] == "restricted" and groups["segmentation"]["restricted_since"]
-    assert groups["institutional_ownership"]["state"] == "failing" and groups["institutional_ownership"]["last_error"] == "HTTP 500"
+    assert groups["analyst_ratings"]["state"] == "failing" and groups["analyst_ratings"]["last_error"] == "HTTP 500"
     assert body["key_problem_detail"] == "HTTP 401 from /profile"
 
 
 def test_editing_the_plan_reprobes_restricted_groups(monkeypatch):
-    dg.set_group_enabled("institutional_ownership", True)  # shelved, default off -- just this test's example group
-    dg.mark_restricted("institutional_ownership", "simulated 402")
+    dg.mark_restricted("segmentation", "simulated 402")
     transport = httpx.MockTransport(lambda request: httpx.Response(200, json=[{"ok": True}]))
     real = httpx.AsyncClient
     monkeypatch.setattr(
@@ -87,7 +85,7 @@ def test_editing_the_plan_reprobes_restricted_groups(monkeypatch):
     )
     with TestClient(app) as client:
         body = client.put("/api/config/data-groups/plan", json={"fmp_plan": "Ultimate"}).json()
-    assert _by_key(body)["institutional_ownership"]["state"] == "live"
+    assert _by_key(body)["segmentation"]["state"] == "live"
 
 
 def test_price_groups_off_read_cached_only_like_every_other_group():
@@ -100,5 +98,5 @@ def test_price_groups_off_read_cached_only_like_every_other_group():
         assert g["state"] == "cached_only" and "falls_back" not in g and g["reason"] == "user_off"
         client.put("/api/config/data-groups/daily_prices", json={"enabled": True})
         body = client.put("/api/config/data-groups/master", json={"master_on": False}).json()
-        for key in ("daily_prices", "daily_prices_long", "intraday_bars", "institutional_ownership"):
+        for key in ("daily_prices", "daily_prices_long", "intraday_bars", "segmentation"):
             assert _by_key(body)[key]["state"] == "cached_only"

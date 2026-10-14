@@ -533,12 +533,12 @@ def _seed_row(engine, statement_type, ticker="AAPL"):
 
 
 def test_cache_gate_is_per_statement_type_group_not_global():
-    """institutional_ownership is off: a stale `institutional_ownership_summary` row is served without calling fetch_fn,
+    """analyst_ratings is off: a stale `grades_consensus` row is served without calling fetch_fn,
     while a stale `profile` row (profile_quote group, still live) refetches."""
-    _dg.set_group_enabled("institutional_ownership", False)
+    _dg.set_group_enabled("analyst_ratings", False)
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
-    _seed_row(engine, "institutional_ownership_summary")
+    _seed_row(engine, "grades_consensus")
     _seed_row(engine, "profile")
 
     async def must_not_fetch():
@@ -549,7 +549,7 @@ def test_cache_gate_is_per_statement_type_group_not_global():
 
     async def run():
         with Session(engine) as session:
-            owned = await get_or_fetch(session, "AAPL", "institutional_ownership_summary", "latest", must_not_fetch, staleness_days=7)
+            owned = await get_or_fetch(session, "AAPL", "grades_consensus", "latest", must_not_fetch, staleness_days=7)
             profile = await get_or_fetch(session, "AAPL", "profile", "latest", fresh, staleness_days=7)
             return owned, profile
 

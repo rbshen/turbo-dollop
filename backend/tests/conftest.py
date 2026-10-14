@@ -207,10 +207,8 @@ def _isolate_data_groups_engine(monkeypatch):
     first FMPClient.get / cache gate check, so every test needs its own
     fresh in-memory engine for it (same reasoning as
     _isolate_data_source_health_engine). The lazy seed gives the documented
-    defaults: master on, plan Ultimate, every group live except
-    `institutional_ownership` (shelved, default off) -- a test exercising
-    that feature, or using it as the generic example group, turns it on via
-    data_groups.set_group_enabled("institutional_ownership", True)."""
+    defaults: master on, plan Ultimate, every group live. A test
+    wanting an off group calls data_groups.set_group_enabled(group, False)."""
     import core.data_groups as data_groups
 
     test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -375,8 +373,7 @@ def _default_flags_enabled(monkeypatch):
     says. `settings` (core/config.py) is a true module-level singleton, so
     patching it once here is visible everywhere. FMP on/off is no longer an
     env flag -- see _isolate_data_groups_engine above, which gives every test
-    a fresh DB-backed group config (master on, all groups live except the
-    shelved `institutional_ownership`). A test wanting a disabled state calls
+    a fresh DB-backed group config (master on, all groups live). A test wanting a disabled state calls
     core.data_groups.set_master/set_group_enabled itself."""
     monkeypatch.setattr(settings, "cron_health_enabled", True)
 
