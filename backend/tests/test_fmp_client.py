@@ -244,9 +244,9 @@ def test_above_plan_and_restricted_groups_refuse_live_calls(monkeypatch):
     with pytest.raises(FMPGroupDisabledError):
         asyncio.run(client.get_dowjones_constituents())  # index_membership needs Premium
     _dg.set_fmp_plan("Ultimate")
-    _dg.mark_restricted("news", "402")
+    _dg.mark_restricted("institutional_ownership", "402")
     with pytest.raises(FMPGroupDisabledError):
-        asyncio.run(client.get_stock_news("AAPL"))
+        asyncio.run(client.get_institutional_ownership_summary("AAPL", 2020, 1))
 
 
 def test_unmapped_endpoint_fails_closed(monkeypatch):

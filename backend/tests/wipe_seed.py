@@ -16,7 +16,6 @@ from core.models import (
     LiquidityZoneAnalysis,
     LongHistoryBars,
     MomentumSnapshot,
-    NewsCache,
     PriceTargetSnapshot,
     RecheckState,
     SharedBarsCache,
@@ -75,7 +74,6 @@ def seed_wipe_tables(engine, ticker: str, view_days_ago: float | None = None, no
             )
         )
         s.add(FundamentalsCache(ticker=ticker, statement_type="profile", period="latest", fetched_at=now, raw_json="{}"))
-        s.add(NewsCache(ticker=ticker, fetched_at=now, raw_json="[]"))
         s.add(
             SharedBarsCache(
                 ticker=ticker, interval="1d", bar_time=datetime(2026, 11, 13), open=1, high=1, low=1, close=1, volume=1, fetched_at=now
@@ -89,6 +87,10 @@ def seed_wipe_tables(engine, ticker: str, view_days_ago: float | None = None, no
             s.add(TickerView(ticker=ticker, last_viewed_at=now - timedelta(days=view_days_ago)))
         s.commit()
     with engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO newscache (ticker, fetched_at, raw_json) VALUES (:t, :n, '[]')"),
+            {"t": ticker, "n": now},
+        )
         conn.execute(
             text("INSERT INTO newssentimentcache (ticker, fetched_at, raw_json) VALUES (:t, :n, '{}')"),
             {"t": ticker, "n": now},

@@ -27,8 +27,8 @@ def _fresh_engine(monkeypatch):
     monkeypatch.setattr(iod, "engine", test_engine)
     # institutional_ownership is shelved (default_enabled=False, 2026-09-27) --
     # this whole file exercises the feature itself, so every test opts back
-    # in explicitly here, the same convention conftest.py documents for
-    # `news`. test_group_disabled_makes_zero_fmp_calls overrides this back
+    # in explicitly here, the convention conftest.py documents.
+    # test_group_disabled_makes_zero_fmp_calls overrides this back
     # to False itself, deliberately, to exercise the opposite state.
     data_groups.set_group_enabled("institutional_ownership", True)
     return test_engine

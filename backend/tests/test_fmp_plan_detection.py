@@ -66,13 +66,13 @@ def test_402_symbol_scoped_canary_ok_does_not_mark(monkeypatch):
 
 
 def test_402_on_aapl_itself_is_its_own_canary(monkeypatch):
-    dg.set_group_enabled("news", True)  # shelved, default off -- exercised here as the single-symbol-endpoint example
+    dg.set_group_enabled("institutional_ownership", True)  # shelved, default off -- exercised here as the single-symbol-endpoint example
     h = _status_by_symbol({"AAPL": 402})
     _install(monkeypatch, h)
     with pytest.raises(httpx.HTTPStatusError):
-        asyncio.run(FMPClient(api_key="x").get_stock_news("AAPL"))
+        asyncio.run(FMPClient(api_key="x").get_institutional_ownership_summary("AAPL", 2020, 1))
     assert h.seen == ["AAPL"]  # no redundant second call
-    assert dg.effective_state("news") == (False, "restricted")
+    assert dg.effective_state("institutional_ownership") == (False, "restricted")
 
 
 def test_402_on_symbolless_endpoint_marks_immediately(monkeypatch):
@@ -84,11 +84,11 @@ def test_402_on_symbolless_endpoint_marks_immediately(monkeypatch):
 
 
 def test_only_the_402d_group_is_marked(monkeypatch):
-    dg.set_group_enabled("news", True)  # shelved, default off -- exercised here as the single-symbol-endpoint example
+    dg.set_group_enabled("institutional_ownership", True)  # shelved, default off -- exercised here as the single-symbol-endpoint example
     _install(monkeypatch, _status_by_symbol({}, default=402))
     with pytest.raises(httpx.HTTPStatusError):
-        asyncio.run(FMPClient(api_key="x").get_stock_news("AAPL"))
-    assert dg.effective_state("news")[0] is False
+        asyncio.run(FMPClient(api_key="x").get_institutional_ownership_summary("AAPL", 2020, 1))
+    assert dg.effective_state("institutional_ownership")[0] is False
     assert dg.effective_state("fundamentals")[0] is True
     assert dg.effective_state("profile_quote")[0] is True
 
@@ -134,31 +134,31 @@ def test_server_errors_count_toward_failing_but_never_disable(monkeypatch):
 
 
 def test_reprobe_clears_restriction_when_canary_succeeds(monkeypatch):
-    dg.set_group_enabled("news", True)  # shelved, default off -- news is just this test's example restricted group
-    dg.mark_restricted("news", "simulated")
+    dg.set_group_enabled("institutional_ownership", True)  # shelved, default off -- just this test's example restricted group
+    dg.mark_restricted("institutional_ownership", "simulated")
     _install(monkeypatch, _status_by_symbol({}))
     result = asyncio.run(FMPClient(api_key="x").reprobe_restricted_groups())
-    assert result == {"news": "ok"}
-    assert dg.effective_state("news") == (True, "live")
+    assert result == {"institutional_ownership": "ok"}
+    assert dg.effective_state("institutional_ownership") == (True, "live")
 
 
 def test_reprobe_keeps_restriction_on_402_and_ignores_inconclusive(monkeypatch):
-    dg.set_group_enabled("news", True)  # shelved, default off -- news is just this test's example restricted group
-    dg.mark_restricted("news", "simulated")
+    dg.set_group_enabled("institutional_ownership", True)  # shelved, default off -- just this test's example restricted group
+    dg.mark_restricted("institutional_ownership", "simulated")
     dg.mark_restricted("segmentation", "simulated")
 
     def handler(request):
-        return httpx.Response(402 if "news" in request.url.path else 500, json=[])
+        return httpx.Response(402 if "institutional-ownership" in request.url.path else 500, json=[])
 
     _install(monkeypatch, handler)
     result = asyncio.run(FMPClient(api_key="x").reprobe_restricted_groups())
-    assert result == {"news": "restricted", "segmentation": "inconclusive"}
-    assert dg.effective_state("news") == (False, "restricted")
+    assert result == {"institutional_ownership": "restricted", "segmentation": "inconclusive"}
+    assert dg.effective_state("institutional_ownership") == (False, "restricted")
     assert dg.effective_state("segmentation") == (False, "restricted")
 
 
 def test_reprobe_is_a_noop_while_master_is_off(monkeypatch):
-    dg.mark_restricted("news", "simulated")
+    dg.mark_restricted("institutional_ownership", "simulated")
     dg.set_master(False)
 
     def handler(request):

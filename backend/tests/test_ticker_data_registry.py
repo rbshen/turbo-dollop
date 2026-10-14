@@ -53,6 +53,15 @@ def test_newssentimentcache_is_registered_though_it_has_no_model(init_db_engine)
     assert reg.unclassified_ticker_tables(init_db_engine) == []
 
 
+def test_newscache_is_registered_though_it_has_no_model(init_db_engine):
+    assert "newscache" not in SQLModel.metadata.tables
+    entry = reg.REGISTRY["newscache"]
+    assert entry.table_class is reg.TableClass.WIPE and entry.legacy_ddl
+    assert entry in reg.LEGACY_TABLES and entry in reg.WIPE_TABLES
+    assert "newscache" in inspect(init_db_engine).get_table_names()
+    assert reg.unclassified_ticker_tables(init_db_engine) == []
+
+
 def test_dataqualityflag_is_registered_though_it_has_no_model(init_db_engine):
     assert "dataqualityflag" not in SQLModel.metadata.tables
     entry = reg.REGISTRY["dataqualityflag"]

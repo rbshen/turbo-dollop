@@ -16,10 +16,10 @@ def test_pause_all_and_resume_flip_the_master_switch(monkeypatch, capsys):
 
 
 def test_resume_leaves_per_group_settings_untouched(monkeypatch):
-    dg.set_group_enabled("news", False)
+    dg.set_group_enabled("institutional_ownership", False)
     _run(monkeypatch, "pause-all")
     _run(monkeypatch, "resume")
-    assert dg.effective_state("news") == (False, "user_off")
+    assert dg.effective_state("institutional_ownership") == (False, "user_off")
     assert dg.group_live("fundamentals")
 
 
@@ -32,7 +32,7 @@ def test_status_lists_every_group_and_marks_unwired(monkeypatch, capsys):
     # removed 2026-09-27. Kept as a live check rather than deleted outright:
     # a future seeded-but-unwired group should make this go back to 1.
     assert out.count("[not wired yet]") == 0
-    assert "news" in out and "user_off" in out
+    assert "institutional_ownership" in out and "user_off" in out
 
 
 def _cache_rows(engine, rows):
@@ -56,12 +56,12 @@ def test_backfill_last_success_seeds_from_newest_cache_row_and_is_idempotent(_is
         [
             ("AAPL", "income_statement", datetime(2026, 9, 1)),
             ("MSFT", "balance_sheet_statement", datetime(2026, 9, 10)),  # newest fundamentals
-            ("AAPL", "news", datetime(2026, 8, 1)),
+            ("AAPL", "institutional_ownership_summary", datetime(2026, 8, 1)),
         ],
     )
     first = dg.backfill_last_success_from_cache()
     assert first["fundamentals"] == datetime(2026, 9, 10)
-    assert first["news"] == datetime(2026, 8, 1)
+    assert first["institutional_ownership"] == datetime(2026, 8, 1)
     snap = dg.get_snapshot().groups
     assert snap["fundamentals"].last_success_at == datetime(2026, 9, 10)
     assert snap["segmentation"].last_success_at is None  # no cache rows -> stays empty
@@ -74,11 +74,11 @@ def test_backfill_last_success_seeds_from_newest_cache_row_and_is_idempotent(_is
 def test_backfill_never_moves_a_newer_live_value_backwards(_isolate_data_groups_engine):
     from datetime import datetime
 
-    _cache_rows(_isolate_data_groups_engine, [("AAPL", "news", datetime(2026, 8, 1))])
-    dg.record_group_success("news")  # live success, "now"
-    live = dg.get_snapshot().groups["news"].last_success_at
+    _cache_rows(_isolate_data_groups_engine, [("AAPL", "institutional_ownership_summary", datetime(2026, 8, 1))])
+    dg.record_group_success("institutional_ownership")  # live success, "now"
+    live = dg.get_snapshot().groups["institutional_ownership"].last_success_at
     dg.backfill_last_success_from_cache()
-    assert dg.get_snapshot().groups["news"].last_success_at == live
+    assert dg.get_snapshot().groups["institutional_ownership"].last_success_at == live
 
 
 def test_backfill_command_runs_through_the_cli(monkeypatch, capsys):

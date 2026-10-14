@@ -303,21 +303,21 @@ def test_ticker_refresh_disabled_while_fmp_is_paused_leaves_cache_untouched(monk
 
 
 def test_ticker_refresh_503s_when_any_cached_group_is_off_and_never_partially_clears(monkeypatch):
-    """Per-group version of the guard above: news is off, the ticker has a
-    cached news row (plus live-group rows) -> 503, NOTHING cleared."""
+    """Per-group version of the guard above: institutional_ownership is off, the ticker has a
+    cached institutional_ownership_summary row (plus live-group rows) -> 503, NOTHING cleared."""
     engine = _fresh_shared_engine(monkeypatch)
-    _dg.set_group_enabled("news", False)
+    _dg.set_group_enabled("institutional_ownership", False)
 
     with Session(engine) as session:
         _seed(session, "AAPL", "profile", "latest")
-        _seed(session, "AAPL", "news", "latest")
+        _seed(session, "AAPL", "institutional_ownership_summary", "latest")
         session.commit()
 
     with TestClient(main.app) as client:
         response = client.post("/api/tickers/AAPL/refresh")
 
     assert response.status_code == 503
-    assert "news" in response.json()["detail"]
+    assert "institutional_ownership" in response.json()["detail"]
     with Session(engine) as session:
         remaining = session.exec(select(FundamentalsCache).where(FundamentalsCache.ticker == "AAPL")).all()
     assert len(remaining) == 2
@@ -327,7 +327,7 @@ def test_groups_blocking_refresh_ignores_off_groups_with_no_cached_rows(monkeypa
     from pipeline.refresh import groups_blocking_refresh
 
     engine = _fresh_shared_engine(monkeypatch)
-    _dg.set_group_enabled("news", False)
+    _dg.set_group_enabled("institutional_ownership", False)
     with Session(engine) as session:
         _seed(session, "AAPL", "profile", "latest")
         session.commit()

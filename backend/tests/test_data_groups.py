@@ -9,7 +9,7 @@ def test_lazy_seed_defaults():
     assert snap.groups["fundamentals"].required_tier == "Starter"
     assert "daily_prices_intl" not in snap.groups
     assert dg.group_live("fundamentals")
-    assert not dg.group_live("news")  # shelved, seeded off
+    assert not dg.group_live("institutional_ownership")  # shelved, seeded off
 
 
 def test_master_off_beats_everything_and_writes_are_live_without_ttl_wait():
@@ -20,8 +20,8 @@ def test_master_off_beats_everything_and_writes_are_live_without_ttl_wait():
 
 
 def test_group_toggle_reason():
-    dg.set_group_enabled("news", False)
-    assert dg.effective_state("news") == (False, "user_off")
+    dg.set_group_enabled("institutional_ownership", False)
+    assert dg.effective_state("institutional_ownership") == (False, "user_off")
     assert dg.group_live("fundamentals")
 
 
@@ -45,13 +45,13 @@ def test_restricted_then_cleared():
 
 
 def test_failing_after_consecutive_failures_and_reset_on_success():
-    dg.set_group_enabled("news", True)  # shelved, default off -- news is just this test's example group
+    dg.set_group_enabled("institutional_ownership", True)  # shelved, default off -- just this test's example group
     for _ in range(dg.FAILING_AFTER_CONSECUTIVE):
-        dg.record_group_failure("news", "boom")
-    assert dg.get_snapshot().groups["news"].status == "failing"
-    assert dg.group_live("news")  # failing is a chip, not an off state
-    dg.record_group_success("news")
-    st = dg.get_snapshot().groups["news"]
+        dg.record_group_failure("institutional_ownership", "boom")
+    assert dg.get_snapshot().groups["institutional_ownership"].status == "failing"
+    assert dg.group_live("institutional_ownership")  # failing is a chip, not an off state
+    dg.record_group_success("institutional_ownership")
+    st = dg.get_snapshot().groups["institutional_ownership"]
     assert st.status == "ok" and st.consecutive_failures == 0 and st.last_success_at is not None
 
 
@@ -77,6 +77,6 @@ def test_job_skip_reason_master_off_and_per_group_wording():
     dg.set_master(True)
     dg.set_group_enabled("analyst_ratings", False)
     assert dg.job_skip_reason("analyst_ratings") == "skipped (group analyst_ratings disabled)"
-    dg.set_group_enabled("news", True)  # shelved, default off -- news is just this test's example group
-    dg.mark_restricted("news", "402")
-    assert dg.job_skip_reason("news") == "skipped (group news restricted by FMP (plan))"
+    dg.set_group_enabled("institutional_ownership", True)  # shelved, default off -- just this test's example group
+    dg.mark_restricted("institutional_ownership", "402")
+    assert dg.job_skip_reason("institutional_ownership") == "skipped (group institutional_ownership restricted by FMP (plan))"
