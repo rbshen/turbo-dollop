@@ -1,7 +1,7 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 
 import { PageContainer } from "@/components/layout/PageContainer";
 import { DiscountRateSettingsForm } from "@/components/settings/DiscountRateSettingsForm";
@@ -20,18 +20,17 @@ import { cn } from "@/lib/utils";
 // FMP toggle table moved out into its own "FMP Data Groups" section, right
 // after it -- StatusSection keeps just the cron jobs table (the FMP
 // health-summary card moved into FMP data groups, 2026-09-30).
-// `adminOnly` sections read endpoints that answer 403 to a viewer (cron-health, data-groups, data-source-health): a viewer is not
-// shown them and they are never mounted, so nothing is fetched for them. The other six are readable by a viewer, who sees their
-// values read-only (SettingsSection / SettingsFooter).
+// The whole page is admin only (2026-10-14): a viewer is sent home and none of this is mounted, so nothing is fetched for them. The
+// backend refuses a viewer's calls to every Settings-only endpoint too (core/route_roles.py); the redirect is UX only.
 const SECTIONS = [
-  { key: "scheduled-jobs", label: "Scheduled jobs", Component: StatusSection, adminOnly: true },
-  { key: "fmp-data-groups", label: "FMP data groups", Component: FmpDataGroupsSection, adminOnly: true },
-  { key: "discount-rate", label: "Discount rate by country", Component: DiscountRateSettingsForm, adminOnly: false },
-  { key: "score-weighting", label: "Score weighting", Component: ScoreWeightingForm, adminOnly: false },
-  { key: "economic-moat", label: "Economic moat", Component: MoatSettingsForm, adminOnly: false },
-  { key: "reit", label: "REIT", Component: ReitDividendYieldSettingsForm, adminOnly: false },
-  { key: "liquidity", label: "Liquidity", Component: LiquidityZoneSettingsForm, adminOnly: false },
-  { key: "weinstein", label: "Weinstein", Component: WeinsteinSettingsForm, adminOnly: false },
+  { key: "scheduled-jobs", label: "Scheduled jobs", Component: StatusSection },
+  { key: "fmp-data-groups", label: "FMP data groups", Component: FmpDataGroupsSection },
+  { key: "discount-rate", label: "Discount rate by country", Component: DiscountRateSettingsForm },
+  { key: "score-weighting", label: "Score weighting", Component: ScoreWeightingForm },
+  { key: "economic-moat", label: "Economic moat", Component: MoatSettingsForm },
+  { key: "reit", label: "REIT", Component: ReitDividendYieldSettingsForm },
+  { key: "liquidity", label: "Liquidity", Component: LiquidityZoneSettingsForm },
+  { key: "weinstein", label: "Weinstein", Component: WeinsteinSettingsForm },
 ] as const;
 
 type SectionKey = (typeof SECTIONS)[number]["key"];
@@ -47,14 +46,19 @@ export default function SettingsPage() {
 
 function SettingsContent() {
   const { isAdmin, isLoading } = useAuth();
-  // Until the role is known nothing is mounted: the first section is an admin one, and a viewer's page must not fetch it even once.
-  if (isLoading) return <PageContainer className="space-y-6 pb-12"><PageHeader title="Settings" /></PageContainer>;
-  return <SettingsSections isAdmin={isAdmin} />;
+  const router = useRouter();
+  useEffect(() => {
+    if (!isLoading && !isAdmin) router.replace("/");
+  }, [isLoading, isAdmin, router]);
+
+  // Until the role is known, and for anyone who is not an admin, nothing is mounted: no section, so no request.
+  if (isLoading || !isAdmin) return null;
+  return <SettingsSections />;
 }
 
-function SettingsSections({ isAdmin }: { isAdmin: boolean }) {
-  const sections = SECTIONS.filter((section) => isAdmin || !section.adminOnly);
-  // A link such as /settings?section=score-weighting opens that section; anything else (or a section the viewer cannot see) opens the first.
+function SettingsSections() {
+  const sections = SECTIONS;
+  // A link such as /settings?section=score-weighting opens that section; anything else opens the first.
   const requested = useSearchParams()?.get("section");
   const [active, setActive] = useState<SectionKey>(() => sections.find((section) => section.key === requested)?.key ?? sections[0].key);
 

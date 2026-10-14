@@ -47,7 +47,6 @@ describe("TopNav", () => {
       ["Watchlist", "/watchlist"],
       ["Opportunities", "/opportunities"],
       ["Momentum", "/momentum"],
-      ["Settings", "/settings"],
     ];
     for (const [name, href] of expected) {
       const link = screen.getByRole("link", { name });
@@ -115,7 +114,7 @@ describe("TopNav", () => {
     h.pathname = "/momentum";
     render(<TopNav />);
     expect(isCurrent(screen.getByRole("link", { name: "Momentum" }))).toBe(true);
-    for (const name of ["Stocks", "ETFs", "Watchlist", "Settings"]) {
+    for (const name of ["Stocks", "ETFs", "Watchlist"]) {
       expect(isCurrent(screen.getByRole("link", { name }))).toBe(false);
     }
     expect(isCurrent(screen.getByRole("button", { name: "Markets" }))).toBe(false);
@@ -125,7 +124,7 @@ describe("TopNav", () => {
   it("lists the pages in order: Stocks, ETFs, Watchlist, then the rest", () => {
     render(<TopNav />);
     const labels = screen.getAllByRole("link").map((a) => a.textContent);
-    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Opportunities", "Momentum", "Settings"]);
+    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Opportunities", "Momentum"]);
     expect(screen.queryByRole("link", { name: "Screener" })).not.toBeInTheDocument();
   });
 
@@ -133,7 +132,7 @@ describe("TopNav", () => {
     h.pathname = "/etfs";
     render(<TopNav />);
     expect(isCurrent(screen.getByRole("link", { name: "ETFs" }))).toBe(true);
-    for (const name of ["Stocks", "Watchlist", "Momentum", "Settings"]) {
+    for (const name of ["Stocks", "Watchlist", "Momentum"]) {
       expect(isCurrent(screen.getByRole("link", { name }))).toBe(false);
     }
   });
@@ -150,7 +149,7 @@ describe("TopNav", () => {
     render(<TopNav />);
     expect(isCurrent(screen.getByText("Ticker Analysis"))).toBe(true);
     expect(screen.queryByRole("link", { name: "Ticker Analysis" })).not.toBeInTheDocument();
-    for (const name of ["Stocks", "ETFs", "Watchlist", "Momentum", "Settings"]) {
+    for (const name of ["Stocks", "ETFs", "Watchlist", "Momentum"]) {
       expect(isCurrent(screen.getByRole("link", { name }))).toBe(false);
     }
     expect(isCurrent(screen.getByRole("button", { name: "Markets" }))).toBe(false);
@@ -158,7 +157,7 @@ describe("TopNav", () => {
 });
 
 describe("TopNav: the Markets dropdown", () => {
-  it("is a menu button, not a link, sitting between Momentum and Settings", () => {
+  it("is a menu button, not a link, sitting after Momentum and before the User menu", () => {
     render(<TopNav />);
     const trigger = screen.getByRole("button", { name: "Markets" });
     expect(trigger).toHaveAttribute("aria-haspopup", "menu");
@@ -168,7 +167,7 @@ describe("TopNav: the Markets dropdown", () => {
     expect(screen.queryByRole("link", { name: "Breadth" })).toBeNull();
     const order = [...document.querySelectorAll("nav a, nav button")].map((el) => el.textContent);
     expect(order.indexOf("Momentum")).toBeLessThan(order.indexOf("Markets"));
-    expect(order.indexOf("Markets")).toBeLessThan(order.indexOf("Settings"));
+    expect(order.indexOf("Markets")).toBeLessThan(order.indexOf("User"));
   });
 
   it("lists Sectors then Breadth once opened", async () => {
@@ -267,30 +266,84 @@ describe("TopNav: the account block", () => {
       </TestAuth>,
     );
 
-  it("shows the username, the role and a Sign out button", () => {
+  const openUser = async () => {
+    fireEvent.click(screen.getByRole("button", { name: "User" }));
+    return screen.findAllByRole("menuitem");
+  };
+
+  it("shows the username, the role and one User menu (no separate Sign out or Settings in the bar)", () => {
     draw("viewer");
     expect(screen.getByTestId("account")).toHaveTextContent("ann");
     expect(screen.getByTestId("account")).toHaveTextContent("viewer");
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "User" })).toHaveAttribute("aria-haspopup", "menu");
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
   });
 
-  it("shows every nav link to a viewer too (hides nothing)", () => {
+  it("shows every other nav link to a viewer too", () => {
     draw("viewer");
     const labels = screen.getAllByRole("link").map((a) => a.textContent);
-    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Opportunities", "Momentum", "Settings"]);
+    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Opportunities", "Momentum"]);
     expect(screen.getByRole("button", { name: "Markets" })).toBeInTheDocument();
+  });
+
+  it("offers an admin Settings and Sign out", async () => {
+    draw("admin");
+    const items = await openUser();
+    expect(items.map((el) => el.textContent)).toEqual(["Settings", "Sign out"]);
+    expect(items[0]).toHaveAttribute("href", "/settings");
+    expect(items[0]).toHaveAttribute("target", "_blank");
+  });
+
+  it("offers a viewer Sign out only (no Settings)", async () => {
+    draw("viewer");
+    const items = await openUser();
+    expect(items.map((el) => el.textContent)).toEqual(["Sign out"]);
+    expect(screen.queryByText("Settings")).toBeNull();
+  });
+
+  it("opens Settings in the same tab from a same-tab page, and marks the menu current on Settings", async () => {
+    h.pathname = "/settings";
+    draw("admin");
+    expect(screen.getByRole("button", { name: "User" })).toHaveAttribute("aria-current", "page");
+    const [settings] = await openUser();
+    expect(settings).not.toHaveAttribute("target");
   });
 
   it("signs out through the provider", async () => {
     const logout = vi.fn().mockResolvedValue(undefined);
     draw("admin", { logout });
-    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    const items = await openUser();
+    fireEvent.click(items.find((el) => el.textContent === "Sign out")!);
     await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
+  });
+
+  it("closes on Escape and returns focus to the trigger", async () => {
+    draw("admin");
+    await openUser();
+    fireEvent.keyDown(screen.getAllByRole("menuitem")[0], { key: "Escape" });
+    await waitFor(() => expect(screen.queryAllByRole("menuitem")).toHaveLength(0));
+    expect(screen.getByRole("button", { name: "User" })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("closes on a click outside the menu", async () => {
+    draw("admin");
+    await openUser();
+    fireEvent.pointerDown(document.body);
+    fireEvent.mouseDown(document.body);
+    fireEvent.click(document.body);
+    await waitFor(() => expect(screen.queryAllByRole("menuitem")).toHaveLength(0));
+  });
+
+  it("opens from the keyboard (ArrowDown on the trigger)", async () => {
+    draw("viewer");
+    fireEvent.keyDown(screen.getByRole("button", { name: "User" }), { key: "ArrowDown" });
+    expect(await screen.findByRole("menuitem", { name: "Sign out" })).toBeInTheDocument();
   });
 
   it("keeps the full bar, without an account block, while the session is being checked", () => {
     draw(null, { loading: true });
-    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Momentum" })).toBeInTheDocument();
     expect(screen.queryByTestId("account")).toBeNull();
   });
 
@@ -309,7 +362,7 @@ describe("TopNav: the account block", () => {
   });
 });
 
-// Layout guard: jsdom does no layout, so these pin the classes that keep the bar from wrapping, overlapping or pushing Settings out
+// Layout guard: jsdom does no layout, so these pin the classes that keep the bar from wrapping, overlapping or pushing the User menu out
 // of view. They are not a substitute for looking at the bar at 1280 and 1366px (see the 2026-10-13 decision).
 describe("TopNav: the bar does not wrap or overlap", () => {
   const draw = (role: "admin" | "viewer") =>
@@ -321,14 +374,19 @@ describe("TopNav: the bar does not wrap or overlap", () => {
 
   it("keeps every label, Ticker Analysis included, on one line and unshrinkable", () => {
     draw("admin");
-    for (const el of [...screen.getAllByRole("link").slice(1), screen.getByRole("button", { name: "Markets" }), screen.getByText("Ticker Analysis")]) {
+    for (const el of [
+      ...screen.getAllByRole("link").slice(1),
+      screen.getByRole("button", { name: "Markets" }),
+      screen.getByRole("button", { name: "User" }),
+      screen.getByText("Ticker Analysis"),
+    ]) {
       expect(el).toHaveClass("whitespace-nowrap", "shrink-0");
     }
   });
 
   it("lets the link group scroll sideways rather than run under the search or account block", () => {
     draw("admin");
-    const group = screen.getByRole("link", { name: "Settings" }).parentElement!;
+    const group = screen.getByRole("link", { name: "Momentum" }).parentElement!;
     expect(group).toHaveClass("min-w-0", "overflow-x-auto");
     expect(group).not.toHaveClass("shrink-0");
   });
@@ -350,13 +408,12 @@ describe("TopNav: the bar does not wrap or overlap", () => {
     expect(initial).toHaveTextContent("a");
     expect(initial).toHaveClass("lg:hidden");
     expect(account.querySelector("[title]")).toHaveAttribute("title", `ann (${role})`);
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "User" })).toBeVisible();
   });
 
-  it("keeps Settings, the search field and Sign out in the bar together", () => {
+  it("keeps the search field and the User menu in the bar together", () => {
     draw("viewer");
-    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByTestId("search")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "User" })).toBeInTheDocument();
   });
 });

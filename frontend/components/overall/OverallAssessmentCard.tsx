@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { CaretDown, CaretUp, Warning } from "@phosphor-icons/react";
 
+import { AdminOnly } from "@/components/auth/AdminOnly";
 import { CircularScoreBadge } from "@/components/overall/CircularScoreBadge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Verdict } from "@/components/ui/status";
@@ -80,15 +81,19 @@ function MultiplierDescription({ result, multipliers }: { result: OverallAssessm
       <p>
         The Fundamentals score is the weighted blend of the checks ({weights}), using your saved weights. The Overall score is the Fundamentals
         score times a Moat multiplier: Wide moat × {fmtMultiplier(multipliers.wide)}, Narrow moat × {fmtMultiplier(multipliers.narrow)},
-        No moat × {fmtMultiplier(multipliers.noMoat)}. A ticker with no Moat rated is scored as No moat.{" "}
-        <Link href="/settings?section=score-weighting" className="underline underline-offset-2 hover:text-text-secondary">
-          Adjust the weights
-        </Link>{" "}
-        or{" "}
-        <Link href="/settings?section=economic-moat" className="underline underline-offset-2 hover:text-text-secondary">
-          the Narrow multiplier
-        </Link>
-        .
+        No moat × {fmtMultiplier(multipliers.noMoat)}. A ticker with no Moat rated is scored as No moat.
+        {/* Actionable, and Settings is admin only: a viewer reads the sentences above without the pointer. */}
+        <AdminOnly>
+          {" "}
+          <Link href="/settings?section=score-weighting" className="underline underline-offset-2 hover:text-text-secondary">
+            Adjust the weights
+          </Link>{" "}
+          or{" "}
+          <Link href="/settings?section=economic-moat" className="underline underline-offset-2 hover:text-text-secondary">
+            the Narrow multiplier
+          </Link>
+          .
+        </AdminOnly>
       </p>
     </div>
   );

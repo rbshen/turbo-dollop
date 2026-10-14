@@ -8,7 +8,10 @@ import SettingsPage from "@/app/settings/page";
 vi.mock("@/lib/auth/AuthProvider", async () => (await import("@/lib/auth/adminAuthMock")).adminAuthModule());
 
 const nav = vi.hoisted(() => ({ section: null as string | null }));
-vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(nav.section ? { section: nav.section } : {}) }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(nav.section ? { section: nav.section } : {}),
+  useRouter: () => ({ replace: vi.fn() }),
+}));
 
 // The sections fetch their own data; this test is about the nav only.
 vi.mock("@/components/settings/StatusSection", () => ({ StatusSection: () => <p>scheduled jobs content</p> }));

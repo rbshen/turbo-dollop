@@ -389,6 +389,20 @@ def test_response_models_can_drop_their_raw_error_text():
     assert add.for_viewer().error is None and add.for_viewer().message == "m"
 
 
+def test_viewer_cannot_read_settings_only_endpoints_but_an_admin_can(world, client_for):
+    paths = [f"/api/config/{n}" for n in ("discount-rate", "discount-rates", "liquidity-zones", "reit-dividend-yield", "weinstein")]
+    viewer = client_for("viewer")
+    for path in paths:
+        assert viewer.get(path).status_code == 403, path
+    assert world.calls == [] and world.writes == []
+    admin = client_for("admin")
+    for path in paths:
+        assert admin.get(path).status_code == 200, path
+    # The shared config reads (ticker pages and the Screener use them) stay open to a viewer.
+    for path in ("/api/config/moat", "/api/config/score-weights"):
+        assert viewer.get(path).status_code == 200, path
+
+
 def test_viewer_cannot_read_operational_endpoints(world):
     viewer = TestClient(main.app)
     for path in ("/api/config/cron-health", "/api/config/data-source-health", "/api/config/data-groups",

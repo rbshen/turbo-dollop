@@ -7,9 +7,9 @@ import SettingsPage from "@/app/settings/page";
 import { TestAuth } from "@/lib/auth/testAuth";
 
 // The REAL sections and hooks, with only the transport replaced: every request the page makes is recorded (and answered with an
-// error, which each section handles by drawing its own message). This is what proves a viewer's Settings page never asks for an
-// admin-only endpoint, i.e. never produces a 403.
-const h = vi.hoisted(() => ({ requested: [] as string[], search: null as string | null }));
+// error, which each section handles by drawing its own message). This is what proves a viewer's Settings page never mounts a section,
+// so it never asks for a Settings-only endpoint (which the backend would answer with 403 anyway).
+const h = vi.hoisted(() => ({ requested: [] as string[], search: null as string | null, replace: vi.fn() }));
 vi.mock("@/lib/api/client", async (orig) => ({
   ...(await orig<typeof import("@/lib/api/client")>()),
   apiFetch: (path: string) => {
@@ -17,13 +17,15 @@ vi.mock("@/lib/api/client", async (orig) => ({
     return Promise.reject(new Error("offline"));
   },
 }));
-vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(h.search ? { section: h.search } : {}) }));
-
-const ADMIN_ONLY_READS = ["/config/cron-health", "/config/data-groups", "/config/data-source-health"];
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(h.search ? { section: h.search } : {}),
+  useRouter: () => ({ replace: h.replace }),
+}));
 
 beforeEach(() => {
   h.requested = [];
   h.search = null;
+  h.replace.mockReset();
 });
 afterEach(cleanup);
 
@@ -44,36 +46,41 @@ describe("Settings page by role", () => {
     draw("admin");
     expect(labels()).toHaveLength(8);
     await waitFor(() => expect(h.requested).toContain("/config/cron-health"));
+    expect(h.replace).not.toHaveBeenCalled();
   });
 
-  it("lists only the six viewer-readable sections for a viewer", () => {
+  it("sends a viewer home and mounts nothing: no heading, no section, no request", async () => {
     draw("viewer");
-    expect(labels()).toEqual(["Discount rate by country", "Score weighting", "Economic moat", "REIT", "Liquidity", "Weinstein"]);
+    await waitFor(() => expect(h.replace).toHaveBeenCalledWith("/"));
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.queryByRole("heading", { name: "Settings" })).toBeNull();
+    expect(h.requested).toEqual([]);
   });
 
-  it("never requests an admin-only endpoint for a viewer, on any section", async () => {
-    draw("viewer");
-    for (const name of labels() as string[]) {
-      fireEvent.click(screen.getByRole("button", { name }));
-      await waitFor(() => expect(h.requested.length).toBeGreaterThan(0));
-    }
-    expect(h.requested.length).toBeGreaterThan(0);
-    for (const admin of ADMIN_ONLY_READS) {
-      expect(h.requested.filter((p) => p.startsWith(admin)), admin).toEqual([]);
-    }
-  });
-
-  it.each(["scheduled-jobs", "fmp-data-groups"])("a viewer's deep link to %s falls back to the first visible section", async (section) => {
+  it.each(["scheduled-jobs", "score-weighting", "economic-moat", "weinstein"])("a viewer's deep link to %s is redirected too", async (section) => {
     h.search = section;
     draw("viewer");
-    await waitFor(() => expect(h.requested.length).toBeGreaterThan(0));
-    expect(h.requested.some((p) => ADMIN_ONLY_READS.some((a) => p.startsWith(a)))).toBe(false);
-    expect(h.requested).toContain("/config/discount-rates");
+    await waitFor(() => expect(h.replace).toHaveBeenCalledWith("/"));
+    expect(h.requested).toEqual([]);
   });
 
-  it("fetches nothing while the role is unknown (the first section is an admin one)", () => {
+  it("sends a signed-out visitor home as well", async () => {
+    draw(null);
+    await waitFor(() => expect(h.replace).toHaveBeenCalledWith("/"));
+    expect(h.requested).toEqual([]);
+  });
+
+  it("fetches nothing and does not redirect while the role is unknown", () => {
     draw(null, true);
     expect(h.requested).toEqual([]);
+    expect(h.replace).not.toHaveBeenCalled();
     expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("keeps an admin on the page when they switch sections", async () => {
+    draw("admin");
+    fireEvent.click(screen.getByRole("button", { name: "Weinstein" }));
+    await waitFor(() => expect(h.requested).toContain("/config/weinstein"));
+    expect(h.replace).not.toHaveBeenCalled();
   });
 });

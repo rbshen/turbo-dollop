@@ -8,7 +8,6 @@ import { CaretDown } from "@phosphor-icons/react";
 
 import { PageContainer } from "@/components/layout/PageContainer";
 import { TickerSearch } from "@/components/nav/TickerSearch";
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { cn } from "@/lib/utils";
 
@@ -23,16 +22,16 @@ const NAV_LINKS: NavLink[] = [
   { href: "/watchlist", label: "Watchlist" },
   { href: "/opportunities", label: "Opportunities" },
   { href: "/momentum", label: "Momentum" },
-  { href: "/settings", label: "Settings" },
 ];
 
-// "Markets" is a dropdown, not a page: it sits between Momentum and Settings and groups the two market-wide views. It is active on
+// "Markets" is a dropdown, not a page: it sits after Momentum and groups the two market-wide views. It is active on
 // either route and on their sub-routes (/breadth/[sector]).
 const MARKETS_LINKS: NavLink[] = [
   { href: "/sectors", label: "Sectors" },
   { href: "/breadth", label: "Breadth" },
 ];
 const MARKETS_AFTER = "/momentum";
+const SETTINGS_HREF = "/settings";
 
 function isUnder(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -107,6 +106,51 @@ function MarketsMenu({ pathname, sameTab }: { pathname: string; sameTab: boolean
   );
 }
 
+// The account menu: "User" opens Settings (admin only; a viewer has no Settings page) and Sign out. Same Base UI Menu as Markets, so the
+// keyboard and dismiss behaviour is the same: Enter/Space/ArrowDown open it, arrow keys move, Esc closes and returns focus to the trigger,
+// an outside click closes it. The Settings item is a real link and follows the nav's new-tab rule.
+function UserMenu({ pathname, sameTab, isAdmin, onSignOut }: { pathname: string; sameTab: boolean; isAdmin: boolean; onSignOut: () => void }) {
+  const onSettings = isUnder(pathname, SETTINGS_HREF);
+  const itemClass =
+    "block w-full rounded px-2 py-1.5 text-left text-sm text-text-secondary outline-none transition-colors data-[highlighted]:bg-surface-2 data-[highlighted]:text-text-primary";
+  return (
+    <Menu.Root>
+      <Menu.Trigger
+        aria-current={onSettings ? "page" : undefined}
+        className={cn(
+          "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1.5 text-sm font-medium transition-colors",
+          onSettings
+            ? "bg-surface-2 text-text-primary"
+            : "text-text-secondary hover:bg-white/5 hover:text-text-primary data-[popup-open]:bg-white/5 data-[popup-open]:text-text-primary"
+        )}
+      >
+        User
+        <CaretDown size={12} weight="bold" aria-hidden="true" className="text-text-tertiary" />
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Positioner side="bottom" align="end" sideOffset={6} className="z-40">
+          <Menu.Popup className="min-w-36 rounded-md border border-border-input bg-surface p-1 shadow-popover outline-none">
+            {isAdmin && (
+              <Menu.LinkItem
+                href={SETTINGS_HREF}
+                closeOnClick
+                aria-current={onSettings ? "page" : undefined}
+                {...(sameTab ? {} : NEW_TAB_PROPS)}
+                className={cn(itemClass, onSettings && "bg-surface-2 text-text-primary")}
+              >
+                Settings
+              </Menu.LinkItem>
+            )}
+            <Menu.Item onClick={onSignOut} className={itemClass}>
+              Sign out
+            </Menu.Item>
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
+  );
+}
+
 // Ticker Analysis has no landing page of its own -- per the design
 // handoff, it's "reached by searching a ticker or navigating from
 // Stocks/ETFs/Watchlist," not by clicking this item directly. It renders as
@@ -114,7 +158,7 @@ function MarketsMenu({ pathname, sameTab }: { pathname: string; sameTab: boolean
 // ticker page), not a link to nowhere.
 export function TopNav() {
   const pathname = usePathname();
-  const { user, isLoading, logout } = useAuth();
+  const { user, isLoading, isAdmin, logout } = useAuth();
   // On the sign-in page, and for a visitor who is not signed in, there is nothing to navigate to: just the name. (While the
   // session is still being checked the full bar shows, so a signed-in page does not flicker.)
   if (pathname === "/login" || pathname.startsWith("/login/") || (!isLoading && !user)) {
@@ -175,7 +219,7 @@ export function TopNav() {
         </div>
         {user && (
           // Collapse order on a narrow bar: the role word goes first (it shows from 2xl only; it stays in the title and for a
-          // screen reader), then the username becomes its initial below lg. Sign out always stays.
+          // screen reader), then the username becomes its initial below lg. The User menu always stays.
           <div className="flex shrink-0 items-center gap-1 text-sm" data-testid="account">
             <span title={`${user.username} (${user.role})`} className="max-w-28 truncate text-text-primary">
               <span aria-hidden="true" className="uppercase lg:hidden">
@@ -184,9 +228,7 @@ export function TopNav() {
               <span className="sr-only lg:not-sr-only">{user.username}</span>
             </span>
             <span className="sr-only text-text-tertiary 2xl:not-sr-only">{user.role}</span>
-            <Button variant="ghost" size="sm" className="px-2" onClick={() => void logout()}>
-              Sign out
-            </Button>
+            <UserMenu pathname={pathname} sameTab={sameTab} isAdmin={isAdmin} onSignOut={() => void logout()} />
           </div>
         )}
       </PageContainer>

@@ -2,8 +2,18 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { OverallAssessmentView } from "@/components/overall/OverallAssessmentCard";
+import { OverallAssessmentView as BareView } from "@/components/overall/OverallAssessmentCard";
+import { TestAuth } from "@/lib/auth/testAuth";
 import type { OverallAssessment } from "@/lib/overallScore";
+
+// The note's Settings links are for an admin: every test below draws the card as one, the role cases at the end as a viewer.
+function OverallAssessmentView(props: React.ComponentProps<typeof BareView>) {
+  return (
+    <TestAuth role="admin">
+      <BareView {...props} />
+    </TestAuth>
+  );
+}
 
 afterEach(cleanup);
 
@@ -316,5 +326,22 @@ describe("OverallAssessmentView: score colouring in the table", () => {
     expect(row[3].className).not.toMatch(/text-(negative|warn|positive|caution)/);
     const stepsRow = within(screen.getByText("Fundamentals score").closest("tr") as HTMLElement).getAllByRole("cell");
     for (const cell of stepsRow) expect(cell.className).not.toMatch(/text-(negative|warn|positive|caution)/);
+  });
+});
+
+describe("OverallAssessmentView: the Settings pointer is for admins", () => {
+  const rows = result({ score: 71, stepsScore: 83.8, moatMultiplier: 0.85, moat: "narrow_moat" });
+
+  it("shows a viewer the explanation without the Adjust links or a dangling full stop", () => {
+    render(
+      <TestAuth role="viewer">
+        <BareView result={rows} multipliers={{ wide: 1, narrow: 0.85, noMoat: 0.7 }} />
+      </TestAuth>,
+    );
+    expand();
+    const note = screen.getByTestId("weighting-note");
+    expect(note).toHaveTextContent("A ticker with no Moat rated is scored as No moat.");
+    expect(within(note).queryByRole("link")).toBeNull();
+    expect(note).not.toHaveTextContent(/Adjust|Narrow multiplier\./);
   });
 });

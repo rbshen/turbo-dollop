@@ -56,11 +56,23 @@ def test_a_write_method_is_never_registered_as_viewer_unless_listed():
     assert all(ROUTE_ROLES[k] == "viewer" for k in VIEWER_ALLOWED_WRITES)
 
 
+# Config reads only the Settings page uses (a viewer cannot open Settings). moat and score-weights are NOT here: ticker pages and the Screener read them.
+SETTINGS_ONLY_READS = [
+    ("GET", f"/api/config/{n}") for n in ("discount-rate", "discount-rates", "liquidity-zones", "reit-dividend-yield", "weinstein")
+]
+
+
+def test_shared_config_reads_stay_open_to_a_viewer():
+    for n in ("moat", "score-weights"):
+        assert ROUTE_ROLES[("GET", f"/api/config/{n}")] == "viewer", n
+
+
 def test_operational_detail_and_spend_reads_are_admin_only():
     for key in (
         ("GET", "/api/config/cron-health"),
         ("GET", "/api/config/data-source-health"),
         ("GET", "/api/config/data-groups"),
+        *SETTINGS_ONLY_READS,
         ("GET", "/api/tickers/{ticker}/financials/cash-flow-cell-check"),
     ):
         assert ROUTE_ROLES[key] == "admin", key

@@ -44,7 +44,7 @@ const LABEL_SETS: Record<"full" | "screener", Record<MoatValue, string>> = {
 // named rather than quoted.
 const MOAT_TITLE: Record<MoatValue, string> = {
   wide_moat: "Wide moat: Overall = Fundamentals score × 1.0",
-  narrow_moat: "Narrow moat: Overall = Fundamentals score × the Narrow multiplier (Settings > Economic moat)",
+  narrow_moat: "Narrow moat: Overall = Fundamentals score × the Narrow multiplier",
   no_moat: "No moat: Overall = Fundamentals score × 0.70",
 };
 
