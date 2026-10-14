@@ -40,9 +40,9 @@ export function panWindowStart(startAtDown: number, dxPx: number, pxPerRow: numb
   return clampWindowStart(startAtDown + Math.round(dxPx / pxPerRow), length, width);
 }
 
-/** The 11 SPDR sector ETFs, in the same order/display names as the Sector Heatmap
+/** The 11 SPDR sector ETFs, in the same order/display names as the Sectors page
  * (backend/data/sector_heatmap_data.py::SECTOR_ETFS) -- kept in sync by hand, since the
- * frontend has no reason to fetch the heatmap just to read this fixed, rarely-changing list. */
+ * frontend has no reason to fetch the sector returns just to read this fixed, rarely-changing list. */
 export const SECTOR_ETFS: { ticker: string; name: string }[] = [
   { ticker: "XLK", name: "Technology" },
   { ticker: "XLF", name: "Financials" },

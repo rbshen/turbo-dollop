@@ -1880,7 +1880,7 @@ export interface EtfMomentumOut {
   rows: EtfMomentumRowOut[];
 }
 
-// Sector Heatmap -- see backend/data/sector_heatmap_data.py. Every return
+// GET /api/sector-heatmap (the Sectors page; the backend and these types keep the old name) -- see backend/data/sector_heatmap_data.py. Every return
 // is a trailing price-only return (split-adjusted close, no dividends) in
 // percentage points (4.25 == +4.25%), over calendar-offset windows.
 export interface SectorHeatmapCellOut {

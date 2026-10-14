@@ -11,7 +11,7 @@ How every chart is coloured, drawn and worded. Companion to `docs/design-system.
 | The job | Use |
 | --- | --- |
 | Chart tab candles, indicators, zones, signals, events, stages | The named tokens `chart-up`, `chart-down`, `chart-ema21`, `chart-sma50`, `chart-sma200`, `chart-stoch-k`, `chart-band`, `chart-refline`, `chart-zone-broken-support`, `chart-zone-broken-resistance`, `chart-warren-yellow`, `chart-warren-gray`, `chart-event-earnings`, `chart-event-dividend`, `stage-*`. Values are unchanged from before the redesign, except `chart-warren-yellow` (amber `#f59e0b` to pure yellow `#ffff00`, 2026-10-05); only the names are new. |
-| Bars that show a direction (Breadth net new highs, Sector heatmap cells) | `positive` and `negative`. Never the candle pair. |
+| Bars that show a direction (Breadth net new highs, Sectors page return bars) | `positive` and `negative`. Never the candle pair. |
 | A bar or line that is one series (Revenue, ROE, price target) | `series-1` (brand blue). |
 | Several series that are not ordered by meaning | `series-1` to `series-5`, in order. Never `warn`, `positive`, `negative` or `brand` under another name. |
 | Breadth 20, 50, 200-day lines | `series-3`, `series-2`, `series-1`. Draw order 200, 50, 20 so the most volatile line is on top. |
@@ -35,6 +35,10 @@ How every chart is coloured, drawn and worded. Companion to `docs/design-system.
 - **Tooltip:** `surface` fill, `border-card` outline, `radius-md`, `shadow-popover`. Labels `text-secondary`, values `text-primary` in mono, always with a sign on a change (+1.26%, −7.49%).
 - **Active range or toggle:** `surface-2` fill and `text-primary`, neutral and never brand blue. A choose-one range is a SegmentedControl; an independent overlay is a Switch, or an `outline` `sm` Button with `aria-pressed` where a row of them has no room for switches (the Chart tab's overlay toggles).
 - **Legend:** a `text-xs` line (13px) in `text-secondary`, a 6px dot in the series colour. Non-interactive.
+
+## Ranked return bars (Sectors page, 2026-10-14)
+
+A horizontal, sorted, diverging bar chart for one return per category (11 sector ETFs): `components/sectors/SectorBarChart.tsx`, plain CSS (percent-positioned `div`s), not recharts. A label column (mono ticker + name), then the plot: bars grow from a one-pixel `text-tertiary` zero line, `positive` to the right and `negative` to the left, sorted descending, with the signed two-decimal value (`+1.80%`, `-5.93%`, `text-primary`, mono) at the bar's outer end and a gutter beside the plot so the label never clips. The x-axis is fitted per chart to its own values (padded, always containing zero, 1/2/5 ticks, `text-secondary` mono labels under the plot, no gridlines), so charts with different windows are not comparable to each other. A missing value is the label, `n/a` in `text-tertiary` and no bar. No tooltip. Each chart carries its own native `Select` (`short`) above it. Pure helpers in `lib/sectorReturns.ts`; spec docs/specs/sectors.md.
 
 ## States
 

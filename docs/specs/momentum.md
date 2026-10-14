@@ -3,7 +3,7 @@
 A monthly 3/6/12-month price-momentum ranking, price-only and independent of Step 1-5 / Overall Assessment scoring.
 Two rankings share one engine, one job and one anchor rule: **stocks** (`MomentumSnapshot`, the `/momentum` page) and
 **ETFs** (`EtfMomentumSnapshot`, `GET /api/momentum/etf`; backend and `/momentum` table built 2026-10-05).
-The Sector Heatmap is a separate feature ([Sector Heatmap](sector-heatmap.md)).
+The Sectors page is a separate feature ([Sectors](sectors.md)).
 
 ## Signal
 
@@ -17,7 +17,7 @@ The Sector Heatmap is a separate feature ([Sector Heatmap](sector-heatmap.md)).
 - `return_1w` (anchor - 7 days) and `return_1mo` are informational columns shown beside the ranking; never part of the
   composite or rank, and `None` (not a drop) when the fund lacks a bar that far back.
 - **Basis: split-adjusted close, price only** (FMP daily bars through the shared bars cache,
-  `auto_adjust=False`), not dividend-adjusted. The Sector Heatmap made the same call: the app is used for options
+  `auto_adjust=False`), not dividend-adjusted. The Sectors page made the same call: the app is used for options
   trading, not for holding the underlying. For ETFs this understates income-heavy funds (bond, covered-call, high-yield
   equity) against total return; it matters little for the growth funds that tend to top the table.
 

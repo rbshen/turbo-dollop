@@ -11,7 +11,7 @@ interface Props {
 }
 
 /** 12-entry tab strip -- "S&P 500" (-> /breadth) plus the 11 SPDR sectors (-> /breadth/<ticker>), in the
- * same order the Sector Heatmap uses. Used only on the sector breadth pages: the sp500 page itself keeps
+ * same order the Sectors page uses. Used only on the sector breadth pages: the sp500 page itself keeps
  * its own small "Browse by sector" link instead, so its already-tested body stays untouched. */
 export function BreadthSectorTabs({ active }: Props) {
   return (

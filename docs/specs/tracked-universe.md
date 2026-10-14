@@ -61,7 +61,7 @@ sides are exhaustive with no overlap, and that `SYSTEM_TICKERS` is gone.
 | `stale_data_health_check`'s stock staleness report (the ETF side is reported separately from `load_etf_universe`) | |
 | Screener `GET /api/screener?universe=all` and `/screener/meta` | |
 
-Not on this list because they never used the universe: Liquidity Zones, BB+RSI and Warren (monitored watchlists only), the Sector Heatmap (11 fixed ETFs) and
+Not on this list because they never used the universe: Liquidity Zones, BB+RSI and Warren (monitored watchlists only), the Sectors page's job (11 fixed ETFs) and
 Market Breadth (`IndexConstituent` sp500). `tests/test_tracked_universe.py` fails if a job reads the helper from anywhere else, calls a removed name, or
 re-declares the union.
 

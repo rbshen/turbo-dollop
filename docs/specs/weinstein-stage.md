@@ -27,7 +27,7 @@ daily-timeframe question (Part 2).
   `TickerScore`): sweeps the tracked universe (`load_tracked_universe`, [Tracked universe](tracked-universe.md)) via **one**
   batch read (`clients.shared_bars_cache.get_or_fetch_bars_batch`), runs the Weinstein engines and
   upserts per ticker — never one live fetch per ticker. It is the one nightly job that actually
-  fetches daily bars (Sunday UTC is a full resync); the LP, Sector Heatmap, Market Breadth and
+  fetches daily bars (Sunday UTC is a full resync); the LP, Sectors, Market Breadth and
   Momentum jobs read its warm cache, so this job cannot be removed or reordered after them. The
   fetch is `WEINSTEIN_LOOKBACK_DAYS` = 5 years wide. Wired into `core/cron_health.py`'s
   `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS`. Delisted-flagged tickers are skipped (see the FMP

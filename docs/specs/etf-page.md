@@ -62,7 +62,7 @@ when every row is omitted**. No new endpoint, table or cron job: every input is 
 | Beta | cached `profile` `beta` | asset class (from `/etf/info`) does not contain "equity" (bond, commodity, other, unknown; "Sector Equity" counts, 2026-10-04), or 0 |
 
 - **Performance basis.** Split-adjusted **price** return, not total return: FMP's daily bars are not dividend-adjusted, the same
-  basis the Sector Heatmap uses (`docs/specs/sector-heatmap.md`), and the same calendar-offset windows (last close on/before
+  basis the Sectors page uses (`docs/specs/sectors.md`), and the same calendar-offset windows (last close on/before
   `anchor - 1 month` / `1 year`; YTD base is the prior year's last close). It does **not** read the 7-day-cached
   `price_change` row, so it is never a week old. The anchor is the newest completed-session bar; the caption names its date.
 - **Bar coverage.** The read itself is a pure cache read (it never fetches, writes or widens the shared cache). Since
@@ -164,7 +164,7 @@ The header's action cluster also holds the shared universe button (Add to / Remo
   and the row carries the `N/A` placeholder (`NO_CONSENSUS_RATING`), which sorts last. The consensus call is made after the
   row's cache-only reads because it depends on them; a ticker with no score row (no cached profile) is not known to be an
   ETF and still makes it. Stock rows are unchanged.
-- **Sectors heatmap:** each sector label is one `Link` to `/tickers/<ETF>` (new tab, like other ticker links).
+- **Sectors page:** its sector labels linked to `/tickers/<ETF>` until the 2026-10-14 bar-chart rework, which has no links (docs/specs/sectors.md); the ETF page is reached by search, the ETF screener and watchlists.
 - **`nightly_fundamentals_fetch`** skips known ETFs/funds when it builds its own universe
   (`load_fundamentals_fetch_universe`); an explicit `--tickers` list is still honoured. The score recompute and momentum
   use the tracked universe (an ETF that was only opened, not added, is not in it, see [Tracked universe](tracked-universe.md)); search

@@ -1,18 +1,23 @@
 "use client";
 
+import { useState } from "react";
+
 import { PageContainer } from "@/components/layout/PageContainer";
-import { SectorHeatmapGrid } from "@/components/sectors/SectorHeatmapGrid";
+import { SectorBarChart } from "@/components/sectors/SectorBarChart";
 import { PageHeader } from "@/components/ui/page-header";
 import { fmtEventDate } from "@/lib/chartEventMarkers";
-import { useSectorHeatmap } from "@/lib/hooks/useSectorHeatmap";
+import { useSectorReturns } from "@/lib/hooks/useSectorReturns";
+import { DEFAULT_CHART_WINDOWS } from "@/lib/sectorReturns";
 
 export default function SectorsPage() {
-  const { data, error } = useSectorHeatmap();
+  const { data, error } = useSectorReturns();
+  // One window per chart, independent; deliberately not persisted (a reload returns to the defaults).
+  const [windows, setWindows] = useState<string[]>([...DEFAULT_CHART_WINDOWS]);
 
   return (
     <PageContainer className="space-y-6 pb-12">
       <PageHeader
-        title="Sector Heatmap"
+        title="Sectors"
         subtitle={
           data?.as_of_date && (
             <>
@@ -23,24 +28,33 @@ export default function SectorsPage() {
         }
       />
 
-      {error && <p className="text-sm text-negative">Failed to load the sector heatmap.</p>}
+      {error && <p className="text-sm text-negative">Failed to load the sector returns.</p>}
 
-      {!error && !data && <p className="text-sm text-text-tertiary animate-pulse">Loading sector heatmap…</p>}
+      {!error && !data && <p className="text-sm text-text-tertiary animate-pulse">Loading sector returns…</p>}
 
       {!error && data && data.as_of_date === null && (
         <p className="text-sm text-text-tertiary">No data yet — the nightly job hasn&apos;t run.</p>
       )}
 
-      {!error && data && data.as_of_date !== null && <SectorHeatmapGrid data={data} />}
+      {!error && data && data.as_of_date !== null && (
+        <div className="space-y-10">
+          {windows.map((window, i) => (
+            <SectorBarChart
+              key={i}
+              index={i + 1}
+              rows={data.rows}
+              window={window}
+              onWindowChange={(next) => setWindows((current) => current.map((w, j) => (j === i ? next : w)))}
+            />
+          ))}
+        </div>
+      )}
 
-      <div className="space-y-1 border-t border-border-subtle pt-4 text-xs text-text-tertiary">
+      <div className="border-t border-border-subtle pt-4 text-xs text-text-tertiary">
         <p>
-          Trailing price change (excludes dividends) of the 11 SPDR sector ETFs, rolling back from the last completed
-          close: 1D = the prior close, 1W = 7 days, 1M to 9M = the same date N months earlier, 1Y = the same date one
-          year earlier; a weekend or holiday baseline uses the prior close. YTD is measured from the prior
-          year&apos;s final close. Click a column header to sort.
+          Returns are split-adjusted price change of the 11 SPDR sector ETFs, with no dividends included.
+          {data?.as_of_date && <> Data as of the close on {fmtEventDate(data.as_of_date)}.</>}
         </p>
-        <p>Cell color is scaled within each column — the strongest tint is that window&apos;s largest move, so tints aren&apos;t comparable across columns.</p>
       </div>
     </PageContainer>
   );

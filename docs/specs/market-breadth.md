@@ -4,7 +4,7 @@ S&P 500 breadth, one row per session: % of constituents closing above their own 
 SMA, and net new 52-week highs minus lows. Independent of Step 1-5/Overall Assessment scoring —
 zero FMP fundamentals calls, no `FMP_ENABLED` guard needed. Bars come from FMP via
 `SharedBarsCache` (split-adjusted close/high/low, no dividend adjustment — same basis and
-rationale as [Sector Heatmap](sector-heatmap.md)).
+rationale as [Sectors](sectors.md)).
 
 ## Methodology
 
@@ -81,7 +81,7 @@ strictly (**not** the S&P 500 ∪ Dow union `load_universe_tickers` returns — 
 requested design named the latter, but since Dow ⊂ S&P 500 the two happen to be identical today;
 the strict function was chosen anyway since it can't silently drift if a Dow-only name ever
 appears). Anchor = the latest session across the fetched bars that is `<=` the last completed
-session (the Sector Heatmap's rule); a weekend/holiday run upserts the same anchor idempotently.
+session (the Sectors page's rule); a weekend/holiday run upserts the same anchor idempotently.
 The job is wired into `CRON_JOB_NAMES`/`_EXPECTED_CADENCE_HOURS`/`JOB_METADATA`/`crontab.txt`/
 `OPS_RUNBOOK.md`, enforced by `test_cron_wiring.py`. The run message (Settings > Scheduled Jobs) is "N/M constituents, <unserved>", plus ", K sector(s) refused: XLC, ..." when a sector failed its own gate; the status stays `success` (a refused sector is not a failed run). A `crontab.txt` edit alone changes nothing on
 the box (it must be reinstalled from `backend/`); the job's activation record is in
@@ -152,7 +152,7 @@ dates).
 selector (`/breadth/[sector]`, a dynamic route reusing the existing chart/stat components,
 `/breadth` itself staying the S&P-500-wide default), not 11 new top-nav entries — following the
 same "N things render as rows/cards on one page" pattern every other multi-entity feature in
-this app already uses (the Sector Heatmap itself, most directly on point, already treats these
+this app already uses (the Sectors page itself, most directly on point, already treats these
 same 11 sectors as rows in one table rather than 11 pages).
 
 **Late sector starts.** The sector series do not all begin on the same day: most start with the sp500

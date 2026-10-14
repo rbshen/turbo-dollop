@@ -265,7 +265,7 @@ actually current. Some tickers' rows were found 2-3 nights stale, not just 1.
 Once the market-close-aware freshness rule above proved out for the Liquidity Zone job, the same
 mechanism was generalized into one shared table (`SharedBarsCache` in `core/models.py`, unique
 `(ticker, interval, bar_time)`) read by every nightly bar consumer — Trend/Weinstein, Liquidity
-Zones, Warren, BB+RSI, Sector Heatmap, Market Breadth, and Momentum — via
+Zones, Warren, BB+RSI, Sectors, Market Breadth, and Momentum — via
 `clients/shared_bars_cache.py::get_or_fetch_bars_batch`. The bars are FMP's (see "Daily prices:
 FMP migration (Phase 2)" and "Intraday bars: FMP (Phase 4)" below), raw / non-dividend-adjusted
 (`auto_adjust=False`). The Chart tab is deliberately NOT a consumer of this shared table
@@ -347,7 +347,7 @@ Key mechanics:
   (about 1,239 FMP calls per wrong night), the stale count read the whole universe, a Friday holiday did
   this three nights running (Fri/Sat/Sun UTC fires), and every on-demand read (ETF warm-up, trend endpoint,
   long-history top-up) repeated a call per view — 31 of 743 nights 2024-09-20..2026-10-02, replay now 0
-  wrong. Displayed "as of" dates were never wrong (heatmap, breadth and `bars_as_of` take the anchor from
+  wrong. Displayed "as of" dates were never wrong (Sectors, breadth and `bars_as_of` take the anchor from
   the data). Remaining limits: **early-close days** — from the session's real 13:00 close the daily helper
   returns that day, while `_provisional_last_bar_tickers` and `long_history_bars._is_fresh` keep a hard-coded
   16:00 (+10 min settle), so a bar written between 13:00 and 16:10 ET that day counts as provisional and is
@@ -416,7 +416,7 @@ archived in `docs/archive/claude-md-history-fmp-migration.md`.
   `unserved_tickers` out-parameter and keeps its cached bars; `daily_prices` off / master off /
   above plan / restricted reports the whole batch unserved — **cache-only, and the daily-bar jobs
   record `skipped`** (Phase 6b). Heartbeat message: `N not served by FMP (cached bars kept)`.
-- **Nightly incremental** (only the 1:05 bar-cache job actually fetches; Liquidity Zones/Heatmap/
+- **Nightly incremental** (only the 1:05 bar-cache job actually fetches; Liquidity Zones/Sectors/
   Breadth/Momentum read its warm cache): per ticker, one `full?from=<last cached bar - 7d>` call
   (`FMP_OVERLAP_DAYS`). The last cached bar is always overwritten; any EARLIER overlapping close
   that differs from the cache by more than 0.5% (`FMP_OVERLAP_TOLERANCE`) means FMP restated
@@ -610,8 +610,8 @@ FMP's own delisted date is not stored anywhere.
   `data/momentum_data.py::compute_and_store_momentum_snapshot` drop it from the fetch and compute
   loop, and each summary carries `skipped_delisted_count` (the universe already excludes them, so the count is read
   from the flag table directly). Scoped to the DB-derived universe
-  only — the 1:05 job's `--tickers`/`--limit` escape hatch bypasses it. Market Breadth and Sector
-  Heatmap need no change (their universes — `IndexConstituent` sp500 and 11 fixed ETFs — never
+  only — the 1:05 job's `--tickers`/`--limit` escape hatch bypasses it. Market Breadth and
+  Sectors need no change (their universes — `IndexConstituent` sp500 and 11 fixed ETFs — never
   contained these).
 - **The flag deletes nothing**: `TickerScore`, `FundamentalsCache`, Watchlist and ticker-page
   history stay intact (a delisted ticker follows the wipe rule like any other, but the wipe is locked and unscheduled); the flag stops price-bar re-fetching and (since 2026-09-30) hides the ticker

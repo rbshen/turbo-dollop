@@ -1,12 +1,19 @@
-# Sector Heatmap (`/sectors`)
+# Sectors (`/sectors`)
 
 The 11 SPDR sector ETFs (XLK XLF XLV XLE XLI XLY XLP XLU XLB XLRE XLC) × 8 trailing-return
-windows (1d/1w/1m/3m/6m/9m/YTD/1y), color-graded. Price-only, zero FMP *fundamentals* calls,
-independent of Step 1-5/Overall Assessment scoring. This was Round 1 of a two-feature
+windows (1d/1w/1m/3m/6m/9m/YTD/1y), shown as three horizontal bar charts. Price-only, zero FMP *fundamentals* calls,
+independent of Step 1-5/Overall Assessment scoring.
+
+**Naming.** The page was a "Sector Heatmap" grid until 2026-10-14. The page, nav item and this spec are now "Sectors"
+(the spec was `sector-heatmap.md`). The backend keeps the old name on purpose, so nothing there was migrated:
+`data/sector_heatmap_data.py`, `pipeline.nightly_sector_heatmap` (and its `CRON_JOB_NAMES` / `crontab.txt` /
+`JOB_METADATA` entries and cron-health rows), the `GET /api/sector-heatmap` endpoint, the `SectorHeatmapOut` /
+`SectorHeatmapRowOut` / `SectorHeatmapCellOut` schemas and the frontend types that mirror them
+(`lib/api/types.ts`). The `SectorEtfReturn` table never had it. This was Round 1 of a two-feature
 investigation (2026-09-20) that also scoped a
 companion **ETF Momentum ranking** (the existing 3/6/12-month stock-momentum composite applied
 to ETFs) — built later, on a different design (2026-10-05); see [Momentum](momentum.md). This document covers only
-the heatmap.
+the Sectors page and its data.
 
 ## Data source and basis
 
@@ -67,7 +74,7 @@ failed run never prunes. Steady state is ~255 trading-day snapshots × 88 rows �
 (weekend/holiday re-runs upsert onto the same anchor; the original 7-window design was ~77
 rows/session, ~20k). Backend-only: no past-date UI exists; this just keeps the data one would
 need. Two things worth knowing: (1) every snapshot row already carries its own 1d..1y/YTD
-returns, so the *current* heatmap's 1Y/YTD columns never depend on retention — it only decides how
+returns, so the *current* page's 1Y/YTD windows never depend on retention — it only decides how
 far back a *past* snapshot can be read; (2) history starts 2026-09-18, so a full year of
 snapshots doesn't exist until Sep 2027. 370 (originally 366, widened 2026-09-21) is so a "same
 date one year ago" lookup still finds its row: when that date lands on a weekend/holiday it
@@ -89,21 +96,41 @@ cells:{<window>:{return_pct, base_date}}}]}`, fixed universe order; before any r
 
 ## UI
 
-`app/sectors/page.tsx`, `components/sectors/SectorHeatmapGrid.tsx`, `lib/sectorHeatmap.ts`. Plain
-CSS grid (not a chart library), ETFs as rows, windows as columns. These UI choices were left to
-judgment and are open to revision. Color scale is **per
-column** (each window's own largest |return| sets that column's intensity ceiling, floored at
-1pp so a flat column doesn't paint noise at full saturation) — tints are therefore not
-comparable across columns, stated on the page footnote (which also says the windows roll back from the last completed close: 1W = 7 days, 1M-9M and 1Y = the same date N months/a year earlier, a weekend/holiday baseline uses the prior close, YTD from the prior year's final close); a fixed per-window clamp was the
-considered alternative. Default sort is 3M descending; header clicks re-sort client-side, blank
-cells always sink. Each ETF label is a link (one `Link` per row, new tab) to `/tickers/<ETF>`, which renders the ETF
-variant of the ticker page (`docs/specs/etf-page.md`; links added 2026-10-01 together with that page). The nav item "Sectors" opens in a new tab like Momentum/Watchlist/
-Settings (except when clicked from Momentum, Sectors, Breadth or Settings, where nav links go same-tab). Layout, tint legibility and narrow-width behavior were never verified on screen (no
-browser was available).
+`app/sectors/page.tsx`, `components/sectors/SectorBarChart.tsx`, `lib/sectorReturns.ts`, `lib/hooks/useSectorReturns.ts`
+(reads `GET /api/sector-heatmap`). Rebuilt 2026-10-14 from the old color-graded grid as **three horizontal bar charts**,
+stacked, full width, in this order: **Today, 1W, 1M**. No backend, schema or cron change: every window was already stored
+and served.
+
+- **Dropdown per chart**, independent (the shared native `Select`, `short`). Options: Today, 1W, 1M, 3M, 6M, 9M, YTD, 1Y.
+  "Today" is only the label of the stored `1d` window; the data key and every backend field stay `1d`. Selections are page
+  state only, never persisted: a reload returns to Today / 1W / 1M.
+- **One bar per sector** (11), sorted by that chart's return **descending**, re-sorted when its dropdown changes (ties keep
+  the universe order). Label = ticker (mono, bold) + the sector name, as before, no link, no tooltip, no secondary text.
+- **Diverging bars** from a zero line: positive extends right in `positive` (green), negative left in `negative` (red). The
+  signed value, two decimals and a % sign (`+1.80%`, `-5.93%`), sits at the outer end of the bar.
+- **Variable x-axis per chart** (`lib/sectorReturns.ts::computeReturnAxis`): fitted to that chart's own values, always
+  containing zero and every value, with 6% padding each side and round 1/2/5 ticks (about four steps); tick labels are
+  `0%`, `5%`, `-10%`... to the step's precision. The axis refits when the dropdown changes, so a quiet 1D chart (about
+  ±2%) and a 1Y chart (tens of percent) are each readable. Bar lengths are therefore comparable within a chart, not
+  across charts, which have different scales. The zero line is drawn through every row; there are no other gridlines.
+- **Missing value:** a sector with no value for the window (a young fund, a stale fund) keeps its label, shows `n/a` beside
+  the zero line with no bar, and is ignored by the axis scale and the sort (it sinks to the bottom).
+- **Drawn with plain CSS** (percent-positioned `div`s in a two-column grid, a fixed gutter beside the plot for the value
+  label), not recharts: the layout is a ranked list with an end-of-bar label and a per-row `n/a`, which recharts would
+  need custom shapes for, and plain divs are unit-testable in jsdom (direction, length, axis ticks). No dependency added.
+- **Bottom note:** returns are split-adjusted price change with no dividends, plus the data as-of date. The windows' roll-back
+  rule (1W = 7 days, 1M-9M and 1Y = the same date N months or a year earlier, a weekend/holiday baseline uses the prior
+  close, YTD from the prior year's final close) is in "Windows and universe" above, no longer on the page.
+- Removed: the heatmap grid, the per-column tint scale and its "tints aren't comparable across columns" footnote, the
+  default 3M sort and the clickable column headers, and the per-sector links to `/tickers/<ETF>` (the ETF page is still
+  reachable by search, the ETF screener and watchlists). The nav item "Sectors" opens in a new tab like Momentum/Watchlist/
+  Settings (except when clicked from Momentum, Sectors, Breadth or Settings, where nav links go same-tab).
+- Tests: `components/sectors/SectorBarChart.test.tsx`, `app/sectors/page.test.tsx`, `lib/sectorReturns.test.ts` (defaults,
+  dropdown, descending sort, bar direction, n/a, axis refit). Layout was not verified on screen (no browser available).
 
 ## Why the app's ETF returns differ from a published sector index (2026-09-25 investigation)
 
-A user-reported divergence between Fathom's heatmap and TradingView's GICS sector indices for
+A user-reported divergence between Fathom's sector returns and TradingView's GICS sector indices for
 several sector ETFs turned out to be **no bug**. Fathom's own numbers reproduce exactly from two
 independent sources (FMP direct, Yahoo direct) using the same two anchor dates — the gap to
 TradingView is a difference in *what's being measured* (an ETF vs. the underlying GICS index),

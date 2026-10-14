@@ -1,4 +1,4 @@
-function niceStep(rawStep: number): number {
+export function niceStep(rawStep: number): number {
   const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
   const residual = rawStep / magnitude;
   if (residual > 5) return 10 * magnitude;
