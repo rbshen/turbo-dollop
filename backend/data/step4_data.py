@@ -31,6 +31,8 @@ from scoring.step4 import (
 )
 from helpers.statement_view import cached_data_quality, load_statement_view
 
+# "Utility" here is a rate-regulated utility (FMP sector Utilities and a regulated/diversified industry, scoring/classification.py); merchant
+# power generators and renewable utilities are Standard and are NOT exempt.
 ROIC_EXEMPT_TYPES = {"Bank", "Insurance", "Utility", "REIT/Property Developer"}
 # CCC (Cash Conversion Cycle) has no comparable inventory/receivables cash-
 # conversion concept for these business models -- Banks/Insurance/Utilities/
@@ -699,11 +701,15 @@ async def get_step4_data(ticker: str, cache_only: bool = False, weights: ScoreWe
     roic = roic + [roic_ttm * 100 if roic_ttm is not None else None]
 
     roic_exempt = company_type in ROIC_EXEMPT_TYPES
+    # Utility is a rate-regulated utility only (scoring/classification.py: FMP industry allowlist), so its wording says so; merchant
+    # generators (Independent Power Producers) are Standard and never reach this branch.
+    roic_exempt_detail = (
+        "a debt-funded regulated rate base is core to the business model, not mismanagement"
+        if company_type == "Utility"
+        else "structurally high leverage is core to the business model, not mismanagement"
+    )
     roic_exempt_reason = (
-        f"ROIC not applicable for {company_type} — structurally high leverage is core to the business "
-        "model, not mismanagement (assessed on ROE only)."
-        if roic_exempt
-        else None
+        f"ROIC not applicable for {company_type} — {roic_exempt_detail} (assessed on ROE only)." if roic_exempt else None
     )
 
     # Data-driven detection (unchanged for Standard/other company types): no

@@ -501,7 +501,7 @@ export interface Step4Out {
   company_type: string;
   classification_note: string;
   roe: (number | null)[];
-  // null (the whole field) when ROIC is exempt (Bank / Insurance / Utility).
+  // null (the whole field) when ROIC is exempt (Bank / Insurance / regulated Utility / REIT/Property Developer).
   roic: (number | null)[] | null;
   roic_exempt_reason: string | null;
   revenue: (number | null)[];

@@ -202,12 +202,14 @@ PASS_SCORE_THRESHOLD = 70
 # docstring) and reflects capital efficiency more directly. "Moderate tilt":
 # headline 60% (35/25) vs. supporting 40% (20/20) -- a deliberate user
 # design call, not a bug-driven fix like this module's other constants.
-# When a metric is exempt (company-type gate: REIT/Bank/Insurance/Utility),
+# When a metric is exempt (company-type gate: REIT/Bank/Insurance/regulated Utility),
 # its weight is redistributed proportionally across the remaining applicable
 # metrics (score_step4 divides each BASE_WEIGHTS entry by the sum of the
 # applicable ones), preserving their relative ratio rather than falling back
-# to an equal split -- e.g. ROIC+CCC exempt (Bank/Insurance/Utility) leaves
-# ROE at 25/45=55.6% and AR at 20/45=44.4%, not 50/50.
+# to an equal split -- e.g. no-inventory company (CCC exempt only) leaves ROE
+# at 25/80, ROIC at 35/80 and AR at 20/80. ROIC, CCC and AR are all exempt
+# for Bank/Insurance/regulated Utility/REIT (ROIC_EXEMPT_TYPES, CCC_EXEMPT_TYPES,
+# AR_EXEMPT_TYPES in data/step4_data.py), which leaves ROE alone at 100%.
 # The DEFAULT base weights (scoring/weights.py::DEFAULT_WEIGHTS.step4 is the single source; score_step4 takes a Step4Weights).
 BASE_WEIGHTS = {key: value / 100 for key, value in as_dict(DEFAULT_WEIGHTS.step4).items()}
 

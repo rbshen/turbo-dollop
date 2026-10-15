@@ -76,7 +76,7 @@ export function HistoricalTrendsGrid({ ticker }: Props) {
   // just no longer to whether the card renders.
 
   // Accounts Receivable stays suppressed for company types Step 4 exempts
-  // from the Revenue-vs-AR check (Bank/Insurance/Utility/REIT -- see
+  // from the Revenue-vs-AR check (Bank/Insurance/regulated Utility/REIT -- see
   // Step4Out.revenue_vs_ar_exempt_reason) -- unlike CFO/FCF above, this
   // exemption still gates display, not just scoring (not revisited by this
   // change -- Step 4's AR exemption was never reported as a false-positive

@@ -10,7 +10,7 @@ interface Props {
 
 const METHODOLOGY =
   "A weighted blend of Return on Equity, Return on Invested Capital, Revenue vs. Accounts Receivable, and Cash " +
-  "Conversion Cycle (ROIC/CCC/Revenue-vs-AR excluded and reweighted for Bank/Insurance/Utility/REIT); an ROE or " +
+  "Conversion Cycle (ROIC/CCC/Revenue-vs-AR excluded and reweighted for Bank/Insurance/regulated Utility/REIT); an ROE or " +
   "ROIC in its lowest tier (a hard limit) forces May not pass regardless of the blended score.";
 
 function joinWithAnd(items: string[]): string {

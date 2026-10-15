@@ -494,7 +494,7 @@ class Step4Out(BaseModel):
     classification_note: str = "Best-effort classification from sector/industry text — not a certified determination."
     roe: list[float | None]
     # None (the whole field) when ROIC is exempt for this company type
-    # (Bank / Insurance / Utility) -- not a list of nulls.
+    # (Bank / Insurance / regulated Utility / REIT) -- not a list of nulls.
     roic: list[float | None] | None = None
     roic_exempt_reason: str | None = None
     revenue: list[float | None]
@@ -509,9 +509,10 @@ class Step4Out(BaseModel):
     # the reporting window.
     ccc: list[float | None] | None = None
     ccc_exempt_reason: str | None = None
-    # Set only for REIT/Property Developer -- Revenue-vs-AR has no
-    # comparable concept for a rental-income business model, so it's
-    # excluded from scoring the same way ccc_exempt_reason excludes CCC.
+    # Set for Bank, Insurance, regulated Utility and REIT/Property Developer
+    # (AR_EXEMPT_TYPES) -- Revenue-vs-AR has no comparable concept for these
+    # business models, so it's excluded from scoring the same way
+    # ccc_exempt_reason excludes CCC.
     revenue_vs_ar_exempt_reason: str | None = None
     # None when required raw data is missing -- never a fabricated number.
     score: int | None = None

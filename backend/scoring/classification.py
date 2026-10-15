@@ -55,6 +55,25 @@ NON_LENDER_TICKER_OVERRIDES = {
     "PYPL", "SEIC", "SEZL", "TROW", "V",
 }
 
+# Utility = a rate-regulated utility (returns set by regulators), not every company FMP files under the `Utilities` sector. The profile
+# sector must be `Utilities` AND the FMP industry one of these, matched exactly after stripping (FMP's own spelling, the same pattern as
+# data/step1_data.py::COMMODITY_PRODUCER_INDUSTRIES). The sector also holds merchant generators ("Independent Power Producers": CEG, NRG,
+# VST) and "Renewable Utilities", which sell at market prices, carry no rate base and are scored as Standard. A Utilities-sector
+# ticker with NO industry stays Utility (the Commodity rule's convention), so nothing changes silently. No per-ticker overrides.
+# A relabel by FMP silently moves a ticker to Standard. See docs/specs/company-type-variations.md and docs/decisions.md 2026-10-15.
+UTILITY_SECTOR = "Utilities"
+UTILITY_REGULATED_INDUSTRIES = frozenset(
+    {"Regulated Electric", "Regulated Gas", "Regulated Water", "Diversified Utilities"}
+)
+
+
+def _is_utility(sector: str, industry: str | None) -> bool:
+    """The Utility rule: sector Utilities and the industry on the allowlist (or missing)."""
+    if sector != UTILITY_SECTOR:
+        return False
+    industry = (industry if isinstance(industry, str) else "").strip()
+    return not industry or industry in UTILITY_REGULATED_INDUSTRIES
+
 
 def classify_company_type(sector: str | None, industry: str | None, ticker: str | None = None, is_fund: bool = False) -> str:
     """Best-effort sector/industry text match, shared by Step 1/3/4/5 --
@@ -91,7 +110,7 @@ def classify_company_type(sector: str | None, industry: str | None, ticker: str 
         if ticker and ticker.upper() in NON_LENDER_TICKER_OVERRIDES:
             return "Standard"
         return "Bank"
-    if sector == "Utilities":
+    if _is_utility(sector, industry):
         return "Utility"
     if sector == "Real Estate" or "reit" in industry_lower:
         return "REIT/Property Developer"
