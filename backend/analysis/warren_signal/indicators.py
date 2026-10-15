@@ -25,6 +25,7 @@ from .types import WarrenProfile
 
 RSI_LENGTH = 14
 DI_LENGTH = 14
+ATR_LENGTH = 14
 ADX_LENGTH = 14
 WVF_LOOKBACK = 22  # `pd` in the reference script
 RSI_OVERBOUGHT = 70
@@ -78,6 +79,12 @@ def compute_rsi_wilder(close: pd.Series, length: int = RSI_LENGTH) -> pd.Series:
 def _true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
     prev_close = close.shift(1)
     return pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
+
+
+def compute_atr_wilder(high: pd.Series, low: pd.Series, close: pd.Series, length: int = ATR_LENGTH) -> pd.Series:
+    """ATR(length) with Wilder smoothing: wilder_rma of the true range. A public composition of the two helpers
+    above (no new math), used by the Chart tab's FVG size filter."""
+    return wilder_rma(_true_range(high, low, close), length)
 
 
 def compute_dmi_adx(
