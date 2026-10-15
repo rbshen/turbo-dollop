@@ -11,6 +11,7 @@ export interface SignalToggles {
   dividends: boolean;
   lpSupport: boolean;
   lpResistance: boolean;
+  fvg: boolean;
   bollinger: boolean;
   ema21: boolean;
   sma50: boolean;
@@ -25,6 +26,8 @@ export const DEFAULT_SIGNAL_TOGGLES: SignalToggles = {
   dividends: true,
   lpSupport: true,
   lpResistance: true,
+  // D·6M only (see FVG_TOGGLE_RANGE).
+  fvg: true,
   bollinger: true,
   ema21: true,
   sma50: true,
@@ -40,6 +43,7 @@ export const TOGGLE_OPTIONS: { key: keyof SignalToggles; label: string }[] = [
   { key: "dividends", label: "Dividends" },
   { key: "lpSupport", label: "LP Support" },
   { key: "lpResistance", label: "LP Resistance" },
+  { key: "fvg", label: "FVG" },
   { key: "bollinger", label: "BB" },
   { key: "ema21", label: "EMA 21" },
   { key: "sma50", label: "SMA 50" },
@@ -50,6 +54,9 @@ export const TOGGLE_OPTIONS: { key: keyof SignalToggles; label: string }[] = [
 // The Weinstein "Stage" toggle only exists on the weekly view.
 export const STAGE_TOGGLE_RANGE: ChartRange = "W_4Y";
 
+// The fair value gap overlay is drawn on the 6-month daily view only.
+export const FVG_TOGGLE_RANGE: ChartRange = "D_6M";
+
 // The 2H·90D range draws candles, the two signal marker sets and the LP lines, and nothing else: no MA/Bollinger
 // lines, no Stage, no earnings/dividend letters.
 export const INTRADAY_CHART_RANGE: ChartRange = "2H_90D";
@@ -58,6 +65,7 @@ const INTRADAY_TOGGLE_KEYS: ReadonlySet<keyof SignalToggles> = new Set(["bbRsi",
 export function isToggleOffered(key: keyof SignalToggles, range: ChartRange, isEtf: boolean): boolean {
   if (range === INTRADAY_CHART_RANGE) return INTRADAY_TOGGLE_KEYS.has(key);
   if (key === "stage") return range === STAGE_TOGGLE_RANGE;
+  if (key === "fvg") return range === FVG_TOGGLE_RANGE;
   if (key === "earnings") return !isEtf;
   return true;
 }

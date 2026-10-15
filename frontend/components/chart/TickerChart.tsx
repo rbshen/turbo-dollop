@@ -6,6 +6,7 @@ import { fmtMoney } from "@/lib/format";
 import { buildDividendLabels, buildEarningsLabels, describeEventMarker, eventTooltipPlacement } from "@/lib/chartEventMarkers";
 import type { TooltipPlacement } from "@/lib/chartEventMarkers";
 import { EventLabelsPrimitive } from "./EventLabelsPrimitive";
+import { FvgZonesPrimitive } from "./FvgZonesPrimitive";
 import { LevelTagsPrimitive } from "./LevelTagsPrimitive";
 import { TooltipCard } from "@/components/ui/tooltip";
 import type { ChartOut } from "@/lib/api/types";
@@ -235,6 +236,8 @@ interface OverlayVisibility {
   showDividends: boolean;
   showLpSupport: boolean;
   showLpResistance: boolean;
+  /** D·6M only -- the fair value gap zones. */
+  showFvg?: boolean;
   showBollinger: boolean;
   showEma21: boolean;
   showSma50: boolean;
@@ -451,8 +454,18 @@ function addMainSeries(chart: IChartApi, data: ChartOut, visibility: OverlayVisi
     );
   }
 
+  // Fair value gap zones (D·6M): a bottom-layer primitive on the candle series, same "create whenever there's data, gate
+  // only the initial zones on the toggle" convention as the event letters above.
+  let fvgApi: FvgZonesPrimitive | null = null;
+  if (data.fvgs.length > 0) {
+    fvgApi = new FvgZonesPrimitive({ bullish: colors.chartFvgBullish, bearish: colors.chartFvgBearish });
+    candle.attachPrimitive(fvgApi);
+    fvgApi.setZones(visibility.showFvg ? data.fvgs : [], data.bars.map((b) => b.time));
+  }
+
   return {
     candle,
+    fvgApi,
     zoneLines,
     bbRsiMarkersApi,
     warrenMarkersApi,
@@ -782,6 +795,7 @@ export function TickerChart({
   showDividends,
   showLpSupport,
   showLpResistance,
+  showFvg = false,
   showBollinger,
   showEma21,
   showSma50,
@@ -816,11 +830,13 @@ export function TickerChart({
     warren: ISeriesMarkersPluginApi<Time> | null;
     earnings: EventLabelsPrimitive | null;
     dividends: EventLabelsPrimitive | null;
+    fvg: FvgZonesPrimitive | null;
   }>({
     bbRsi: null,
     warren: null,
     earnings: null,
     dividends: null,
+    fvg: null,
   });
   // The earnings/dividend marker currently under the cursor (resolved from lightweight-charts' hoveredInfo in
   // the crosshair handler below). Holds only the id + tooltip placement -- the tooltip text is derived at render
@@ -885,6 +901,7 @@ export function TickerChart({
 
     const {
       candle,
+      fvgApi,
       zoneLines,
       bbRsiMarkersApi,
       warrenMarkersApi,
@@ -907,6 +924,7 @@ export function TickerChart({
         showDividends,
         showLpSupport,
         showLpResistance,
+        showFvg,
         showBollinger,
         showEma21,
         showSma50,
@@ -916,7 +934,7 @@ export function TickerChart({
       colors
     );
     chart.priceScale("right", 0).applyOptions({ scaleMargins: PRICE_PANE_SCALE_MARGINS });
-    markersApiRef.current = { bbRsi: bbRsiMarkersApi, warren: warrenMarkersApi, earnings: earningsLabelsApi, dividends: dividendLabelsApi };
+    markersApiRef.current = { bbRsi: bbRsiMarkersApi, warren: warrenMarkersApi, earnings: earningsLabelsApi, dividends: dividendLabelsApi, fvg: fvgApi };
     overlayApiRef.current = {
       lpSupport: lpSupportSeries,
       lpResistance: lpResistanceSeries,
@@ -1114,7 +1132,7 @@ export function TickerChart({
       observer.disconnect();
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
       chart.remove();
-      markersApiRef.current = { bbRsi: null, warren: null, earnings: null, dividends: null };
+      markersApiRef.current = { bbRsi: null, warren: null, earnings: null, dividends: null, fvg: null };
       overlayApiRef.current = { lpSupport: [], lpResistance: [], bollinger: [], ema21: null, sma50: null, sma200: null, stageMa: null };
       candleSeriesRef.current = null;
       chartStateRef.current = null;
@@ -1207,6 +1225,13 @@ export function TickerChart({
       showDividends ? buildDividendLabels(data.dividend_markers, colors.chartEventDividend, data.earnings_markers) : []
     );
   }, [data, showDividends]);
+
+  useEffect(() => {
+    markersApiRef.current.fvg?.setZones(
+      showFvg ? data.fvgs : [],
+      data.bars.map((b) => b.time)
+    );
+  }, [data, showFvg]);
 
   useEffect(() => {
     for (const s of overlayApiRef.current.lpSupport) s.applyOptions({ visible: showLpSupport });

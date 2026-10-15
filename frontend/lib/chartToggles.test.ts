@@ -11,11 +11,23 @@ describe("which toggles each range offers", () => {
     expect(labels("2H_90D", true)).toEqual(["BB+RSI", "Warren", "LP Support", "LP Resistance"]);
   });
 
-  it("daily ranges keep their ten toggles (Stage hidden); the ETF page drops Earnings", () => {
-    for (const r of ["D_6M", "D_1Y", "D_2Y"] as const) {
+  it("D·6M offers FVG after LP Resistance; D·1Y and D·2Y keep their ten toggles (Stage hidden); the ETF page drops Earnings", () => {
+    expect(labels("D_6M")).toEqual(["BB+RSI", "Warren", "Earnings", "Dividends", "LP Support", "LP Resistance", "FVG", "BB", "EMA 21", "SMA 50", "SMA 200"]);
+    for (const r of ["D_1Y", "D_2Y"] as const) {
       expect(labels(r)).toEqual(["BB+RSI", "Warren", "Earnings", "Dividends", "LP Support", "LP Resistance", "BB", "EMA 21", "SMA 50", "SMA 200"]);
-      expect(labels(r, true)).not.toContain("Earnings");
     }
+    for (const r of ["D_6M", "D_1Y", "D_2Y"] as const) expect(labels(r, true)).not.toContain("Earnings");
+  });
+
+  it("FVG exists on D·6M only: not on D·1Y, D·2Y, W·4Y or 2H·90D, for stocks or ETFs", () => {
+    for (const isEtf of [false, true]) {
+      expect(isToggleOffered("fvg", "D_6M", isEtf)).toBe(true);
+      for (const r of ["D_1Y", "D_2Y", "W_4Y", "2H_90D"] as const) expect(isToggleOffered("fvg", r, isEtf)).toBe(false);
+    }
+  });
+
+  it("FVG is on by default", () => {
+    expect(DEFAULT_SIGNAL_TOGGLES.fvg).toBe(true);
   });
 
   it("Stage exists on the weekly range only", () => {
@@ -47,6 +59,13 @@ describe("effectiveToggles", () => {
     effectiveToggles(saved, "2H_90D", false);
     expect(saved).toEqual(snapshot);
     expect(effectiveToggles(saved, "D_1Y", false)).toMatchObject({ ema21: true, sma200: false });
+  });
+
+  it("forces FVG off outside D·6M without touching the saved value, and follows it on D·6M", () => {
+    expect(effectiveToggles(ALL_ON, "D_1Y", false).fvg).toBe(false);
+    expect(effectiveToggles(ALL_ON, "2H_90D", false).fvg).toBe(false);
+    expect(effectiveToggles(ALL_ON, "D_6M", false).fvg).toBe(true);
+    expect(effectiveToggles({ ...ALL_ON, fvg: false }, "D_6M", false).fvg).toBe(false);
   });
 
   it("matches the previous per-range behaviour on the existing ranges (Stage weekly-only, Earnings off for ETFs)", () => {

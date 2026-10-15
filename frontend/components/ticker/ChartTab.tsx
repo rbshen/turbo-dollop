@@ -211,6 +211,7 @@ export function ChartTab({ ticker, isEtf }: Props) {
           showDividends={shown.dividends}
           showLpSupport={shown.lpSupport}
           showLpResistance={shown.lpResistance}
+          showFvg={shown.fvg}
           showBollinger={shown.bollinger}
           showEma21={shown.ema21}
           showSma50={shown.sma50}

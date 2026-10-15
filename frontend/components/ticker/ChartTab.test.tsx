@@ -38,6 +38,7 @@ const TOGGLES: [string, string][] = [
   ["Dividends", "showDividends"],
   ["LP Support", "showLpSupport"],
   ["LP Resistance", "showLpResistance"],
+  ["FVG", "showFvg"],
   ["BB", "showBollinger"],
   ["EMA 21", "showEma21"],
   ["SMA 50", "showSma50"],
@@ -138,7 +139,7 @@ describe("ChartTab: the overlay toggles", () => {
     expect(btn("Warren")).toHaveClass("text-text-secondary");
   });
 
-  it("shows ten toggles at the daily ranges, all on", () => {
+  it("shows eleven toggles on D · 6M (the default range), all on", () => {
     render(<ChartTab ticker="AAPL" />);
     for (const [label, prop] of TOGGLES) {
       expect(isOn(btn(label))).toBe(true);
@@ -159,6 +160,38 @@ describe("ChartTab: the overlay toggles", () => {
     fireEvent.click(btn(label));
     expect(isOn(btn(label))).toBe(true);
     expect(chartProps[prop]).toBe(true);
+  });
+
+  it("offers FVG on D · 6M only, on by default, and drives showFvg there", () => {
+    render(<ChartTab ticker="AAPL" />);
+    expect(isOn(btn("FVG"))).toBe(true);
+    expect(chartProps.showFvg).toBe(true);
+    for (const range of ["D · 1Y", "D · 2Y", "W · 4Y", "2H · 90D"]) {
+      fireEvent.click(btn(range));
+      expect(screen.queryByRole("button", { name: "FVG" })).not.toBeInTheDocument();
+      expect(chartProps.showFvg).toBe(false); // saved as on, but never applied off D · 6M
+    }
+    fireEvent.click(btn("D · 6M"));
+    expect(isOn(btn("FVG"))).toBe(true);
+    expect(chartProps.showFvg).toBe(true);
+  });
+
+  it("keeps a stored FVG off across a range round trip, and never rewrites it from another range", () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ fvg: false }));
+    render(<ChartTab ticker="AAPL" />);
+    expect(isOn(btn("FVG"))).toBe(false);
+    expect(chartProps.showFvg).toBe(false);
+    fireEvent.click(btn("D · 1Y"));
+    fireEvent.click(btn("D · 6M"));
+    expect(isOn(btn("FVG"))).toBe(false);
+  });
+
+  it("a stored toggle object saved before FVG existed loads with FVG on", () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ bbRsi: false, warren: true, stage: false }));
+    render(<ChartTab ticker="AAPL" />);
+    expect(isOn(btn("BB+RSI"))).toBe(false);
+    expect(isOn(btn("FVG"))).toBe(true);
+    expect(chartProps.showFvg).toBe(true);
   });
 
   it("offers Stage only on the weekly range, off by default, and drives showStage there", () => {

@@ -21,6 +21,8 @@ const EXPECTED_LEGACY_PALETTE: Record<string, string> = {
   chartWarrenGray: "#A1A1AA",
   chartEventEarnings: "#22D3EE",
   chartEventDividend: "#A78BFA",
+  chartFvgBullish: "#0891B2",
+  chartFvgBearish: "#F472B6",
   stageBase: "#8FD99F",
   stageAdvance: "#1B9E3E",
   stageTop: "#E8A020",

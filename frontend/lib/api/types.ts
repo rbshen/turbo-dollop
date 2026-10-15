@@ -1682,6 +1682,18 @@ export interface ChartZoneOut {
   broken: boolean;
 }
 
+// One fair value gap zone on the D_6M price pane (backend analysis/fvg.py). `start_time` is c4's bar (drawn from its left
+// edge); `end_time` is the bar whose close first went beyond the far side (drawn to its right edge), or null while the zone
+// is still open (drawn to the last bar's right edge). Projected case: when c3 is the last bar there is no c4, so `end_time`
+// is null AND `start_time` is a date AFTER the last bar -- drawn one bar wide, one bar to the right of the last bar.
+export interface ChartFvgOut {
+  side: "bullish" | "bearish";
+  top: number;
+  bottom: number;
+  start_time: string; // "YYYY-MM-DD"
+  end_time: string | null;
+}
+
 // One earnings-report marker on the Chart tab's price pane. `time` is the bar it attaches to (the report's
 // own trading day in a daily view, its Monday-anchored week in the weekly view); `event_date` is the real
 // report date -- what a tooltip shows. Both EPS values can be null (no analyst estimate on file).
@@ -1763,6 +1775,8 @@ export interface ChartOut {
   // demand for every ticker, monitored or not.
   zones: ChartZoneOut[];
   zones_available: boolean;
+  // D_6M only (empty on every other range): fair value gap zones.
+  fvgs: ChartFvgOut[];
   // Earnings-report dates / dividend ex-dates in the visible window, read from the CorporateEvent
   // cache (refreshed weekly, Saturday 06:00 UTC). events_source is null when the ticker isn't cached -- the only way to tell "couldn't
   // fetch" from a genuinely empty list (a non-dividend payer). The chart omits both marker types silently

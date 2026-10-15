@@ -77,7 +77,7 @@ function base(): Omit<ChartOut, "range" | "timeframe" | "bars"> {
     ema21: [], sma50: [], sma200: [], bollinger: [], stochastic: [], rsi: [],
     entry_signal_markers: [], entry_signal_available: true, weinstein_ma: [], weinstein_ma_label: null, weinstein_stages: [],
     warren_signal_markers: [], warren_signal_available: true, zones: [], zones_available: true,
-    earnings_markers: [], dividend_markers: [], events_source: null,
+    earnings_markers: [], dividend_markers: [], fvgs: [], events_source: null,
     warren_rsi: [], warren_adx: [], warren_plus_di: [], warren_minus_di: [], warren_wvf: [], warren_levels: null, warren_instruction: null,
     source: "fmp", chart_available: true,
   } as unknown as Omit<ChartOut, "range" | "timeframe" | "bars">;

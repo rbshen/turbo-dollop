@@ -74,6 +74,8 @@
   --color-chart-warren-gray: var(--fathom-chart-warren-gray);
   --color-chart-event-earnings: var(--fathom-chart-event-earnings);
   --color-chart-event-dividend: var(--fathom-chart-event-dividend);
+  --color-chart-fvg-bullish: var(--fathom-chart-fvg-bullish);
+  --color-chart-fvg-bearish: var(--fathom-chart-fvg-bearish);
   --color-stage-base: var(--fathom-stage-base);
   --color-stage-advance: var(--fathom-stage-advance);
   --color-stage-top: var(--fathom-stage-top);
@@ -189,6 +191,9 @@
   --fathom-chart-warren-gray: #a1a1aa;
   --fathom-chart-event-earnings: #22d3ee;
   --fathom-chart-event-dividend: #a78bfa;
+  /* Fair value gap zones (D·6M). Deliberately not the candle green/red; hexes picked by OKLab distance to every other chart color. */
+  --fathom-chart-fvg-bullish: #0891b2;
+  --fathom-chart-fvg-bearish: #f472b6;
   --fathom-stage-base: #8fd99f;
   --fathom-stage-advance: #1b9e3e;
   --fathom-stage-top: #e8a020;

@@ -18,6 +18,8 @@ export interface ChartColors {
   chartWarrenGray: string;
   chartEventEarnings: string;
   chartEventDividend: string;
+  chartFvgBullish: string;
+  chartFvgBearish: string;
   stageBase: string;
   stageAdvance: string;
   stageTop: string;
@@ -78,6 +80,8 @@ const FALLBACK_COLORS: Omit<ChartColors, keyof typeof CHART_CHROME> = {
   chartWarrenGray: "#A1A1AA",
   chartEventEarnings: "#22D3EE",
   chartEventDividend: "#A78BFA",
+  chartFvgBullish: "#0891B2",
+  chartFvgBearish: "#F472B6",
   stageBase: "#8FD99F",
   stageAdvance: "#1B9E3E",
   stageTop: "#E8A020",
@@ -99,13 +103,15 @@ const CSS_VAR_NAME: Record<keyof typeof FALLBACK_COLORS, string> = {
   chartWarrenGray: "--fathom-chart-warren-gray",
   chartEventEarnings: "--fathom-chart-event-earnings",
   chartEventDividend: "--fathom-chart-event-dividend",
+  chartFvgBullish: "--fathom-chart-fvg-bullish",
+  chartFvgBearish: "--fathom-chart-fvg-bearish",
   stageBase: "--fathom-stage-base",
   stageAdvance: "--fathom-stage-advance",
   stageTop: "--fathom-stage-top",
   stageDecline: "--fathom-stage-decline",
 };
 
-/** Resolves every named chart color token. The 18 chart- and stage-prefixed tokens are read live from the
+/** Resolves every named chart color token. The 20 chart- and stage-prefixed tokens are read live from the
  * document root (falling back to FALLBACK_COLORS wherever `document` is unavailable or a token resolves empty);
  * the four chrome tokens are always the fixed CHART_CHROME literal -- see its own comment for why. */
 export function readChartColors(): ChartColors {
