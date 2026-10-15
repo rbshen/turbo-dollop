@@ -1,37 +1,52 @@
 import type { ChartFvgOut } from "@/lib/api/types";
 
 // Pure geometry for the Chart tab's fair value gap overlay (components/chart/FvgZonesPrimitive.ts draws it; backend
-// analysis/fvg.py detects it). Logical coordinates: bar i's CENTER is logical i, its left edge i - 0.5 and its right edge
-// i + 0.5, so a zone is a [left, right] span of logical edges that the primitive converts with logicalToCoordinate.
+// analysis/fvg.py detects it). A zone is a span of whole BAR INDICES (bar i's center is logical i): lightweight-charts 5.2.0's
+// timeScale().logicalToCoordinate() returns 0 for any non-integer input (untyped), so the primitive converts the integer
+// indices and adds half a bar spacing for the left and right edges itself.
 
 /** Fill alpha of a zone's rectangle, and of its dashed top/bottom edge lines. */
 export const FVG_FILL_ALPHA = 0.14;
 export const FVG_EDGE_ALPHA = 0.58;
 
 export interface FvgSpan {
-  /** Logical left edge: c4's left edge. */
-  left: number;
-  /** Logical right edge: the ending bar's right edge, or the last bar's right edge for an open zone. */
-  right: number;
+  /** Index of the first bar the zone covers: c4. The zone's left edge is this bar's left edge. */
+  startIdx: number;
+  /** Index of the last bar it covers: the ending bar, or the last bar for an open zone. Its right edge is the zone's right edge. */
+  endIdx: number;
 }
 
-/** The zone's logical span over `barTimes` (the chart's bar times, oldest first), or null when it can't be placed (a
+/** The zone's bar-index span over `barTimes` (the chart's bar times, oldest first), or null when it can't be placed (a
  * start or end time that isn't a bar). Wire format (ChartFvgOut): a null `end_time` is an open zone, drawn to the last
- * bar's right edge; when its `start_time` is after the last bar (c3 was the last bar, there is no c4 yet) it is drawn
- * one bar wide, one bar to the right of the last bar. */
+ * bar's right edge; when its `start_time` is after the last bar (c3 was the last bar, there is no c4 yet) it is the
+ * one-bar span at index n (the bar count), one bar to the right of the last bar. */
 export function fvgSpan(fvg: Pick<ChartFvgOut, "start_time" | "end_time">, barTimes: readonly string[]): FvgSpan | null {
   const n = barTimes.length;
   if (n === 0) return null;
   const indexOf = (t: string) => barTimes.indexOf(t);
   const start = indexOf(fvg.start_time);
   if (fvg.end_time === null) {
-    if (start >= 0) return { left: start - 0.5, right: n - 1 + 0.5 };
-    if (fvg.start_time > barTimes[n - 1]) return { left: n - 0.5, right: n + 0.5 };
+    if (start >= 0) return { startIdx: start, endIdx: n - 1 };
+    if (fvg.start_time > barTimes[n - 1]) return { startIdx: n, endIdx: n };
     return null;
   }
   const end = indexOf(fvg.end_time);
   if (start < 0 || end < 0 || end < start) return null;
-  return { left: start - 0.5, right: end + 0.5 };
+  return { startIdx: start, endIdx: end };
+}
+
+/** The zone's x extent in pixels from the converted CENTERS of its first and last bar (`xStart`, `xEnd`, from
+ * logicalToCoordinate at integer indices) and the bar spacing (`xOne - xZero`, the centers of logical 1 and 0): left edge
+ * is the first center minus half a spacing, right edge the last center plus half. Null when any input is null. */
+export function fvgXEdges(
+  xStart: number | null,
+  xEnd: number | null,
+  xZero: number | null,
+  xOne: number | null
+): { left: number; right: number } | null {
+  if (xStart === null || xEnd === null || xZero === null || xOne === null) return null;
+  const half = (xOne - xZero) / 2;
+  return { left: xStart - half, right: xEnd + half };
 }
 
 export interface FvgRect {

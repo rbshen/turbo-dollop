@@ -1,10 +1,12 @@
 import type { IChartApi, ISeriesApi, ISeriesPrimitive, IPrimitivePaneRenderer, IPrimitivePaneView, Logical, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
-import { FVG_EDGE_ALPHA, FVG_FILL_ALPHA, fvgRect, fvgSpan, withAlpha } from "@/lib/chartFvg";
+import { FVG_EDGE_ALPHA, FVG_FILL_ALPHA, fvgRect, fvgSpan, fvgXEdges, withAlpha } from "@/lib/chartFvg";
 import type { ChartFvgOut } from "@/lib/api/types";
 
 // Draws the Chart tab's fair value gap zones (D·6M): a filled rectangle plus dashed 1px top and bottom edge lines per zone,
 // behind the candles (zOrder "bottom"), on the price pane only (attached to the candle series). X comes from
-// logicalToCoordinate at the bar EDGES (center +-0.5), y from priceToCoordinate; a zone with a null coordinate is skipped.
+// logicalToCoordinate at INTEGER bar indices only (5.2.0 returns 0 for a non-integer input, untyped): the bar spacing is
+// L(1) - L(0), the left edge L(startIdx) - spacing / 2 and the right edge L(endIdx) + spacing / 2; y from priceToCoordinate.
+// A zone with a null coordinate is skipped.
 // It has no autoscaleInfo, so it never changes the price scale. Overlapping zones are all drawn, no merging.
 
 export interface FvgColors {
@@ -36,12 +38,14 @@ export class FvgZonesPrimitive implements ISeriesPrimitive<Time> {
           for (const zone of this.zones) {
             const span = fvgSpan(zone, this.barTimes);
             if (!span) continue;
-            const rect = fvgRect(
-              timeScale.logicalToCoordinate(span.left as Logical),
-              timeScale.logicalToCoordinate(span.right as Logical),
-              series.priceToCoordinate(zone.top),
-              series.priceToCoordinate(zone.bottom)
+            const edges = fvgXEdges(
+              timeScale.logicalToCoordinate(span.startIdx as Logical),
+              timeScale.logicalToCoordinate(span.endIdx as Logical),
+              timeScale.logicalToCoordinate(0 as Logical),
+              timeScale.logicalToCoordinate(1 as Logical)
             );
+            if (!edges) continue;
+            const rect = fvgRect(edges.left, edges.right, series.priceToCoordinate(zone.top), series.priceToCoordinate(zone.bottom));
             if (!rect) continue;
             const base = zone.side === "bullish" ? this.colors.bullish : this.colors.bearish;
             const x = Math.round(rect.x * hpr);

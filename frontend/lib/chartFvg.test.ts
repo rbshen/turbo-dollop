@@ -1,24 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { FVG_EDGE_ALPHA, FVG_FILL_ALPHA, fvgRect, fvgSpan, withAlpha } from "@/lib/chartFvg";
+import { FVG_EDGE_ALPHA, FVG_FILL_ALPHA, fvgRect, fvgSpan, fvgXEdges, withAlpha } from "@/lib/chartFvg";
 
 const BARS = ["2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05", "2026-03-06"]; // logical 0..4
 
 describe("fvgSpan", () => {
-  it("runs from c4's left edge to the ending bar's right edge", () => {
-    expect(fvgSpan({ start_time: "2026-03-03", end_time: "2026-03-05" }, BARS)).toEqual({ left: 0.5, right: 3.5 });
+  it("runs from c4 to the ending bar", () => {
+    expect(fvgSpan({ start_time: "2026-03-03", end_time: "2026-03-05" }, BARS)).toEqual({ startIdx: 1, endIdx: 3 });
   });
 
   it("keeps a zone that ends on c4 as a one-bar-wide sliver", () => {
-    expect(fvgSpan({ start_time: "2026-03-04", end_time: "2026-03-04" }, BARS)).toEqual({ left: 1.5, right: 2.5 });
+    expect(fvgSpan({ start_time: "2026-03-04", end_time: "2026-03-04" }, BARS)).toEqual({ startIdx: 2, endIdx: 2 });
   });
 
-  it("draws an open zone to the last bar's right edge", () => {
-    expect(fvgSpan({ start_time: "2026-03-04", end_time: null }, BARS)).toEqual({ left: 1.5, right: 4.5 });
+  it("runs an open zone to the last bar", () => {
+    expect(fvgSpan({ start_time: "2026-03-04", end_time: null }, BARS)).toEqual({ startIdx: 2, endIdx: 4 });
   });
 
-  it("draws a zone whose c3 is the last bar one bar wide, one bar to the right of the last bar", () => {
-    expect(fvgSpan({ start_time: "2026-03-09", end_time: null }, BARS)).toEqual({ left: 4.5, right: 5.5 });
+  it("puts a zone whose c3 is the last bar on the one bar to the right of the last bar", () => {
+    expect(fvgSpan({ start_time: "2026-03-09", end_time: null }, BARS)).toEqual({ startIdx: 5, endIdx: 5 });
   });
 
   it("skips a zone it cannot place", () => {
@@ -26,6 +26,19 @@ describe("fvgSpan", () => {
     expect(fvgSpan({ start_time: "2026-03-03", end_time: "2026-03-10" }, BARS)).toBeNull(); // end is not a bar
     expect(fvgSpan({ start_time: "2026-03-05", end_time: "2026-03-03" }, BARS)).toBeNull(); // ends before it starts
     expect(fvgSpan({ start_time: "2026-03-03", end_time: null }, [])).toBeNull();
+  });
+});
+
+describe("fvgXEdges", () => {
+  it("pads the first and last bar centers by half the bar spacing", () => {
+    expect(fvgXEdges(25, 45, 5, 15)).toEqual({ left: 20, right: 50 });
+  });
+
+  it("is null when any center is null", () => {
+    expect(fvgXEdges(null, 45, 5, 15)).toBeNull();
+    expect(fvgXEdges(25, null, 5, 15)).toBeNull();
+    expect(fvgXEdges(25, 45, null, 15)).toBeNull();
+    expect(fvgXEdges(25, 45, 5, null)).toBeNull();
   });
 });
 

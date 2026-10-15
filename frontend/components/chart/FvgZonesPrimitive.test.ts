@@ -6,7 +6,8 @@ import type { ChartFvgOut } from "@/lib/api/types";
 const BARS = ["2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05", "2026-03-06"];
 const COLORS = { bullish: "#0891b2", bearish: "#f472b6" };
 
-// Bar i is at x = 10 * i + 5 (so its edges are 10 * i and 10 * i + 10); price p is at y = 100 - p.
+// Bar i is at x = 10 * i + 5 (so its edges are 10 * i and 10 * i + 10); price p is at y = 100 - p. Like lightweight-charts
+// 5.2.0, logicalToCoordinate answers 0 for any non-integer input.
 function setup(prices: (p: number) => number | null = (p) => 100 - p) {
   const calls: unknown[][] = [];
   const ctx = new Proxy(
@@ -22,7 +23,7 @@ function setup(prices: (p: number) => number | null = (p) => 100 - p) {
   );
   const p = new FvgZonesPrimitive(COLORS);
   p.attached({
-    chart: { timeScale: () => ({ logicalToCoordinate: (l: number) => 10 * l + 5 }) },
+    chart: { timeScale: () => ({ logicalToCoordinate: (l: number) => (Number.isInteger(l) ? 10 * l + 5 : 0) }) },
     series: { priceToCoordinate: prices },
     requestUpdate: () => {},
   } as never);
@@ -79,5 +80,22 @@ describe("FvgZonesPrimitive", () => {
     expect(draw().filter((c) => c[0] === "fillRect")).toHaveLength(1);
     p.setZones([], BARS);
     expect(draw().filter((c) => c[0] === "fillRect")).toHaveLength(0);
+  });
+
+  it("draws a non-empty rectangle for a normal, a one-bar, an open and a projected last-bar zone (regression: fractional logicals collapsed every zone)", () => {
+    const { p, draw } = setup();
+    const normal: ChartFvgOut = { side: "bullish", top: 60, bottom: 40, start_time: "2026-03-03", end_time: "2026-03-05" };
+    const oneBar: ChartFvgOut = { side: "bearish", top: 60, bottom: 40, start_time: "2026-03-04", end_time: "2026-03-04" };
+    const open: ChartFvgOut = { side: "bullish", top: 60, bottom: 40, start_time: "2026-03-04", end_time: null };
+    const projected: ChartFvgOut = { side: "bearish", top: 60, bottom: 40, start_time: "2026-03-09", end_time: null };
+    p.setZones([normal, oneBar, open, projected], BARS);
+    const fills = draw().filter((c) => c[0] === "fillRect");
+    expect(fills).toEqual([
+      ["fillRect", 10, 40, 30, 20], // bars 1..3
+      ["fillRect", 20, 40, 10, 20], // bar 2 only
+      ["fillRect", 20, 40, 30, 20], // bars 2..4
+      ["fillRect", 50, 40, 10, 20], // bar 5, one past the last bar (index 4)
+    ]);
+    for (const f of fills) expect(f[3] as number).toBeGreaterThan(0);
   });
 });
