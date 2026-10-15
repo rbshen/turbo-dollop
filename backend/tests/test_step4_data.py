@@ -387,6 +387,24 @@ def test_ccc_hard_gate_applies_to_bank_insurance_utility_too(monkeypatch):
         assert expected_type in result.ccc_exempt_reason
 
 
+def test_independent_power_producer_is_standard_and_not_exempt_from_roic_or_revenue_vs_ar(monkeypatch):
+    # Utilities-sector merchant generators (CEG, NRG, VST) are Standard since 2026-10-15: ROIC and Revenue-vs-AR are scored.
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch, sector="Utilities", industry="Independent Power Producers")
+    result = asyncio.run(get_step4_data("ipp1"))
+    assert result.company_type == "Standard"
+    assert result.roic_exempt_reason is None
+    assert result.revenue_vs_ar_exempt_reason is None
+
+
+def test_utility_roic_exempt_reason_says_regulated(monkeypatch):
+    _fresh_engine(monkeypatch)
+    _patch_fmp(monkeypatch, sector="Utilities", industry="Regulated Electric")
+    result = asyncio.run(get_step4_data("duk4"))
+    assert result.company_type == "Utility"
+    assert "regulated" in result.roic_exempt_reason
+
+
 def test_revenue_vs_ar_exempt_for_bank_insurance_utility(monkeypatch):
     # AR_EXEMPT_TYPES now matches CCC_EXEMPT_TYPES/ROIC_EXEMPT_TYPES --
     # Bank/Insurance/Utility are exempt from Revenue-vs-AR the same way

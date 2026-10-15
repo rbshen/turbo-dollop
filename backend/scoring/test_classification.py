@@ -16,8 +16,42 @@ def test_bank_still_classifies_correctly_within_financial_services():
     assert classify_company_type("Financial Services", "Banks - Diversified") == "Bank"
 
 
-def test_utility_classified_by_sector():
-    assert classify_company_type("Utilities", "Regulated Electric") == "Utility"
+def test_regulated_electric_gas_and_water_classify_as_utility():
+    assert classify_company_type("Utilities", "Regulated Electric", "DUK") == "Utility"
+    assert classify_company_type("Utilities", "Regulated Gas", "ATO") == "Utility"
+    assert classify_company_type("Utilities", "Regulated Water", "AWK") == "Utility"
+
+
+def test_diversified_utilities_classify_as_utility_aes_and_sre():
+    assert classify_company_type("Utilities", "Diversified Utilities", "AES") == "Utility"
+    assert classify_company_type("Utilities", "Diversified Utilities", "SRE") == "Utility"
+
+
+def test_independent_power_producers_classify_as_standard_ceg_nrg_vst():
+    # Merchant generators sit in FMP's Utilities sector but sell at market prices with no rate base (docs/decisions.md 2026-10-15).
+    for ticker in ("CEG", "NRG", "VST"):
+        assert classify_company_type("Utilities", "Independent Power Producers", ticker) == "Standard"
+
+
+def test_unknown_utilities_industry_classifies_as_standard():
+    assert classify_company_type("Utilities", "Renewable Utilities", "BEP") == "Standard"
+    assert classify_company_type("Utilities", "Some Future Industry") == "Standard"
+
+
+def test_utilities_sector_with_blank_or_missing_industry_stays_utility():
+    assert classify_company_type("Utilities", None) == "Utility"
+    assert classify_company_type("Utilities", "") == "Utility"
+    assert classify_company_type("Utilities", "  ") == "Utility"
+
+
+def test_utility_industry_match_is_exact_after_stripping():
+    assert classify_company_type("Utilities", "  Regulated Electric ") == "Utility"
+    assert classify_company_type("Utilities", "Utilities - Regulated Electric") == "Standard"
+    assert classify_company_type("Utilities", "regulated electric") == "Standard"
+
+
+def test_a_non_utilities_sector_with_a_regulated_industry_is_not_utility():
+    assert classify_company_type("Industrials", "Regulated Electric") == "Standard"
 
 
 def test_reit_still_classifies_correctly():

@@ -415,7 +415,8 @@ def test_margins_severity_carveout_wiring_by_company_type(monkeypatch):
         ("Financial Services", "Insurance - Life", False, True),
         ("Real Estate", "REIT - Residential", False, True),
         ("Basic Materials", "Copper", False, True),  # Commodity Company
-        ("Utilities", "Utilities - Regulated Electric", True, False),
+        ("Utilities", "Regulated Electric", True, False),
+        ("Utilities", "Independent Power Producers", False, False),  # merchant generator: Standard, no carve-out
         ("Basic Materials", "Chemicals - Specialty", False, False),
         ("Technology", "Consumer Electronics", False, False),
     ]
