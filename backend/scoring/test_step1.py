@@ -1,6 +1,7 @@
 """Step 1 wrappers around the neutral engine (scoring/step1.py): the blend and weight tables, the CFO/FCF and Margins exemptions, the
-positivity gate, the Net Income Operating Income backup (completed fiscal years only), the Margins combination min(G, max(N, O)) and
-its carve-out, the thin-history cap. The engine itself is pinned in test_step1_engine.py."""
+positivity gate, the Net Income Operating Income backup (completed fiscal years only), the Margins wrapper (the 0.5 x Gross + 0.5 x
+max(Net, Operating) blend, the loss-making ceiling and the Utility carve-out) and the thin-history cap. The shared dollar engine is
+pinned in test_step1_engine.py, the Margins engine itself in test_step1_margins.py."""
 
 import inspect
 
@@ -16,6 +17,7 @@ from scoring.step1 import (
     score_step1,
 )
 from scoring.step1_engine import assess_series
+from scoring.step1_margins import assess_margin_series
 from scoring.trend import TrendResult
 
 N = 10
@@ -24,7 +26,7 @@ SHORT_GROWING = GROWING[:5]
 DECLINING = [100 * 0.88**t for t in range(N)]  # decline 35
 UP_MARGIN = [20 + 1.2 * t for t in range(N)]  # uptrend 100
 FLAT_MARGIN = [20.0] * N  # flat 88
-FALLING_MARGIN = [40 - 3.0 * t for t in range(N)]  # decline 30, ends positive
+FALLING_MARGIN = [40 - 3.0 * t for t in range(N)]  # decline 23, ends positive
 FLAT_SCORE = 88
 FCF_UP = [50 * 1.08**t for t in range(N)]
 
@@ -45,8 +47,9 @@ def strong(**overrides):
     return score_step1(**args)
 
 
-def ratio_score(values):
-    return assess_series(values, "ratio").score
+def margin_score(values):
+    """One margin series' unrounded score (what the blend uses)."""
+    return assess_margin_series(values).score_f
 
 
 # --- the blend, weights and exemptions ----------------------------------------------------------------------------------------------
@@ -68,7 +71,7 @@ def test_fail_all_declining():
     assert result["verdict"] == "Fail" and result["score"] < 50
     assert result["components"]["revenue"] == {"score": 35, "pattern": "decline"}
     assert result["components"]["cfo"] == {"score": 35, "pattern": "decline"}
-    assert result["components"]["margins"]["pattern"] == "decline" and result["components"]["margins"]["score"] == 30
+    assert result["components"]["margins"]["pattern"] == "decline" and result["components"]["margins"]["score"] == 23
 
 
 def test_cfo_exemption_redistributes_weights():
@@ -101,7 +104,7 @@ def test_margins_exemption_ignores_margin_data_entirely():
 
 def test_non_bank_cfo_exempt_types_keep_margins_scored():
     result = strong(cfo=None, cfo_exempt=True, fcf=None, gross_margin=FALLING_MARGIN, operating_margin=FALLING_MARGIN, net_margin=FALLING_MARGIN)
-    assert result["components"]["margins"] is not None and result["components"]["margins"]["score"] == 30
+    assert result["components"]["margins"] is not None and result["components"]["margins"]["score"] == 23
     assert result["weights"]["margins"] == pytest.approx(0.216667, abs=1e-5)
 
 
@@ -116,8 +119,10 @@ def test_score_clamped_to_valid_range_and_rounded_once():
     assert isinstance(result["score"], int)
 
 
-def test_the_scorer_has_no_ttm_parameter():
-    assert not [name for name in inspect.signature(score_step1).parameters if "ttm" in name]
+def test_the_only_ttm_parameters_are_the_margin_nudge_inputs():
+    # TTM is a display point everywhere in Step 1 except the capped nudge on the three margin series (docs/decisions.md, 2026-10-15)
+    assert [name for name in inspect.signature(score_step1).parameters if "ttm" in name] == ["ttm_margins", "ttm_outlier_flagged"]
+    assert strong(ttm_margins=None, ttm_outlier_flagged=False) == strong()  # omitted = no TTM in the score
 
 
 # --- positivity gate (Revenue, Net Income, CFO; not FCF) ---------------------------------------------------------------------------------
@@ -291,17 +296,22 @@ def test_backup_needs_a_recent_dip_unless_net_income_is_insufficient():
     assert ni["used_operating_income_backup"] is False
 
 
-# --- Margins: min(G, max(N, O)) -----------------------------------------------------------------------------------------------------
+# --- Margins: 0.5 x Gross + 0.5 x max(Net, Operating) ------------------------------------------------------------------------------
 
 N_BAD = [5, -3, 4, -2, 3, -4, 2, -3, 2, -1, 1]  # a margin that falls through zero in most years and ends at 1
 ONE_NEGATIVE_YEAR = [20, 20, 20, -5, 20, 20, 20, 20, 20, 20, 20]
 
 
-def margins(g, o, n, carveout=False):
-    return _classify_margins(g, o, n, carveout)
+def margins(g, o, n, carveout=False, **kwargs):
+    return _classify_margins(g, o, n, carveout, **kwargs)
 
 
-def test_margins_is_the_lower_of_gross_and_the_better_of_net_and_operating():
+def blend(g, o, n):
+    """The expected Margins score: half the gross score plus half the better of net and operating, rounded once."""
+    return int(round(0.5 * margin_score(g) + 0.5 * max(margin_score(o), margin_score(n))))
+
+
+def test_margins_is_half_gross_plus_half_the_better_of_net_and_operating():
     for g, o, n in [
         (FLAT_MARGIN, UP_MARGIN, N_BAD),
         (FLAT_MARGIN, FALLING_MARGIN, UP_MARGIN),
@@ -309,36 +319,36 @@ def test_margins_is_the_lower_of_gross_and_the_better_of_net_and_operating():
         (FALLING_MARGIN, UP_MARGIN, UP_MARGIN),
         (UP_MARGIN, N_BAD, N_BAD),
     ]:
-        gs, os_, ns = ratio_score(g), ratio_score(o), ratio_score(n)
         result, _ = margins(g, o, n)
-        assert result.score == min(gs, max(ns, os_)), (gs, os_, ns)
+        assert result.score == blend(g, o, n), (g, o, n)
 
 
-def test_a_weak_gross_margin_binds_even_when_net_and_operating_are_healthy():
+def test_a_weak_gross_margin_no_longer_caps_margins_when_net_and_operating_are_healthy():
     result, detail = margins(FALLING_MARGIN, UP_MARGIN, UP_MARGIN)
-    assert (result.score, result.pattern, detail["binding"]) == (30, "decline", "gross")
+    assert (result.score, result.pattern, detail["binding"]) == (62, "decline", "gross")  # (23 + 100) / 2, not min() = 23
+    assert detail["legs"] == {"gross": 23.3, "profit": 100.0}
 
 
-def test_operating_margin_stands_in_for_a_bad_net_margin_when_gross_is_healthy():
+def test_operating_margin_stands_in_for_a_bad_net_margin_inside_the_profit_leg():
     result, detail = margins(FLAT_MARGIN, FLAT_MARGIN, N_BAD)
     assert result.score == FLAT_SCORE
     assert detail["inputs"]["net"]["score"] < FLAT_SCORE
-    assert detail["binding"] == "gross"  # G 88 <= max(N, O) 88
+    assert detail["profit_leg"] == "operating"
 
 
-def test_both_net_and_operating_bad_leaves_margins_low_whatever_gross_says():
+def test_both_net_and_operating_bad_pulls_the_profit_leg_down_with_gross_carrying_half():
     result, detail = margins(UP_MARGIN, N_BAD, N_BAD)
-    assert result.score == ratio_score(N_BAD) < 50
-    assert detail["binding"] in ("net", "operating")
+    assert result.score == blend(UP_MARGIN, N_BAD, N_BAD)
+    assert result.score < 70 and detail["binding"] in ("net", "operating")
 
 
 def test_a_missing_input_drops_out():
     g, o, n = FLAT_MARGIN, UP_MARGIN, N_BAD
-    gs, os_, ns = ratio_score(g), ratio_score(o), ratio_score(n)
-    assert margins([], o, n)[0].score == max(os_, ns)  # no gross margin: max(N, O)
-    assert margins([20.0], o, n)[0].score == max(os_, ns)  # one point is missing too
-    assert margins(g, [], n)[0].score == min(gs, ns)  # no operating margin: min(G, N)
-    assert margins(g, o, [])[0].score == min(gs, os_)  # no net margin: min(G, O)
+    profit = int(round(max(margin_score(o), margin_score(n))))
+    assert margins([], o, n)[0].score == profit  # no gross margin: max(N, O) alone
+    assert margins([20.0], o, n)[0].score == profit  # one point is missing too
+    assert margins(g, [], n)[0].score == int(round(0.5 * margin_score(g) + 0.5 * margin_score(n)))  # no operating margin: the profit leg is N
+    assert margins(g, o, [])[0].score == int(round(0.5 * margin_score(g) + 0.5 * margin_score(o)))  # no net margin: the profit leg is O
 
 
 def test_net_and_operating_both_missing_makes_margins_insufficient_whatever_gross_says():
@@ -358,24 +368,39 @@ def test_no_operating_margin_argument_is_a_missing_input_not_an_error():
     assert set(result["components"]["margins"]["inputs"]) == {"gross", "net"}
 
 
-def test_the_positivity_ceiling_reaches_margins_a_loss_making_net_and_operating_cannot_lift_it():
+def test_the_loss_making_ceiling_caps_margins_whatever_gross_says():
     losing = [10, 8, 6, 4, 2, 0, -2, -4, -6, -8]
-    result, _ = margins(UP_MARGIN, losing, losing)
-    assert result.score <= 16  # ceiling at a latest -8 is 8, and the engine alone gives less than 40
+    result, detail = margins(UP_MARGIN, losing, losing)
+    assert result.score == 8 and detail["ceiling"] == 8.0  # 40 at zero, 0 at -10 points: 8 at a latest -8, not 50-odd from the blend
+    assert margins(UP_MARGIN, losing, UP_MARGIN)[0].score == 100  # one positive profit leg lifts the cap
 
 
-def test_the_margins_component_exposes_its_inputs_and_the_deciding_one():
+def test_the_margins_component_exposes_its_inputs_legs_and_the_weaker_leg():
     component = strong(gross_margin=FALLING_MARGIN)["components"]["margins"]
     assert component["binding"] == "gross"
-    assert component["inputs"]["gross"] == {"score": 30, "pattern": "decline"}
+    assert component["inputs"]["gross"]["score"] == 23 and component["inputs"]["gross"]["pattern"] == "decline"
     assert set(component["inputs"]) == {"gross", "operating", "net"}
+    assert component["profit_leg"] in ("net", "operating") and set(component["legs"]) == {"gross", "profit"}
+    assert component["score"] == 62
 
 
-# --- carve-out (Insurance / REIT-Property-Developer / Utility) ---------------------------------------------------------------------------
+def test_the_ttm_margins_reach_the_nudge_and_a_flagged_ticker_skips_it():
+    dip = [40, 41, 42, 43, 44, 45, 45, 46, 47, 38]
+    plain = strong(gross_margin=dip, operating_margin=dip, net_margin=dip)["components"]["margins"]["score"]
+    recovering = dict(gross=44.0, operating=44.0, net=44.0)
+    lifted = strong(gross_margin=dip, operating_margin=dip, net_margin=dip, ttm_margins=recovering)["components"]["margins"]["score"]
+    flagged = strong(gross_margin=dip, operating_margin=dip, net_margin=dip, ttm_margins=recovering, ttm_outlier_flagged=True)["components"][
+        "margins"
+    ]["score"]
+    assert lifted > plain == flagged
+    assert lifted - plain <= 5  # capped at +5 per series; all three legs move, the blend moves at most 5
+
+
+# --- carve-out (Utility) -----------------------------------------------------------------------------------------------------------------------
 
 
 def test_the_carveout_lifts_a_declining_margin_series_to_60_and_leaves_everything_else_alone():
-    assert margins(FALLING_MARGIN, FALLING_MARGIN, FALLING_MARGIN)[0].score == 30
+    assert margins(FALLING_MARGIN, FALLING_MARGIN, FALLING_MARGIN)[0].score == 23
     with_carveout, _ = margins(FALLING_MARGIN, FALLING_MARGIN, FALLING_MARGIN, carveout=True)
     assert (with_carveout.score, with_carveout.pattern) == (60, "decline")
     # a healthy or flat series is never touched, and a score already above 60 is not lowered
@@ -383,16 +408,16 @@ def test_the_carveout_lifts_a_declining_margin_series_to_60_and_leaves_everythin
     assert margins(UP_MARGIN, UP_MARGIN, UP_MARGIN, carveout=True)[0].score == 100
 
 
-def test_the_carveout_is_per_series_before_the_combination():
-    # G declines (lifted to 60), N and O flat 88: Margins = min(60, 88) = 60, not 30
+def test_the_carveout_is_per_series_before_the_blend():
+    # G declines (lifted to 60), N and O flat 88: Margins = (60 + 88) / 2 = 74
     result, _ = margins(FALLING_MARGIN, FLAT_MARGIN, FLAT_MARGIN, carveout=True)
-    assert result.score == 60
+    assert result.score == 74
 
 
-def test_the_carveout_acts_after_the_ceiling_and_can_lift_a_loss_making_decline_to_60():
+def test_the_loss_making_ceiling_still_binds_a_utility_after_the_carveout():
     losing = [10, 8, 6, 4, 2, 0, -2, -4, -6, -8]
-    assert margins(losing, losing, losing)[0].score < 20
-    assert margins(losing, losing, losing, carveout=True)[0].score == 60  # known and accepted: wrappers are unchanged
+    assert margins(losing, losing, losing)[0].score <= 8
+    assert margins(losing, losing, losing, carveout=True)[0].score == 8  # the series are lifted to 60, the Margins cap is not
 
 
 def test_carveout_wires_through_score_step1():
@@ -400,7 +425,7 @@ def test_carveout_wires_through_score_step1():
     carved = strong(
         gross_margin=FALLING_MARGIN, operating_margin=FALLING_MARGIN, net_margin=FALLING_MARGIN, margins_severity_carveout=True
     )
-    assert plain["components"]["margins"]["score"] == 30 and carved["components"]["margins"]["score"] == 60
+    assert plain["components"]["margins"]["score"] == 23 and carved["components"]["margins"]["score"] == 60
     assert carved["score"] > plain["score"]
 
 
