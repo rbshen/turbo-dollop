@@ -1,18 +1,13 @@
 "use client";
 
-import { useState } from "react";
-
 import { PageContainer } from "@/components/layout/PageContainer";
-import { SectorBarChart } from "@/components/sectors/SectorBarChart";
+import { SectorReturnCharts } from "@/components/sectors/SectorReturnCharts";
 import { PageHeader } from "@/components/ui/page-header";
 import { fmtEventDate } from "@/lib/chartEventMarkers";
 import { useSectorReturns } from "@/lib/hooks/useSectorReturns";
-import { DEFAULT_CHART_WINDOWS } from "@/lib/sectorReturns";
 
 export default function SectorsPage() {
   const { data, error } = useSectorReturns();
-  // One window per chart, independent; deliberately not persisted (a reload returns to the defaults).
-  const [windows, setWindows] = useState<string[]>([...DEFAULT_CHART_WINDOWS]);
 
   return (
     <PageContainer className="space-y-6 pb-12">
@@ -36,19 +31,7 @@ export default function SectorsPage() {
         <p className="text-sm text-text-tertiary">No data yet — the nightly job hasn&apos;t run.</p>
       )}
 
-      {!error && data && data.as_of_date !== null && (
-        <div className="space-y-10">
-          {windows.map((window, i) => (
-            <SectorBarChart
-              key={i}
-              index={i + 1}
-              rows={data.rows}
-              window={window}
-              onWindowChange={(next) => setWindows((current) => current.map((w, j) => (j === i ? next : w)))}
-            />
-          ))}
-        </div>
-      )}
+      {!error && data && data.as_of_date !== null && <SectorReturnCharts rows={data.rows} />}
 
       <div className="border-t border-border-subtle pt-4 text-xs text-text-tertiary">
         <p>

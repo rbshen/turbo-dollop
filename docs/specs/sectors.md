@@ -96,7 +96,7 @@ cells:{<window>:{return_pct, base_date}}}]}`, fixed universe order; before any r
 
 ## UI
 
-`app/sectors/page.tsx`, `components/sectors/SectorBarChart.tsx`, `lib/sectorReturns.ts`, `lib/hooks/useSectorReturns.ts`
+`app/sectors/page.tsx`, `components/sectors/SectorReturnCharts.tsx` (the three charts, window state, shared zero), `components/sectors/SectorBarChart.tsx` (one chart), `lib/sectorReturns.ts`, `lib/hooks/useSectorReturns.ts`
 (reads `GET /api/sector-heatmap`). Rebuilt 2026-10-14 from the old color-graded grid as **three horizontal bar charts**,
 stacked, full width, in this order: **Today, 1W, 1M**. No backend, schema or cron change: every window was already stored
 and served.
@@ -106,17 +106,30 @@ and served.
   state only, never persisted: a reload returns to Today / 1W / 1M.
 - **One bar per sector** (11), sorted by that chart's return **descending**, re-sorted when its dropdown changes (ties keep
   the universe order). Label = ticker (mono, bold) + the sector name, as before, no link, no tooltip, no secondary text.
-- **Diverging bars** from a zero line: positive extends right in `positive` (green), negative left in `negative` (red). The
-  signed value, two decimals and a % sign (`+1.80%`, `-5.93%`), sits at the outer end of the bar.
-- **Variable x-axis per chart** (`lib/sectorReturns.ts::computeReturnAxis`): fitted to that chart's own values, always
-  containing zero and every value, with 6% padding each side and round 1/2/5 ticks (about four steps); tick labels are
-  `0%`, `5%`, `-10%`... to the step's precision. The axis refits when the dropdown changes, so a quiet 1D chart (about
-  ±2%) and a 1Y chart (tens of percent) are each readable. Bar lengths are therefore comparable within a chart, not
-  across charts, which have different scales. The zero line is drawn through every row; there are no other gridlines.
+- **Diverging bars** from a zero line: positive extends right in `positive` (green), negative left in `negative` (red), solid
+  token fills (no opacity). The signed value, two decimals and a % sign (`+1.80%`, `-5.93%`), sits at the outer end of the bar.
+  **Bar style matches the Historical Trends bars** (`components/charts/MiniBarChart.tsx`): corner radius 1px (its recharts
+  `radius={1}`, i.e. effectively square), and its default `barCategoryGap="10%"`, so the bar is 90% of its row and the gap 10%
+  (rows are 32px, bar inset 5% top and bottom: about 28.8px of bar, 3.2px between bars).
+- **One shared zero, a scale per chart** (`lib/sectorReturns.ts`, laid out by `components/sectors/SectorReturnCharts.tsx`).
+  The three charts use the same label column and the same plot width (one container, one set of layout constants), and the
+  0% line sits at the **identical x in all three**. For each chart, from its selected window: `L` = size of its most negative
+  value (0 if none), `R` = its most positive (0 if none). **Shared zero fraction = clamp(max over the three charts of
+  L / (L + R), 12%, 88%)** of the plot width (`computeSharedZero`). A chart with nothing to draw (all n/a or all zero,
+  `L + R = 0`) puts no constraint on it; if none draws, zero is centred (50%). An all-positive chart contributes 0, an
+  all-negative one 1 (both then clamped). Each chart's own scale (`computeReturnAxis`) is the smallest that fits `L` in the
+  zero share to the left and `R` in the rest to the right, plus 6% padding (extent floored at 0.1pp so an empty chart still
+  draws): `total = max(L / z, R / (1 - z)) x 1.06`, axis = [-z x total, (1 - z) x total]. Ticks are round 1/2/5 steps (about
+  four across) on both sides of zero; if a side with data would get no tick, the step steps down the ladder unless that
+  would exceed 10 ticks. A small-range chart gets a tight scale while zero stays put; a window with a much longer bar on
+  the short side of the zero (for example a +40% bar against a -5% one) squeezes that chart's other side by design. Bar
+  lengths are comparable within a chart, not across charts. Both ends of the plot have a 4.5rem gutter so an end-of-bar
+  label (the longest negative bar included) is never clipped. Changing any dropdown recomputes the shared zero and every
+  chart's scale, so all three re-align together. No other gridlines.
 - **Missing value:** a sector with no value for the window (a young fund, a stale fund) keeps its label, shows `n/a` beside
   the zero line with no bar, and is ignored by the axis scale and the sort (it sinks to the bottom).
-- **Drawn with plain CSS** (percent-positioned `div`s in a two-column grid, a fixed gutter beside the plot for the value
-  label), not recharts: the layout is a ranked list with an end-of-bar label and a per-row `n/a`, which recharts would
+- **Drawn with plain CSS** (percent-positioned `div`s in a two-column grid, a gutter on each side of the plot for the value
+  labels), not recharts: the layout is a ranked list with an end-of-bar label and a per-row `n/a`, which recharts would
   need custom shapes for, and plain divs are unit-testable in jsdom (direction, length, axis ticks). No dependency added.
 - **Bottom note:** returns are split-adjusted price change with no dividends, plus the data as-of date. The windows' roll-back
   rule (1W = 7 days, 1M-9M and 1Y = the same date N months or a year earlier, a weekend/holiday baseline uses the prior
@@ -125,8 +138,9 @@ and served.
   default 3M sort and the clickable column headers, and the per-sector links to `/tickers/<ETF>` (the ETF page is still
   reachable by search, the ETF screener and watchlists). The nav item "Sectors" opens in a new tab like Momentum/Watchlist/
   Settings (except when clicked from Momentum, Sectors, Breadth or Settings, where nav links go same-tab).
-- Tests: `components/sectors/SectorBarChart.test.tsx`, `app/sectors/page.test.tsx`, `lib/sectorReturns.test.ts` (defaults,
-  dropdown, descending sort, bar direction, n/a, axis refit). Layout was not verified on screen (no browser available).
+- Tests: `components/sectors/SectorBarChart.test.tsx`, `components/sectors/SectorReturnCharts.test.tsx` (shared zero across
+  mixed / all-positive / all-negative / n/a / all-zero combinations, no clipping, re-alignment on a dropdown change),
+  `app/sectors/page.test.tsx`, `lib/sectorReturns.test.ts` (defaults, sort, shared-zero formula and axis). Layout was not verified on screen (no browser available).
 
 ## Why the app's ETF returns differ from a published sector index (2026-09-25 investigation)
 

@@ -4,11 +4,14 @@ import type { SectorHeatmapRowOut } from "@/lib/api/types";
 import {
   axisPercent,
   computeReturnAxis,
+  computeSharedZero,
   DEFAULT_CHART_WINDOWS,
   fmtAxisTick,
   RETURN_WINDOW_OPTIONS,
   sortByReturn,
   windowLabel,
+  ZERO_MIN,
+  ZERO_MAX,
 } from "@/lib/sectorReturns";
 
 function row(ticker: string, returns: Record<string, number | null>): SectorHeatmapRowOut {
@@ -38,47 +41,73 @@ describe("sortByReturn", () => {
   });
 });
 
+const fraction = (axis: { min: number; max: number }) => -axis.min / (axis.max - axis.min);
+
+describe("computeSharedZero", () => {
+  it("is the max over charts of L / (L + R)", () => {
+    // chart A: L=5, R=15 -> 0.25; chart B: L=30, R=10 -> 0.75
+    expect(computeSharedZero([[-5, 15], [-30, 10]])).toBeCloseTo(0.75, 9);
+    expect(computeSharedZero([[-5, 15]])).toBeCloseTo(0.25, 9);
+  });
+
+  it("clamps so zero is never jammed against an edge", () => {
+    expect(computeSharedZero([[1, 2, 3]])).toBe(ZERO_MIN); // all positive: 0 -> clamped up
+    expect(computeSharedZero([[-1, -2]])).toBe(ZERO_MAX); // all negative: 1 -> clamped down
+    expect(computeSharedZero([[-0.1, 100]])).toBe(ZERO_MIN);
+  });
+
+  it("ignores charts with nothing to draw and centres when none draws", () => {
+    expect(computeSharedZero([[null, null], [0, 0], [-3, 1]])).toBeCloseTo(0.75, 9);
+    for (const charts of [[], [[]], [[null]], [[0, 0]], [[null], [0]]]) expect(computeSharedZero(charts)).toBe(0.5);
+  });
+});
+
 describe("computeReturnAxis", () => {
-  it("covers every value and zero, with ticks inside the axis", () => {
-    const axis = computeReturnAxis([40.6, -5.93, 12]);
-    expect(axis.min).toBeLessThan(-5.93);
-    expect(axis.max).toBeGreaterThan(40.6);
-    expect(axis.ticks[0]).toBe(axis.min);
-    expect(axis.ticks.at(-1)).toBe(axis.max);
-    expect(axis.ticks).toContain(0);
+  it("puts zero exactly at the shared fraction whatever the data", () => {
+    for (const zero of [0.12, 0.3, 0.5, 0.88]) {
+      for (const values of [[40.6, -5.93], [1, 2], [-1, -2], [null], [0, 0], []]) {
+        expect(fraction(computeReturnAxis(values, zero))).toBeCloseTo(zero, 9);
+      }
+    }
   });
 
-  it("keeps zero inside the axis, padded, when every value is positive or every value is negative", () => {
-    const pos = computeReturnAxis([1, 2, 3]);
-    expect(pos.min).toBeLessThan(0);
-    const neg = computeReturnAxis([-1, -2, -3]);
-    expect(neg.max).toBeGreaterThan(0);
+  it("fits both sides without clipping: every value is inside the axis, with padding", () => {
+    for (const values of [[40.6, -5.93, 12], [-20, 3], [7, 9], [-4, -8]]) {
+      const axis = computeReturnAxis(values, computeSharedZero([values]));
+      expect(axis.min).toBeLessThan(Math.min(0, ...values));
+      expect(axis.max).toBeGreaterThan(Math.max(0, ...values));
+    }
   });
 
-  it("scales to its own range: a small-move chart gets a much tighter axis than a large-move one", () => {
-    const small = computeReturnAxis([-1.35, 1.8, 0.08]);
-    const large = computeReturnAxis([-20, 40.6]);
-    expect(small.max - small.min).toBeLessThan(5);
+  it("keeps each chart's own scale: a small-move chart is tighter than a large one at the same zero", () => {
+    const small = computeReturnAxis([-1.35, 1.8], 0.4);
+    const large = computeReturnAxis([-20, 40.6], 0.4);
+    expect(small.max - small.min).toBeLessThan(6);
     expect(large.max - large.min).toBeGreaterThan(50);
   });
 
-  it("ignores nulls and survives no values / all zeros", () => {
-    expect(computeReturnAxis([null, 2, null])).toEqual(computeReturnAxis([2]));
-    for (const values of [[], [null], [0, 0]]) {
-      const axis = computeReturnAxis(values);
-      expect(Number.isFinite(axis.min) && Number.isFinite(axis.max)).toBe(true);
+  it("has round ticks on both sides of zero, inside the axis", () => {
+    const axis = computeReturnAxis([-8, 20], 0.3);
+    expect(axis.ticks).toContain(0);
+    expect(axis.ticks.some((t) => t < 0)).toBe(true);
+    expect(axis.ticks.some((t) => t > 0)).toBe(true);
+    expect(axis.ticks.every((t) => t >= axis.min && t <= axis.max)).toBe(true);
+  });
+
+  it("survives no values, all zeros and a non-finite zero without NaN", () => {
+    for (const [values, zero] of [[[], 0.5], [[null], 0.5], [[0, 0], 0.5], [[1], NaN]] as const) {
+      const axis = computeReturnAxis(values, zero);
+      expect([axis.min, axis.max, ...axis.ticks].every(Number.isFinite)).toBe(true);
       expect(axis.max).toBeGreaterThan(axis.min);
-      expect(axis.min).toBeLessThanOrEqual(0);
-      expect(axis.max).toBeGreaterThanOrEqual(0);
     }
   });
 
   it("positions values linearly and formats ticks to the step's precision", () => {
-    const axis = computeReturnAxis([-2, 2]);
+    const axis = computeReturnAxis([-2, 2], 0.5);
     expect(axisPercent(axis.min, axis)).toBe(0);
     expect(axisPercent(axis.max, axis)).toBe(100);
     expect(axisPercent(0, axis)).toBeCloseTo(50, 5);
     expect(fmtAxisTick(0, axis)).toBe("0%");
-    expect(fmtAxisTick(-0.5, computeReturnAxis([-0.4, 0.4]))).toMatch(/^-0\.\d+%$/);
+    expect(fmtAxisTick(-0.5, computeReturnAxis([-0.4, 0.4], 0.5))).toMatch(/^-0\.\d+%$/);
   });
 });

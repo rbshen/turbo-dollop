@@ -5,32 +5,40 @@ import { Select } from "@/components/ui/Select";
 import { fmtPct } from "@/lib/format";
 import {
   axisPercent,
-  computeReturnAxis,
   fmtAxisTick,
   RETURN_WINDOW_OPTIONS,
   returnOf,
   sortByReturn,
   windowLabel,
+  type ReturnAxis,
 } from "@/lib/sectorReturns";
 
 interface Props {
   rows: SectorHeatmapRowOut[];
   window: string;
+  /** Fitted by the parent, with the zero position shared across all three charts. */
+  axis: ReturnAxis;
   onWindowChange: (window: string) => void;
   /** 1-based position on the page, for the dropdown's accessible name. */
   index: number;
 }
 
-// Room beside the plot for the value label past the longest bar.
+// The one layout every chart uses: a fixed label column and a plot that fills the rest, inset
+// by a gutter on BOTH sides so an end-of-bar value label (longest negative bar included) never
+// clips. Same container width + same constants = same zero x in every chart.
 const LABEL_GUTTER = "mx-[4.5rem]";
-const COLUMNS = "grid grid-cols-[minmax(7rem,12rem)_1fr] items-center gap-x-3";
+export const SECTOR_CHART_COLUMNS = "grid grid-cols-[9rem_1fr] sm:grid-cols-[12rem_1fr] items-center gap-x-3";
+const COLUMNS = SECTOR_CHART_COLUMNS;
+// Same proportions as the Historical Trends bars (MiniBarChart: recharts barCategoryGap 10%, so the
+// bar is 90% of its band and the gap 10%; radius 1px, solid fill).
+const ROW_HEIGHT = "h-8";
+const BAR_INSET = "inset-y-[5%]";
 
 /** One horizontal diverging bar chart: a bar per sector from a center zero line (positive
  * right/green, negative left/red), sorted descending, on an axis fitted to this chart's own
  * values. Plain CSS (percent-positioned divs), no charting library. */
-export function SectorBarChart({ rows, window, onWindowChange, index }: Props) {
+export function SectorBarChart({ rows, window, axis, onWindowChange, index }: Props) {
   const sorted = sortByReturn(rows, window);
-  const axis = computeReturnAxis(rows.map((row) => returnOf(row, window)));
   const zero = axisPercent(0, axis);
 
   return (
@@ -57,7 +65,7 @@ export function SectorBarChart({ rows, window, onWindowChange, index }: Props) {
                 <span className="font-mono text-sm font-bold text-text-primary">{row.ticker}</span>
                 <span className="truncate text-xs text-text-secondary">{row.name}</span>
               </div>
-              <div className="relative h-8">
+              <div className={`relative ${ROW_HEIGHT}`}>
                 <div className={`relative h-full ${LABEL_GUTTER}`}>
                   <div
                     data-testid="zero-line"
@@ -102,7 +110,7 @@ export function SectorBarChart({ rows, window, onWindowChange, index }: Props) {
   );
 }
 
-function Bar({ value, label, axis, zero }: { value: number; label: string; axis: ReturnType<typeof computeReturnAxis>; zero: number }) {
+function Bar({ value, label, axis, zero }: { value: number; label: string; axis: ReturnAxis; zero: number }) {
   const end = axisPercent(value, axis);
   const positive = value >= 0;
   const left = Math.min(zero, end);
@@ -113,7 +121,7 @@ function Bar({ value, label, axis, zero }: { value: number; label: string; axis:
         role="img"
         aria-label={label}
         data-direction={positive ? "positive" : "negative"}
-        className={`absolute inset-y-1.5 rounded-sm ${positive ? "bg-positive" : "bg-negative"}`}
+        className={`absolute ${BAR_INSET} rounded-[1px] ${positive ? "bg-positive" : "bg-negative"}`}
         style={{ left: `${left}%`, width: `${width}%` }}
       />
       <span

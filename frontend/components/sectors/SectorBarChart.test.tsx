@@ -4,6 +4,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { SectorBarChart } from "@/components/sectors/SectorBarChart";
+import { computeReturnAxis, computeSharedZero, returnOf } from "@/lib/sectorReturns";
 import type { SectorHeatmapRowOut } from "@/lib/api/types";
 
 afterEach(cleanup);
@@ -28,7 +29,8 @@ const ROWS = [
 
 function Harness({ initial = "1d" }: { initial?: string }) {
   const [w, setW] = useState(initial);
-  return <SectorBarChart rows={ROWS} window={w} onWindowChange={setW} index={1} />;
+  const values = ROWS.map((row) => returnOf(row, w));
+  return <SectorBarChart rows={ROWS} window={w} axis={computeReturnAxis(values, computeSharedZero([values]))} onWindowChange={setW} index={1} />;
 }
 
 const order = () => screen.getAllByRole("listitem").map((li) => within(li).getByText(/^XL/).textContent);
@@ -91,9 +93,19 @@ describe("SectorBarChart", () => {
     expect(Math.max(...today)).toBeLessThan(5);
     fireEvent.change(select(), { target: { value: "1y" } });
     const year = tickValues();
-    expect(Math.max(...year)).toBeGreaterThanOrEqual(40.6);
+    expect(Math.max(...year)).toBeGreaterThanOrEqual(30);
     expect(year).not.toEqual(today);
     expect(year).toContain(0);
+  });
+
+  it("draws bars like the Historical Trends bars: 1px corners (not rounded), a bar filling 90% of its row, solid token fill", () => {
+    render(<Harness initial="3m" />);
+    const bar = barFor(/Energy/);
+    expect(bar.className).toContain("rounded-[1px]");
+    expect(bar.className).not.toMatch(/rounded-(sm|md|lg|full)/);
+    expect(bar.className).toContain("inset-y-[5%]"); // 5% + 5% = the 10% gap
+    expect(bar.className).not.toMatch(/\/\d+|opacity/);
+    expect(bar.getAttribute("style")).not.toMatch(/#|rgb|hsl/);
   });
 
   it("has no links and no tooltips", () => {
