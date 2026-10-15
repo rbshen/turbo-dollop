@@ -167,7 +167,8 @@ async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWe
     # capitalExpenditure, which would double-subtract it.
     capex = [cash_flow_by_year.get(year, {}).get("capitalExpenditure") for year in years]
 
-    # Scoring reads the completed fiscal years only (docs/specs/financials.md); the TTM point appended below is display-only.
+    # Scoring reads the completed fiscal years (docs/specs/financials.md); the TTM point appended below is display-only, except for the
+    # capped TTM nudge on the three margin series (ttm_margins below).
     annual = {
         "revenue": revenue,
         "gross_profit": gross_profit,
@@ -241,6 +242,17 @@ async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWe
     gross_margin_fy = _margins(annual["gross_profit"], revenue_fy)
     operating_margin_fy = _margins(annual["operating_income"], revenue_fy)
     net_margin_fy = _margins(annual["net_income"], revenue_fy)
+    # The one capped TTM exception to "completed years only" (scoring/step1_margins.py): the trailing-twelve-month margins nudge each
+    # margin series by at most +-5 points. They are skipped for a ticker whose outlier check flagged any of the four income lines the
+    # margins are built from (a flagged quarter makes the TTM total untrustworthy).
+    ttm_margins = {
+        "gross": gross_margin[-1],
+        "operating": _margins([operating_income[-1]], [revenue[-1]])[0],
+        "net": net_margin[-1],
+    }
+    ttm_outlier_flagged = any(
+        result.flagged for result in (revenue_result, gross_profit_result, operating_income_result, net_income_result)
+    )
 
     result = score_step1(
         revenue=_present(revenue_fy),
@@ -259,6 +271,8 @@ async def get_step1_data(ticker: str, cache_only: bool = False, weights: ScoreWe
         latest_revenue=revenue_fy[-1] if revenue_fy else None,
         latest_operating_income=annual["operating_income"][-1] if annual["operating_income"] else None,
         weights=weights.step1,
+        ttm_margins=ttm_margins,
+        ttm_outlier_flagged=ttm_outlier_flagged,
     )
 
     return Step1Out(

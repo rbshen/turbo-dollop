@@ -1,4 +1,5 @@
-from scoring.step1_engine import DECLINE, DOLLAR, INSUFFICIENT, RATIO, assess_series
+from scoring.step1_engine import DOLLAR, INSUFFICIENT, assess_series
+from scoring.step1_margins import CARVEOUT_FLOOR, classify_margins
 from scoring.trend import (
     THIN_HISTORY_MIN_POINTS,
     THIN_HISTORY_SCORE_CAP,
@@ -7,11 +8,12 @@ from scoring.trend import (
 )
 from scoring.weights import DEFAULT_WEIGHTS, Step1Weights, step1_tables
 
-# Step 1 (Financials) scores five metrics with ONE neutral engine (scoring/step1_engine.py::assess_series; docs/specs/financials.md):
-# Revenue, Net Income, Operating Income, CFO and FCF as DOLLAR series, gross / operating / net margin as RATIO series. Every series
-# is COMPLETED FISCAL YEARS ONLY -- no TTM point anywhere in Step 1. This module is the wrapper around the engine: the positivity gate,
-# the Net Income Operating Income backup, the Margins combination and carve-out, the CFO/FCF and Margins exemptions, the blend and the
-# thin-history cap.
+# Step 1 (Financials) scores five metrics. Revenue, Net Income, Operating Income, CFO and FCF go through ONE neutral engine
+# (scoring/step1_engine.py::assess_series, DOLLAR series; docs/specs/financials.md). Gross / operating / net margin go through the
+# separate relative Margins engine (scoring/step1_margins.py), blended as 0.5 x Gross + 0.5 x max(Net, Operating). Every series is
+# COMPLETED FISCAL YEARS, with one capped exception: a TTM nudge of at most +-5 points per margin series (step1_margins.py). This
+# module is the wrapper around the engines: the positivity gate, the Net Income Operating Income backup, the Margins wrapper and
+# carve-out, the CFO/FCF and Margins exemptions, the blend and the thin-history cap.
 #
 # The weight tables are not constants: score_step1 takes a Step1Weights (scoring/weights.py, default DEFAULT_WEIGHTS.step1) and derives the
 # three tables below from it with scoring/weights.py::step1_tables. Since 2026-10-08 (docs/decisions.md) every exempt type (Bank,
@@ -73,12 +75,13 @@ def _classify_positive_trend(values: list[float], revenue_for_scale: list[float]
     return trend
 
 
-# --- Margins: min(G, max(N, O)) ----------------------------------------------------------------------------------------------------
-# Utility: a margin series labelled `decline` / `decline_dips` is never scored below this (applied per series, after the engine's
-# positivity ceiling and before the combination). Its margins carry structurally noisier severity than a typical company's. Insurance
-# and REIT/Property Developer had it too until 2026-10-08, when they stopped scoring Margins at all.
+# --- Margins: 0.5 x Gross + 0.5 x max(Net, Operating) ------------------------------------------------------------------------------
+# The engine and the combination live in scoring/step1_margins.py. Utility: a margin series labelled `decline` / `decline_dips` is
+# never scored below this (applied per series, after the engine's positivity ceiling and before the blend). Its margins carry
+# structurally noisier severity than a typical company's. Insurance and REIT/Property Developer had it too until 2026-10-08, when they
+# stopped scoring Margins at all.
 MARGINS_SEVERITY_CARVEOUT_TYPES = {"Utility"}
-MARGINS_CARVEOUT_FLOOR = 60
+MARGINS_CARVEOUT_FLOOR = CARVEOUT_FLOOR
 
 VERDICT_BANDS = [
     (91, 100, "Strong Pass"),
@@ -87,40 +90,22 @@ VERDICT_BANDS = [
 ]
 
 
-def _margin_input(values: list[float], carveout: bool) -> TrendResult | None:
-    """One margin series through the RATIO engine, then the carve-out. None = missing (fewer than 2 years): the input drops out."""
-    result = assess_series(values, RATIO)
-    if result.pattern == INSUFFICIENT:
-        return None
-    if carveout and result.pattern.startswith(DECLINE):
-        return TrendResult(result.pattern, max(result.score, MARGINS_CARVEOUT_FLOOR))
-    return result
-
-
 def _classify_margins(
-    gross_margin: list[float], operating_margin: list[float], net_margin: list[float], carveout: bool = False
+    gross_margin: list[float],
+    operating_margin: list[float],
+    net_margin: list[float],
+    carveout: bool = False,
+    ttm_margins: dict[str, float | None] | None = None,
+    ttm_outlier_flagged: bool = False,
 ) -> tuple[TrendResult, dict]:
-    """Margins = min(G, max(N, O)) of the three per-series RATIO scores (no averaging, no threshold). A missing input drops out: no
-    gross margin gives max(N, O); no operating margin gives min(G, N); no net margin gives min(G, O); N and O both missing makes
-    Margins `insufficient_data` whatever G is. Returns the result (the pattern is the deciding input's) and the display detail:
-    each present input's score/pattern under `inputs`, and which one decides under `binding`."""
-    inputs = {
-        "gross": _margin_input(gross_margin, carveout),
-        "operating": _margin_input(operating_margin, carveout),
-        "net": _margin_input(net_margin, carveout),
-    }
-    gross, operating, net = inputs["gross"], inputs["operating"], inputs["net"]
-    detail: dict = {"inputs": {key: {"score": r.score, "pattern": r.pattern} for key, r in inputs.items() if r is not None}}
-    if operating is None and net is None:
-        return TrendResult(INSUFFICIENT, 0), detail
-
-    present = {key: r for key, r in (("net", net), ("operating", operating)) if r is not None}
-    binding_key = max(present, key=lambda key: present[key].score)  # a tie between N and O goes to net margin (listed first)
-    if gross is not None and gross.score <= present[binding_key].score:
-        binding_key = "gross"
-    binding = inputs[binding_key]
-    detail["binding"] = binding_key
-    return TrendResult(binding.pattern, binding.score), detail
+    """Margins = 0.5 x Gross + 0.5 x max(Net, Operating) (scoring/step1_margins.py::classify_margins; the operating margin stays
+    inside the profit leg as the fallback for a weak net margin). A missing input drops out: no gross margin gives max(N, O) alone;
+    N and O both missing makes Margins `insufficient_data` whatever G is. Returns the result (the pattern is the weaker leg's) and
+    the display detail: each present input's score/pattern under `inputs`, the better of net / operating under `profit_leg`, the two
+    leg scores under `legs`, and the weaker leg under `binding` (kept for display compatibility; under a blend both legs count)."""
+    return classify_margins(
+        gross_margin, operating_margin, net_margin, carveout, ttm_margins=ttm_margins, ttm_outlier_flagged=ttm_outlier_flagged
+    )
 
 
 def _classify_fcf(fcf: list[float]) -> TrendResult:
@@ -185,12 +170,18 @@ def score_step1(
     latest_operating_income: float | None | object = _LATEST_FROM_SERIES,
     weights: Step1Weights = DEFAULT_WEIGHTS.step1,
     operating_margin: list[float] | None = None,
+    ttm_margins: dict[str, float | None] | None = None,
+    ttm_outlier_flagged: bool = False,
 ) -> dict:
     """Pure scoring function per docs/specs/financials.md: takes parsed metric series (chronological, oldest -> latest COMPLETED
-    fiscal year; no TTM point, no missing values) and returns {score, verdict, components}. No I/O, no FMP/DB dependency.
+    fiscal year; no TTM point, no missing values; the margin TTM nudge comes in separately) and returns {score, verdict, components}. No I/O, no FMP/DB dependency.
 
     `operating_margin` is the operating-income-over-revenue series (percent); None or too short is a missing input of the Margins
     combination (it drops out).
+
+    `ttm_margins` ({"gross"|"operating"|"net": trailing-twelve-month margin, percent, or None}) and `ttm_outlier_flagged` (the
+    outlier check flagged revenue, gross profit, operating income or net income) feed the capped TTM nudge of each margin series;
+    omitted, no TTM enters the score (the default for a direct caller).
 
     `margins_exempt` (Bank / Insurance / Property Developer / Commodity Company -- see MARGINS_EXEMPT_TYPES in step1_data.py) skips
     Margins entirely, same mechanism as `cfo_exempt` skipping CFO/FCF -- `components["margins"]` comes back `None` and the
@@ -247,7 +238,12 @@ def score_step1(
     margin_detail: dict = {}
     if not margins_exempt:
         margin_result, margin_detail = _classify_margins(
-            gross_margin, operating_margin or [], net_margin, carveout=margins_severity_carveout
+            gross_margin,
+            operating_margin or [],
+            net_margin,
+            carveout=margins_severity_carveout,
+            ttm_margins=ttm_margins,
+            ttm_outlier_flagged=ttm_outlier_flagged,
         )
 
     if cfo_exempt or cfo is None:
