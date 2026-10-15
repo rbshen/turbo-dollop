@@ -1484,3 +1484,14 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 - **Known open items:** the Step 1 card's methodology text still says "never the trailing twelve months" and "the lower of gross margin and the better of net and
   operating" (frontend, left untouched by the brief); `step1_engine.py`'s module docstring and its `ratio` kind still describe margins; the `binding` display
   field now only names the weaker leg.
+
+### 2026-10-15 — Chart tab: fair value gap (FVG) overlay on D·6M
+
+**Decision (owner).** Draw fair value gaps behind the candles on the D · 6M chart only. Spec: `docs/specs/fvg.md`.
+
+- **Detection** is the three-candle gap (bullish `low(c3) > high(c1)`, bearish `high(c3) < low(c1)`, strict), kept only if taller than `FVG_ATR_MULTIPLIER = 0.5` x ATR(14, Wilder) at c3 (a named constant in `analysis/fvg.py`, deliberately not a Setting; equal to the threshold is excluded). A zone ends at the first **close** beyond the far side, never on a wick; the ATR filter never affects the ending.
+- **Backend always computes, the toggle only hides.** `ChartOut.fvgs` is filled only for `D_6M` (empty elsewhere), on demand, no cache, no job, no new fetch. Detection runs on the full 730-day frame; a gap is shown only if c3 is on or after `visible_start` (the LP cutoff), so an older still-alive gap is not shown.
+- **Drawing:** from c4's left edge to the ending bar's right edge (open zones to the last bar's right edge; ending on c4 is a one-bar sliver). A gap whose c3 is the last bar has no c4: it is sent with `end_time: null` and `start_time` = the next weekday, and drawn one bar wide in the right margin. A series primitive on the candle series (`zOrder "bottom"`, pane 0, no autoscale contribution), 14% fill plus 58% dashed 1px top and bottom edges, overlapping zones all drawn.
+- **Own colors, not the candle green/red:** `chart-fvg-bullish` `#0891B2`, `chart-fvg-bearish` `#F472B6`. The starting teal `#14B8A6` was too close to `chart-up` (OKLab distance x100: 5.4) and was darkened to cyan-600; see `docs/design-system-charts.md`.
+- **Toggle:** "FVG", default on, D · 6M only (an explicit `FVG_TOGGLE_RANGE` branch in `isToggleOffered`; not on D · 1Y, D · 2Y, W · 4Y or 2H · 90D), same shared localStorage key; a stored object without `fvg` loads with it on.
+- **Judgment calls inside the spec:** a missing or non-positive ATR keeps nothing (fail closed); the projected `start_time` is the next weekday and does not skip holidays (the client only uses it as "after the last bar"); the ATR is seeded like the existing Warren/DMI one (first true range is `high - low`), so the first possible c3 is the 14th bar.

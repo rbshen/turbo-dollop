@@ -4,7 +4,7 @@ Scope: how the ticker-page Chart tab gets its bars (`backend/data/chart_data.py`
 earnings/dividend markers work (`data/chart_events_data.py`, `frontend/components/chart/`,
 `frontend/lib/chartEventMarkers.ts`), plus the fifth, intraday **2H·90D** range (section 3). Indicator math (EMA21, SMA50/200, Bollinger, Full Stochastic, RSI)
 is in `docs/specs/chart-indicators.md`. Liquidity Zone lines drawn on the chart are in
-`docs/specs/liquidity-zones.md`.
+`docs/specs/liquidity-zones.md`. The D·6M-only fair value gap overlay is in `docs/specs/fvg.md`.
 
 ## 1. Bar fetch: on demand, zero persistent cache for the daily ranges
 

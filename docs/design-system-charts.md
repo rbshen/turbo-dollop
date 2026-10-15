@@ -10,7 +10,7 @@ How every chart is coloured, drawn and worded. Companion to `docs/design-system.
 
 | The job | Use |
 | --- | --- |
-| Chart tab candles, indicators, zones, signals, events, stages | The named tokens `chart-up`, `chart-down`, `chart-ema21`, `chart-sma50`, `chart-sma200`, `chart-stoch-k`, `chart-band`, `chart-refline`, `chart-zone-broken-support`, `chart-zone-broken-resistance`, `chart-warren-yellow`, `chart-warren-gray`, `chart-event-earnings`, `chart-event-dividend`, `stage-*`. Values are unchanged from before the redesign, except `chart-warren-yellow` (amber `#f59e0b` to pure yellow `#ffff00`, 2026-10-05); only the names are new. |
+| Chart tab candles, indicators, zones, signals, events, stages | The named tokens `chart-up`, `chart-down`, `chart-ema21`, `chart-sma50`, `chart-sma200`, `chart-stoch-k`, `chart-band`, `chart-refline`, `chart-zone-broken-support`, `chart-zone-broken-resistance`, `chart-warren-yellow`, `chart-warren-gray`, `chart-event-earnings`, `chart-event-dividend`, `chart-fvg-bullish`, `chart-fvg-bearish`, `stage-*`. Values are unchanged from before the redesign, except `chart-warren-yellow` (amber `#f59e0b` to pure yellow `#ffff00`, 2026-10-05); only the names are new. |
 | Bars that show a direction (Breadth net new highs, Sectors page return bars) | `positive` and `negative`. Never the candle pair. |
 | A bar or line that is one series (Revenue, ROE, price target) | `series-1` (brand blue). |
 | Several series that are not ordered by meaning | `series-1` to `series-5`, in order. Never `warn`, `positive`, `negative` or `brand` under another name. |
@@ -53,6 +53,8 @@ A horizontal, sorted, diverging bar chart for one return per category (11 sector
 ## Not decided / left as built
 
 Chart geometry (heights, bar gap, corner radius) stays as it was before the redesign: trend bars 64px (32px in the Watchlist), Analyst Ratings 216px, Chart tab 580px main pane and 100px sub-panes.
+
+The fair value gap zones (D·6M, `docs/specs/fvg.md`) have their own pair, `chart-fvg-bullish` `#0891B2` (cyan-600) and `chart-fvg-bearish` `#F472B6` (pink-400), deliberately not the candle green/red. A fill at 14% alpha with dashed 1px edge lines at 58% alpha, behind the candles. The first-choice teal `#14B8A6` was dropped: it sits 5.4 OKLab-distance units (x100) from `chart-up` (emerald `#10B981`), so a bullish zone would read as a rising candle; `#0891B2` is 11.1 or more from every other chart color (nearest: `chart-band` grey 11.1, `chart-ema21` 13.3, `chart-up` 15.9) and `#F472B6` is 15.0 or more (nearest: `chart-down` 15.0, `chart-sma200` 15.4, `chart-zone-broken-resistance` 15.6). Neither is used for any other line or marker.
 
 The Chart tab (candlestick) colour palette was deliberately kept as-is rather than redesigned — see `docs/decisions.md`. The 2H·90D range's three Warren sub-panes add no tokens: RSI `chart-band` (one color on this range; the daily RSI pane is red beyond 30/70), ADX `chart-ema21` (the ADX line alone; +DI/-DI are not plotted), WVF `chart-warren-yellow` (`#FFFF00`, TOS Color.YELLOW; the Warren yellow arrows share it. It was amber `#F59E0B`, which read orange; changed 2026-10-05), reference lines `chart-refline` (all dashed: the Warren thresholds; the classic 30/70 lines are not drawn). On every range the axis text is `#e5e8ec` (the text-primary hex) in the monospace face with a lower price-axis tick density, the sub-panes show no tick labels (only their level-line tags), and the signal arrows carry no text: `docs/specs/chart-tab.md`, "Axis options" and "Signal arrows".
 
