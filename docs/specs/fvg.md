@@ -34,11 +34,15 @@ Three candles c1, c2, c3 (c4 is the one after c3).
 
 ## Drawing (`FvgZonesPrimitive`, attached to the candle series, price pane only)
 
-- `zOrder: "bottom"` (behind the candles). X from `timeScale().logicalToCoordinate` at the bar **edges** (a bar's center is logical `i`, edges
-  `i -+ 0.5`), y from `series.priceToCoordinate`; a zone with any null coordinate is skipped. No `autoscaleInfo`, so it never changes the price scale.
-- Span (`lib/chartFvg.ts::fvgSpan`): from **c4's left edge** to the **ending bar's right edge**; an open zone to the **last bar's right edge**;
-  a zone that ends on c4 is a one-bar-wide sliver; the projected case spans `[n - 0.5, n + 0.5]` (n = bar count), inside the right margin.
-  A start or end time that is not a bar is skipped.
+- `zOrder: "bottom"` (behind the candles). X: `timeScale().logicalToCoordinate` at **integer bar indices only**, then half a bar spacing either side
+  (spacing = `L(1) - L(0)`, left edge `L(startIdx) - spacing/2`, right edge `L(endIdx) + spacing/2`); y from `series.priceToCoordinate`; a zone with any
+  null coordinate is skipped. No `autoscaleInfo`, so it never changes the price scale.
+- **lightweight-charts 5.2.0 quirk (untyped):** `logicalToCoordinate` returns `0` for any non-integer input (`indexToCoordinate` starts with `!isInteger(index)`),
+  so asking for the edges `i -+ 0.5` makes every zone zero-width and invisible. Never pass it a fractional logical. The unit test's mock mimics this (0 for a
+  non-integer), and `FvgZonesPrimitive.jsdom.test.ts` draws through the real library.
+- Span (`lib/chartFvg.ts::fvgSpan`, bar indices `{startIdx, endIdx}`; `fvgXEdges` turns them into pixels): from **c4's left edge** to the **ending bar's
+  right edge**; an open zone to the **last bar's right edge** (`endIdx` = last bar); a zone that ends on c4 is a one-bar-wide sliver; the projected case is
+  `{n, n}` (n = bar count), one bar right of the last bar, inside the right margin. A start or end time that is not a bar is skipped.
 - Each zone: a filled rectangle at 14% alpha plus 1px dashed top and bottom edge lines at 58% alpha (`withAlpha`), no price-axis tag.
 - Colors: `chart-fvg-bullish` `#0891B2` and `chart-fvg-bearish` `#F472B6` (`docs/design-system-charts.md`). Not the candle green/red.
 
