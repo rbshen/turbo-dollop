@@ -99,7 +99,8 @@ See the [Glossary](glossary.md) for how every verdict label is defined.
 - **Insurance** → always `not_supported`, no ratios attempted at all.
 - **REIT/Property Developer** → Gearing Ratio path.
 - **Utility, Commodity, and every other type** → Standard path (Utility is **not** exempted
-  here, unlike its exemptions in Profitability).
+  here, unlike its exemptions in Profitability). Utility means a rate-regulated utility only; merchant power
+  generators (FMP `Independent Power Producers`: CEG, NRG, VST) are Standard and take this path as Standard.
 
 The type comes from a best-effort sector/industry text match, so it is surfaced rather than
 hidden: `Step5Out.classification_note` (default text: "Best-effort classification from

@@ -24,7 +24,7 @@ auto-generalize to a newly-listed ticker in the same sector).
 | **Bank** | Revenue and Net Income only (CFO, FCF and Margins skipped; Revenue is the real revenue line) | EPS preferred, revenue fallback | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped) | Judged on capital adequacy (CET1, manual entry) + loan quality (NPL) | Price-to-Book |
 | **Insurance** | Revenue and Net Income only (CFO, FCF and Margins skipped) | EPS preferred, revenue fallback | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped) | Not supported — no reliable substitute available | Profit-based method (cash flow skipped) |
 | **REIT / Property Developer** | Revenue and Net Income only (CFO, FCF and Margins skipped) | Always revenue (rental income); EPS never used | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped) | Judged on a Gearing ratio (debt vs. total assets) instead of the standard 3 ratios; under 45% passes | Price-to-Book |
-| **Utility** | All 5 metrics checked (not exempted here; its margin severity carve-out stays) | EPS preferred, revenue fallback | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped — extended 2026-09-04) | Standard 3-ratio check (not exempted here) | Cash-flow or profit-based method |
+| **Utility** (rate-regulated: sector `Utilities` and an industry on the regulated allowlist, below; merchant generators and renewable utilities are Standard) | All 5 metrics checked (not exempted here; its margin severity carve-out stays) | EPS preferred, revenue fallback | Only Return on Equity is checked (ROIC, Receivables trend, and Cash Conversion Cycle all skipped — extended 2026-09-04) | Standard 3-ratio check (not exempted here) | Cash-flow or profit-based method |
 | **Commodity company** (price-taking producers and extractors only — Financials-local classification: sector `Basic Materials`/`Energy` **and** an industry on the producer allowlist, below) | Revenue and Net Income only (CFO, FCF and Margins skipped) | EPS preferred, revenue fallback | All 4 metrics checked (not exempted here) | Standard 3-ratio check (not exempted here) | Cash-flow or profit-based method |
 
 Growth Rate reads the same way for every company type except REITs, which are scored on revenue
@@ -97,10 +97,10 @@ Net Interest Income substitution for Banks was removed. See [Financials](financi
 ## Why some Profitability metrics get skipped
 
 Return on Invested Capital and Cash Conversion Cycle assume a business model with clear "capital
-invested" and "inventory-to-cash" cycles. Banks, Insurance companies, Utilities, and REITs don't
+invested" and "inventory-to-cash" cycles. Banks, Insurance companies, regulated Utilities, and REITs don't
 fit that mold cleanly, so those metrics are skipped for them. The Receivables-vs-Revenue check
 is skipped for the same four types (extended from REIT-only on 2026-09-04) — REITs have no
-comparable concept for a rental-income business, and Bank/Insurance/Utility revenue recognition
+comparable concept for a rental-income business, and Bank/Insurance/regulated-Utility revenue recognition
 doesn't map onto ordinary trade receivables the way a Standard operating company's does —
 leaving Return on Equity as the only Profitability check for these four company types. Any
 company that carries no physical inventory at all — regardless of its official type — also has
@@ -145,8 +145,13 @@ shared by Steps 1/3/4/5. Order matters:
    credit-card/credit issuers ("Financial - Credit Services": COF, V, MA, AXP, SYF, PYPL);
    investment banks like IBKR ("Investment - Banking & Investment Services") already match
    "bank" via "banking". A ticker in `NON_LENDER_TICKER_OVERRIDES` returns `"Standard"` instead.
-4. **Utility** (sector `Utilities`), then **REIT/Property Developer** (sector `Real Estate` or
-   industry contains "reit"); everything else is `"Standard"`.
+4. **Utility** (sector `Utilities` **and** the FMP industry is `Regulated Electric`, `Regulated Gas`,
+   `Regulated Water` or `Diversified Utilities`, matched exactly after stripping, as for the Commodity allowlist;
+   a `Utilities` ticker with a blank industry stays Utility; `scoring/classification.py::UTILITY_REGULATED_INDUSTRIES`),
+   then **REIT/Property Developer** (sector `Real Estate` or industry contains "reit"); everything else is `"Standard"`.
+   A `Utilities`-sector ticker with any other industry is Standard: `Independent Power Producers` (CEG, NRG, VST: merchant
+   generators with no rate base) and `Renewable Utilities`. There are no per-ticker overrides; a relabel by FMP silently moves
+   a ticker between Utility and Standard. Why: docs/decisions.md 2026-10-15.
 
 ## Bank detection and its ticker-level overrides
 

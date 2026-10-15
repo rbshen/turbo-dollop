@@ -49,15 +49,15 @@ counting.
 
 ## Some checks don't apply to every company type
 
-- **ROIC** isn't meaningful for Banks, Insurance companies, Utilities, or REITs/Property
+- **ROIC** isn't meaningful for Banks, Insurance companies, regulated Utilities, or REITs/Property
   Developers, and is skipped for those company types.
 - **Cash Conversion Cycle** isn't meaningful for the same set of company types, and is also
   automatically skipped for any company that carries no physical inventory at all, since the
   underlying concept doesn't apply cleanly to a business that doesn't stock goods.
-- **Accounts Receivable trend** isn't meaningful for **Banks, Insurance companies, Utilities, or
+- **Accounts Receivable trend** isn't meaningful for **Banks, Insurance companies, regulated Utilities, or
   REITs/Property Developers either** (extended from REIT-only to this full set on 2026-09-04) —
   REITs (rental income) have no comparable concept of receivables outpacing revenue, and
-  Bank/Insurance/Utility revenue recognition doesn't map onto ordinary trade receivables the way
+  Bank/Insurance/regulated-Utility revenue recognition doesn't map onto ordinary trade receivables the way
   a Standard operating company's does.
 
 When a check is skipped, the remaining applicable checks are reweighted to make up the
@@ -103,9 +103,9 @@ ROIC (%) = EBIT × (1 − effective tax rate) / (Equity + Total Debt − Cash) �
 
 | Metric | Exempt for |
 |---|---|
-| ROIC | Bank, Insurance, Utility, REIT/Property Developer |
-| Cash Conversion Cycle | Bank, Insurance, Utility, REIT/Property Developer, **or** any company (of any type) with no physical inventory across the full annual window |
-| Revenue vs. Accounts Receivable | **Bank, Insurance, Utility, REIT/Property Developer** (extended from REIT-only 2026-09-04) |
+| ROIC | Bank, Insurance, Utility (regulated only), REIT/Property Developer |
+| Cash Conversion Cycle | Bank, Insurance, Utility (regulated only), REIT/Property Developer, **or** any company (of any type) with no physical inventory across the full annual window |
+| Revenue vs. Accounts Receivable | **Bank, Insurance, Utility (regulated only), REIT/Property Developer** (extended from REIT-only 2026-09-04) |
 | ROE | never exempt |
 
 The three exemption gates are the constants `ROIC_EXEMPT_TYPES`, `CCC_EXEMPT_TYPES` and
@@ -128,7 +128,7 @@ the business), CCC is skipped regardless of sector/industry.
 
 The defaults are ROE 25 / ROIC 35 / AR 20 / CCC 20 (`scoring/weights.py::DEFAULT_WEIGHTS.step4`, adjustable in Settings > Score weighting:
 ROE 15-60, ROIC 15-60, AR 0-30, CCC 0-30, adding up to 100; ROE and ROIC can never reach 0 because they carry the hard fail, and ROE is the
-only metric for Bank, Insurance, Utility and REIT). A weight of 0 leaves a metric out of the blend only; a failing ROE or ROIC still
+only metric for Bank, Insurance, regulated Utility and REIT). A weight of 0 leaves a metric out of the blend only; a failing ROE or ROIC still
 forces a Fail (hard fails read no weights).
 
 | Metric | Base weight (all 4 applicable) |
@@ -144,7 +144,7 @@ applicable entries, preserving their relative ratio, and this is fully generic o
 metrics apply (no fixed reassignment table like Financials' single CFO on/off exemption). An
 earlier design split the applicable metrics equally (1/N); it was replaced by these weights on
 2026-08-01. Worked examples: no-inventory company (CCC exempt only) → ROE 25/80 = 31.25%, ROIC
-35/80 = 43.75%, AR 20/80 = 25%. ROIC + CCC + AR exempt (Bank/Insurance/Utility) →
+35/80 = 43.75%, AR 20/80 = 25%. ROIC + CCC + AR exempt (Bank/Insurance/regulated Utility) →
 ROE alone at 100%. REIT (AR + ROIC + CCC all exempt) → ROE alone at 100%.
 
 This is a deliberate design choice (2026-08-01), not a bug-driven fix: ROIC is weighted above ROE

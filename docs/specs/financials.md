@@ -74,7 +74,7 @@ as always (CFO's and FCF's weight split equally over Revenue, Net Income and Mar
 Margins' weight spread proportionally over Revenue and Net Income). A weight of 0 leaves a component out of the blend only: its
 data-gap check (a missing series still makes the step insufficient data) is unchanged.
 
-| Metric | Standard / Utility weight | Exempt types (Bank, Insurance, REIT / Property Developer, Commodity Company) |
+| Metric | Standard / regulated Utility weight | Exempt types (Bank, Insurance, REIT / Property Developer, Commodity Company) |
 |---|---|---|
 | Revenue | 35% | 59.57% (28/47) |
 | Net Income | 20% | 40.43% (19/47) |
@@ -335,9 +335,9 @@ PCAR 53, BLDR 47, HUM 29, CVS 35, GOOGL 92.
 
 **Exemption.** Bank, Insurance, Property Developer and Commodity Company skip Margins entirely (`MARGINS_EXEMPT_TYPES` in
 `data/step1_data.py`, extended from `{"Bank"}` on 2026-10-08): nothing is computed in its place, and Step 1 scores no ROE or ROIC (ROE is
-checked for Banks in Step 4 only). Standard and Utility score Margins as described here.
+checked for Banks in Step 4 only). Standard and (regulated) Utility score Margins as described here.
 
-**Severity carve-out (Utility only).** A margin series (each of G, O and N) labelled `decline` /
+**Severity carve-out (regulated Utility only).** A margin series (each of G, O and N) labelled `decline` /
 `decline_dips` is never scored below **60**, per series, **after** the positivity ceiling and before the blend. The loss-making Margins ceiling above
 still binds afterwards (the earlier wording "the carve-out can lift a loss-making declining series to 60" no longer holds). Insurance and
 REIT / Property Developer had the carve-out until 2026-10-08 and lost it when they stopped scoring Margins (`MARGINS_SEVERITY_CARVEOUT_TYPES`
