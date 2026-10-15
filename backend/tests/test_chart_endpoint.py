@@ -229,3 +229,92 @@ def test_endpoint_serializes_earnings_and_dividend_markers(monkeypatch):
         {"time": day.isoformat(), "event_date": day.isoformat(), "eps_actual": 1.5, "eps_estimated": None}
     ]
     assert body["dividend_markers"] == [{"time": day.isoformat(), "event_date": day.isoformat(), "amount": 0.26}]
+
+
+# ---- FVG overlay (D_6M only) -------------------------------------------------------------------------------------------------
+
+
+def _patch_fvg_bars(monkeypatch, *, n: int = 300, gap_at: int, ends_at: int | None = None):
+    """Flat bars (high 101 / low 99 / close 100, ATR ~2) with a bullish gap 101..103 whose c3 is bar `gap_at`: c2 jumps to
+    100..106, c3 trades 103..107, and every later bar stays at 105..107 (so the gap stays open) unless `ends_at` closes
+    one at 100 (below the bottom, 101)."""
+    index = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=n)
+    rows = []
+    for i, ts in enumerate(index):
+        if i == gap_at - 1:
+            o, h, l, c = 100.0, 106.0, 100.0, 105.0
+        elif i == gap_at:
+            o, h, l, c = 104.0, 107.0, 103.0, 106.0
+        elif i > gap_at:
+            o, h, l, c = 106.0, 107.0, 105.0, 106.0
+            if i == ends_at:
+                o, h, l, c = 104.0, 105.0, 99.0, 100.0
+        else:
+            o, h, l, c = 100.0, 101.0, 99.0, 100.0
+        rows.append({"date": ts.strftime("%Y-%m-%d"), "open": o, "high": h, "low": l, "close": c, "volume": 1000})
+    df = pd.DataFrame(rows).set_index(pd.DatetimeIndex(index))
+
+    async def fake_fmp(ticker, from_date, to_date, group="daily_prices"):
+        return rows[::-1]
+
+    async def fake_long_history(ticker):
+        return df[["open", "high", "low", "close", "volume"]]
+
+    monkeypatch.setattr(chart_data.fmp_client, "get_historical_price_eod", fake_fmp)
+    monkeypatch.setattr(chart_data, "get_long_history", fake_long_history)
+    return index
+
+
+def _chart_body(monkeypatch, range_key: str) -> dict:
+    _fresh_entry_signal_engine(monkeypatch)
+    _fresh_warren_signal_engine(monkeypatch)
+    _fresh_liquidity_zone_engine(monkeypatch)
+    _fresh_chart_data_engine(monkeypatch)
+    with TestClient(main.app) as client:
+        response = client.get("/api/tickers/AAPL/chart", params={"range": range_key})
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_d_6m_returns_an_open_fvg_from_c4_to_the_last_bar(monkeypatch):
+    index = _patch_fvg_bars(monkeypatch, gap_at=290)
+    body = _chart_body(monkeypatch, "D_6M")
+    assert body["fvgs"] == [
+        {"side": "bullish", "top": 103.0, "bottom": 101.0, "start_time": index[291].strftime("%Y-%m-%d"), "end_time": None}
+    ]
+
+
+def test_d_6m_fvg_ends_on_the_first_close_beyond_the_far_side(monkeypatch):
+    index = _patch_fvg_bars(monkeypatch, gap_at=290, ends_at=293)
+    (fvg,) = _chart_body(monkeypatch, "D_6M")["fvgs"]
+    assert fvg["start_time"] == index[291].strftime("%Y-%m-%d")
+    assert fvg["end_time"] == index[293].strftime("%Y-%m-%d")
+
+
+def test_d_6m_fvg_on_the_last_bar_is_projected_one_bar_to_the_right(monkeypatch):
+    index = _patch_fvg_bars(monkeypatch, gap_at=299)
+    body = _chart_body(monkeypatch, "D_6M")
+    (fvg,) = body["fvgs"]
+    last = body["bars"][-1]["time"]
+    assert last == index[-1].strftime("%Y-%m-%d")
+    assert fvg["end_time"] is None
+    assert fvg["start_time"] == (index[-1] + pd.offsets.BDay(1)).strftime("%Y-%m-%d")
+    assert fvg["start_time"] > last
+
+
+def test_d_6m_drops_a_still_alive_gap_whose_c3_is_before_the_visible_window(monkeypatch):
+    _patch_fvg_bars(monkeypatch, gap_at=100)  # ~200 business days back, past the 182-day window
+    assert _chart_body(monkeypatch, "D_6M")["fvgs"] == []
+
+
+def test_fvgs_are_empty_on_every_other_range(monkeypatch):
+    _patch_fvg_bars(monkeypatch, n=365 * 9, gap_at=365 * 9 - 10)
+    for range_key in ("D_1Y", "D_2Y", "W_4Y"):
+        assert _chart_body(monkeypatch, range_key)["fvgs"] == []
+    assert len(_chart_body(monkeypatch, "D_6M")["fvgs"]) == 1
+
+
+def test_d_6m_with_no_gaps_has_an_empty_list(monkeypatch):
+    _patch_fvg_bars(monkeypatch, gap_at=290)
+    _patch_bars(monkeypatch)  # smooth rising bars, no gap
+    assert _chart_body(monkeypatch, "D_6M")["fvgs"] == []

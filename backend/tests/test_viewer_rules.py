@@ -276,6 +276,27 @@ def test_viewer_chart_requests_share_one_load_per_ticker_and_view(chart_loads):
     assert chart_loads == [("TRK", "D_1Y"), ("TRK", "W_4Y")]
 
 
+def test_viewer_chart_cache_serves_the_d_6m_fvgs_and_keeps_other_views_empty(world, monkeypatch):
+    from core.schemas import ChartFvgOut
+
+    loads = []
+
+    async def fake_chart(ticker, range_key):
+        loads.append(range_key)
+        out = _chart(range_key)
+        if range_key == "D_6M":
+            out.fvgs = [ChartFvgOut(side="bullish", top=12.0, bottom=10.0, start_time="2026-03-02")]
+        return out
+
+    monkeypatch.setattr(main, "get_chart_data", fake_chart)
+    viewer = TestClient(main.app)
+    for _ in range(2):
+        body = viewer.get("/api/tickers/TRK/chart?range=D_6M").json()
+        assert body["fvgs"] == [{"side": "bullish", "top": 12.0, "bottom": 10.0, "start_time": "2026-03-02", "end_time": None}]
+    assert viewer.get("/api/tickers/TRK/chart?range=D_1Y").json()["fvgs"] == []
+    assert loads == ["D_6M", "D_1Y"]
+
+
 def test_viewer_chart_cache_expires_after_the_configured_ttl(chart_loads, monkeypatch):
     clock = {"t": 1000.0}
     monkeypatch.setattr("data.viewer_chart_cache._monotonic", lambda: clock["t"])

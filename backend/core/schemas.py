@@ -1706,6 +1706,21 @@ class ChartZoneOut(BaseModel):
     broken: bool = False
 
 
+class ChartFvgOut(BaseModel):
+    """One fair value gap zone on the D_6M price pane (analysis/fvg.py, docs/specs/fvg.md). `start_time` is c4's bar
+    ("YYYY-MM-DD"); the zone is drawn from that bar's left edge. `end_time` is the bar whose close first went beyond
+    the far side (drawn to that bar's right edge), or None while the zone is still open (drawn to the last bar's right
+    edge). Projected case: when c3 is the last bar there is no c4, so `end_time` is None AND `start_time` is a calendar
+    date AFTER the last bar's time (the next weekday, a placeholder not a real bar) -- the client draws the zone one bar
+    wide, one bar to the right of the last bar."""
+
+    side: Literal["bullish", "bearish"]
+    top: float
+    bottom: float
+    start_time: str  # "YYYY-MM-DD"
+    end_time: str | None = None
+
+
 class ChartEarningsMarkerOut(BaseModel):
     """One earnings-report marker on the Chart tab's price pane -- see
     data/chart_data.py::_earnings_markers. `time` is the chart bar the marker
@@ -1817,6 +1832,9 @@ class ChartOut(BaseModel):
     # an empty `zones` list with zones_available=True means the latter.
     zones: list[ChartZoneOut] = []
     zones_available: bool
+    # D_6M only (empty on every other range): fair value gap zones (analysis/fvg.py), computed on the full fetched
+    # frame and kept when c3 is on or after the visible window's start. Computed on demand, no cache.
+    fvgs: list[ChartFvgOut] = []
     # Earnings-report dates / dividend ex-dates within this response's visible
     # window (see data/chart_events_data.py + chart_data.py), read from the weekly
     # CorporateEvent cache. `events_source` is "fmp", or

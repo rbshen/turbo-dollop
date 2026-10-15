@@ -63,8 +63,10 @@ from sqlmodel import Session, select
 
 from analysis.entry_signal.indicators import BB_LENGTH, BB_STD, check_buy_signal, compute_bollinger_bands, compute_rsi
 from analysis.entry_signal.resample import build_2h_session_candles_fast, drop_forming_candles, index_by_window_start
+from analysis.fvg import FVG_ATR_MULTIPLIER, detect_fvgs
 from analysis.trend_structure.stochastic import compute_stochastic
 from analysis.trend_structure.weinstein import compute_stage_series, resample_to_weekly
+from analysis.warren_signal.indicators import compute_atr_wilder
 from analysis.warren_signal.instructions import current_instruction
 from analysis.warren_signal.state_machine import replay_with_series, warren_reference_levels
 from clients.daily_bar_sources import _is_half_day, fmp_intraday_rows_to_frame, fmp_rows_to_frame
@@ -87,6 +89,7 @@ from core.schemas import (
     ChartBollingerPointOut,
     ChartDividendMarkerOut,
     ChartEarningsMarkerOut,
+    ChartFvgOut,
     ChartLinePointOut,
     ChartMarkerOut,
     ChartOut,
@@ -295,6 +298,37 @@ def _filter_zones(lp_read: LiquidityZoneOut | None, visible_start: pd.Timestamp)
         if broken is not None and broken.formed_at >= visible_start_date:
             zones.append(ChartZoneOut(side=side, price=broken.price, formed_at=_fmt(broken.formed_at), broken=True))
     return zones
+
+
+# The one range that draws fair value gaps (docs/specs/fvg.md); every other range answers `fvgs=[]`.
+FVG_RANGE = "D_6M"
+
+
+def _fvg_zones(bars_df: pd.DataFrame, visible_start: pd.Timestamp) -> list[ChartFvgOut]:
+    """Fair value gaps from the FULL fetched frame (detection needs the history for ATR and the ending scan), kept when c3 is on
+    or after `visible_start` (the same cutoff _filter_zones applies to LP): an older still-alive gap is not shown. A gap whose c3
+    is the last bar has no c4; it is emitted with `end_time=None` and `start_time` = the next weekday after the last bar (see
+    ChartFvgOut), which the client draws one bar wide in the right margin."""
+    atr = compute_atr_wilder(bars_df["high"], bars_df["low"], bars_df["close"])
+    index = bars_df.index
+    out: list[ChartFvgOut] = []
+    for g in detect_fvgs(bars_df, atr, FVG_ATR_MULTIPLIER):
+        if index[g.c3_index] < visible_start:
+            continue
+        if g.start_index < len(index):
+            start = index[g.start_index]
+        else:
+            start = index[-1] + pd.offsets.BDay(1)
+        out.append(
+            ChartFvgOut(
+                side=g.side,
+                top=g.top,
+                bottom=g.bottom,
+                start_time=_fmt(start),
+                end_time=None if g.end_index is None else _fmt(index[g.end_index]),
+            )
+        )
+    return out
 
 
 def _marker_bar_time(visible_index: pd.DatetimeIndex, fired_at: datetime) -> pd.Timestamp | None:
@@ -843,6 +877,7 @@ async def get_chart_data(ticker: str, range_key: str) -> ChartOut:
         warren_signal_available=warren_signal_available,
         zones=zones,
         zones_available=zones_available,
+        fvgs=_fvg_zones(bars_df, visible_start) if range_key == FVG_RANGE else [],
         earnings_markers=earnings_markers,
         dividend_markers=dividend_markers,
         events_source=events_read.source,
