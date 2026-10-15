@@ -17,16 +17,17 @@ discrete pass/fail tally on each metric:
 - **Margins** — gross, operating and net margin, i.e. how much of each dollar of revenue the
   company actually keeps after costs. Stable or improving margins suggest pricing power and cost
   discipline; margins that are steadily eroding are a warning sign even if revenue is still
-  growing. The Margins score is the lower of the gross margin score and the better of the net and
-  operating margin scores.
+  growing. The Margins score is half the gross margin score plus half the better of the net and
+  operating margin scores (see "Margins" below).
 - **Free Cash Flow (FCF)** — cash left over after the company pays for its own capital
   investments. This is checked mainly for whether it stays positive, since a sustained
   multi-year run of cash burn is a real bankruptcy-risk signal.
 
-Every metric is scored by **one neutral engine** from its last 5–10 **completed fiscal years**
-(never the trailing twelve months): which way the series is heading over the long run, how much
+Revenue, Net Income, Operating Income, CFO and FCF are scored by **one neutral engine** from their last 5–10
+**completed fiscal years** (never the trailing twelve months): which way the series is heading over the long run, how much
 it dipped along the way and whether it recovered, and whether the last completed year was a fresh
-collapse. A series that is growing with the odd dip scores above one that is flat, flat above
+collapse. The three margins have their **own relative engine** (since 2026-10-15, "Margins" below), on the same completed
+years plus one capped trailing-twelve-month nudge. A series that is growing with the odd dip scores above one that is flat, flat above
 declining, and declining above one that zigzags. It's also not enough for Revenue, Net Income and
 CFO to be trending the right way — they're checked for whether the latest completed year is
 actually positive. A company whose losses are merely getting smaller, but still hasn't turned a
@@ -43,14 +44,15 @@ reference below for exact weights and thresholds.
 
 ## Data window
 
-The 10 most recent **completed annual fiscal years** of each metric, oldest first. **TTM is never part of
-a Step 1 score** (it is still drawn on the Financials charts and tables as a display column): "latest
-value", "last completed fiscal year" and every check below mean the last annual point, so what happened
-after that year-end (0 / 3 / 6 / 9 months before the latest reported quarter for 44 / 26 / 472 / 45 tickers
-of the 588 non-ETF tickers checked) does not move the score until the year closes (see "Known weaknesses").
-Fewer than 5 completed years is scored as it is (a series needs 2 points; under 8 revenue points the
-thin-history cap below applies): on that universe 9 tickers have fewer than 5 completed years, 30 fewer
-than 8, 544 the full 10.
+The 10 most recent **completed annual fiscal years** of each metric, oldest first. **TTM is not part of a
+Step 1 score, with one exception:** the three margin series take a capped TTM nudge of at most +-5 points
+each (see "Margins"; superseded the earlier "TTM never" rule on 2026-10-15). TTM is otherwise a display column on the
+Financials charts and tables: "latest value", "last completed fiscal year" and every check below mean the last annual
+point, so what happened after that year-end (0 / 3 / 6 / 9 months before the latest reported quarter for 44 / 26 / 472 / 45
+tickers of the 588 non-ETF tickers checked on 2026-10-07) does not move the dollar metrics until the year closes (see "Known
+weaknesses"). Fewer than 5 completed years is scored as it is (a series needs 2 points; under 8 revenue points the
+thin-history cap below applies): on the 580 tracked stocks (2026-10-15) 8 have fewer than 5 completed years, 29 fewer than 8,
+537 at least 10.
 
 **Cleaned statements (2026-10-06).** Step 1 reads its income and cash-flow rows through the shared loader ([Statement data
 quality](statement-data-quality.md), "The shared loader"): placeholder and scale-broken cash-flow rows are treated as missing, so
@@ -66,8 +68,8 @@ revenue × 100, all on real revenue (percent, 18.4 for 18.4%). A missing year is
 These are the **defaults in the code** (`scoring/weights.py::DEFAULT_WEIGHTS.step1` = 35 / 20 / 30 / 10 / 5). The five base weights are
 adjustable (Settings > Score weighting; Revenue 20-50, Net Income 10-40, CFO 10-40, Margins 0-25, FCF 0-15, adding up to 100) and **the
 saved set can differ from the defaults**: scoring always uses the saved set, and the exempt tables below are derived from whatever base is
-saved, so the percentages in this section move with it (on 2026-10-08 the live database held 30 / 20 / 25 / 10 / 15, which gives
-56.52 / 43.48 for the exempt types; the Settings page is the authority for what is in force). The tables are derived by the same two rules
+saved, so the percentages in this section move with it (on 2026-10-15 the live database held Step 1 30 / 25 / 25 / 10 / 10, Step 2 70 / 30 and
+Overall Financials 35 / Growth 20 / Profitability 20 / Debt 25; the Settings page is the authority for what is in force). The tables are derived by the same two rules
 as always (CFO's and FCF's weight split equally over Revenue, Net Income and Margins, a component weighted 0 getting no share; then
 Margins' weight spread proportionally over Revenue and Net Income). A weight of 0 leaves a component out of the blend only: its
 data-gap check (a missing series still makes the step insufficient data) is unchanged.
@@ -117,6 +119,12 @@ for these four types.
 
 ## The engine
 
+**Scope since 2026-10-15.** This engine scores Revenue, Net Income, Operating Income, CFO and FCF (`"dollar"`). Gross, operating and net
+margin no longer go through it: they use the Margins engine (`scoring/step1_margins.py`, "Margins" below), which judges each margin
+relative to its own level. The engine's `"ratio"` kind, its `RATIO_PARAMS` and the ratio figures in the parts below are kept in code and in
+`test_step1_engine.py` unchanged but describe no live Step 1 score. The Margins engine reuses only the engine's metric-neutral helpers
+(`_trend`, `_theil_sen_slope`, the dip discount constants and the positivity-ceiling constants).
+
 `scoring/step1_engine.py::assess_series(values, kind) -> (pattern, score 0-100)`. The caller passes the series
 (finite numbers, oldest first, completed fiscal years only) and its **kind**, never inferred from a name: `"dollar"`
 for Revenue, Net Income, Operating Income, CFO and FCF, `"ratio"` for gross, operating and net margin. Nothing else
@@ -130,7 +138,8 @@ unrecovered dips cost more), with no hard cutoff (the old "4 or more dips caps a
 the last completed fiscal year lowers the score. (5) Dollar series must grow, so flat scores low, and are judged in
 fractions of their own size (scale-invariant); ratio series may be flat and still score well, and are judged in
 **percentage points**. (6) Near-identical shapes score near-identically (no 4.9% vs 5.1% cliff). (7) One engine for every
-metric: a negative value is just a dip; no separate rules for negatives, short history or explosive growers.
+dollar metric: a negative value is just a dip; no separate rules for negatives, short history or explosive growers (the margins have their
+own engine since 2026-10-15).
 
 **Units.** DOLLAR: `S` = median of `|x|`, `y = x / S`; `n < 2` or `S = 0` (a pre-revenue series) is `insufficient_data`,
 score 0. RATIO: `y = x` in points; `n < 2` is `insufficient_data`. Change `c[t]`: DOLLAR `(x[t] - x[t-1]) /
@@ -168,7 +177,7 @@ min(3, floor(n/2))`. The trend score `T(g)` is piecewise linear:
   before). So `s = 1` halves a cost every 4 years (age 4: 0.5, age 8: 0.25); `s = 0` (no real, lasting uptrend) leaves `d = 1` and the
   score exactly as it was. Using `g'` is deliberate: a series whose uptrend is one final-year spike gets no forgiveness. The unrecovered
   extra `a[t] * u[t]` is **never decayed**. Only dip weights and underwater years decay: the direction measure, the last-year cut,
-  the ceiling, the positivity gate, Margins `min(G, max(N, O))` and the company-type exemptions are untouched, and the same code path
+  the ceiling, the positivity gate, the Margins engine and the company-type exemptions are untouched, and the same code path
   serves every metric and both kinds (no per-metric branch). Series of 3 points or fewer have no `g'` to judge and are never forgiven.
 - Burden `K = sum a[t] * (d[age(t)] + u[t]) + sum d[age(t)] * w[t]` (`d = 1` without a real uptrend, so `K = sum a[t] * (1 + u[t]) + W`). Discount `D(K) = 80 * (1 - exp(-(K / 12)^1.5))` points (K 1/2/3/5/8/10/20: 1.9 / 5.3
   / 9.4 / 18.9 / 33.6 / 42.6 / 70.7 points off), strictly increasing, saturating at 80, same for both kinds.
@@ -183,7 +192,9 @@ A fall through zero is a (large) dip; a flat ratio series with one negative year
 **Part 5: positivity ceiling (RATIO only).** If the latest completed-year value is **at or below zero**, the series' score is
 capped at `C = 40 * max(0, 1 + x[last] / 10)`: 40 at a zero margin, falling 4 points per point of loss, 0 at a loss of 10
 points or more. A positive latest value is not capped. Earlier negative years are ordinary dips. The cap is applied to each of
-gross, operating and net margin separately, before the combination and before the carve-out; dollar series are untouched.
+gross, operating and net margin separately, before the combination and before the carve-out; dollar series are untouched. (Since
+2026-10-15 the same curve is applied by the Margins engine, which also caps the combined Margins score when neither net nor operating
+margin is positive.)
 
 **Score and labels.** (K above includes the age decay.) `score = round(min(clamp(max(0, T(g) - D(K)) * (1 - 0.6 * s), 0, 100), C))` (the ceiling only for
 RATIO). Labels (information, and the Margins carve-out only; they never change a score): `uptrend` if `g >= +2%` per year
@@ -264,27 +275,77 @@ Operating Income margin against 5%, positive years against 4 of 5). `score_step1
 
 ## Margins
 
-Three series go through the RATIO engine separately: **G** gross margin, **O** operating margin, **N** net margin (each
-including the positivity ceiling of Part 5). Then
+Gross (**G**), operating (**O**) and net (**N**) margin are scored **separately** by the Margins engine
+(`scoring/step1_margins.py`, built 2026-10-15), then blended:
 
-**Margins = min(G, max(N, O))**
+**Margins = 0.5 x G + 0.5 x max(N, O)**, each series' unrounded score, rounded once.
 
-with no averaging and no threshold. A weak G keeps the score low (gross margin is a hard cap); if G is healthy and N bad, O
-stands in for N (a one-off below the operating line); if both N and O are bad the score is low. **A series with fewer than 2
-years is missing and drops out:** no gross margin gives `max(N, O)`; no operating margin gives `min(G, N)`; no net margin gives
-`min(G, O)`; **N and O both missing makes Margins `insufficient_data`** (and the step), whatever G is. The Margins pattern is the
-deciding input's (a tie between N and O goes to net margin; G wins a tie with `max(N, O)`); the component also carries the three
-input scores (`inputs`) and which one decides (`binding`) as additive display fields.
+There is no `min()` and no gross-margin hard cap. The operating margin stays inside the profit leg: it stands in for a net margin dragged
+down by a one-off below the operating line. (The earlier `Margins = min(G, max(N, O))` and its "gross margin is a hard cap" wording were a spec
+error: the owner's brief only said gross and net margin are looked at separately; ruling recorded in docs/decisions.md, 2026-10-15.)
+**A series with fewer than 2 years is missing and drops out:** no gross margin gives `max(N, O)` alone; one of N / O missing makes the other
+the profit leg; **N and O both missing makes Margins `insufficient_data`** (and the step), whatever G is. The Margins pattern is the weaker
+leg's (a tie between N and O goes to net margin; G is the weaker leg on a tie with the profit leg). The component also carries the three input
+scores and patterns (`inputs`, each with the recent-fall `charge` that applied and the `ttm_adjustment` when it moved the score), the better
+of net and operating (`profit_leg`), the two unrounded leg scores (`legs`: `gross`, `profit`), the weaker leg (`binding`, kept for display
+compatibility: under a blend both legs count, so it only says which one is lower) and `ceiling` when the loss-making cap bound.
+
+**Loss-making ceiling.** When neither the latest N nor the latest O is positive, Margins cannot exceed the positivity-ceiling curve of the
+better of the two: `40 x max(0, 1 + best / 10)`, 40 at a zero margin and 0 at -10 points or worse (27 of the 469 scored tickers on 2026-10-15). A
+positive profit leg lifts the cap. It applies after the Utility carve-out.
+
+**Per series (G, O and N each, in this order).** Every threshold is a named constant at the top of `step1_margins.py`; they are the investigation
+prototype's values, not fitted.
+
+1. **One-off-year clamp.** An isolated outlier year (never the first or the latest) is clamped to the range of its neighbours (up to two each
+   side) when it lies outside that range by at least 75% of the series level **and** at least 1.5x the neighbours' own spread; largest first, at most
+   two years per series (needs 5+ years). Examples: CIEN net 45.0 and -11.1, ALGN net 71.8, PCAR operating 0.0. It touches 158 of 1,407 scored series.
+2. **Boom-bust cap.** With `M` the series median, years more than 25% above `M` are boom years. When there are at least 2, at least 3 ordinary years
+   precede the first, the window has 8+ years and the latest year is back within -25% .. +15% of the pre-boom baseline (the median of the years before
+   the boom), every year from the first boom year on keeps **50%** of its excess above `C`, the larger of the ordinary-year median and the latest year.
+   POOL and BLDR style fades. It touches 36 series.
+3. **Units.** Each margin is judged relative to its own level `L = max(median |x|, 5 points)`; `y = x / L`.
+4. **Trend score.** `T(g)`: flat **88**, +2% of level a year **100**, -7% a year or worse **30** (linear between). `g` is the engine's robust trend
+   (mean of the Theil-Sen slope and the window drift). **Recent-slope blend:** with 6+ years and the last-4-year slope plus a +1.5%-of-level dead band
+   still negative and worse than `g`, the trend is `0.1 g + 0.9 g_recent`. It only ever pulls down; a recent slope inside the dead band never lowers an
+   uptrend (the earlier prototype's bug).
+5. **Dips.** Excess drop `max(0, -change - max(0, -g))`; a fall counts as a dip from 4% to 20% of level (capped at 3 dips); the discount is the
+   unchanged `80 x (1 - exp(-(K/12)^1.5))`. **Older dips** (age 2 and up) carry the decaying burden `0.5^((age - 2)/4)`; dips of the last two years
+   are charged in step 6.
+6. **One recent-fall charge.** Recent weakness is charged **once, as the largest of four measures, not their sum**: (a) the recent-slope charge
+   (`T(g)` minus the blended `T`); (b) the recent-dip charge (dips into the last two years, x3, through the same discount); (c) the latest year
+   below its **5-year average** (5 completed years ending at the latest; tolerance band `max(5% of the average, 0.5 point)`; up to 20 points at a
+   further 25% shortfall); (d) the **last-year fall** (excess fall from 5% to 30% of level, up to 50% of the score). The charge is measured from the
+   score after the older-dip burden. **Fade cap:** when the window has 8+ years and the latest year is **at or above the series median**
+   (threshold exactly 1.0), the charge is at most **35** points. A fade that has not taken the series below its own typical level is not a collapse.
+7. **TTM nudge (+-5 points per series).** Only with 5+ completed years and a positive latest year. **Bonus** (up to +5, full at a TTM 20% of the
+   reference scale above the latest year) when the series is below its average or had a dip and TTM is back within the band and above the latest
+   year; **penalty** (up to -5, scaled across a 25% shortfall) when TTM is below both the latest year and (average - band). **Skipped entirely** for
+   tickers where the outlier check flagged revenue, gross profit, operating income or net income (`outlier_warnings` on those four lines), and for any
+   series where |TTM - latest year| > max(8 points, 50% of the latest year's value). With fewer than 5 years there is no average check and no TTM.
+   This is a deliberate, capped exception to "completed years only": it moves a Margins score by a few points (in the investigation
+   simulation it flipped one Step 1 verdict, AVGO, and no Overall band on its own).
+8. **Soft floor and positivity ceiling.** When the latest margin is above zero, a raw score of 0-30 maps linearly onto 20-30, so **no profitable
+   series scores 0-10**; that band is reserved for a latest margin at or below zero, where the unchanged positivity ceiling (Part 5 above) applies.
+
+**Reference scores (series alone).** Steady 30%: 88. Rising 20 to 29: 100. Sustained decline 60 to 36 over ten years: 36. 60 flat for six years, then
+55 / 50 / 45: 35. A fresh 47 to 41 fall: 81; a two-year fall that has not recovered (45, 46, 41, 38): 53. A 30% series that falls to 3: 30.
+A one-off 40 among 10s: 88 (same as flat). A boom 5 to 15 that has faded back to 5: 61. Anchors (margin score, 2026-10-15): POOL 63, CIEN 60,
+PCAR 53, BLDR 47, HUM 29, CVS 35, GOOGL 92.
 
 **Exemption.** Bank, Insurance, Property Developer and Commodity Company skip Margins entirely (`MARGINS_EXEMPT_TYPES` in
 `data/step1_data.py`, extended from `{"Bank"}` on 2026-10-08): nothing is computed in its place, and Step 1 scores no ROE or ROIC (ROE is
 checked for Banks in Step 4 only). Standard and Utility score Margins as described here.
 
 **Severity carve-out (Utility only).** A margin series (each of G, O and N) labelled `decline` /
-`decline_dips` is never scored below **60**, per series, **after** the positivity ceiling and before the combination. The carve-out can
-therefore lift a loss-making declining series from under its ceiling to 60; the wrappers are unchanged and this is accepted. Insurance and
+`decline_dips` is never scored below **60**, per series, **after** the positivity ceiling and before the blend. The loss-making Margins ceiling above
+still binds afterwards (the earlier wording "the carve-out can lift a loss-making declining series to 60" no longer holds). Insurance and
 REIT / Property Developer had the carve-out until 2026-10-08 and lost it when they stopped scoring Margins (`MARGINS_SEVERITY_CARVEOUT_TYPES`
-is `{"Utility"}`; the ARE, CSGP and VTR cases the old text cited no longer arise).
+is `{"Utility"}`).
+
+**Code.** `scoring/step1_margins.py` (engine and blend; `classify_margins`), `scoring/step1.py::_classify_margins` (thin wrapper kept for callers
+and tests), `data/step1_data.py` (passes the TTM margins and the outlier flag). Tests: `scoring/test_step1_margins.py` (archetypes, anchors, each
+rule) and the Margins section of `scoring/test_step1.py`.
 
 ## Free Cash Flow
 
@@ -342,19 +403,23 @@ the [Glossary](glossary.md) for how every verdict label is defined.
 
 - **A collapse in the latest quarters is invisible until the fiscal year closes.** The series ends at the last completed fiscal year,
   so whatever happened after that year-end (a drop, a recovery, a new loss) does not move any score and no rule is added for it.
-- **Gross margin is a hard cap, and FMP gross profit is not a real goods margin for some sectors.** G is the binding input for
-  about half the scored tickers. 43 tickers have G more than 20 points under both N and O (utilities, REITs, hospitals, telecom,
-  pharma services, media: e.g. HCA, whose G is 0 against an O of 89 and an N of 88), and six report a gross margin of about
-  100%. This is **accepted as a limitation**: no gross-margin exception exists (the owner asked for none). A gross margin that
-  moves 5-10 points a year at a 60-80% level is priced as a string of dips in points (ABBV, AMGN, BMY).
+- **FMP gross profit is not a real goods margin for some sectors, and a definition change is read as a business change.** Gross is half of
+  Margins, so a break moves the score: HCA's gross margin went 83.8 to 38.3 in FY2021 with operating margin flat (scored 26 on gross, Margins 60);
+  similar persistent gross-versus-operating decouplings appear for CI (2019), FOX / FOXA (2025, gross 100.0 to 33.1), EVVTY, SW (2021), MEDP
+  (2018) and the regulated utilities ED, EVRG, ES. No cross-year guard exists for margin series (the statement-data-quality guards cover whole-row
+  unit errors and placeholders only). The blend limits the damage; it does not remove it.
 - **The positivity ceiling steps at zero, and thin positive margins sit just above it.** A latest margin of +0.01 is not capped, one
-  of 0.0 is capped at 40: on a flat 3% margin the score goes 82 (last year +0.3), 80 (+0.01), 40 (0.0), 36 (-1), 24 (-4), 0 (-10).
-  Thin-margin businesses (COR net margin 0.48, CVS 0.44, GPC 0.27) score high today and would be capped at 40 or below by a fall
-  of half a point; an improving series crossing zero in its last year scores about 100 against about 39 a year earlier.
-- **Ratio scoring is level-dependent by design (a point is a point).** The same wobble in points costs a 3%-margin business
-  less, relative to its margin, than a 40%-margin one: the median net-margin score falls with the margin level (83 / 70 / 59 / 45 / 0
-  for medians under 3% / 3-10% / 10-25% / 25-50% / 50%+). Measuring ratios relative to their own size gives the opposite slope;
-  neither is flat.
+  of 0.0 is capped at 40 (per series, and on Margins when neither N nor O is positive). Thin-margin businesses (COR net margin 0.48, CVS 0.44,
+  GPC 0.27) score high today and would be capped at 40 or below by a fall of half a point; an improving series crossing zero in its last year
+  scores about 100 against about 39 a year earlier.
+- **Relative units read small absolute moves on a 2-6% margin as large.** The level floor is 5 points; BG (gross 5%, operating 2%, net 1-3%),
+  ADM, TSN and AMCR score 20-30 on a few-point wobble because the recent-slope charge saturates at its 70-point maximum on a noisy four-year window. A
+  noise-aware dead band fixes BG and AMCR but lifts HUM and POOL out of their targets, so none was adopted.
+- **Cyclical falls of about 30% read as a collapse** whether or not the series later flattens (a 8, 9, ... 12, ... 8 cycle scores 31) unless the
+  latest year is still at or above the series median (fade cap) or the fade is a multi-year boom back at its baseline (boom-bust cap, which keeps
+  half the boom, so a pure round trip still scores about 60, not 88).
+- **One-off years in the latest or the second-last year are not cleaned.** The clamp never touches the first or latest year, and a dip just under
+  its thresholds stays (CRL's 2024 operating 5.6 against a 12.6-16.4 neighbour range). TTM is skipped for flagged tickers.
 - **Explosive growers** (AMD cash flow, CRDO and MRVL earnings) are judged against their own median size, which is small beside
   the latest value, so early wiggles read as large dips (157 dollar series that grew more than 6x from first to last point still
   score under 85).
@@ -375,10 +440,9 @@ the [Glossary](glossary.md) for how every verdict label is defined.
 
 Prototype figures on the 588 non-ETF tickers (cached data, 2026-10-07, completed fiscal years only; saved weights 30/20/25/10/15,
 defaults 35/20/30/10/5): component means / medians (applicable tickers) Revenue 83 / 93, Net Income (with backup) 55 / 64, CFO
-60 / 66, Margins 60 / 66 (G 70 / 79, O 65 / 73, N 57 / 62), FCF 48 / 51. Financials at the saved weights: mean 65.3, median 69,
+60 / 66, Margins 60 / 66 (G 70 / 79, O 65 / 73, N 57 / 62; the Margins figures are those of the old `min()` engine, replaced 2026-10-15), FCF 48 / 51. Financials at the saved weights: mean 65.3, median 69,
 Fail / Pass / Strong 51% / 37% / 12% (defaults: mean 67.3, 46% / 39% / 14%). Margins applies to 559 tickers (29 Banks skip it), 556
-scored (ACHR, HONA, VYLR `insufficient_data`); binding input G 282, O 148, N 84, N = O 42; O lifts Margins above `min(G, N)` for 225
-tickers and a sub-70 Margins to 70+ for 65. 60 tickers have a latest N or O at or below zero (38 both): RIVN and SNOW score Margins 0.
+scored (ACHR, HONA, VYLR `insufficient_data`). 60 tickers had a latest N or O at or below zero (38 both): RIVN and SNOW scored Margins 0.
 The ranges are context for revisiting a threshold, not live invariants: re-scan before relying on the counts.
 
 **Calibration shift from the age decay (2026-10-07; 579 scored tickers, saved weights 30/20/25/10/15):** Financials mean 65.7 -> 70.5, Fail /
@@ -399,3 +463,13 @@ blend is more sensitive to a single weak series: a Net Income score of 0 now cos
 - **Bank Margins artifact (historical).** All 28 Bank-classified tickers with margin data showed `grossProfit/revenue` at or above 100% around
   FY2021 followed by a permanent drop to a 42-77% plateau from FY2022: an FMP data-methodology break specific to financial-services
   reporting, universal across the Bank population.
+
+**Calibration shift from the Margins redesign (2026-10-15; 580 tracked tickers, 469 with Margins scored, saved weights Step 1 30/25/25/10/10;
+completed in one cache-only recompute, 0 failed):** Margins mean 62.7 -> 72.2 (median 73 -> 81), scores of 85+ 145 -> 200, below 30 90 -> 43;
+333 tickers up, 105 down, 31 unchanged (113 up and 29 down by 20+ points). By input: G mean 72 -> 79, O 68 -> 66, N 61 -> 58 (the profit leg is
+now the better of N and O, and gross carries half). The weaker leg is gross for 188 tickers, operating for 175, net for 106. The loss-making
+ceiling binds for 27. The TTM nudge moves one or more series for 244 tickers. Financials (Step 1) at the saved weights: mean 71.4 -> 72.1, Fail / Pass
+/ Strong Pass 36% / 39% / 24% -> 36% / 38% / 26%. Step 1 verdict flips (24): 15 Pass to Strong Pass (APP, CBOE, CHD, ETSY, HCA, IQV, IR, ISRG, META, NVO,
+SHW, SPGI, TMUS, TTD, UBER), 4 Fail to Pass (ETR, FFIV, NWSA, SRE), 4 Strong Pass to Pass (GD, ULTA, VRSK, WST), 1 Pass to Fail (EXPD, 70 to 69).
+Overall flips (6): ABBV, CRDO, XYL Fail to Pass, CHRW Pass to Fail, FAST and META Pass to Strong Pass; 195 Overall scores move by at most 2.
+Rationale and the investigation behind the rules: docs/decisions.md 2026-10-15.

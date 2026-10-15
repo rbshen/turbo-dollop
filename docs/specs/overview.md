@@ -37,7 +37,7 @@ the **default** weights; all four are adjustable in Settings > Score weighting (
 | Profitability | 20% |
 
 These are the defaults in the code (`scoring/weights.py::DEFAULT_WEIGHTS`). The weights actually in force are the **saved** set, which can differ: on
-2026-10-08 the live database held Financials 35 / Growth 20 / Profitability 20 / Debt 25 (Step 1 30/20/25/10/15, Step 2 80/20). Settings > Score weighting shows what
+2026-10-15 the live database held Financials 35 / Growth 20 / Profitability 20 / Debt 25 (Step 1 30/25/25/10/10, Step 2 70/30). Settings > Score weighting shows what
 is in force; every percentage derived from a weight in these specs (for example the exempt-type tables) is quoted at the defaults.
 
 **The Moat multiplier** scales the finished Fundamentals score:

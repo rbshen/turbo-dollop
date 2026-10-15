@@ -622,9 +622,9 @@ Owner decisions, built in four commits (engines, endpoint, frontend, docs); beha
 
 Owner decisions, built in five commits (spec, engine, integration, tests, version bump and recompute); mechanism in `docs/specs/financials.md`.
 
-- **One engine for every metric** (`scoring/step1_engine.py::assess_series`): long-term direction, a smooth dip penalty from a spike-robust peak, a last-completed-fiscal-year check and a series kind (dollar: Revenue, Net Income, Operating Income, CFO, FCF; ratio in points: gross, operating, net margin, with a positivity ceiling). It replaces the `classify_trend` tiers for Revenue/Net Income/CFO inside Step 1, the FCF tiers and the margins classifier; `classify_trend` is untouched (Steps 3 and 4).
-- **Completed fiscal years only, no TTM anywhere in Step 1**, including the Net Income Operating Income backup's two health gates (latest fiscal year OI > 0 and >= 5% of that year's revenue; positive in 4 of the last 5 years). TTM stays a display column.
-- **Margins = min(G, max(N, O))**, a missing input drops out, N and O both missing is insufficient data; Banks still skip Margins, CFO/FCF exemptions and the carve-out are unchanged wrappers. Accepted limitation: FMP gross profit is not a goods margin for some sectors (HCA's G is 0), so the hard gross-margin cap holds some tickers low; no exception.
+- **One engine for every metric** *(margins moved to their own relative engine on 2026-10-15)* (`scoring/step1_engine.py::assess_series`): long-term direction, a smooth dip penalty from a spike-robust peak, a last-completed-fiscal-year check and a series kind (dollar: Revenue, Net Income, Operating Income, CFO, FCF; ratio in points: gross, operating, net margin, with a positivity ceiling). It replaces the `classify_trend` tiers for Revenue/Net Income/CFO inside Step 1, the FCF tiers and the margins classifier; `classify_trend` is untouched (Steps 3 and 4).
+- **Completed fiscal years only, no TTM anywhere in Step 1** *(superseded 2026-10-15 for the three margin series only: a capped +-5 TTM nudge)*, including the Net Income Operating Income backup's two health gates (latest fiscal year OI > 0 and >= 5% of that year's revenue; positive in 4 of the last 5 years). TTM stays a display column.
+- **Margins = min(G, max(N, O))** *(superseded 2026-10-15: equal-weight blend, see the entry of that date; the min() wording was a spec error)*, a missing input drops out, N and O both missing is insufficient data; Banks still skip Margins, CFO/FCF exemptions and the carve-out are unchanged wrappers. Accepted limitation: FMP gross profit is not a goods margin for some sectors (HCA's G is 0), so the hard gross-margin cap holds some tickers low; no exception.
 - **Thresholds are the design's start values**, in named constants in one place; nothing was tuned or added during the build. Reproduces every figure of the design's synthetic table (grower with dips 100 / 96 / 89 / 80 / 72, flat 68, declines 60 / 52 / 35, zigzags 32 / 15, spike 62 / 25; ratio flat 88).
 - **`SCORE_FORMULA_VERSION` 2 -> 3** (the Overall arithmetic did not change, but every stored row carries the old Financials score, so it must read stale). Backups taken first: `~/fathom-score-backup-2026-10-07.json` (every TickerScore row) and `~/fathom-db-backup-2026-10-07.db.gz`.
 - **Recompute result (582 tracked tickers, 0 failed, 45 s, cache only):** 579 scored, 3 insufficient data (ACHR, HONA, VYLR); Financials at the saved weights mean 65.7, median 70, Fail / Pass / Strong 50% / 38% / 12%; the eight spot checks (ABBV 74, DIS 47, KR 59, TSCO 93, WMT 64, AAPL 92, MSFT 96, HCA 82) equal the design's list exactly; no retired pattern key remains anywhere (component patterns are the six engine labels plus `not_yet_positive`, review evidence strings carry none).
@@ -1447,3 +1447,40 @@ The tab was built and shelved the same day (2026-09-27) and has been unused sinc
 **Why plain CSS.** A ranked list with an end-of-bar label and a per-row `n/a` is simpler as `div`s than as recharts custom shapes, and its geometry is directly unit-testable. No dependency added. Spec: docs/specs/sectors.md (renamed from `sector-heatmap.md`); chart pattern: docs/design-system-charts.md, "Ranked return bars".
 
 **Follow-up (same day).** (1) Bar style is copied from the Historical Trends bars (`MiniBarChart`): 1px corner radius, bar 90% of its row and gap 10% (`barCategoryGap` 10%), solid token fills; the first version's rounded, thinner bars are gone. (2) The 0% line is at the identical x in all three charts: one layout (same label column and plot width) and one shared zero fraction, clamp(max over the charts of L / (L + R), 12%, 88%), L and R being each chart's most negative and most positive value sizes; each chart keeps its own scale so its bars fit both sides of that zero. This supersedes the first version's independent per-chart zero (an axis fitted separately to each chart's min and max). Cost: a window with a long bar on the short side of the zero compresses that chart's other side. Dropdown changes re-align all three. Spec: docs/specs/sectors.md.
+
+### 2026-10-15 — Step 1 Margins: a relative engine and an equal-weight blend (supersedes "Margins = min(G, max(N, O))" and "no TTM anywhere in Step 1" of 2026-10-07, for margins only)
+
+Owner decisions after three report-only investigations (the GOOGL margin score of 63 despite healthy gross and net margins, then the over-punishing
+series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-year pass); built in three commits (code, tests, docs). Mechanism in
+`docs/specs/financials.md` ("Margins"); code in `backend/scoring/step1_margins.py`.
+
+- **Ruling on the old wording.** The owner ruled that `Margins = min(G, max(N, O))` and "gross margin is a hard cap" were a **spec error**: the master prompt only
+  said gross and net margin are looked at separately. The combination is now **Margins = 0.5 x Gross + 0.5 x max(Net, Operating)**, rounded once; the
+  operating-margin fallback stays inside the profit leg (it protects against net-margin one-offs). No `min()`, no gross hard cap.
+- **A margin-only relative engine.** Each margin is judged against its own level (`max(median |x|, 5 points)`) in `scoring/step1_margins.py`; Revenue, Net
+  Income, Operating Income, CFO and FCF keep the shared engine (`step1_engine.py`) byte-identical. This drops the "one engine, ratio in points" principle for
+  margins (a 60 to 45 gross fall and a 10 to 8 net fall are both large; points were not).
+- **The rules** (all named constants, the prototype's values, not fitted): trend score flat 88 / +2% of level 100 / -7% 30 with a recent-slope blend of 0.9
+  that only pulls down; older dips decay; **one recent-fall charge = the largest of four measures** (recent slope, recent dips x3, latest below the 5-year
+  average, last-year fall), not their sum (the sum stacked one fall through four rules, a mean surcharge of 7.9 points and 20+ on 69 series); a **fade cap** of
+  35 points when the latest year is at or above the series median (8+ years, threshold exactly 1.0; 0.95 lifted POOL out of its 60-70 target); a **one-off-year
+  clamp** (isolated outlier year to its neighbours' range: 75% of level and 1.5x the neighbours' spread, twice at most); a **boom-bust cap** (boom years keep
+  50% of their excess; 50% is a judgement value: 0% put POOL at 92, 30% at 76, 50% at 63); a **soft floor** (profitable series never score 0-10) and the
+  unchanged per-series positivity ceiling; and a **loss-making ceiling** on Margins itself (neither latest N nor O positive: the 40-at-zero curve), added
+  because the blend alone let 12 loss-making tickers (SNOW, NET, CRWD, ZS, RIVN, ...) score 50+.
+- **TTM exception (supersedes "no TTM anywhere in Step 1" for margins):** each margin series takes a TTM nudge of at most +-5 points (5+ years, positive latest
+  year), skipped for tickers the outlier check flagged and for any series with |TTM - latest| > max(8 points, 50% of the latest year) (GOOGL's TTM net 54.8
+  against 32.8 is skipped). Rejected: no TTM at all (a series recovering after a dip got no credit), and a larger cap.
+- **Rejected:** a noise-aware dead band on the recent slope (fixes BG, AMCR, UPS, but lifts HUM 29 to 49 and POOL to 75); cleaning one-offs in the latest or
+  second-last year (cannot be told from a real fall); a cross-year FMP definition-break guard (HCA, CI, FOX, SW; not built, flagged in the spec).
+- **No `SCORE_FORMULA_VERSION` bump (stays 6).** The owner asked for a full cache-only recompute instead (0 FMP calls): 580 tracked tickers, 0 failed, 48 s. Checked
+  against a snapshot taken before the change: every non-margin Step 1 field (Revenue, Net Income incl. its Operating Income backup, CFO, FCF components and
+  every series) identical for all 580 tickers; the stored TickerScore rows differ only in `computed_at`, `step1_score` / `step1_verdict`, `steps_score` and
+  `overall_score` / `overall_verdict` (Steps 2-5 scores and verdicts identical for all 611 rows; two `market_cap` values moved from a profile refresh, same price).
+- **Result:** Margins mean 62.7 to 72.2, below 30 90 to 43; Step 1 verdict flips 24 (15 Pass to Strong Pass, 4 Fail to Pass, 4 Strong Pass to Pass, EXPD Pass to
+  Fail at 69); Overall flips 6 (ABBV, CRDO, XYL Fail to Pass; CHRW Pass to Fail; FAST, META Pass to Strong Pass). Anchors: POOL 63, CIEN 60, PCAR 53, BLDR 47,
+  HUM 29, CVS 35; GOOGL margin 63 to 92, Step 1 95 to 98, Overall 91 to 92 Strong Pass. The fade cap alone raised 30 tickers by 1-26 points and flipped no verdict
+  (INSW 26 to 52, SINGY 29 to 52, CALM 24 to 47, TSLA 45 to 60, DLTR 64 to 79, NBIS 27 to 41, DHR 65 to 76 against the same design without it).
+- **Known open items:** the Step 1 card's methodology text still says "never the trailing twelve months" and "the lower of gross margin and the better of net and
+  operating" (frontend, left untouched by the brief); `step1_engine.py`'s module docstring and its `ratio` kind still describe margins; the `binding` display
+  field now only names the weaker leg.
