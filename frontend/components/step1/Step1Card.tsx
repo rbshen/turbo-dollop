@@ -7,10 +7,13 @@ import type { Step1Out } from "@/lib/api/types";
 const METHODOLOGY =
   "A weighted blend of Revenue, Net Income, Cash Flow from Operations, Margins, and Free Cash Flow scores " +
   "(Revenue, Net Income, and Margins alone when CFO/FCF don't apply), banded 0–69 May not pass / 70–90 Pass / " +
-  "91–100 Strong Pass. Each is scored from its last 5–10 completed fiscal years (never the trailing twelve months) on one " +
-  "neutral trend assessment: long-term direction, a graduated penalty for dips (more, longer or unrecovered dips cost more), " +
-  "and a cut for a fresh fall in the last fiscal year. Margins is the lower of gross margin and the better of net and " +
-  "operating margin; a margin at or below zero in the latest year is capped.";
+  "91–100 Strong Pass. Revenue, Net Income, Cash Flow from Operations and Free Cash Flow are each scored from their last 5–10 " +
+  "completed fiscal years (never the trailing twelve months) on one neutral trend assessment: long-term direction, a graduated " +
+  "penalty for dips (more, longer or unrecovered dips cost more), and a cut for a fresh fall in the last fiscal year. Margins is an " +
+  "equal-weight blend: 50% gross margin and 50% the better of net and operating margin. Each margin is judged on its trend " +
+  "relative to its own level over completed fiscal years, so direction matters more than the absolute number; the trailing " +
+  "twelve months may nudge a margin score by up to 5 points and never decides a verdict on its own. A margin at or below zero " +
+  "in the latest year is capped.";
 
 interface Props {
   ticker: string;

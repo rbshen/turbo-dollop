@@ -3,8 +3,10 @@
 `assess_series(values, kind)` scores one metric's last 5-10 COMPLETED fiscal years (never a TTM point) from four parts: long-term
 direction (a robust slope), a smooth dip penalty measured from a spike-robust peak, a check of the last completed fiscal year, and the
 series kind (`dollar`: Revenue, Net Income, Operating Income, CFO, FCF, judged in fractions of the series' own median size, so scale
-invariant; `ratio`: gross / operating / net margin, judged in percentage points, with a positivity ceiling). No metric name, company
-type or second series enters. `classify_trend` (scoring/trend.py) is untouched: Steps 3 and 4 still use it.
+invariant; `ratio`: percentage points, with a positivity ceiling). Step 1 scores only the `dollar` kind here: since 2026-10-15 gross,
+operating and net margin are scored by the separate relative Margins engine in scoring/step1_margins.py (which reuses this module's
+`_trend`, `_theil_sen_slope` and discount and ceiling constants), and the `ratio` kind is kept, with its tests, but no live score uses it.
+No metric name, company type or second series enters. `classify_trend` (scoring/trend.py) is untouched: Steps 3 and 4 still use it.
 
 Every threshold is a named constant in this one place (the "start" values of the design, chosen by prototype, not fitted).
 """
