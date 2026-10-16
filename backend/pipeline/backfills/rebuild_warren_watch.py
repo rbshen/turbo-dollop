@@ -7,9 +7,10 @@ stored row.
 Writes (only with --apply) the changed columns of a row that differs, and nothing else: `removed_at`, the cursor, `as_of` and
 `last_updated_at` are never touched, a removed row is skipped (never resurrected) and a ticker with no row never gets one.
 
-Mismatch guard. Before a row is trusted, the same bars and LP settings are replayed under the OLD rules (the old 3-month window
-from SEED_START and the old Gray Down stop rule, emulated here) and must reproduce the stored row exactly. If they do not, the
-difference is not explained by the rule changes (the bars, the LP settings or the arrows moved), so the row is printed and skipped.
+Mismatch guard. A row that already equals the new replay is identical (so a rerun after --apply reports every row identical). A row
+that differs is only rebuilt if the same bars and LP settings, replayed under the OLD rules (the old 3-month window from SEED_START
+and the old Gray Down stop rule, emulated here), reproduce the stored row exactly. If they do not, the difference is not explained
+by the rule changes (the bars, the LP settings or the arrows moved), so the row is printed and skipped.
 
 Run (writes nothing):
     uv run python -m pipeline.backfills.rebuild_warren_watch
@@ -139,17 +140,17 @@ def main(apply: bool, tickers: list[str] | None = None) -> dict:
             if gap:
                 gaps.append((row.ticker, gap))
             stored = _state_from_row(row)
-            baseline = diff(stored, old_rules_state(row.ticker, frame, settings, through))
-            if baseline:
-                skipped.append((row.ticker, f"old rules do not reproduce the stored row, left alone: {baseline}"))
-                continue
             fresh = replay_state(row.ticker, frame, settings, through)
             if fresh is None:
                 skipped.append((row.ticker, "12-month replay gives no row, left alone"))
                 continue
             changes = diff(stored, fresh)
             if not changes:
-                same += 1
+                same += 1  # already on the current rules (a rerun after --apply)
+                continue
+            baseline = diff(stored, old_rules_state(row.ticker, frame, settings, through))
+            if baseline:
+                skipped.append((row.ticker, f"old rules do not reproduce the stored row, left alone: {baseline}"))
                 continue
             changing.append((row.ticker, changes, stored, fresh))
             if apply:
