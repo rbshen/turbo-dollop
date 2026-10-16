@@ -289,7 +289,7 @@ yellow trade found, breached months ago).
 `last_updated_at` and all 133 cursors unchanged for every row. A rerun reports 114 identical, 0 changing, 0 skipped (the first version of the guard skipped already-rebuilt rows on a rerun, fixed the
 same day). MAR is now yellow 353.09 (2026-05-05), stop 367.04 LP, active; IDXX and MTD have yellow entries and are breached; WDC and CRDO keep their stops and breaches with older entries.
 
-## Third rebuild: trailing stop and stop age (2026-10-16, DRY RUN only, not applied)
+## Third rebuild: trailing stop and stop age (2026-10-16, applied)
 
 `pipeline.backfills.rebuild_warren_watch` was rewritten again for the trailing rule and the stop-age columns (the Gray Down and 12-month changes it used to emulate
 are already applied, so that emulation is gone):
@@ -317,3 +317,4 @@ Nightly cost afterwards: only the 8 active LP-stop rows are asked each candle, a
 before the same row stayed "active" with an old entry. So on the 53 rows the entry price is the close of the post-breach re-entry, often far above the old one, and P/L % is measured from it.
 The Entry tooltip (kind, candle, age) already says so; a row whose Stop-age tooltip reads "Set at entry" with the same stamp as the Entry cell is such a restart.
 
+**Applied 2026-10-16** (owner approval, after the columns existed in the real DB): 112 rows written, the dry-run numbers exactly (45 stop age only, 37 stops, 53 entries, 17 active -> breached, 0 reverse, 0 skipped). A before/after dump showed exactly 112 rows changed; `removed_at`, `as_of`, `last_updated_at` and all cursors were identical on every row, and no removed row existed or was touched. A rerun reports 114 identical, 0 changing, 0 skipped.
