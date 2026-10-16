@@ -69,4 +69,4 @@ export function instructionDisplay(
 
 /** The tooltip on a "No entry" status: a row born from a Gray Up has no entry price. */
 export const NO_ENTRY_NOTE =
-  "No up-arrow entry fell inside the 3-month seed window, so an earlier trade may exist. The row only records the latest arrow.";
+  "No up-arrow entry fell inside the 12-month replay window, so an earlier trade may exist. The row only records the latest arrow.";
