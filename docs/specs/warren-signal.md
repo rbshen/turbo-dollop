@@ -177,6 +177,8 @@ The chart's legend shows the action for the latest signal (`analysis/warren_sign
 - **Ported, not changed:** the type chain's order, numbering and colours, and ToS's "a down arrow beats an up arrow on the same bar".
 - Tests: `analysis/warren_signal/test_instructions.py`, `test_state_machine.py` (stop-hit and type-4 inputs), `tests/test_chart_2h.py` ("Warren action text" section, including the signal-before-window and engine-identity pins).
 
+**Warren Signals watch table (2026-10-16).** A persistent per-ticker table built on these same arrows (instruction, entry, stop, breach), written as the last step of the nightly job: docs/specs/warren-signals-page.md.
+
 ## Storage
 
 - **Latest-state row: a shared table.** `TechnicalEntrySignal` (BB+RSI's own table) has 3 nullable columns,

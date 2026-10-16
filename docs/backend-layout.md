@@ -55,6 +55,8 @@ backend/     FastAPI app, organized into packages by role:
                fill; historical name),
                nightly_entry_signal_calculation.py,
                nightly_liquidity_zone_calculation.py,
+               seed_warren_watch.py (one-off, idempotent seed of the Warren Signals
+               watch table; docs/specs/warren-signals-page.md),
                nightly_price_target_snapshot.py,
                nightly_etf_screener.py (the ETFs screener read-model, 1:45 AM;
                registered 2026-10-03, see docs/specs/etf-screener.md),
