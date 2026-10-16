@@ -62,6 +62,7 @@ from data.moat_check import get_latest_moat_check, moat_check_payload
 from data.market_breadth_data import get_market_breadth
 from data.opportunity_data import get_run as get_opportunity_run, list_run_dates as list_opportunity_dates, record_picks as record_opportunity_picks
 from data.momentum_data import get_etf_momentum_snapshot, get_momentum_snapshot
+from data.warren_watch_data import remove_watch_row, watch_table
 from data.sector_heatmap_data import get_sector_heatmap
 from helpers.weinstein_config import get_weinstein_settings, update_weinstein_settings
 from helpers.liquidity_zone_config import get_liquidity_zone_settings, update_liquidity_zone_settings
@@ -92,6 +93,8 @@ from data.universe_membership import (
 )
 from core.schemas import (
     OpportunityDateOut,
+    WarrenWatchOut,
+    WarrenWatchRemoveOut,
     OpportunityRunOut,
     UniverseAddOut,
     UniverseRemoveOut,
@@ -380,6 +383,20 @@ def momentum(period: MomentumPeriod = "current") -> MomentumOut:
 @app.get("/api/momentum/etf", response_model=EtfMomentumOut)
 def etf_momentum(period: MomentumPeriod = "current") -> EtfMomentumOut:
     return get_etf_momentum_snapshot(period)
+
+
+# The Technical Ideas page (docs/specs/warren-signals-page.md): the Warren watch table, read from the stored rows only (no FMP call,
+# no write: safe for a viewer as it is). The one write is the admin-only soft remove; the nightly job never resurrects a removed row.
+@app.get("/api/technical-ideas/warren", response_model=WarrenWatchOut)
+def technical_ideas_warren() -> WarrenWatchOut:
+    return WarrenWatchOut(**watch_table())
+
+
+@app.delete("/api/technical-ideas/warren/{ticker}", response_model=WarrenWatchRemoveOut)
+def technical_ideas_warren_remove(ticker: TickerPath) -> WarrenWatchRemoveOut:
+    if not remove_watch_row(ticker):
+        raise HTTPException(status_code=404, detail=f"{ticker} is not on the Warren watch table.")
+    return WarrenWatchRemoveOut(removed=True)
 
 
 # The weekly opportunity lists (docs/specs/opportunities.md). READ-ONLY by design: the only way a run is created is the

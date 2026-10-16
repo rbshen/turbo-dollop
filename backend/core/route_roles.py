@@ -37,6 +37,7 @@ ROUTE_ROLES: dict[tuple[str, str], Role] = {
     ("GET", "/api/screener/filters"): "viewer",
     ("GET", "/api/screener/meta"): "viewer",
     ("GET", "/api/sector-heatmap"): "viewer",
+    ("GET", "/api/technical-ideas/warren"): "viewer",
     ("GET", "/api/tickers/search"): "viewer",
     ("GET", "/api/tickers/{ticker}/analyst-ratings"): "viewer",
     ("GET", "/api/tickers/{ticker}/bank-capital-metrics"): "viewer",
@@ -68,6 +69,7 @@ ROUTE_ROLES: dict[tuple[str, str], Role] = {
     ("GET", "/api/watchlists/{watchlist_id}/export/thinkorswim"): "viewer",
     ("GET", "/api/watchlists/{watchlist_id}/rows"): "viewer",
     # --- admin
+    ("DELETE", "/api/technical-ideas/warren/{ticker}"): "admin",
     ("GET", "/api/config/cron-health"): "admin",
     ("GET", "/api/config/data-groups"): "admin",
     ("PUT", "/api/config/data-groups/master"): "admin",

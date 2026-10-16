@@ -2698,3 +2698,40 @@ class OpportunityDateOut(BaseModel):
     created_at: datetime
     momentum_count: int
     reversal_count: int
+
+
+class WarrenWatchRowOut(BaseModel):
+    """One ticker's row on the Technical Ideas page (data/warren_watch_data.py::watch_table; docs/specs/warren-signals-page.md).
+    Every datetime is naive America/New_York; candle times are 2h window STARTS (the chart's convention). `age_bars` counts
+    completed 2h candles after the latest arrow's candle up to the table's `as_of` (0 = the arrow is on the last candle);
+    `last_signal_age_bars` is the same for the latest UP arrow (`last_signal_at`)."""
+
+    ticker: str
+    profile: Literal["any", "spy", "qqq", "tqqq", "tecl"]
+    latest_arrow_color: Literal["blue", "yellow", "gray"]
+    latest_arrow_direction: Literal["up", "down"]
+    latest_arrow_at: datetime
+    instruction_type: int
+    instruction_text: str
+    entry_kind: Literal["blue", "yellow"] | None = None
+    entry_price: float | None = None
+    stop_price: float | None = None
+    stop_basis: Literal["10%", "LP", "entry", "none"]
+    status: Literal["active", "breached"]
+    breached_at: datetime | None = None
+    last_signal_at: datetime
+    last_updated_at: datetime
+    age_bars: int | None = None
+    last_signal_age_bars: int | None = None
+
+
+class WarrenWatchOut(BaseModel):
+    """The whole watch table (non-removed rows) and its `as_of`: the last completed 2h candle (window start, naive ET) the
+    nightly update has folded in. `as_of` is None only before the first seed."""
+
+    as_of: datetime | None
+    rows: list[WarrenWatchRowOut]
+
+
+class WarrenWatchRemoveOut(BaseModel):
+    removed: bool

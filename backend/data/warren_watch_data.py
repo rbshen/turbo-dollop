@@ -12,10 +12,11 @@ the candles after it. The cursor and the row are written in one transaction."""
 
 import logging
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from analysis.entry_signal.resample import build_2h_session_candles_fast, drop_forming_candles, index_by_window_start
@@ -171,7 +172,7 @@ def update_warren_watch(
 def remove_watch_row(ticker: str, now_et: datetime | None = None) -> bool:
     """Soft-delete a ticker's row: sets removed_at (naive America/New_York, comparable with candle times). Arrows on
     candles that started at or before it are ignored from then on. False when the ticker has no row or it is already
-    removed. No endpoint calls this yet (phase 2)."""
+    removed. Called by DELETE /api/technical-ideas/warren/{ticker} (admin)."""
     ticker = normalize_ticker(ticker)
     now_et = now_et or datetime.now(_ET).replace(tzinfo=None)
     with Session(engine) as session:
@@ -191,3 +192,59 @@ def list_watch_rows(include_removed: bool = False) -> list[WarrenWatchRow]:
             stmt = stmt.where(WarrenWatchRow.removed_at.is_(None))
         return list(session.exec(stmt).all())
 
+
+
+# The four 2h window starts of a full session; an early close (13:00) has only those that start before it.
+_WINDOW_STARTS = (time(9, 30), time(11, 30), time(13, 30), time(15, 30))
+
+
+def _window_starts_between(after: datetime, through: datetime) -> list[datetime]:
+    """Every 2h window start in (after, through], naive America/New_York, from the NYSE calendar (holidays and early
+    closes respected). A calendar read, not a bars read, so the page endpoint stays cache-only and write-free."""
+    from helpers.trading_calendar import xnys_sessions  # lazy: loads pandas_market_calendars (~0.9 s)
+
+    starts: list[datetime] = []
+    for day, _, close in xnys_sessions(after.date(), through.date()):
+        close_t = close.time()
+        starts.extend(
+            datetime.combine(day, t) for t in _WINDOW_STARTS if t < close_t and after < datetime.combine(day, t) <= through
+        )
+    return starts
+
+
+def _to_et_naive(wall: datetime) -> datetime:
+    """The row's `last_updated_at` is naive server-local wall clock; return it as naive America/New_York."""
+    return wall.astimezone(_ET).replace(tzinfo=None)
+
+
+def watch_table() -> dict:
+    """The page's read of the stored table: every non-removed row plus the table's `as_of` (the last completed 2h candle any
+    ticker has been folded through; falls back to the rows' own `as_of`). Reads only; no FMP, no write. Row dicts carry the
+    latest arrow split into colour and direction, and two ages in 2h candles up to `as_of`: since the latest arrow's candle
+    (`age_bars`) and since the latest UP arrow's candle (`last_signal_age_bars`). Candle times are window starts (naive ET)."""
+    with Session(engine) as session:
+        rows = list(session.exec(select(WarrenWatchRow).where(WarrenWatchRow.removed_at.is_(None)).order_by(WarrenWatchRow.ticker)).all())
+        cursor_max = session.exec(select(func.max(WarrenWatchCursor.processed_through))).one()
+    as_of = cursor_max or max((r.as_of for r in rows), default=None)
+
+    ages: dict[datetime, int] = {}
+    if as_of is not None and rows:
+        stamps = {r.latest_arrow_at for r in rows} | {r.last_signal_at for r in rows}
+        starts = pd.DatetimeIndex(_window_starts_between(min(stamps) - timedelta(days=1), as_of))
+        for stamp in stamps:
+            ages[stamp] = int(len(starts) - starts.searchsorted(pd.Timestamp(stamp), side="right"))
+
+    out = []
+    for r in rows:
+        color, _, direction = r.latest_arrow_kind.partition("_")
+        out.append(
+            {
+                "ticker": r.ticker, "profile": r.profile, "latest_arrow_color": color, "latest_arrow_direction": direction,
+                "latest_arrow_at": r.latest_arrow_at, "instruction_type": r.instruction_type, "instruction_text": r.instruction_text,
+                "entry_kind": r.entry_kind, "entry_price": r.entry_price, "stop_price": r.stop_price, "stop_basis": r.stop_basis,
+                "status": r.status, "breached_at": r.breached_at, "last_signal_at": r.last_signal_at,
+                "last_updated_at": _to_et_naive(r.last_updated_at),
+                "age_bars": ages.get(r.latest_arrow_at), "last_signal_age_bars": ages.get(r.last_signal_at),
+            }
+        )
+    return {"as_of": as_of, "rows": out}
