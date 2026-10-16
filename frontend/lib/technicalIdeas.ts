@@ -70,3 +70,47 @@ export function instructionDisplay(
 /** The tooltip on a "No entry" status: a row born from a Gray Up has no entry price. */
 export const NO_ENTRY_NOTE =
   "No up-arrow entry fell inside the 12-month replay window, so an earlier trade may exist. The row only records the latest arrow.";
+
+/** "Oct 15" from a "YYYY-MM-DD" date (or a naive ISO datetime); the input unchanged when it does not parse. */
+export function fmtEtDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  const month = m ? MONTHS[Number(m[2]) - 1] : undefined;
+  return m && month ? `${month} ${Number(m[3])}` : iso;
+}
+
+/** "today" / "5 days ago" / "7 months ago" / "2 years ago" for a naive ET stamp against `nowMs`. Day granularity: the few hours between
+ * ET and the browser's clock cannot change the wording. Null when the stamp does not parse. */
+export function fmtAgeAgo(iso: string, nowMs: number): string | null {
+  const m = NAIVE_ISO.exec(iso);
+  if (!m) return null;
+  const days = Math.floor((nowMs - Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) / 86_400_000);
+  if (days < 1) return "today";
+  if (days < 31) return `${days} ${days === 1 ? "day" : "days"} ago`;
+  const months = Math.floor(days / 30.44);
+  if (months < 24) return `${months} ${months === 1 ? "month" : "months"} ago`;
+  const years = Math.floor(months / 12);
+  return `${years} years ago`;
+}
+
+export const ENTRY_PRICE_NOTE = "The close of the entry candle, not an actual fill.";
+
+/** The Entry cell's tooltip: entry kind, the entry candle's ET stamp, its age, and the close-not-fill note. */
+export function entryTitle(row: Pick<WarrenWatchRowOut, "entry_kind" | "entry_at">, nowMs: number): string {
+  const kind = row.entry_kind ? `${row.entry_kind === "blue" ? "Blue" : "Yellow"} entry` : "Entry";
+  const parts = [kind];
+  if (row.entry_at) {
+    parts.push(`${fmtEtStamp(row.entry_at)} ET`);
+    const age = fmtAgeAgo(row.entry_at, nowMs);
+    if (age) parts.push(age);
+  }
+  return `${parts.join(" · ")}. ${ENTRY_PRICE_NOTE}`;
+}
+
+/** A fraction as a signed one-decimal percent: 0.1234 -> "+12.3%", -0.05 -> "-5.0%", 0 -> "0.0%". */
+export function fmtSignedPct1(fraction: number): string {
+  const pct = fraction * 100;
+  const text = Math.abs(pct).toFixed(1);
+  return pct > 0 && text !== "0.0" ? `+${text}%` : pct < 0 && text !== "0.0" ? `-${text}%` : `${text}%`;
+}
+
+export const BREACHED_PL_NOTE = "Hypothetical: this trade was stopped out at its stop, not at today's price.";

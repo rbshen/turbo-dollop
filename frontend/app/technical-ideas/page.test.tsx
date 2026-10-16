@@ -17,7 +17,7 @@ const DATA: WarrenWatchOut = {
   rows: [
     {
       ticker: "AAA", profile: "any", latest_arrow_color: "blue", latest_arrow_direction: "up", latest_arrow_at: "2026-10-15T13:30:00",
-      instruction_type: 2, instruction_text: "BLUE UP - Buy.", entry_kind: "blue", entry_price: 100, stop_price: null, stop_basis: "none",
+      instruction_type: 2, instruction_text: "BLUE UP - Buy.", entry_kind: "blue", entry_at: "2026-10-15T13:30:00", last_price: 110, last_price_date: "2026-10-15", pl_pct: 0.1, stop_distance_pct: 0.1818, entry_price: 100, stop_price: null, stop_basis: "none",
       status: "active", breached_at: null, last_signal_at: "2026-10-15T13:30:00", last_updated_at: "2026-10-16T01:25:00", age_bars: 5,
       last_signal_age_bars: 5,
     },

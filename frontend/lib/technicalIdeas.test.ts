@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { WarrenWatchRowOut } from "@/lib/api/types";
-import { fmtAsOf, fmtBarsAgo, fmtEtStamp, lastEntryRefreshTitle, sortByLatestArrow, stopAboveEntry, stopAboveEntryNote } from "@/lib/technicalIdeas";
+import { entryTitle, fmtAgeAgo, fmtAsOf, fmtBarsAgo, fmtEtDate, fmtEtStamp, fmtSignedPct1, lastEntryRefreshTitle, sortByLatestArrow, stopAboveEntry, stopAboveEntryNote } from "@/lib/technicalIdeas";
 
 function row(over: Partial<WarrenWatchRowOut>): WarrenWatchRowOut {
   return {
     ticker: "AAA", profile: "any", latest_arrow_color: "yellow", latest_arrow_direction: "up", latest_arrow_at: "2026-10-15T13:30:00",
-    instruction_type: 3, instruction_text: "YELLOW UP", entry_kind: "yellow", entry_price: 100, stop_price: 90, stop_basis: "10%",
+    instruction_type: 3, instruction_text: "YELLOW UP", entry_kind: "yellow", entry_at: "2026-10-15T13:30:00", last_price: 110, last_price_date: "2026-10-15", pl_pct: 0.1, stop_distance_pct: 0.1818, entry_price: 100, stop_price: 90, stop_basis: "10%",
     status: "active", breached_at: null, last_signal_at: "2026-10-15T13:30:00", last_updated_at: "2026-10-16T01:25:00", age_bars: 5,
     last_signal_age_bars: 5, ...over,
   };
@@ -59,5 +59,30 @@ describe("technicalIdeas", () => {
     expect(stopAboveEntryNote({ entry_price: 142.42, stop_basis: "LP" })).toContain("2nd support (LP)");
     expect(stopAboveEntryNote({ entry_price: 142.42, stop_basis: "LP" })).toContain("$142.42");
     expect(stopAboveEntryNote({ entry_price: 100, stop_basis: "entry" })).toContain("from the entry price");
+  });
+});
+
+describe("entry and P/L formatting", () => {
+  const now = Date.UTC(2026, 9, 16, 12);
+  it("words an age by day, month and year", () => {
+    expect(fmtAgeAgo("2026-10-16T09:30:00", now)).toBe("today");
+    expect(fmtAgeAgo("2026-10-15T09:30:00", now)).toBe("1 day ago");
+    expect(fmtAgeAgo("2026-10-09T09:30:00", now)).toBe("7 days ago");
+    expect(fmtAgeAgo("2026-03-10T13:30:00", now)).toBe("7 months ago");
+    expect(fmtAgeAgo("2024-03-10T13:30:00", now)).toBe("2 years ago");
+    expect(fmtAgeAgo("garbage", now)).toBeNull();
+  });
+  it("formats a date and a signed one-decimal percent", () => {
+    expect(fmtEtDate("2026-10-15")).toBe("Oct 15");
+    expect(fmtSignedPct1(0.1234)).toBe("+12.3%");
+    expect(fmtSignedPct1(-0.0456)).toBe("-4.6%");
+    expect(fmtSignedPct1(0)).toBe("0.0%");
+    expect(fmtSignedPct1(0.00004)).toBe("0.0%");
+  });
+  it("builds the entry tooltip, with or without an entry time", () => {
+    expect(entryTitle({ entry_kind: "blue", entry_at: "2026-10-09T09:30:00" }, now)).toBe(
+      "Blue entry · Oct 9, 09:30 ET · 7 days ago. The close of the entry candle, not an actual fill.",
+    );
+    expect(entryTitle({ entry_kind: null, entry_at: null }, now)).toBe("Entry. The close of the entry candle, not an actual fill.");
   });
 });

@@ -2714,9 +2714,14 @@ class WarrenWatchRowOut(BaseModel):
     instruction_type: int
     instruction_text: str
     entry_kind: Literal["blue", "yellow"] | None = None
+    entry_at: datetime | None = None
     entry_price: float | None = None
     stop_price: float | None = None
     stop_basis: Literal["10%", "LP", "entry", "none"]
+    last_price: float | None = None
+    last_price_date: date | None = None
+    pl_pct: float | None = None
+    stop_distance_pct: float | None = None
     status: Literal["active", "breached"]
     breached_at: datetime | None = None
     last_signal_at: datetime

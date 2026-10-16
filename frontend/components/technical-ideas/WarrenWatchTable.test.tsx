@@ -20,7 +20,7 @@ afterEach(() => {
 function row(over: Partial<WarrenWatchRowOut>): WarrenWatchRowOut {
   return {
     ticker: "AAA", profile: "any", latest_arrow_color: "yellow", latest_arrow_direction: "up", latest_arrow_at: "2026-10-15T13:30:00",
-    instruction_type: 3, instruction_text: "YELLOW UP - Buy.", entry_kind: "yellow", entry_price: 100, stop_price: 90, stop_basis: "10%",
+    instruction_type: 3, instruction_text: "YELLOW UP - Buy.", entry_kind: "yellow", entry_at: "2026-10-15T13:30:00", last_price: 110, last_price_date: "2026-10-15", pl_pct: 0.1, stop_distance_pct: 0.1818, entry_price: 100, stop_price: 90, stop_basis: "10%",
     status: "active", breached_at: null, last_signal_at: "2026-10-15T13:30:00", last_updated_at: "2026-10-16T01:25:00", age_bars: 5,
     last_signal_age_bars: 5, ...over,
   };
@@ -39,13 +39,13 @@ function bodyRow(ticker: string): HTMLElement {
 }
 
 describe("WarrenWatchTable", () => {
-  it("has the seven columns and sorts the newest latest arrow first", () => {
+  it("has the eleven columns and sorts the newest latest arrow first", () => {
     draw([
       row({ ticker: "OLD", latest_arrow_at: "2026-10-01T09:30:00" }),
       row({ ticker: "NEW", latest_arrow_at: "2026-10-15T15:30:00" }),
     ]);
     expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
-      "Ticker", "Signal", "Instruction", "Stop", "Status", "Last signal", "Last updated", "Actions",
+      "Ticker", "Signal", "Instruction", "Entry", "Last", "P/L %", "Stop", "Stop dist.", "Status", "Last signal", "Last updated", "Actions",
     ]);
     const tickers = screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("link")[0].textContent);
     expect(tickers).toEqual(["NEW", "OLD"]);
@@ -129,8 +129,79 @@ describe("WarrenWatchTable", () => {
       expect(text_el).toHaveAttribute("title", text);
       expect(text_el).toHaveClass("line-clamp-2");
       const cell = text_el.closest("td")!;
-      expect(cell).toHaveClass("min-w-[220px]", "max-w-[360px]", "whitespace-normal");
+      expect(cell).toHaveClass("min-w-[160px]", "max-w-[300px]", "whitespace-normal");
     }
+  });
+
+  it("shows the entry price with a tooltip of kind, ET date, age and the close-not-fill note, and a dash with no entry", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-16T12:00:00Z"));
+    draw([
+      row({ ticker: "OLD", entry_kind: "yellow", entry_at: "2026-03-10T13:30:00", entry_price: 142.5 }),
+      row({ ticker: "BLU", entry_kind: "blue", entry_at: "2026-10-09T09:30:00", entry_price: 55 }),
+      row({ ticker: "NOE", entry_kind: null, entry_at: null, entry_price: null, pl_pct: null, stop_price: null, stop_distance_pct: null, stop_basis: "none" }),
+    ]);
+    const old = within(bodyRow("OLD")).getByText("$142.50");
+    expect(old).toHaveAttribute("title", "Yellow entry · Mar 10, 13:30 ET · 7 months ago. The close of the entry candle, not an actual fill.");
+    expect(within(bodyRow("BLU")).getByText("$55.00")).toHaveAttribute("title", expect.stringContaining("Blue entry · Oct 9, 09:30 ET · 7 days ago"));
+    // Gray-born row: Entry, P/L % and Stop dist. and Stop are all dashes.
+    expect(within(bodyRow("NOE")).getAllByText("—")).toHaveLength(4);
+    vi.useRealTimers();
+  });
+
+  it("shows the last daily close with its date in the tooltip, and a dash when none is cached", () => {
+    draw([
+      row({ ticker: "AAA", last_price: 123.45, last_price_date: "2026-10-15" }),
+      row({ ticker: "NOP", last_price: null, last_price_date: null, pl_pct: null, stop_distance_pct: null }),
+    ]);
+    expect(within(bodyRow("AAA")).getByText("$123.45")).toHaveAttribute("title", "Daily close of Oct 15");
+    expect(within(bodyRow("NOP")).getAllByText("—")).toHaveLength(3); // Last, P/L %, Stop dist.
+  });
+
+  it("draws P/L % signed with one decimal, green above and red below, and muted with a hypothetical note on a breached row", () => {
+    draw([
+      row({ ticker: "WIN", pl_pct: 0.1234 }),
+      row({ ticker: "LOS", pl_pct: -0.0456 }),
+      row({ ticker: "BRC", status: "breached", breached_at: "2026-10-13T09:30:00", pl_pct: -0.3 }),
+      row({ ticker: "BRW", status: "breached", breached_at: "2026-10-13T09:30:00", pl_pct: 0.2 }),
+    ]);
+    expect(within(bodyRow("WIN")).getByText("+12.3%")).toHaveClass("text-positive");
+    expect(within(bodyRow("LOS")).getByText("-4.6%")).toHaveClass("text-negative");
+    for (const [ticker, text] of [["BRC", "-30.0%"], ["BRW", "+20.0%"]] as const) {
+      const cell = within(bodyRow(ticker)).getByText(text);
+      expect(cell).toHaveClass("text-text-tertiary");
+      expect(cell).not.toHaveClass("text-positive");
+      expect(cell).not.toHaveClass("text-negative");
+      expect(cell).toHaveAttribute("title", "Hypothetical: this trade was stopped out at its stop, not at today's price.");
+    }
+    expect(within(bodyRow("WIN")).getByText("+12.3%")).not.toHaveAttribute("title");
+  });
+
+  it("draws Stop dist. % signed, red only when negative on an ACTIVE row, and a dash with no stop", () => {
+    draw([
+      row({ ticker: "OK", stop_distance_pct: 0.0812 }),
+      row({ ticker: "MIS", stop_distance_pct: -0.0345 }),
+      row({ ticker: "BRC", status: "breached", breached_at: "2026-10-13T09:30:00", stop_distance_pct: -0.2 }),
+      row({ ticker: "NON", stop_price: null, stop_basis: "none", stop_distance_pct: null }),
+    ]);
+    const ok = within(bodyRow("OK")).getByText("+8.1%");
+    expect(ok).not.toHaveClass("text-negative");
+    expect(ok).toHaveClass("text-text-secondary");
+    const missed = within(bodyRow("MIS")).getByText("-3.5%");
+    expect(missed).toHaveClass("text-negative");
+    expect(missed).toHaveAttribute("title", expect.stringContaining("below the stop"));
+    expect(within(bodyRow("BRC")).getByText("-20.0%")).not.toHaveClass("text-negative"); // breached: neutral
+    expect(within(bodyRow("NON")).getAllByText("—")).toHaveLength(2); // Stop and Stop dist.
+  });
+
+  it("fits without horizontal scrolling: tight cell padding and no cell is wider than the page container allows", () => {
+    const { container } = draw([row({ ticker: "AAA" })]);
+    // Every body cell uses the tight padding (the kit's pr-4 would add ~72px across the twelve columns); only the Instruction cell wraps.
+    for (const td of container.querySelectorAll("tbody td")) {
+      expect(td).not.toHaveClass("pr-4");
+      if (!td.className.includes("whitespace-normal")) expect(td).toHaveClass("whitespace-nowrap");
+    }
+    expect(container.querySelectorAll("tbody td")).toHaveLength(12);
   });
 
   it("keeps the header row sticky inside a bounded scroll box", () => {
@@ -149,13 +220,13 @@ describe("WarrenWatchTable", () => {
   });
 
   it("shows a neutral No entry status, with a note and a dash for the stop, when the row has no entry price", () => {
-    draw([row({ ticker: "NOE", entry_kind: null, entry_price: null, stop_price: null, stop_basis: "none", instruction_text: "GRAY UP - NO ACTION. Stopped out twice." })]);
+    draw([row({ ticker: "NOE", entry_kind: null, entry_at: null, entry_price: null, pl_pct: null, stop_price: null, stop_distance_pct: null, stop_basis: "none", instruction_text: "GRAY UP - NO ACTION. Stopped out twice." })]);
     const r = within(bodyRow("NOE"));
     const badge = r.getByText("No entry");
     expect(badge).toHaveAttribute("title", expect.stringContaining("earlier trade may exist"));
     expect(badge).not.toHaveClass("text-positive");
     expect(r.queryByText("Active")).toBeNull();
-    expect(r.getByText("—")).toBeInTheDocument();
+    expect(r.getAllByText("—")).toHaveLength(4); // Entry, P/L %, Stop, Stop dist.
     expect(r.getByText("GRAY UP - NO ACTION. Stopped out twice.")).toBeInTheDocument();
   });
 

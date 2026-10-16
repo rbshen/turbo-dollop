@@ -2195,9 +2195,16 @@ export interface WarrenWatchRowOut {
   instruction_type: number;
   instruction_text: string;
   entry_kind: "blue" | "yellow" | null;
+  entry_at: string | null;
   entry_price: number | null;
   stop_price: number | null;
   stop_basis: "10%" | "LP" | "entry" | "none";
+  // Latest completed DAILY close from the cached 1d bars (naive date "YYYY-MM-DD"); null when none is cached.
+  last_price: number | null;
+  last_price_date: string | null;
+  // Fractions, not percents: (last - entry) / entry and (last - stop) / last (negative = already below the stop).
+  pl_pct: number | null;
+  stop_distance_pct: number | null;
   status: "active" | "breached";
   breached_at: string | null;
   last_signal_at: string;

@@ -14,7 +14,7 @@ not whether a row exists. The cursor and the row are written in one transaction.
 
 import logging
 from dataclasses import dataclass, replace
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -27,6 +27,7 @@ from analysis.warren_signal.state_machine import replay
 from analysis.warren_signal.types import WarrenReplayResult
 from analysis.warren_signal.watch import WatchState, advance
 from clients.daily_bar_sources import _is_half_day
+from clients.shared_bars_cache import read_cached_completed_daily_bars
 from core.db import engine
 from core.models import WarrenWatchCursor, WarrenWatchRow
 from core.tickers import normalize_ticker
@@ -40,6 +41,9 @@ logger = logging.getLogger(__name__)
 SEED_MONTHS = 12
 ROW_MONTHS = 3
 _UP_KINDS = ("blue_up", "yellow_up", "gray_up")
+
+# How far back the page's "Last" price looks for a cached daily bar (a long weekend plus a delisting-style gap still finds one).
+LAST_PRICE_LOOKBACK_DAYS = 30
 
 _ET = ZoneInfo("America/New_York")
 
@@ -230,6 +234,33 @@ def _to_et_naive(wall: datetime) -> datetime:
     return wall.astimezone(_ET).replace(tzinfo=None)
 
 
+def pl_pct(last_price: float | None, entry_price: float | None) -> float | None:
+    """P/L as a fraction: (last - entry) / entry. None without a last price or an entry."""
+    if last_price is None or not entry_price:
+        return None
+    return (last_price - entry_price) / entry_price
+
+
+def stop_distance_pct(last_price: float | None, stop_price: float | None) -> float | None:
+    """Distance to the stop as a fraction of the last price: (last - stop) / last. Positive = price above the stop, negative =
+    already below it. None without a last price or a stop."""
+    if not last_price or stop_price is None:
+        return None
+    return (last_price - stop_price) / last_price
+
+
+def latest_daily_close(ticker: str) -> tuple[float | None, date | None]:
+    """The ticker's latest completed DAILY close and its date, from the cached 1d bars (a pure read: no FMP call, no write).
+    (None, None) when nothing is cached."""
+    frame = read_cached_completed_daily_bars(normalize_ticker(ticker), LAST_PRICE_LOOKBACK_DAYS)
+    if frame.empty or "close" not in frame.columns:
+        return None, None
+    close = frame["close"].dropna()
+    if close.empty:
+        return None, None
+    return float(close.iloc[-1]), close.index[-1].date()
+
+
 def watch_table() -> dict:
     """The page's read of the stored table: every non-removed row plus the table's `as_of` (the last completed 2h candle any
     ticker has been folded through; falls back to the rows' own `as_of`). Reads only; no FMP, no write. Row dicts carry the
@@ -247,14 +278,18 @@ def watch_table() -> dict:
         for stamp in stamps:
             ages[stamp] = int(len(starts) - starts.searchsorted(pd.Timestamp(stamp), side="right"))
 
+    last_closes = {r.ticker: latest_daily_close(r.ticker) for r in rows}
     out = []
     for r in rows:
         color, _, direction = r.latest_arrow_kind.partition("_")
+        last_price, last_price_date = last_closes[r.ticker]
         out.append(
             {
                 "ticker": r.ticker, "profile": r.profile, "latest_arrow_color": color, "latest_arrow_direction": direction,
                 "latest_arrow_at": r.latest_arrow_at, "instruction_type": r.instruction_type, "instruction_text": r.instruction_text,
-                "entry_kind": r.entry_kind, "entry_price": r.entry_price, "stop_price": r.stop_price, "stop_basis": r.stop_basis,
+                "entry_kind": r.entry_kind, "entry_at": r.entry_at, "entry_price": r.entry_price, "stop_price": r.stop_price,
+                "stop_basis": r.stop_basis, "last_price": last_price, "last_price_date": last_price_date,
+                "pl_pct": pl_pct(last_price, r.entry_price), "stop_distance_pct": stop_distance_pct(last_price, r.stop_price),
                 "status": r.status, "breached_at": r.breached_at, "last_signal_at": r.last_signal_at,
                 "last_updated_at": _to_et_naive(r.last_updated_at),
                 "age_bars": ages.get(r.latest_arrow_at), "last_signal_age_bars": ages.get(r.last_signal_at),

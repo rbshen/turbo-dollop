@@ -4,16 +4,18 @@ zero-FMP / zero-write guarantee for the GET is also covered by tests/test_viewer
 
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
+from datetime import time as dtime
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
+import clients.shared_bars_cache as sbc
 import core.main as main
 import data.warren_watch_data as wwd
-from core.models import WarrenWatchCursor, WarrenWatchRow
+from core.models import SharedBarsCache, WarrenWatchCursor, WarrenWatchRow
 from test_warren_watch_data import NOW, bars, canned, fake_lp, run
 
 
@@ -22,6 +24,7 @@ def engine(monkeypatch):
     eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)  # the endpoint runs in a worker thread
     SQLModel.metadata.create_all(eng)
     monkeypatch.setattr(wwd, "engine", eng)
+    monkeypatch.setattr(sbc, "engine", eng)  # the page's Last price reads the shared daily-bar cache
     return eng
 
 
@@ -69,9 +72,10 @@ def test_get_returns_the_stored_rows_with_arrow_split_ages_and_et_times(engine, 
     assert b["status"] == "breached" and b["breached_at"] == "2026-10-16T11:30:00"
     assert set(a) == {
         "ticker", "profile", "latest_arrow_color", "latest_arrow_direction", "latest_arrow_at", "instruction_type", "instruction_text",
-        "entry_kind", "entry_price", "stop_price", "stop_basis", "status", "breached_at", "last_signal_at", "last_updated_at",
-        "age_bars", "last_signal_age_bars",
+        "entry_kind", "entry_at", "entry_price", "stop_price", "stop_basis", "last_price", "last_price_date", "pl_pct",
+        "stop_distance_pct", "status", "breached_at", "last_signal_at", "last_updated_at", "age_bars", "last_signal_age_bars",
     }
+    assert a["entry_at"] == "2026-10-15T13:30:00" and a["entry_kind"] == "yellow" and a["entry_price"] == 100.0
 
 
 def test_age_follows_the_nyse_calendar_holiday_and_early_close(engine):
@@ -138,3 +142,65 @@ def test_remove_then_a_rerun_of_the_nightly_step_does_not_resurrect_the_row(monk
     assert client.get("/api/technical-ideas/warren").json()["rows"] == []
     with Session(engine) as s:
         assert s.exec(select(WarrenWatchRow)).one().removed_at is not None
+
+
+def add_daily_bars(engine, ticker, closes_by_age):
+    """Cached 1d bars: {days_ago: close}. Dated well before the last completed session, so the provisional-bar rule never applies."""
+    now = datetime.now()
+    with Session(engine) as s:
+        for days_ago, close in closes_by_age.items():
+            s.add(SharedBarsCache(ticker=ticker, interval="1d", bar_time=datetime.combine(now.date() - timedelta(days=days_ago), dtime.min),
+                                  open=close, high=close, low=close, close=close, volume=1000, fetched_at=now, source="fmp"))
+        s.commit()
+
+
+def test_last_price_pl_and_stop_distance_come_from_the_latest_cached_daily_close(engine):
+    add_row(engine, "AAA", entry_price=100.0, stop_price=90.0)
+    add_daily_bars(engine, "AAA", {9: 111.0, 8: 120.0})
+    row = TestClient(main.app).get("/api/technical-ideas/warren").json()["rows"][0]
+    assert row["last_price"] == 120.0
+    assert row["last_price_date"] == (datetime.now().date() - timedelta(days=8)).isoformat()
+    assert row["pl_pct"] == pytest.approx(0.20)  # (120 - 100) / 100
+    assert row["stop_distance_pct"] == pytest.approx(0.25)  # (120 - 90) / 120
+
+
+def test_stop_distance_is_negative_when_the_price_is_below_the_stop_and_pl_negative_below_entry(engine):
+    add_row(engine, "AAA", entry_price=100.0, stop_price=90.0)
+    add_daily_bars(engine, "AAA", {8: 80.0})
+    row = TestClient(main.app).get("/api/technical-ideas/warren").json()["rows"][0]
+    assert row["pl_pct"] == pytest.approx(-0.20)
+    assert row["stop_distance_pct"] == pytest.approx(-0.125)  # (80 - 90) / 80
+
+
+def test_no_cached_daily_bar_gives_null_price_fields(engine):
+    add_row(engine, "AAA")
+    row = TestClient(main.app).get("/api/technical-ideas/warren").json()["rows"][0]
+    assert (row["last_price"], row["last_price_date"], row["pl_pct"], row["stop_distance_pct"]) == (None, None, None, None)
+    assert row["entry_price"] == 100.0 and row["stop_price"] == 90.0  # the stored fields are unaffected
+
+
+def test_a_row_without_an_entry_or_a_stop_has_null_pl_and_stop_distance(engine):
+    add_row(engine, "AAA", entry_kind=None, entry_at=None, entry_price=None, stop_price=None, stop_basis="none")
+    add_daily_bars(engine, "AAA", {8: 50.0})
+    row = TestClient(main.app).get("/api/technical-ideas/warren").json()["rows"][0]
+    assert row["last_price"] == 50.0
+    assert (row["entry_at"], row["pl_pct"], row["stop_distance_pct"]) == (None, None, None)
+
+
+def test_get_is_cache_only_and_writes_nothing(engine, monkeypatch):
+    add_row(engine, "AAA")
+    add_daily_bars(engine, "AAA", {8: 120.0})
+
+    def dump():
+        with Session(engine) as s:
+            return ([r.model_dump() for r in s.exec(select(WarrenWatchRow)).all()], [r.model_dump() for r in s.exec(select(SharedBarsCache)).all()])
+
+    from clients.fmp_client import fmp_client
+
+    def no_http(*a, **k):
+        raise AssertionError("the Technical Ideas GET must not call FMP")
+
+    monkeypatch.setattr(fmp_client, "get", no_http)
+    before = dump()
+    assert TestClient(main.app).get("/api/technical-ideas/warren").status_code == 200
+    assert dump() == before
