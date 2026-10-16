@@ -20,17 +20,20 @@ const NAV_LINKS: NavLink[] = [
   { href: "/screener", label: "Stocks" },
   { href: "/etfs", label: "ETFs" },
   { href: "/watchlist", label: "Watchlist" },
-  { href: "/opportunities", label: "Opportunities" },
   { href: "/momentum", label: "Momentum" },
 ];
 
-// "Markets" is a dropdown, not a page: it sits after Momentum and groups the two market-wide views. It is active on
-// either route and on their sub-routes (/breadth/[sector]).
+// "Investing" and "Markets" are dropdowns, not pages: both sit after Momentum, Investing first. Each is active on any of its routes
+// and their sub-routes (/breadth/[sector]). Investing groups the idea lists; Markets the two market-wide views.
+const INVESTING_LINKS: NavLink[] = [
+  { href: "/opportunities", label: "Opportunities" },
+  { href: "/technical-ideas", label: "Technical Ideas" },
+];
 const MARKETS_LINKS: NavLink[] = [
   { href: "/sectors", label: "Sectors" },
   { href: "/breadth", label: "Breadth" },
 ];
-const MARKETS_AFTER = "/momentum";
+const MENUS_AFTER = "/momentum";
 const SETTINGS_HREF = "/settings";
 
 function isUnder(pathname: string, href: string): boolean {
@@ -42,7 +45,7 @@ function isUnder(pathname: string, href: string): boolean {
 // replayed as one (Cmd on Mac, Ctrl elsewhere). The real href/target stay on the <a> for middle-click, keyboard and
 // no-JS. Safari ignores modifiers on a synthetic click and just foregrounds the tab, same as before.
 // On these pages (and their sub-routes) every nav item, the logo included, navigates in the same tab instead.
-const SAME_TAB_PREFIXES = ["/opportunities", "/momentum", "/sectors", "/breadth", "/settings"];
+const SAME_TAB_PREFIXES = ["/opportunities", "/technical-ideas", "/momentum", "/sectors", "/breadth", "/settings"];
 const NEW_TAB_PROPS = { target: "_blank", rel: "noopener noreferrer", onClick: openInBackgroundTab } as const;
 
 function openInBackgroundTab(e: ReactMouseEvent<HTMLAnchorElement>) {
@@ -62,8 +65,8 @@ function openInBackgroundTab(e: ReactMouseEvent<HTMLAnchorElement>) {
 // Base UI's Menu supplies the disclosure behaviour: Enter/Space/ArrowDown open it, arrow keys move, Esc closes and returns focus to
 // the trigger, an outside click closes it, and it sets aria-haspopup / aria-expanded. The popup is portalled, so the link group's
 // overflow-x-auto does not clip it. Items are real links and carry the same new-tab behaviour as the other nav links.
-function MarketsMenu({ pathname, sameTab }: { pathname: string; sameTab: boolean }) {
-  const active = MARKETS_LINKS.some(({ href }) => isUnder(pathname, href));
+function NavMenu({ label, links, pathname, sameTab }: { label: string; links: NavLink[]; pathname: string; sameTab: boolean }) {
+  const active = links.some(({ href }) => isUnder(pathname, href));
   return (
     <Menu.Root>
       <Menu.Trigger
@@ -75,13 +78,13 @@ function MarketsMenu({ pathname, sameTab }: { pathname: string; sameTab: boolean
             : "text-text-secondary hover:bg-white/5 hover:text-text-primary data-[popup-open]:bg-white/5 data-[popup-open]:text-text-primary"
         )}
       >
-        Markets
+        {label}
         <CaretDown size={12} weight="bold" aria-hidden="true" className="text-text-tertiary" />
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner side="bottom" align="start" sideOffset={6} className="z-40">
           <Menu.Popup className="min-w-36 rounded-md border border-border-input bg-surface p-1 shadow-popover outline-none">
-            {MARKETS_LINKS.map(({ href, label }) => {
+            {links.map(({ href, label }) => {
               const current = isUnder(pathname, href);
               return (
                 <Menu.LinkItem
@@ -223,7 +226,12 @@ export function TopNav() {
                 >
                   {label}
                 </Link>
-                {href === MARKETS_AFTER && <MarketsMenu pathname={pathname} sameTab={sameTab} />}
+                {href === MENUS_AFTER && (
+                  <>
+                    <NavMenu label="Investing" links={INVESTING_LINKS} pathname={pathname} sameTab={sameTab} />
+                    <NavMenu label="Markets" links={MARKETS_LINKS} pathname={pathname} sameTab={sameTab} />
+                  </>
+                )}
               </Fragment>
             );
           })}

@@ -2181,3 +2181,31 @@ export interface OpportunityDateOut {
   momentum_count: number;
   reversal_count: number;
 }
+
+// GET /api/technical-ideas/warren (docs/specs/warren-signals-page.md). Every datetime is a naive America/New_York ISO string;
+// candle times are 2h window STARTS. `age_bars` / `last_signal_age_bars` count completed 2h candles after the latest arrow's / latest
+// UP arrow's candle up to `as_of` (0 = on the last candle).
+export interface WarrenWatchRowOut {
+  ticker: string;
+  profile: "any" | "spy" | "qqq" | "tqqq" | "tecl";
+  latest_arrow_color: "blue" | "yellow" | "gray";
+  latest_arrow_direction: "up" | "down";
+  latest_arrow_at: string;
+  instruction_type: number;
+  instruction_text: string;
+  entry_kind: "blue" | "yellow" | null;
+  entry_price: number | null;
+  stop_price: number | null;
+  stop_basis: "10%" | "LP" | "entry" | "none";
+  status: "active" | "breached";
+  breached_at: string | null;
+  last_signal_at: string;
+  last_updated_at: string;
+  age_bars: number | null;
+  last_signal_age_bars: number | null;
+}
+
+export interface WarrenWatchOut {
+  as_of: string | null;
+  rows: WarrenWatchRowOut[];
+}

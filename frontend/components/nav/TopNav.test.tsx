@@ -30,12 +30,14 @@ function isCurrent(el: HTMLElement): boolean {
   return el.getAttribute("aria-current") === "page";
 }
 
-// Markets is a menu: its links exist in the DOM only while it is open. Base UI treats a click with no pointer detail as a keyboard
-// activation, which opens the menu.
-function openMarkets() {
-  fireEvent.click(screen.getByRole("button", { name: "Markets" }));
+// Investing and Markets are menus: their links exist in the DOM only while open. Base UI treats a click with no pointer detail as a
+// keyboard activation, which opens the menu.
+function openMenu(name: string) {
+  fireEvent.click(screen.getByRole("button", { name }));
   return screen.findAllByRole("menuitem");
 }
+const openMarkets = () => openMenu("Markets");
+const openInvesting = () => openMenu("Investing");
 
 describe("TopNav", () => {
   it("links to every page, and opens each in a new tab", async () => {
@@ -45,7 +47,6 @@ describe("TopNav", () => {
       ["Stocks", "/screener"],
       ["ETFs", "/etfs"],
       ["Watchlist", "/watchlist"],
-      ["Opportunities", "/opportunities"],
       ["Momentum", "/momentum"],
     ];
     for (const [name, href] of expected) {
@@ -56,6 +57,14 @@ describe("TopNav", () => {
     const items = await openMarkets();
     for (const [name, href] of [["Sectors", "/sectors"], ["Breadth", "/breadth"]]) {
       const item = items.find((el) => el.textContent === name)!;
+      expect(item).toHaveAttribute("href", href);
+      expect(item).toHaveAttribute("target", "_blank");
+    }
+    cleanup();
+    render(<TopNav />);
+    const investing = await openInvesting();
+    for (const [name, href] of [["Opportunities", "/opportunities"], ["Technical Ideas", "/technical-ideas"]]) {
+      const item = investing.find((el) => el.textContent === name)!;
       expect(item).toHaveAttribute("href", href);
       expect(item).toHaveAttribute("target", "_blank");
     }
@@ -90,12 +99,17 @@ describe("TopNav", () => {
     }
   });
 
-  it.each(["/opportunities", "/momentum", "/sectors", "/breadth", "/breadth/XLK", "/settings"])(
+  it.each(["/opportunities", "/technical-ideas", "/momentum", "/sectors", "/breadth", "/breadth/XLK", "/settings"])(
     "on %s, every nav link and the logo navigate in the same tab",
     async (path) => {
       h.pathname = path;
       render(<TopNav />);
       for (const link of [...screen.getAllByRole("link"), ...(await openMarkets())]) {
+        expect(link).not.toHaveAttribute("target");
+      }
+      cleanup();
+      render(<TopNav />);
+      for (const link of await openInvesting()) {
         expect(link).not.toHaveAttribute("target");
       }
       const seen: MouseEvent[] = [];
@@ -118,14 +132,18 @@ describe("TopNav", () => {
       expect(isCurrent(screen.getByRole("link", { name }))).toBe(false);
     }
     expect(isCurrent(screen.getByRole("button", { name: "Markets" }))).toBe(false);
+    expect(isCurrent(screen.getByRole("button", { name: "Investing" }))).toBe(false);
     expect(isCurrent(screen.getByText("Ticker Analysis"))).toBe(false);
   });
 
-  it("lists the pages in order: Stocks, ETFs, Watchlist, then the rest", () => {
+  it("lists the pages in order: Stocks, ETFs, Watchlist, Momentum, then the Investing and Markets menus", () => {
     render(<TopNav />);
     const labels = screen.getAllByRole("link").map((a) => a.textContent);
-    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Opportunities", "Momentum"]);
+    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Momentum"]);
+    expect(screen.queryByRole("link", { name: "Opportunities" })).not.toBeInTheDocument(); // moved into Investing
     expect(screen.queryByRole("link", { name: "Screener" })).not.toBeInTheDocument();
+    const order = [...document.querySelectorAll("nav a, nav button")].map((el) => el.textContent);
+    expect(order.slice(0, 7)).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Momentum", "Investing", "Markets"]);
   });
 
   it("marks ETFs (and only ETFs) on /etfs", () => {
@@ -153,6 +171,46 @@ describe("TopNav", () => {
       expect(isCurrent(screen.getByRole("link", { name }))).toBe(false);
     }
     expect(isCurrent(screen.getByRole("button", { name: "Markets" }))).toBe(false);
+    expect(isCurrent(screen.getByRole("button", { name: "Investing" }))).toBe(false);
+  });
+});
+
+describe("TopNav: the Investing dropdown", () => {
+  it("is a menu button sitting between Momentum and Markets", () => {
+    render(<TopNav />);
+    const trigger = screen.getByRole("button", { name: "Investing" });
+    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).not.toHaveAttribute("href");
+    expect(screen.queryByRole("link", { name: "Technical Ideas" })).toBeNull();
+    const order = [...document.querySelectorAll("nav a, nav button")].map((el) => el.textContent);
+    expect(order.indexOf("Momentum")).toBeLessThan(order.indexOf("Investing"));
+    expect(order.indexOf("Investing")).toBeLessThan(order.indexOf("Markets"));
+  });
+
+  it("lists Opportunities then Technical Ideas once opened", async () => {
+    render(<TopNav />);
+    const items = await openInvesting();
+    expect(items.map((i) => i.textContent)).toEqual(["Opportunities", "Technical Ideas"]);
+  });
+
+  it.each([
+    ["/opportunities", "Opportunities"],
+    ["/technical-ideas", "Technical Ideas"],
+  ])("on %s, marks Investing and the %s item, and not Markets", async (path, item) => {
+    h.pathname = path;
+    render(<TopNav />);
+    const trigger = screen.getByRole("button", { name: "Investing" });
+    expect(isCurrent(trigger)).toBe(true);
+    expect(trigger).toHaveClass("bg-surface-2", "text-text-primary");
+    expect(isCurrent(screen.getByRole("button", { name: "Markets" }))).toBe(false);
+    for (const el of await openInvesting()) expect(isCurrent(el)).toBe(el.textContent === item);
+  });
+
+  it("does not mark Investing on another page", () => {
+    h.pathname = "/momentum";
+    render(<TopNav />);
+    expect(isCurrent(screen.getByRole("button", { name: "Investing" }))).toBe(false);
   });
 });
 
@@ -310,7 +368,8 @@ describe("TopNav: the account block", () => {
   it("shows every other nav link to a viewer too", () => {
     draw("viewer");
     const labels = screen.getAllByRole("link").map((a) => a.textContent);
-    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Opportunities", "Momentum"]);
+    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Momentum"]);
+    expect(screen.getByRole("button", { name: "Investing" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Markets" })).toBeInTheDocument();
   });
 
@@ -403,6 +462,7 @@ describe("TopNav: the bar does not wrap or overlap", () => {
     draw("admin");
     for (const el of [
       ...screen.getAllByRole("link").slice(1),
+      screen.getByRole("button", { name: "Investing" }),
       screen.getByRole("button", { name: "Markets" }),
       screen.getByRole("button", { name: "ann" }),
       screen.getByText("Ticker Analysis"),

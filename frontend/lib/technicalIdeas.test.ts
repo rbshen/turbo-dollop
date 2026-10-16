@@ -1,0 +1,59 @@
+import { describe, expect, it } from "vitest";
+
+import type { WarrenWatchRowOut } from "@/lib/api/types";
+import { fmtAsOf, fmtBarsAgo, fmtEtStamp, sortByLastSignal, stopAboveEntry, stopAboveEntryNote } from "@/lib/technicalIdeas";
+
+function row(over: Partial<WarrenWatchRowOut>): WarrenWatchRowOut {
+  return {
+    ticker: "AAA", profile: "any", latest_arrow_color: "yellow", latest_arrow_direction: "up", latest_arrow_at: "2026-10-15T13:30:00",
+    instruction_type: 3, instruction_text: "YELLOW UP", entry_kind: "yellow", entry_price: 100, stop_price: 90, stop_basis: "10%",
+    status: "active", breached_at: null, last_signal_at: "2026-10-15T13:30:00", last_updated_at: "2026-10-16T01:25:00", age_bars: 5,
+    last_signal_age_bars: 5, ...over,
+  };
+}
+
+describe("technicalIdeas", () => {
+  it("formats a naive ET stamp from its own digits, 24-hour", () => {
+    expect(fmtEtStamp("2026-10-15T13:30:00")).toBe("Oct 15, 13:30");
+    expect(fmtEtStamp("2026-01-05T09:30:00")).toBe("Jan 5, 09:30");
+    expect(fmtEtStamp("2026-10-16T01:25:00.123456")).toBe("Oct 16, 01:25");
+    expect(fmtAsOf("2026-10-15T15:30:00")).toBe("Oct 15, 15:30 ET");
+  });
+
+  it("leaves an unparseable stamp as it came", () => {
+    expect(fmtEtStamp("soon")).toBe("soon");
+    expect(fmtEtStamp("2026-13-01T10:00:00")).toBe("2026-13-01T10:00:00");
+  });
+
+  it("words an age in candles", () => {
+    expect(fmtBarsAgo(null)).toBeNull();
+    expect(fmtBarsAgo(0)).toBe("this candle");
+    expect(fmtBarsAgo(1)).toBe("1 bar ago");
+    expect(fmtBarsAgo(7)).toBe("7 bars ago");
+  });
+
+  it("sorts the most recent last signal first, ties by ticker, without mutating the input", () => {
+    const rows = [
+      row({ ticker: "OLD", last_signal_at: "2026-10-01T09:30:00" }),
+      row({ ticker: "ZZZ", last_signal_at: "2026-10-15T13:30:00" }),
+      row({ ticker: "AAA", last_signal_at: "2026-10-15T13:30:00" }),
+      row({ ticker: "NEW", last_signal_at: "2026-10-15T15:30:00" }),
+    ];
+    expect(sortByLastSignal(rows).map((r) => r.ticker)).toEqual(["NEW", "AAA", "ZZZ", "OLD"]);
+    expect(rows.map((r) => r.ticker)).toEqual(["OLD", "ZZZ", "AAA", "NEW"]);
+  });
+
+  it("flags a stop above the entry price only when both exist", () => {
+    expect(stopAboveEntry({ stop_price: 110, entry_price: 100 })).toBe(true);
+    expect(stopAboveEntry({ stop_price: 100, entry_price: 100 })).toBe(false);
+    expect(stopAboveEntry({ stop_price: 90, entry_price: 100 })).toBe(false);
+    expect(stopAboveEntry({ stop_price: null, entry_price: 100 })).toBe(false);
+    expect(stopAboveEntry({ stop_price: 110, entry_price: null })).toBe(false);
+  });
+
+  it("explains an above-entry stop by its basis", () => {
+    expect(stopAboveEntryNote({ entry_price: 142.42, stop_basis: "LP" })).toContain("2nd support (LP)");
+    expect(stopAboveEntryNote({ entry_price: 142.42, stop_basis: "LP" })).toContain("$142.42");
+    expect(stopAboveEntryNote({ entry_price: 100, stop_basis: "entry" })).toContain("from the entry price");
+  });
+});
