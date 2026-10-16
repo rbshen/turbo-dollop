@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { WarrenWatchRowOut } from "@/lib/api/types";
 import { fmtMoney } from "@/lib/format";
 import {
-  BREACHED_PL_NOTE,
+  breachedPlTitle,
   entryTitle,
   fmtBarsAgo,
   fmtEtDate,
@@ -123,13 +123,13 @@ function LastCell({ row }: { row: WarrenWatchRowOut }) {
   );
 }
 
-// Green above the entry, red below; a breached row's P/L is hypothetical (the trade ended at its stop), so it is muted with a note.
+// Green above the entry, red below; a breached row's P/L is frozen at the stop by the API (an estimate of the exit), so it is muted with a note.
 function PlCell({ row }: { row: WarrenWatchRowOut }) {
   if (row.pl_pct == null) return <TableCell className={`${NUM_CLASS} text-text-tertiary`}>—</TableCell>;
   const breached = row.status === "breached";
   const tone = breached ? "text-text-tertiary" : row.pl_pct > 0 ? "text-positive" : row.pl_pct < 0 ? "text-negative" : "text-text-secondary";
   return (
-    <TableCell className={`${NUM_CLASS} ${tone}`} title={breached ? BREACHED_PL_NOTE : undefined}>
+    <TableCell className={`${NUM_CLASS} ${tone}`} title={breached ? breachedPlTitle(row) : undefined}>
       {fmtSignedPct1(row.pl_pct)}
     </TableCell>
   );

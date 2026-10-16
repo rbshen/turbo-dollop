@@ -244,6 +244,15 @@ def pl_pct(last_price: float | None, entry_price: float | None) -> float | None:
     return (last_price - entry_price) / entry_price
 
 
+def row_pl_pct(status: str, last_price: float | None, entry_price: float | None, stop_price: float | None) -> float | None:
+    """The page's P/L %. An ACTIVE row is marked to the latest daily close; a BREACHED row is frozen at its stop,
+    (stop - entry) / entry, an estimate of the exit (no gap through the stop), so it does not move with the price. None without an entry,
+    or on a breached row without a stop."""
+    if status == "breached":
+        return pl_pct(stop_price, entry_price)
+    return pl_pct(last_price, entry_price)
+
+
 def stop_distance_pct(last_price: float | None, stop_price: float | None) -> float | None:
     """Distance to the stop as a fraction of the last price: (last - stop) / last. Positive = price above the stop, negative =
     already below it. None without a last price or a stop."""
@@ -293,7 +302,7 @@ def watch_table() -> dict:
                 "entry_kind": r.entry_kind, "entry_at": r.entry_at, "entry_price": r.entry_price, "stop_price": r.stop_price,
                 "stop_basis": r.stop_basis,
                 "stop_moved_at": r.stop_moved_at, "stop_moved_by": r.stop_moved_by, "last_price": last_price, "last_price_date": last_price_date,
-                "pl_pct": pl_pct(last_price, r.entry_price), "stop_distance_pct": stop_distance_pct(last_price, r.stop_price),
+                "pl_pct": row_pl_pct(r.status, last_price, r.entry_price, r.stop_price), "stop_distance_pct": stop_distance_pct(last_price, r.stop_price),
                 "status": r.status, "breached_at": r.breached_at, "last_signal_at": r.last_signal_at,
                 "last_updated_at": _to_et_naive(r.last_updated_at),
                 "age_bars": ages.get(r.latest_arrow_at), "last_signal_age_bars": ages.get(r.last_signal_at),

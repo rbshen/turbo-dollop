@@ -175,21 +175,25 @@ describe("WarrenWatchTable", () => {
     expect(within(bodyRow("NOP")).getAllByText("—")).toHaveLength(3); // Last, P/L %, Stop dist.
   });
 
-  it("draws P/L % signed with one decimal, green above and red below, and muted with a hypothetical note on a breached row", () => {
+  it("draws P/L % signed with one decimal, green above and red below, and muted with the stop-out note on a breached row", () => {
     draw([
       row({ ticker: "WIN", pl_pct: 0.1234 }),
       row({ ticker: "LOS", pl_pct: -0.0456 }),
-      row({ ticker: "BRC", status: "breached", breached_at: "2026-10-13T09:30:00", pl_pct: -0.3 }),
-      row({ ticker: "BRW", status: "breached", breached_at: "2026-10-13T09:30:00", pl_pct: 0.2 }),
+      row({ ticker: "BRC", status: "breached", breached_at: "2026-10-13T09:30:00", stop_price: 70, pl_pct: -0.3 }),
+      row({ ticker: "BRW", status: "breached", breached_at: "2026-09-10T09:30:00", stop_price: 134, pl_pct: 0.2 }),
     ]);
     expect(within(bodyRow("WIN")).getByText("+12.3%")).toHaveClass("text-positive");
     expect(within(bodyRow("LOS")).getByText("-4.6%")).toHaveClass("text-negative");
+    const notes = { BRC: "Stopped out at $70.00 on Oct 13 ET.", BRW: "Stopped out at $134.00 on Sep 10 ET." };
     for (const [ticker, text] of [["BRC", "-30.0%"], ["BRW", "+20.0%"]] as const) {
       const cell = within(bodyRow(ticker)).getByText(text);
       expect(cell).toHaveClass("text-text-tertiary");
       expect(cell).not.toHaveClass("text-positive");
       expect(cell).not.toHaveClass("text-negative");
-      expect(cell).toHaveAttribute("title", "Hypothetical: this trade was stopped out at its stop, not at today's price.");
+      expect(cell).toHaveAttribute(
+        "title",
+        `${notes[ticker]} P/L estimated at the stop, not a real fill; gaps through the stop are not included.`,
+      );
     }
     expect(within(bodyRow("WIN")).getByText("+12.3%")).not.toHaveAttribute("title");
   });

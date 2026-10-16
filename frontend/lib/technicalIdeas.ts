@@ -130,4 +130,9 @@ export function fmtSignedPct1(fraction: number): string {
   return pct > 0 && text !== "0.0" ? `+${text}%` : pct < 0 && text !== "0.0" ? `-${text}%` : `${text}%`;
 }
 
-export const BREACHED_PL_NOTE = "Hypothetical: this trade was stopped out at its stop, not at today's price.";
+/** The P/L % tooltip on a breached row, whose P/L the API freezes at the stop: (stop - entry) / entry, an estimate of the exit, not a fill. */
+export function breachedPlTitle(row: Pick<WarrenWatchRowOut, "stop_price" | "breached_at">): string {
+  const at = row.stop_price != null ? ` at ${fmtMoney(row.stop_price)}` : "";
+  const on = row.breached_at ? ` on ${fmtEtDate(row.breached_at)} ET` : "";
+  return `Stopped out${at}${on}. P/L estimated at the stop, not a real fill; gaps through the stop are not included.`;
+}

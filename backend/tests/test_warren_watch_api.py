@@ -196,6 +196,41 @@ def test_a_row_without_an_entry_or_a_stop_has_null_pl_and_stop_distance(engine):
     assert (row["entry_at"], row["pl_pct"], row["stop_distance_pct"]) == (None, None, None)
 
 
+def test_a_breached_rows_pl_is_frozen_at_the_stop_and_ignores_the_last_price(engine):
+    add_row(engine, "AAA", status="breached", breached_at=datetime(2026, 10, 13, 9, 30), entry_price=100.0, stop_price=90.0)
+    add_daily_bars(engine, "AAA", {8: 60.0})
+    client = TestClient(main.app)
+    row = client.get("/api/technical-ideas/warren").json()["rows"][0]
+    assert row["pl_pct"] == pytest.approx(-0.10)  # (90 - 100) / 100, not (60 - 100) / 100
+    assert row["stop_distance_pct"] == pytest.approx(-0.50)  # (60 - 90) / 60: still follows the price
+    add_daily_bars(engine, "AAA", {1: 150.0})  # the price recovers
+    row = client.get("/api/technical-ideas/warren").json()["rows"][0]
+    assert row["last_price"] == 150.0 and row["pl_pct"] == pytest.approx(-0.10)
+    assert row["stop_distance_pct"] == pytest.approx(0.40)  # (150 - 90) / 150
+
+
+def test_a_breached_row_without_an_entry_or_a_stop_has_null_pl(engine):
+    add_row(engine, "AAA", status="breached", breached_at=datetime(2026, 10, 13, 9, 30), entry_kind=None, entry_at=None, entry_price=None)
+    add_row(engine, "BBB", status="breached", breached_at=datetime(2026, 10, 13, 9, 30), stop_price=None, stop_basis="none")
+    add_daily_bars(engine, "AAA", {8: 80.0})
+    add_daily_bars(engine, "BBB", {8: 80.0})
+    a, b = TestClient(main.app).get("/api/technical-ideas/warren").json()["rows"]
+    assert (a["pl_pct"], b["pl_pct"]) == (None, None)
+
+
+def test_a_breached_row_that_returns_to_active_goes_back_to_the_last_price(monkeypatch, engine):
+    canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30"), ("yellow_up", "2026-09-21 09:30")]})
+    fake_lp(monkeypatch, [50.0, 40.0])
+    add_daily_bars(engine, "A", {8: 120.0})
+    client = TestClient(main.app)
+    run("A", bars("2026-07-01", "2026-09-18", lows={"2026-09-10": 85.0}))
+    row = client.get("/api/technical-ideas/warren").json()["rows"][0]
+    assert row["status"] == "breached" and row["pl_pct"] == pytest.approx((89.1 - 100.0) / 100.0)
+    run("A", bars("2026-07-01", "2026-10-16", lows={"2026-09-10": 85.0}))  # a fresh Yellow Up restarts the row
+    row = client.get("/api/technical-ideas/warren").json()["rows"][0]
+    assert row["status"] == "active" and row["pl_pct"] == pytest.approx(0.20)  # (120 - 100) / 100
+
+
 def test_get_is_cache_only_and_writes_nothing(engine, monkeypatch):
     add_row(engine, "AAA")
     add_daily_bars(engine, "AAA", {8: 120.0})

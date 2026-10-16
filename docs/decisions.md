@@ -1565,3 +1565,7 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 - **Stored rows:** the rebuild script was rewritten (replay under the new rules, fill the stop age, guard = the rules without trailing reproduce the stored row on the twelve original fields). **Applied 2026-10-16 after owner approval** (dry run: 114 rows, 2 identical, 112 changing (45 stop age only), 0 skipped; 37 stops, 53 entries, 17 active -> breached, 0 reverse, 552 trail moves, matching the earlier simulation); the apply wrote exactly those 112 rows and a rerun reports 114 identical.
 - **Cost:** about 32 LP calls a night (8 active LP-stop rows x 4 candles). Spec: `docs/specs/warren-signals-page.md`, "Trailing stop and stop age" and "Third rebuild".
 
+### 2026-10-16 — Warren watch table: P/L % frozen at the stop on breached rows
+
+**Decision (owner).** A breached row's P/L % is `(stop_price - entry_price) / entry_price`, not marked to the daily close, so a stopped-out trade no longer swings with the market (MRNA read +291% from a 55.79 entry after a stop at 134.00; it now reads +140%). Active rows are unchanged. It is an estimate of the exit (the stop), not a fill: gaps through the stop are not included. Computed in the GET endpoint from stored fields (cache-only, write-free); no stored row, table or rebuild changes. Last, Stop dist. and the rest keep following the cached daily close. Spec: `docs/specs/warren-signals-page.md`, P/L % column.
+
