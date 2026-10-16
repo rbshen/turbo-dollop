@@ -1,4 +1,4 @@
-"""The Warren Signals watch table's data layer (data/warren_watch_data.py): the 3-month seed, idempotent reruns, the
+"""The Warren Signals watch table's data layer (data/warren_watch_data.py): the 12-month seed (row only with an up arrow in the last 3), idempotent reruns, the
 incremental cursor, removal, the 2nd-LP lookup and the nightly job's final step. The replay is stubbed with canned
 arrows (its arrows are pinned against the ThinkScript in analysis/warren_signal/test_thinkscript_parity.py); the bars
 are real 60m frames so the candles, the forming-candle drop and the window-start times are the production ones."""
@@ -82,26 +82,39 @@ def run(ticker, frame, **kw):
 # --- seed -------------------------------------------------------------------------------------------------------
 
 
-def test_seed_reads_three_months_and_creates_rows_only_for_tickers_with_an_up_arrow_in_the_window(monkeypatch, engine):
-    frame = bars("2026-04-01", "2026-10-16")
-    # as_of is 2026-10-16 15:30, so the seed reads candles after 2026-07-16 15:30.
+def test_seed_replays_twelve_months_and_creates_rows_only_for_tickers_with_an_up_arrow_in_the_last_three(monkeypatch, engine):
+    frame = bars("2025-08-01", "2026-10-16")
+    # as_of is 2026-10-16 15:30: the seed reads candles after 2025-10-16 15:30 and a row needs an up arrow after 2026-07-16 15:30.
     canned(monkeypatch, {
-        "OLD": [("yellow_up", "2026-05-04 09:30")],  # before the window
-        "DOWN": [("blue_down", "2026-08-03 09:30")],  # a down arrow with no earlier up arrow in the window
+        "OLD": [("yellow_up", "2026-05-04 09:30")],  # inside the 12 months, outside the last 3: no row
+        "ANCIENT": [("yellow_up", "2025-09-01 09:30")],  # before the 12 months
+        "DOWN": [("blue_down", "2026-08-03 09:30")],  # a down arrow with no earlier up arrow
         "NEW": [("yellow_up", "2026-05-04 09:30"), ("blue_up", "2026-09-01 09:30")],
-        "EDGE": [("blue_up", "2026-07-16 15:30"), ("blue_up", "2026-07-17 09:30")],  # at `after`: ignored; the next is read
+        "EDGE": [("blue_up", "2026-07-16 15:30"), ("blue_up", "2026-07-17 09:30")],  # the first is at the 3-month cutoff (not recent), the next is
+        "CUT12": [("blue_up", "2025-10-16 15:30"), ("yellow_up", "2026-08-03 09:30")],  # at the 12-month `after`: ignored
     })
-    outcomes = {t: run(t, frame).outcome for t in ("OLD", "DOWN", "NEW", "EDGE")}
-    assert outcomes == {"OLD": "no_row", "DOWN": "no_row", "NEW": "created", "EDGE": "created"}
+    outcomes = {t: run(t, frame).outcome for t in ("OLD", "ANCIENT", "DOWN", "NEW", "EDGE", "CUT12")}
+    assert outcomes == {"OLD": "no_row", "ANCIENT": "no_row", "DOWN": "no_row", "NEW": "created", "EDGE": "created", "CUT12": "created"}
     got = rows(engine)
-    assert set(got) == {"NEW", "EDGE"}
-    assert got["NEW"].entry_kind == "blue" and got["NEW"].entry_at == datetime(2026, 9, 1, 9, 30)  # the pre-window yellow is not applied
-    assert got["EDGE"].entry_at == datetime(2026, 7, 17, 9, 30)
+    assert set(got) == {"NEW", "EDGE", "CUT12"}
+    assert got["NEW"].entry_kind == "blue" and got["NEW"].entry_at == datetime(2026, 9, 1, 9, 30)
+    assert got["EDGE"].entry_at == datetime(2026, 7, 17, 9, 30)  # the blue at the 3-month cutoff does not count as recent; the next one does
+    assert got["CUT12"].entry_kind == "yellow" and got["CUT12"].entry_at == datetime(2026, 8, 3, 9, 30)
     with Session(engine) as s:
         cursors = {c.ticker: c.processed_through for c in s.exec(select(WarrenWatchCursor)).all()}
-    assert set(cursors) == {"OLD", "DOWN", "NEW", "EDGE"}  # every ticker is seeded once, row or not
+    assert set(cursors) == {"OLD", "ANCIENT", "DOWN", "NEW", "EDGE", "CUT12"}  # every ticker is seeded once, row or not
     assert set(cursors.values()) == {datetime(2026, 10, 16, 15, 30)}
     assert got["NEW"].as_of == datetime(2026, 10, 16, 15, 30)
+
+
+def test_the_deep_seed_finds_the_earlier_trade_a_short_window_would_miss(monkeypatch, engine):
+    # An earlier yellow (June) then a refresh yellow in the last 3 months: the entry is the June one, not a "fresh" August entry.
+    canned(monkeypatch, {"MAR": [("yellow_up", "2026-06-26 11:30"), ("yellow_up", "2026-08-05 09:30")]})
+    fake_lp(monkeypatch, [80.0, 70.0, 60.0])
+    run("MAR", bars("2025-08-01", "2026-10-16"))
+    r = rows(engine)["MAR"]
+    assert (r.entry_at, r.last_signal_at, r.latest_arrow_at) == (datetime(2026, 6, 26, 11, 30), datetime(2026, 8, 5, 9, 30), datetime(2026, 8, 5, 9, 30))
+    assert (r.stop_price, r.stop_basis) == (70.0, "LP")  # the refresh: min(2nd LP 70, 0.9 x 99 = 89.1)
 
 
 def test_row_fields_after_a_seed(monkeypatch, engine):

@@ -1,6 +1,7 @@
 """One-off seed of the Warren Signals watch table (docs/specs/warren-signals-page.md): the same step the nightly Warren job
-ends with, run on its own. Every monitored ticker with no cursor reads the last 3 months of completed 2h candles, and a
-ticker with an up arrow in that window gets a row. Idempotent: a ticker already seeded reads nothing and writes nothing, a
+ends with, run on its own. Every monitored ticker with no cursor replays the last 12 months of completed 2h candles
+(`data.warren_watch_data.SEED_MONTHS`, which decides the state), and a ticker with an up arrow in the last 3 months
+(`ROW_MONTHS`) gets a row. Idempotent: a ticker already seeded reads nothing and writes nothing, a
 removed ticker is never resurrected, so running it again (or letting the next nightly run do the work) is harmless.
 
 Reads the 60m bars through the shared bars cache exactly as the nightly job does (a warm cache means no FMP call; a stale

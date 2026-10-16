@@ -393,7 +393,7 @@ class WarrenWatchRow(SQLModel, table=True):
 
 class WarrenWatchCursor(SQLModel, table=True):
     """Per-ticker progress of the watch update: the last 2h candle (naive America/New_York window start) already folded
-    into the watch table. A ticker with no cursor is seeded from the last 3 months; one with a cursor only reads
+    into the watch table. A ticker with no cursor is seeded from the last 12 months (a row only if an up arrow fell in the last 3); one with a cursor only reads
     candles after it, which is what makes a rerun idempotent. Kept for tickers with no watch row too (no up arrow yet),
     and beside the row (see data/ticker_data_registry.py)."""
 

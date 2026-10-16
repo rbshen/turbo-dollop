@@ -7,8 +7,10 @@ dropped, window-start index, the same volume-guarded replay for SPY/QQQ/TQQQ/TEC
 cannot drift from the chart. Candle times in the table are therefore window starts (09:30/11:30/13:30/15:30), which
 differ from `WarrenSignalEvent.fired_at` (the window's LAST bar) for every window but the 15:30 one.
 
-Seed and nightly are the same code: a ticker with no cursor reads the last SEED_MONTHS of candles, one with a cursor reads
-the candles after it. The cursor and the row are written in one transaction."""
+Seed and nightly are the same code: a ticker with no cursor reads the last SEED_MONTHS (12) of candles, so an arrow near the
+window start is not mistaken for a fresh entry when an earlier trade existed; one with a cursor reads the candles after it.
+A first-time ticker gets a row only if it had an up arrow in the last ROW_MONTHS (3): the long replay decides the state,
+not whether a row exists. The cursor and the row are written in one transaction."""
 
 import logging
 from dataclasses import dataclass, replace
@@ -33,8 +35,11 @@ from data.warren_signal_data import profile_for, read_cached_daily_volume, signa
 
 logger = logging.getLogger(__name__)
 
-# The first run for a ticker reads this many months of candles back from its last completed candle.
-SEED_MONTHS = 3
+# The first run for a ticker replays this many months of candles back from its last completed candle (the state), and
+# creates a row only if an up arrow falls in the last ROW_MONTHS of them.
+SEED_MONTHS = 12
+ROW_MONTHS = 3
+_UP_KINDS = ("blue_up", "yellow_up", "gray_up")
 
 _ET = ZoneInfo("America/New_York")
 
@@ -82,6 +87,12 @@ class WatchUpdate:
     outcome: str
     lp_calls: int
     candles_read: int
+
+
+def _has_recent_up(events, as_of: datetime) -> bool:
+    """An up arrow (Blue, Yellow or Gray) on a candle after `as_of - ROW_MONTHS` -- the seed's row-creation rule."""
+    cutoff = (pd.Timestamp(as_of) - pd.DateOffset(months=ROW_MONTHS)).to_pydatetime()
+    return any(e.kind in _UP_KINDS and e.fired_at > cutoff for e in events)
 
 
 def _state_from_row(row: WarrenWatchRow) -> WatchState:
@@ -145,6 +156,8 @@ def update_warren_watch(
             )
             if new_state is not None:
                 new_state = replace(new_state, profile=profile_for(ticker).name)
+            if cursor is None and state is None and new_state is not None and not _has_recent_up(result.events, as_of):
+                new_state = None  # seeded from 12 months, but no up arrow in the last 3: no row
 
         if new_state is None:
             outcome = "removed" if row is not None else "no_row"
