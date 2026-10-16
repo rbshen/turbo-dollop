@@ -1533,3 +1533,12 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 - **Age in bars** is counted on the NYSE calendar (4 windows a session, 2 on an early close), so the endpoint needs no bars read. Two ages are returned: since the latest arrow (the brief's field) and since the latest UP arrow (what the Last signal column shows).
 - **Page:** "Technical Ideas" at `/technical-ideas`; the first section is "RSI WVF ADX by Warren" with a "2h" tag, built on a section shell so a second strategy is a new component, not a rework. Default sort: most recent last signal first. A stop above the entry price shows normally with an explanatory tooltip.
 - **Nav:** Stocks / ETFs / Watchlist / Momentum / **Investing** (Opportunities, Technical Ideas) / Markets (Sectors, Breadth). Opportunities is no longer top-level; its URL and page are unchanged.
+
+### 2026-10-16 — Warren watch table: display fixes and the Gray-on-breached rule
+
+**Decision (owner).** After a trace of WDC, IDXX, MTD and CRDO (the stored rows matched a replay; the problems were in what the page said). Spec: `docs/specs/warren-signals-page.md`.
+
+- **Rule:** a Gray Up on a breached row no longer advances `last_signal_at` (the pill and `latest_arrow_*` still show the Gray); on an active row it behaves as before. Stored rows are corrected by `pipeline/backfills/rebuild_warren_watch.py` (dry run by default, only a lone `last_signal_at` difference is written, removed rows never touched).
+- **Display only:** a breached row's Instruction cell reads "Stop hit since <breach candle>" (the stored type, text and stop are unchanged); a row with no entry price shows a neutral "No entry" status with an explanatory tooltip; the Instruction text wraps to 2 lines with the full text in the tooltip; the header is sticky in a bounded scroll box.
+- **Not changed:** the stop rules, the breach rule, the seed window, the API shape. Open item recorded: verify the state-change logic on live data, blue entries first.
+

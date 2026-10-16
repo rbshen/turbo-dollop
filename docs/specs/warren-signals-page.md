@@ -55,6 +55,9 @@ tested first, so a stop set on candle t is first tested on t+1 (the ThinkScript'
    - **First yellow after a Blue** (type 4, from the engine's `first_yellow_after_blue_at`) and **Gray Up** (type 1) on an active row
      with an entry: no action; the instruction and stop stay, `latest_arrow_*` and `last_signal_at` move.
    - A Gray Up with no row creates one with no entry, no stop, type 1.
+   - **A Gray Up on a BREACHED row** (2026-10-16) moves `latest_arrow_*` only, so the pill shows the Gray, but `last_signal_at` stays
+     frozen: a "stay out until Blue" arrow is not a signal worth re-dating the row for. A Gray Up on an active row (with or without an
+     entry) advances `last_signal_at` as before.
 3. **Down arrows** (one per candle: Yellow Down, then Blue Down, then Gray Down, the ThinkScript's text order) apply only to an
    existing row. The instruction and `latest_arrow_*` always update; `last_signal_at` does not. The stop moves only on an active
    row with an entry: Blue Down -> 2nd LP (basis `LP`); Yellow Down -> 2nd LP if the entry is yellow, else unchanged; Gray Down ->
@@ -125,7 +128,8 @@ about 133 x (15 ms candles + 24 ms replay) = 5 s plus the few LP calls the night
 - **Stops can move down.** A second Yellow's `0.9 x low` can be below the first Yellow's stop; there is no tighten-only rule.
 - **A Blue entry gets its first stop from a later down arrow.** PAYX: blue entry 101.80, Blue Down moved the stop to an LP at 101.42.
   Blue entries otherwise carry no stop and cannot breach.
-- **Gray-born rows** (IDXX, MTD) have no entry and no stop; their down arrows change only the text. IDXX's yellow trade pre-dates the 3-month
+- **A Gray Up on a breached row** used to advance `last_signal_at` (WDC: the Gray of 2026-10-15 re-dated a row whose trade began 2026-09-16 and was stopped on 10-13). It no longer does (rule 2); the page also shows such a row's instruction as "Stop hit".
+- **Gray-born rows** (IDXX, MTD) have no entry and no stop; their down arrows change only the text. The page shows them as "No entry", not "Active". IDXX's yellow trade pre-dates the 3-month
   window, so the table shows only its Gray Up.
 - **Young tickers** are seeded from the history they have; a 180-day-old Gray/Yellow label can still be wrong at the left edge of their
   replay (`docs/specs/warren-signal.md`, warm-up).
@@ -183,12 +187,14 @@ Table (`WarrenWatchTable`, modelled on `MomentumTable`: kit Table, compact Badge
 | --- | --- |
 | Ticker | Link; a profiled ticker (spy/qqq/tqqq/tecl) shows "<profile> profile" beneath. |
 | Signal | Up/down pill in the arrow's colour: Blue = `chart-ema21` (the chart's own blue for Blue arrows), Yellow = `chart-warren-yellow`, Gray = `chart-warren-gray`. Title: the arrow candle's time. |
-| Instruction | The stored text (wraps; full text in the title). |
+| Instruction | The stored text, wrapped to at most 2 lines in a 220 to 360 px cell, truncated beyond that, the full text in the tooltip (the longest string is the profiled Yellow Up, about 124 characters; the generic set tops out near 50). **A breached row** shows **"Stop hit"** with "since <breach candle, ET>" beneath instead (display only: the stored instruction type, text and stop are unchanged; the tooltip carries "Last instruction: <stored text>"). |
 | Stop | Price plus a neutral basis tag (`10%`, `LP`, `Entry`); a dash when there is no stop. A stop above the entry price shows normally with a small info icon whose tooltip says the latest instruction set it (2nd LP / entry price), so it does not read as a bug. |
-| Status | Green "Active", or a red **Stop breached** badge (title: the breaching candle). |
+| Status | Green "Active", or a red **Stop breached** badge (title: the breaching candle). A row with **no entry price** (born from a Gray Up) shows a neutral **"No entry"** badge instead of Active, its tooltip saying no up-arrow entry fell inside the 3-month seed window so an earlier trade may exist; its Stop cell keeps the dash. |
 | Last signal | `last_signal_at` (ET) and its age in bars ("this candle", "1 bar ago", "5 bars ago"). |
 | Last updated | `last_updated_at` (ET), when the row's content last changed. |
 | (actions) | Admin only: trash icon, then an inline Remove? / Confirm / Cancel (the Watchlist delete pattern). A viewer sees no control (`<AdminOnly>`). |
+
+**Sticky header.** The table sits in its own scroll box (`max-h-[70vh] overflow-auto`, the Watchlist table's pattern) and every header cell is `sticky top-0 z-20 bg-page`, so the header row stays visible while the rows scroll; the top nav is a separate sticky element and the page shell is unchanged.
 
 Default and only sort: `last_signal_at` descending, ties by ticker (`lib/technicalIdeas.ts::sortByLastSignal`). States: skeleton rows while
 loading, an error line, and "No tickers on the watch table yet" when empty.
@@ -209,3 +215,14 @@ are unchanged. `/technical-ideas` is a same-tab page like `/opportunities`. Inve
 - **A second strategy section** needs only a new section component and hook; the page and the shell do not change.
 - **Sorting and filtering** (by status, signal colour, age) are not built; the default order is the only one.
 - **Stale rows.** A ticker that left every monitored list keeps its row and its frozen `as_of`; the page does not flag it.
+- **Verify state-change logic on live data.** The transitions (entry, refresh, breach, down-arrow stop updates, reset by a new yellow, removal then new arrow) cannot be fully verified yet; recheck as real arrows fire, starting with a blue entry, which has little live coverage.
+
+## Correcting stored rows after a rule change (2026-10-16)
+
+A rule change does not touch stored rows (the cursor means old arrows are never re-read), so a stored row can disagree with the new rule until it is rebuilt.
+`uv run python -m pipeline.backfills.rebuild_warren_watch` (a dry run; `--apply` writes) replays every non-removed row from the ORIGINAL seed start
+(2026-07-15 15:30, not a slid 3-month window, so entries and no-entry rows stay as seeded) through the row's own cursor, with the current rules, the cached 60m
+bars (no FMP call) and today's LP settings, and compares each result with the stored row field by field. It corrects only a row whose single difference is
+`last_signal_at`, and writes only that column: `removed_at`, the cursor, `last_updated_at` and `as_of` are never touched and a removed row is skipped, so nothing
+is resurrected. Any other difference is printed and the row left alone for review. Dry run on the real database after the Gray Up rule change: 114 non-removed rows,
+113 identical, one correction (WDC `last_signal_at` 2026-10-15 15:30 to 2026-09-16 09:30), none skipped.
