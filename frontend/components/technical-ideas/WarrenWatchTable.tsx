@@ -10,6 +10,8 @@ import { fmtMoney } from "@/lib/format";
 import {
   fmtBarsAgo,
   fmtEtStamp,
+  instructionDisplay,
+  NO_ENTRY_NOTE,
   sortByLastSignal,
   STOP_BASIS_LABEL,
   stopAboveEntry,
@@ -17,7 +19,8 @@ import {
 } from "@/lib/technicalIdeas";
 import { cn } from "@/lib/utils";
 
-const HEAD_CLASS = "text-xs font-medium text-text-tertiary";
+// Sticky header cells paint bg-page (not a surface fill) inside the table's own bounded scroll box, as the Watchlist table does.
+const HEAD_CLASS = "sticky top-0 z-20 bg-page text-xs font-medium text-text-tertiary";
 
 // The arrow's colour as the chart draws it: Blue is the chart's blue (chart-ema21), Yellow and Gray their own chart-warren tokens.
 // Literal class names so Tailwind sees them.
@@ -53,6 +56,42 @@ function SignalPill({ row }: { row: WarrenWatchRowOut }) {
   );
 }
 
+function InstructionCell({ row }: { row: WarrenWatchRowOut }) {
+  const { primary, secondary, title } = instructionDisplay(row);
+  return (
+    <TableCell className="min-w-[220px] max-w-[360px] whitespace-normal text-xs text-text-secondary">
+      <div title={title} className="line-clamp-2 break-words">
+        {primary}
+      </div>
+      {secondary && <div className="text-text-tertiary">{secondary}</div>}
+    </TableCell>
+  );
+}
+
+function StatusCell({ row }: { row: WarrenWatchRowOut }) {
+  return (
+    <TableCell className="whitespace-nowrap">
+      {row.status === "breached" ? (
+        <Badge
+          size="compact"
+          tone="negative"
+          title={row.breached_at ? `Low reached the stop on the ${fmtEtStamp(row.breached_at)} ET candle` : undefined}
+        >
+          Stop breached
+        </Badge>
+      ) : row.entry_price == null ? (
+        <Badge size="compact" tone="neutral" title={NO_ENTRY_NOTE}>
+          No entry
+        </Badge>
+      ) : (
+        <Badge size="compact" tone="positive">
+          Active
+        </Badge>
+      )}
+    </TableCell>
+  );
+}
+
 function StopCell({ row }: { row: WarrenWatchRowOut }) {
   if (row.stop_price == null) return <TableCell className="text-right font-mono text-text-tertiary">—</TableCell>;
   const above = stopAboveEntry(row);
@@ -78,7 +117,7 @@ function StopCell({ row }: { row: WarrenWatchRowOut }) {
 
 export function WarrenWatchTable({ rows }: Props) {
   return (
-    <Table>
+    <Table containerClassName="max-h-[70vh] overflow-auto">
       <TableHeader>
         <TableRow className="h-9">
           <TableHead className={`${HEAD_CLASS} w-24`}>Ticker</TableHead>
@@ -110,25 +149,9 @@ export function WarrenWatchTable({ rows }: Props) {
             <TableCell className="whitespace-nowrap">
               <SignalPill row={row} />
             </TableCell>
-            <TableCell className="max-w-[420px] text-xs text-text-secondary" title={row.instruction_text}>
-              {row.instruction_text}
-            </TableCell>
+            <InstructionCell row={row} />
             <StopCell row={row} />
-            <TableCell className="whitespace-nowrap">
-              {row.status === "breached" ? (
-                <Badge
-                  size="compact"
-                  tone="negative"
-                  title={row.breached_at ? `Low reached the stop on the ${fmtEtStamp(row.breached_at)} ET candle` : undefined}
-                >
-                  Stop breached
-                </Badge>
-              ) : (
-                <Badge size="compact" tone="positive">
-                  Active
-                </Badge>
-              )}
-            </TableCell>
+            <StatusCell row={row} />
             <TableCell className="whitespace-nowrap font-mono text-xs text-text-secondary">
               {fmtEtStamp(row.last_signal_at)}
               {fmtBarsAgo(row.last_signal_age_bars) && (

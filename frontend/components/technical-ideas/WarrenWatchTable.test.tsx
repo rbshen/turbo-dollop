@@ -119,6 +119,46 @@ describe("WarrenWatchTable", () => {
     expect(within(bodyRow("ACT")).queryByText("Stop breached")).toBeNull();
   });
 
+  it("wraps a long instruction to two lines with the full text in the tooltip, on a bounded cell", () => {
+    const longest =
+      "YELLOW UP: new entry = 10% stop; already in trade = stop to 2nd LP or 10% below candle low, whichever is lower";
+    const grayDown = "GRAY DOWN: yellow entry = stop to entry; blue entry = no action";
+    draw([row({ ticker: "LNG", instruction_text: longest }), row({ ticker: "GRD", instruction_text: grayDown })]);
+    for (const [ticker, text] of [["LNG", longest], ["GRD", grayDown]] as const) {
+      const text_el = within(bodyRow(ticker)).getByText(text);
+      expect(text_el).toHaveAttribute("title", text);
+      expect(text_el).toHaveClass("line-clamp-2");
+      const cell = text_el.closest("td")!;
+      expect(cell).toHaveClass("min-w-[220px]", "max-w-[360px]", "whitespace-normal");
+    }
+  });
+
+  it("keeps the header row sticky inside a bounded scroll box", () => {
+    const { container } = draw([row({ ticker: "AAA" })]);
+    expect(container.querySelector('[data-slot="table-container"]')).toHaveClass("max-h-[70vh]", "overflow-auto");
+    for (const th of screen.getAllByRole("columnheader")) expect(th).toHaveClass("sticky", "top-0", "bg-page");
+  });
+
+  it("shows Stop hit since the breach candle on a breached row, keeping the stop and the last instruction in the tooltip", () => {
+    draw([row({ ticker: "BRC", status: "breached", breached_at: "2026-10-13T09:30:00", instruction_text: "YELLOW UP INITIAL ENTRY - Use appropriate stop.", stop_price: 376.25 })]);
+    const r = within(bodyRow("BRC"));
+    expect(r.getByText("Stop hit")).toHaveAttribute("title", "Last instruction: YELLOW UP INITIAL ENTRY - Use appropriate stop.");
+    expect(r.getByText("since Oct 13, 09:30 ET")).toBeInTheDocument();
+    expect(r.queryByText("YELLOW UP INITIAL ENTRY - Use appropriate stop.")).toBeNull();
+    expect(r.getByText("$376.25")).toBeInTheDocument();
+  });
+
+  it("shows a neutral No entry status, with a note and a dash for the stop, when the row has no entry price", () => {
+    draw([row({ ticker: "NOE", entry_kind: null, entry_price: null, stop_price: null, stop_basis: "none", instruction_text: "GRAY UP - NO ACTION. Stopped out twice." })]);
+    const r = within(bodyRow("NOE"));
+    const badge = r.getByText("No entry");
+    expect(badge).toHaveAttribute("title", expect.stringContaining("earlier trade may exist"));
+    expect(badge).not.toHaveClass("text-positive");
+    expect(r.queryByText("Active")).toBeNull();
+    expect(r.getByText("—")).toBeInTheDocument();
+    expect(r.getByText("GRAY UP - NO ACTION. Stopped out twice.")).toBeInTheDocument();
+  });
+
   it("shows the last signal as ET date and bars ago, and the last-updated stamp", () => {
     draw([row({ ticker: "AAA", last_signal_age_bars: 5 }), row({ ticker: "BBB", last_signal_at: "2026-10-15T15:30:00", last_signal_age_bars: 0 })]);
     expect(within(bodyRow("AAA")).getByText("Oct 15, 13:30")).toBeInTheDocument();

@@ -47,3 +47,20 @@ export function stopAboveEntryNote(row: Pick<WarrenWatchRowOut, "entry_price" | 
   const source = row.stop_basis === "LP" ? "the 2nd support (LP)" : row.stop_basis === "entry" ? "the entry price" : "an instruction";
   return `Above the entry price${row.entry_price != null ? ` (${fmtMoney(row.entry_price)})` : ""}: the latest instruction set this stop from ${source}, not from the entry.`;
 }
+
+/** What the Instruction column draws. A breached row reads "Stop hit" with the breach candle beneath (display only: the stored
+ * instruction type, text and stop are unchanged and the stored text stays in the tooltip); any other row draws its stored text. */
+export function instructionDisplay(
+  row: Pick<WarrenWatchRowOut, "status" | "breached_at" | "instruction_text">,
+): { primary: string; secondary: string | null; title: string } {
+  if (row.status !== "breached") return { primary: row.instruction_text, secondary: null, title: row.instruction_text };
+  return {
+    primary: "Stop hit",
+    secondary: row.breached_at ? `since ${fmtEtStamp(row.breached_at)} ET` : null,
+    title: `Last instruction: ${row.instruction_text}`,
+  };
+}
+
+/** The tooltip on a "No entry" status: a row born from a Gray Up has no entry price. */
+export const NO_ENTRY_NOTE =
+  "No up-arrow entry fell inside the 3-month seed window, so an earlier trade may exist. The row only records the latest arrow.";
