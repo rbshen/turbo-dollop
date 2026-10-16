@@ -1,33 +1,38 @@
-"""One-off rebuild of stored Warren watch rows after the 2026-10-16 rule changes (a Gray Down at or below the entry price no longer
-sets the stop; the seed replays 12 months instead of 3; docs/specs/warren-signals-page.md). Replays every non-removed row's candles
-from REBUILD_START (the first seed's as_of minus SEED_MONTHS, a fixed date so a rerun is stable) through the row's own cursor with
-the current rules, the cached 60m bars (a pure read: no FMP call) and today's LP settings, then compares every field with the
-stored row.
+"""One-off rebuild of stored Warren watch rows for the 2026-10-16 trailing-stop rule and the stop-age columns
+(docs/specs/warren-signals-page.md). Replays every non-removed row's candles from REBUILD_START (the first seed's as_of minus
+SEED_MONTHS, a fixed date so a rerun is stable) through the row's own cursor with the CURRENT rules (arrow rules plus the trailing
+stop), the cached 60m bars (a pure read: no FMP call) and today's LP settings, fills `stop_moved_at` / `stop_moved_by`, and compares
+every field with the stored row.
 
 Writes (only with --apply) the changed columns of a row that differs, and nothing else: `removed_at`, the cursor, `as_of` and
 `last_updated_at` are never touched, a removed row is skipped (never resurrected) and a ticker with no row never gets one.
 
 Mismatch guard. A row that already equals the new replay is identical (so a rerun after --apply reports every row identical). A row
-that differs is only rebuilt if the same bars and LP settings, replayed under the OLD rules (the old 3-month window from SEED_START
-and the old Gray Down stop rule, emulated here), reproduce the stored row exactly. If they do not, the difference is not explained
-by the rule changes (the bars, the LP settings or the arrows moved), so the row is printed and skipped.
+that differs is only rebuilt if the same bars and LP settings replayed WITHOUT trailing (the rules the stored rows were built under:
+arrow rules, 12-month replay, the 2026-10-16 Gray Down rule) reproduce the stored row exactly on the original twelve fields; the
+stop-age fields are excluded from that comparison (stored rows hold null there). If they do not, the difference is not explained by
+the trailing rule (the bars, the LP settings or the arrows moved, or the nightly job already trailed the row), so the row is printed
+and skipped.
+
+A dry run reads even when the database has not yet been migrated to the stop-age columns (it selects only the columns that exist);
+--apply refuses until they exist (start the app or run a job once: init_db adds them).
 
 Run (writes nothing):
-    uv run python -m pipeline.backfills.rebuild_warren_watch
+    uv run python -m pipeline.backfills.rebuild_warren_watch [--show MRNA,QCOM]
 Run for real:
     uv run python -m pipeline.backfills.rebuild_warren_watch --apply
 """
 
 import argparse
-import contextlib
-from dataclasses import replace
+import time
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 
 import pandas as pd
+from sqlalchemy import inspect
 from sqlmodel import Session, select
 
-from analysis.warren_signal import watch as watch_rules
-from analysis.warren_signal.watch import WatchState, advance
+from analysis.warren_signal.watch import STATUS_ACTIVE, STATUS_BREACHED, WatchState, advance
 from clients.shared_bars_cache import INTRADAY_INTERVAL, _load_frames
 from core.db import engine
 from core.models import LiquidityZoneSettings, WarrenWatchCursor, WarrenWatchRow
@@ -36,60 +41,45 @@ from data.warren_watch_data import SEED_MONTHS, SecondSupportLookup, _row_values
 from helpers.liquidity_zone_config import to_engine_settings
 from pipeline.nightly_warren_signal_calculation import LOOKBACK_DAYS
 
-# The first seed's as_of (2026-10-15 15:30) minus SEED_MONTHS: the new replay start. SEED_START is the OLD 3-month start, kept only
-# for the guard's old-rules replay.
+# The first seed's as_of (2026-10-15 15:30) minus SEED_MONTHS: the replay start.
 FIRST_SEED_AS_OF = datetime(2026, 10, 15, 15, 30)
 REBUILD_START = (pd.Timestamp(FIRST_SEED_AS_OF) - pd.DateOffset(months=SEED_MONTHS)).to_pydatetime()
-SEED_START = datetime(2026, 7, 15, 15, 30)
 # A 180-day engine warm-up before the replay start is the comfortable minimum for a clean left edge (warren-signal.md).
 WARMUP_DAYS = 180
 
-FIELDS = (
+# The twelve fields the stored rows were built with; the guard compares only these (the stop-age fields are null in stored rows).
+GUARD_FIELDS = (
     "profile", "latest_arrow_kind", "latest_arrow_at", "instruction_type", "entry_kind", "entry_at", "entry_price", "stop_price",
     "stop_basis", "status", "breached_at", "last_signal_at",
 )
+AGE_FIELDS = ("stop_moved_at", "stop_moved_by")
+FIELDS = GUARD_FIELDS + AGE_FIELDS
 
 
-def _old_apply_down(state: WatchState, kind: str, ts: datetime, pos: int, close: float, lp_second) -> WatchState:
-    """The Gray Down rule before 2026-10-16: a yellow entry always set the stop to the entry price."""
-    if kind == "gray_down" and state.status == watch_rules.STATUS_ACTIVE and state.entry_kind == watch_rules.ENTRY_YELLOW and state.entry_price is not None:
-        moved = replace(state, latest_arrow_kind=kind, latest_arrow_at=ts, instruction_type=watch_rules.GRAY_DOWN)
-        return replace(moved, stop_price=state.entry_price, stop_basis=watch_rules.BASIS_ENTRY)
-    return _new_apply_down(state, kind, ts, pos, close, lp_second)
+class Replay(NamedTuple):
+    state: WatchState | None
+    lp_calls: int
+    trail_log: list  # (candle, old stop, new stop) per trail move
 
 
-_new_apply_down = watch_rules._apply_down
-
-
-@contextlib.contextmanager
-def old_gray_down_rule():
-    watch_rules._apply_down = _old_apply_down
-    try:
-        yield
-    finally:
-        watch_rules._apply_down = _new_apply_down
-
-
-def replay_state(ticker: str, bars: pd.DataFrame, settings, through: datetime, start: datetime = REBUILD_START) -> WatchState | None:
-    """The row the CURRENT rules give for `ticker` from `start` through the candle `through`."""
+def replay_state(
+    ticker: str, bars: pd.DataFrame, settings, through: datetime, start: datetime = REBUILD_START, trail: bool = True
+) -> Replay:
+    """The row the rules give for `ticker` from `start` through the candle `through` (`trail=False`: without the trailing stop)."""
     candles = completed_candles(bars, datetime.now(timezone.utc))
     candles = candles[candles.index <= pd.Timestamp(through)]
     if candles.empty:
-        return None
+        return Replay(None, 0, [])
     result = watch_replay(ticker, candles)
-    return advance(None, candles, result.events, result.first_yellow_after_blue_at, profile_for(ticker).name, start, SecondSupportLookup(candles, settings))
+    lookup, log = SecondSupportLookup(candles, settings), []
+    state = advance(None, candles, result.events, result.first_yellow_after_blue_at, profile_for(ticker).name, start, lookup, trail, log)
+    return Replay(state, lookup.calls, log)
 
 
-def old_rules_state(ticker: str, bars: pd.DataFrame, settings, through: datetime) -> WatchState | None:
-    """The row the rules in force when the table was seeded give: the 3-month window from SEED_START and the old Gray Down rule."""
-    with old_gray_down_rule():
-        return replay_state(ticker, bars, settings, through, SEED_START)
-
-
-def diff(stored: WatchState, fresh: WatchState | None) -> dict[str, tuple]:
+def diff(stored: WatchState, fresh: WatchState | None, fields: tuple[str, ...] = FIELDS) -> dict[str, tuple]:
     if fresh is None:
         return {"<replay>": ("row", "no row")}
-    return {f: (getattr(stored, f), getattr(fresh, f)) for f in FIELDS if getattr(stored, f) != getattr(fresh, f)}
+    return {f: (getattr(stored, f), getattr(fresh, f)) for f in fields if getattr(stored, f) != getattr(fresh, f)}
 
 
 def history_gap(bars: pd.DataFrame, through: datetime) -> str | None:
@@ -105,32 +95,61 @@ def history_gap(bars: pd.DataFrame, through: datetime) -> str | None:
     return None
 
 
-def classify(old: dict) -> list[str]:
+def classify(changes: dict) -> list[str]:
     """The kinds of change in a diff dict {field: (stored, new)}."""
     kinds = []
-    if {"entry_kind", "entry_at", "entry_price"} & set(old):
+    if {"entry_kind", "entry_at", "entry_price"} & set(changes):
         kinds.append("entry changed")
-    if {"stop_price", "stop_basis"} & set(old):
+    if "stop_price" in changes:
         kinds.append("stop changed")
-    if "status" in old:
-        kinds.append(f"status {old['status'][0]} -> {old['status'][1]}")
-    if {"instruction_type", "latest_arrow_kind", "latest_arrow_at"} & set(old):
+    if "stop_basis" in changes:
+        kinds.append("basis changed")
+    if "status" in changes:
+        kinds.append(f"status {changes['status'][0]} -> {changes['status'][1]}")
+    if {"instruction_type", "latest_arrow_kind", "latest_arrow_at"} & set(changes):
         kinds.append("instruction/latest arrow changed")
-    if {"last_signal_at", "breached_at", "profile"} & set(old) and not kinds:
+    if {"last_signal_at", "breached_at", "profile"} & set(changes) and not kinds:
         kinds.append("dates only")
+    if not kinds and set(changes) <= set(AGE_FIELDS):
+        kinds.append("stop age fill only")
     return kinds
 
 
-def main(apply: bool, tickers: list[str] | None = None) -> dict:
+def _read_rows(session: Session, tickers: list[str] | None) -> tuple[list[WarrenWatchRow], bool]:
+    """Every non-removed row, and whether the table already has the stop-age columns. Without them (a database not yet migrated)
+    only the existing columns are selected, so a dry run needs no schema change."""
+    present = {c["name"] for c in inspect(session.get_bind()).get_columns(WarrenWatchRow.__tablename__)}
+    migrated = set(AGE_FIELDS) <= present
+    if migrated:
+        stmt = select(WarrenWatchRow).where(WarrenWatchRow.removed_at.is_(None)).order_by(WarrenWatchRow.ticker)
+        rows = list(session.exec(stmt).all())
+    else:
+        cols = [c for c in WarrenWatchRow.__table__.c if c.name in present]
+        stmt = select(*cols).where(WarrenWatchRow.removed_at.is_(None)).order_by(WarrenWatchRow.ticker)
+        rows = [WarrenWatchRow.model_construct(**dict(zip([c.name for c in cols], r))) for r in session.exec(stmt).all()]
+    return [r for r in rows if not tickers or r.ticker in tickers], migrated
+
+
+def _brief(state: WatchState) -> str:
+    stop = "no stop" if state.stop_price is None else f"stop {state.stop_price:.2f} {state.stop_basis}"
+    entry = "no entry" if state.entry_price is None else f"entry {state.entry_price:.2f} {state.entry_kind} {state.entry_at:%Y-%m-%d %H:%M}"
+    moved = f"moved {state.stop_moved_at:%Y-%m-%d %H:%M} by {state.stop_moved_by}" if state.stop_moved_at else "stop age null"
+    return f"{entry}; {stop}; {state.status}{f' {state.breached_at:%Y-%m-%d %H:%M}' if state.breached_at else ''}; {moved}"
+
+
+def main(apply: bool, tickers: list[str] | None = None, show: tuple[str, ...] = ()) -> dict:
+    started = time.monotonic()
     with Session(engine) as session:
         # Read the settings row directly, never get-or-create: this script writes nothing else.
         settings = to_engine_settings(session.get(LiquidityZoneSettings, "default"))
-        stmt = select(WarrenWatchRow).where(WarrenWatchRow.removed_at.is_(None)).order_by(WarrenWatchRow.ticker)
-        rows = [r for r in session.exec(stmt).all() if not tickers or r.ticker in tickers]
+        rows, migrated = _read_rows(session, tickers)
+        if apply and not migrated:
+            raise SystemExit("WarrenWatchRow has no stop_moved_at/stop_moved_by columns yet: start the app (or run a job) once so init_db adds them.")
         cursors = {c.ticker: c.processed_through for c in session.exec(select(WarrenWatchCursor)).all()}
         bars = _load_frames(session, [r.ticker for r in rows], INTRADAY_INTERVAL, (datetime.now() - timedelta(days=LOOKBACK_DAYS)).date())
 
-        changing, same, skipped, gaps = [], 0, [], []
+        changing, same, skipped, gaps, spotlight, finals = [], 0, [], [], {}, {}
+        lp_calls, trail_moves = 0, 0
         for row in rows:
             frame, through = bars.get(row.ticker), cursors.get(row.ticker)
             if frame is None or frame.empty or through is None:
@@ -140,19 +159,28 @@ def main(apply: bool, tickers: list[str] | None = None) -> dict:
             if gap:
                 gaps.append((row.ticker, gap))
             stored = _state_from_row(row)
-            fresh = replay_state(row.ticker, frame, settings, through)
+            new = replay_state(row.ticker, frame, settings, through)
+            lp_calls += new.lp_calls
+            trail_moves += len(new.trail_log)
+            fresh = new.state
             if fresh is None:
                 skipped.append((row.ticker, "12-month replay gives no row, left alone"))
                 continue
+            if row.ticker in show:
+                spotlight[row.ticker] = (stored, fresh, new.trail_log)
             changes = diff(stored, fresh)
             if not changes:
                 same += 1  # already on the current rules (a rerun after --apply)
+                finals[row.ticker] = fresh
                 continue
-            baseline = diff(stored, old_rules_state(row.ticker, frame, settings, through))
+            old = replay_state(row.ticker, frame, settings, through, trail=False)
+            lp_calls += old.lp_calls
+            baseline = diff(stored, old.state, GUARD_FIELDS)
             if baseline:
-                skipped.append((row.ticker, f"old rules do not reproduce the stored row, left alone: {baseline}"))
+                skipped.append((row.ticker, f"the rules without trailing do not reproduce the stored row, left alone: {baseline}"))
                 continue
             changing.append((row.ticker, changes, stored, fresh))
+            finals[row.ticker] = fresh
             if apply:
                 for field, value in _row_values(fresh).items():
                     setattr(row, field, value)
@@ -162,22 +190,40 @@ def main(apply: bool, tickers: list[str] | None = None) -> dict:
 
     print(f"{'APPLIED' if apply else 'DRY RUN'}: {len(rows)} non-removed rows; {same} identical; {len(changing)} changing; {len(skipped)} skipped")
     kinds: dict[str, int] = {}
+    flips = []
     for ticker, changes, stored, fresh in changing:
         ks = classify(changes)
         for k in ks:
             kinds[k] = kinds.get(k, 0) + 1
+        if set(changes) - set(AGE_FIELDS) and set(changes) <= {"stop_price", "stop_basis", *AGE_FIELDS}:
+            kinds["stop only"] = kinds.get("stop only", 0) + 1
+        if stored.status == STATUS_ACTIVE and fresh.status == STATUS_BREACHED:
+            flips.append((ticker, fresh.breached_at))
         print(f"  {ticker}: {', '.join(ks)}")
         for f, (a, b) in changes.items():
             print(f"      {f}: {a} -> {b}")
     print("by kind (a row can count in several):", dict(sorted(kinds.items())))
+    print(f"active -> breached ({len(flips)}):", ", ".join(f"{t} {d:%Y-%m-%d %H:%M}" for t, d in flips))
+    for ticker, (stored, fresh, log) in spotlight.items():
+        print(f"  SHOW {ticker}\n      before: {_brief(stored)}\n      after:  {_brief(fresh)}\n      trail moves: {len(log)}")
     for ticker, why in skipped:
         print(f"  SKIPPED {ticker}: {why}")
     for ticker, why in gaps:
         print(f"  HISTORY {ticker}: {why}")
-    return {"changing": len(changing), "same": same, "skipped": len(skipped), "gaps": len(gaps), "kinds": kinds}
+    filled = sum(1 for f in finals.values() if f.stop_moved_at is not None)
+    no_stop = sum(1 for f in finals.values() if f.stop_price is None)
+    no_age_with_stop = sum(1 for f in finals.values() if f.stop_price is not None and f.stop_moved_at is None)
+    print(f"stop_moved_at after the rebuild ({len(finals)} rows with a verdict): {filled} filled; {len(finals) - filled} null ({no_stop} with no stop, {no_age_with_stop} with a stop)")
+    print(f"{lp_calls} LP calls (trailing replays and guard replays); {trail_moves} trail moves; {time.monotonic() - started:.1f}s")
+    return {
+        "changing": len(changing), "same": same, "skipped": len(skipped), "gaps": len(gaps), "kinds": kinds, "flips": flips,
+        "lp_calls": lp_calls, "trail_moves": trail_moves, "filled": filled, "no_stop": no_stop, "no_age_with_stop": no_age_with_stop,
+    }
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true", help="write the changed rows (default: dry run)")
-    main(parser.parse_args().apply)
+    parser.add_argument("--show", default="", help="comma-separated tickers to print before/after in full")
+    args = parser.parse_args()
+    main(args.apply, show=tuple(t.strip().upper() for t in args.show.split(",") if t.strip()))
