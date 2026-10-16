@@ -17,7 +17,7 @@ import data.ticker_summary as ticker_summary
 from core.history_merge import INVALIDATED_AT
 from core.models import FundamentalsCache, GrowthCatalystNote, TickerScore
 from pipeline.refresh import clear_ticker_cache
-from core.schemas import Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
+from core.schemas import SpeculativeGrowthOut, Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
 from data.step5_data import get_step5_data
 from data.ticker_summary import get_summary
 
@@ -234,6 +234,11 @@ def _patch_score_steps(monkeypatch, raise_in=None):
     monkeypatch.setattr(ticker_score, "get_step4_data", make("step4", _step4()))
     monkeypatch.setattr(ticker_score, "get_step5_data", make("step5", _step5()))
     monkeypatch.setattr(ticker_score, "get_summary", make("summary", _summary()))
+
+    async def speculative_growth(ticker, cache_only=False):  # the sixth step: it fetches the profile, so it must be stubbed too
+        return SpeculativeGrowthOut(ticker=ticker, qualifies=False, company_type="Standard")
+
+    monkeypatch.setattr(ticker_score, "get_speculative_growth_data", speculative_growth)
 
 
 def test_ticker_refresh_writes_a_ticker_score_row_for_the_refreshed_ticker(monkeypatch):

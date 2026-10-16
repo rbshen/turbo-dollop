@@ -7,7 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 import core.main as main
 import data.ticker_score as ticker_score
 from core.models import TickerScore
-from core.schemas import Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
+from core.schemas import SpeculativeGrowthOut, Step1Out, Step2Out, Step4Out, Step5Out, TickerSummaryOut
 from scoring.overall import SCORE_FORMULA_VERSION
 
 
@@ -78,6 +78,11 @@ def _patch_score_steps(monkeypatch, calls=None, company_name="Apple Inc."):
     monkeypatch.setattr(ticker_score, "get_step4_data", make("step4", _step4()))
     monkeypatch.setattr(ticker_score, "get_step5_data", make("step5", _step5()))
     monkeypatch.setattr(ticker_score, "get_summary", make("summary", _summary(company_name)))
+
+    async def speculative_growth(ticker, cache_only=False):  # the sixth step: it fetches the profile, so it must be stubbed too
+        return SpeculativeGrowthOut(ticker=ticker, qualifies=False, company_type="Standard")
+
+    monkeypatch.setattr(ticker_score, "get_speculative_growth_data", speculative_growth)
     return calls
 
 
