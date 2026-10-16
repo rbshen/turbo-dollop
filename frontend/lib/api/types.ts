@@ -2186,6 +2186,8 @@ export interface OpportunityDateOut {
 // candle times are 2h window STARTS. `age_bars` / `last_signal_age_bars` count completed 2h candles after the latest arrow's / latest
 // UP arrow's candle up to `as_of` (0 = on the last candle). The page uses `age_bars` and `latest_arrow_at`; `last_signal_age_bars`
 // is still returned but no longer read by the UI (`last_signal_at` appears only in a tooltip).
+export type StopMovedBy = "yellow_up_entry" | "yellow_up_repeat" | "blue_down" | "yellow_down" | "gray_down" | "trail";
+
 export interface WarrenWatchRowOut {
   ticker: string;
   profile: "any" | "spy" | "qqq" | "tqqq" | "tecl";
@@ -2199,6 +2201,9 @@ export interface WarrenWatchRowOut {
   entry_price: number | null;
   stop_price: number | null;
   stop_basis: "10%" | "LP" | "entry" | "none";
+  // The candle (naive ET window start) that last changed the stop VALUE and the rule that did it; both null with no stop or a row not yet rebuilt.
+  stop_moved_at: string | null;
+  stop_moved_by: StopMovedBy | null;
   // Latest completed DAILY close from the cached 1d bars (naive date "YYYY-MM-DD"); null when none is cached.
   last_price: number | null;
   last_price_date: string | null;

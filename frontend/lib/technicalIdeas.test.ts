@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { WarrenWatchRowOut } from "@/lib/api/types";
-import { entryTitle, fmtAgeAgo, fmtAsOf, fmtBarsAgo, fmtEtDate, fmtEtStamp, fmtSignedPct1, lastEntryRefreshTitle, sortByLatestArrow, stopAboveEntry, stopAboveEntryNote } from "@/lib/technicalIdeas";
+import { entryTitle, fmtAgeAgo, fmtAsOf, fmtBarsAgo, fmtEtDate, fmtEtStamp, fmtSignedPct1, lastEntryRefreshTitle, sortByLatestArrow, stopAboveEntry, stopAboveEntryNote, stopAgeTitle } from "@/lib/technicalIdeas";
 
 function row(over: Partial<WarrenWatchRowOut>): WarrenWatchRowOut {
   return {
     ticker: "AAA", profile: "any", latest_arrow_color: "yellow", latest_arrow_direction: "up", latest_arrow_at: "2026-10-15T13:30:00",
-    instruction_type: 3, instruction_text: "YELLOW UP", entry_kind: "yellow", entry_at: "2026-10-15T13:30:00", last_price: 110, last_price_date: "2026-10-15", pl_pct: 0.1, stop_distance_pct: 0.1818, entry_price: 100, stop_price: 90, stop_basis: "10%",
+    instruction_type: 3, instruction_text: "YELLOW UP", entry_kind: "yellow", entry_at: "2026-10-15T13:30:00", last_price: 110, last_price_date: "2026-10-15", pl_pct: 0.1, stop_distance_pct: 0.1818, entry_price: 100, stop_price: 90, stop_basis: "10%", stop_moved_at: null, stop_moved_by: null,
     status: "active", breached_at: null, last_signal_at: "2026-10-15T13:30:00", last_updated_at: "2026-10-16T01:25:00", age_bars: 5,
     last_signal_age_bars: 5, ...over,
   };
@@ -84,5 +84,16 @@ describe("entry and P/L formatting", () => {
       "Blue entry · Oct 9, 09:30 ET · 7 days ago. The close of the entry candle, not an actual fill.",
     );
     expect(entryTitle({ entry_kind: null, entry_at: null }, now)).toBe("Entry. The close of the entry candle, not an actual fill.");
+  });
+  it("words the stop-age tooltip for each rule, and gives nothing without a stop age", () => {
+    const at = (by: WarrenWatchRowOut["stop_moved_by"], when = "2026-10-09T11:30:00") => stopAgeTitle({ stop_moved_at: when, stop_moved_by: by }, now);
+    expect(at("blue_down")).toBe("Set Oct 9, 11:30 ET by Blue Down (2nd LP) · 7 days ago");
+    expect(at("yellow_down")).toBe("Set Oct 9, 11:30 ET by Yellow Down (2nd LP) · 7 days ago");
+    expect(at("trail", "2026-10-16T09:30:00")).toBe("Trailed to 2nd LP Oct 16, 09:30 ET · today");
+    expect(at("yellow_up_entry", "2026-06-11T09:30:00")).toBe("Set at entry, Jun 11, 09:30 ET (10% of the candle low) · 4 months ago");
+    expect(at("yellow_up_repeat", "2026-08-03T11:30:00")).toBe("Repeat yellow, Aug 3, 11:30 ET (lower of 2nd LP and 10%) · 2 months ago");
+    expect(at("gray_down", "2026-09-23T13:30:00")).toBe("Gray Down: stop set to entry, Sep 23, 13:30 ET · 23 days ago");
+    expect(stopAgeTitle({ stop_moved_at: null, stop_moved_by: null }, now)).toBeNull();
+    expect(stopAgeTitle({ stop_moved_at: "2026-10-09T11:30:00", stop_moved_by: null }, now)).toBeNull();
   });
 });

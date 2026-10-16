@@ -21,6 +21,7 @@ import {
   STOP_BASIS_LABEL,
   stopAboveEntry,
   stopAboveEntryNote,
+  stopAgeTitle,
 } from "@/lib/technicalIdeas";
 import { cn } from "@/lib/utils";
 
@@ -148,12 +149,12 @@ function StopDistanceCell({ row }: { row: WarrenWatchRowOut }) {
   );
 }
 
-function StopCell({ row }: { row: WarrenWatchRowOut }) {
+function StopCell({ row, nowMs }: { row: WarrenWatchRowOut; nowMs: number }) {
   if (row.stop_price == null) return <TableCell className={`${NUM_CLASS} text-text-tertiary`}>—</TableCell>;
   const above = stopAboveEntry(row);
   const basis = row.stop_basis === "none" ? null : STOP_BASIS_LABEL[row.stop_basis];
   return (
-    <TableCell className={`${PAD} whitespace-nowrap text-right`}>
+    <TableCell className={`${PAD} whitespace-nowrap text-right`} title={stopAgeTitle(row, nowMs) ?? undefined}>
       <span className="inline-flex items-center justify-end gap-1.5">
         {above && (
           <span title={stopAboveEntryNote(row)} aria-label={stopAboveEntryNote(row)} className="inline-flex text-text-tertiary">
@@ -214,7 +215,7 @@ export function WarrenWatchTable({ rows }: Props) {
             <EntryCell row={row} nowMs={nowMs} />
             <LastCell row={row} />
             <PlCell row={row} />
-            <StopCell row={row} />
+            <StopCell row={row} nowMs={nowMs} />
             <StopDistanceCell row={row} />
             <StatusCell row={row} />
             <TableCell className={`${PAD} whitespace-nowrap font-mono text-xs text-text-secondary`} title={lastEntryRefreshTitle(row)}>

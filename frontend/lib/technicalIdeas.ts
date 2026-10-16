@@ -106,6 +106,23 @@ export function entryTitle(row: Pick<WarrenWatchRowOut, "entry_kind" | "entry_at
   return `${parts.join(" · ")}. ${ENTRY_PRICE_NOTE}`;
 }
 
+/** The Stop cell's tooltip: when the stop value last changed and which rule did it, with its age; null when the row carries no stop age
+ * (no stop, or a row not yet rebuilt). */
+export function stopAgeTitle(row: Pick<WarrenWatchRowOut, "stop_moved_at" | "stop_moved_by">, nowMs: number): string | null {
+  if (!row.stop_moved_at || !row.stop_moved_by) return null;
+  const at = fmtEtStamp(row.stop_moved_at);
+  const text: Record<NonNullable<WarrenWatchRowOut["stop_moved_by"]>, string> = {
+    yellow_up_entry: `Set at entry, ${at} ET (10% of the candle low)`,
+    yellow_up_repeat: `Repeat yellow, ${at} ET (lower of 2nd LP and 10%)`,
+    blue_down: `Set ${at} ET by Blue Down (2nd LP)`,
+    yellow_down: `Set ${at} ET by Yellow Down (2nd LP)`,
+    gray_down: `Gray Down: stop set to entry, ${at} ET`,
+    trail: `Trailed to 2nd LP ${at} ET`,
+  };
+  const age = fmtAgeAgo(row.stop_moved_at, nowMs);
+  return age ? `${text[row.stop_moved_by]} · ${age}` : text[row.stop_moved_by];
+}
+
 /** A fraction as a signed one-decimal percent: 0.1234 -> "+12.3%", -0.05 -> "-5.0%", 0 -> "0.0%". */
 export function fmtSignedPct1(fraction: number): string {
   const pct = fraction * 100;
