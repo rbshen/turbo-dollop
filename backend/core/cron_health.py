@@ -151,7 +151,7 @@ JOB_METADATA: dict[str, JobMetadata] = {
         "Support/resistance zone detection, E<number> and ETF watchlists", "daily", "1:15 AM", 60 + 15
     ),
     "pipeline.nightly_warren_signal_calculation": JobMetadata(
-        "Warren RSI/ADX/WVF (2h) entry signal, E<number> and ETF watchlists", "daily", "1:25 AM", 60 + 25
+        "Warren RSI/ADX/WVF (2h) entry signal and Warren Signals watch table, E<number> and ETF watchlists", "daily", "1:25 AM", 60 + 25
     ),
     "pipeline.nightly_sector_heatmap": JobMetadata(
         "Sector ETF heatmap (11 SPDR sectors x 7 total-return windows)", "daily", "1:35 AM", 60 + 35

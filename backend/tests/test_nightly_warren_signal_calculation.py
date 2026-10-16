@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
+import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
 import clients.daily_bar_sources as daily_bar_sources
@@ -13,6 +14,21 @@ from analysis.entry_signal.resample import build_2h_session_candles
 from analysis.warren_signal.state_machine import replay
 from core.cron_health import CronRunContext
 from core.models import SharedBarsCache, TechnicalEntrySignal, TickerScore, Watchlist, WatchlistTicker
+from data.warren_watch_data import WatchUpdate
+
+
+@pytest.fixture(autouse=True)
+def _stub_watch_update(monkeypatch):
+    """The job ends with the Warren Signals watch step (tests/test_warren_watch_data.py covers it); these tests feed one-row
+    fake bars that no 2h candle can be built from, so the per-ticker watch update is stubbed to a no-op here."""
+    calls: list[str] = []
+
+    def fake(ticker, bars, settings):
+        calls.append(ticker)
+        return WatchUpdate("no_row", 0, 0)
+
+    monkeypatch.setattr(nightly_warren_signal, "update_warren_watch", fake)
+    return calls
 
 
 def _fake_bars() -> pd.DataFrame:
@@ -266,7 +282,7 @@ def test_stale_cached_bars_are_counted_and_reported_but_a_fresh_ticker_is_not(mo
 
     run = CronRunContext()
     nightly_warren_signal.record_outcome(summary, run)  # the stale count never feeds the failure threshold
-    assert run.message == "2 computed, 0 failed, 0 swept, 0 pruned, 1 still stale after fetch"
+    assert run.message == "2 computed, 0 failed, 0 swept, 0 pruned, 1 still stale after fetch; watch table: 0 created, 0 changed, 0 failed"
 
 
 def test_a_ticker_with_no_cached_bars_at_all_counts_as_stale(monkeypatch, tmp_path):
@@ -298,3 +314,26 @@ def test_signal_output_is_identical_for_a_stale_and_a_fresh_ticker(monkeypatch, 
         assert row is not None, t
         assert row.as_of == expected.as_of.replace(tzinfo=None)
     assert {c: getattr(rows["FRESH"], c) for c in columns} == {c: getattr(rows["STALE"], c) for c in columns}
+
+
+def test_the_watch_step_runs_last_for_every_ticker_and_its_failure_never_touches_the_warren_counts(monkeypatch, tmp_path, _stub_watch_update):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_watchlist(engine, "E1", ["AAA", "BBB"])
+    _patch_batch_fetch(monkeypatch, {"AAA": _fake_bars(), "BBB": _fake_bars()})
+    order: list[str] = []
+    store_calls = _patch_store(monkeypatch)
+
+    def failing(ticker, bars, settings):
+        order.append(f"watch {ticker}")
+        if ticker == "BBB":
+            raise RuntimeError("watch exploded")
+        return WatchUpdate("created", 2, 5)
+
+    monkeypatch.setattr(nightly_warren_signal, "update_warren_watch", failing)
+    summary = asyncio.run(nightly_warren_signal.main())
+
+    assert sorted(store_calls) == ["AAA", "BBB"]
+    assert (summary["processed"], summary["failed"]) == (2, 0)  # the Warren results are untouched
+    assert order == ["watch AAA", "watch BBB"]
+    assert (summary["watch_attempted"], summary["watch_failed"], summary["watch_created"], summary["watch_lp_calls"]) == (2, 1, 1, 2)
+    assert summary["watch_failures"] == [("BBB", "watch exploded")]

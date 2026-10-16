@@ -56,7 +56,9 @@ from core.data_groups import job_skip_reason
 from core.db import engine, init_db
 from core.logging_config import configure_logging
 from data.warren_signal_data import compute_and_store_warren_signal, prune_warren_signal_events, sweep_stale_warren_signals
+from data.warren_watch_data import update_warren_watch
 from data.watchlists import MONITORED_WATCHLIST_PATTERN, list_monitored_tickers
+from helpers.liquidity_zone_config import get_liquidity_zone_settings, to_engine_settings
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_warren_signal_calculation.log"
 
@@ -67,6 +69,38 @@ LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_warren_sig
 LOOKBACK_DAYS = 730
 
 logger = logging.getLogger(__name__)
+
+
+def update_watch_table(tickers: list[str], bars_by_ticker: dict) -> dict:
+    """The final step: fold each ticker's new completed 2h candles into the Warren Signals watch table
+    (data/warren_watch_data.py, docs/specs/warren-signals-page.md). A failure here is counted on its own and never
+    changes the Warren signal results above; the 2nd-LP settings are read once."""
+    start = time.monotonic()
+    with Session(engine) as session:
+        settings = to_engine_settings(get_liquidity_zone_settings(session))
+    created = changed = lp_calls = 0
+    failures: list[tuple[str, str]] = []
+    for ticker in tickers:
+        try:
+            bars = bars_by_ticker.get(ticker)
+            if bars is None or bars.empty:
+                raise ValueError("No intraday bars returned")
+            update = update_warren_watch(ticker, bars, settings)
+            created += update.outcome == "created"
+            changed += update.outcome == "changed"
+            lp_calls += update.lp_calls
+        except Exception as exc:  # noqa: BLE001 -- one bad ticker must never abort the watch step
+            logger.error("Warren watch %s: FAILED - %s", ticker, exc)
+            failures.append((ticker, str(exc)))
+    duration = time.monotonic() - start
+    logger.info(
+        "Warren watch table updated. Tickers: %d. Created: %d. Changed: %d. Failed: %d. LP calls: %d. Duration: %.1fs.",
+        len(tickers), created, changed, len(failures), lp_calls, duration,
+    )
+    return {
+        "watch_attempted": len(tickers), "watch_failed": len(failures), "watch_created": created, "watch_changed": changed,
+        "watch_lp_calls": lp_calls, "watch_seconds": duration, "watch_failures": failures,
+    }
 
 
 async def main() -> dict:
@@ -129,6 +163,7 @@ async def main() -> dict:
 
     swept = sweep_stale_warren_signals()
     pruned = prune_warren_signal_events()
+    watch = update_watch_table(tickers, bars_by_ticker)
 
     duration = time.monotonic() - start_time
     logger.info(
@@ -151,6 +186,7 @@ async def main() -> dict:
         "swept": swept,
         "pruned": pruned,
         "stale_count": stale_count,
+        **watch,
     }
 
 
@@ -167,6 +203,9 @@ def record_outcome(summary: dict, run) -> None:
         f"{summary['stale_count']} still stale after fetch"
     )
     check_failure_threshold(processed, failed, message)
+    if "watch_attempted" in summary:
+        message += f"; watch table: {summary['watch_created']} created, {summary['watch_changed']} changed, {summary['watch_failed']} failed"
+        check_failure_threshold(summary["watch_attempted"], summary["watch_failed"], message)
     run.message = message
 
 
