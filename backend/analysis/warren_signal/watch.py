@@ -16,7 +16,7 @@ on candle t is first tested on t+1, as the ThinkScript's `rawStopHit` needs `bar
      stop = 0.9 x this candle's low, basis "10%". On an active row with an entry -> stop = min(2nd LP, 0.9 x low),
      basis whichever is lower ("10%" on a tie, or when there is no 2nd LP); the entry is unchanged.
    - Yellow Up that is the first after a Blue (type 4) and Gray Up (type 1): no action on an existing active row, only the
-     dates (and the latest arrow) move. A Gray Up with no row creates one with no entry and no stop; a type-4 Yellow
+     dates (and the latest arrow) move. A Gray Up on a BREACHED row moves only the latest arrow, never last_signal_at. A Gray Up with no row creates one with no entry and no stop; a type-4 Yellow
      with no row is treated as a fresh yellow entry.
 3. Down arrows (one per candle; Yellow Down beats Blue Down beats Gray Down, the ThinkScript's text order) apply only
    to an existing row: the instruction text and the latest arrow update; the stop changes only on an active row
@@ -128,6 +128,9 @@ def _apply_up(
     # gray_up (type 1): no action on a row; a new row has no entry and no stop.
     if state is None:
         return WatchState(profile, kind, ts, GRAY_UP, None, None, None, None, BASIS_NONE, STATUS_ACTIVE, None, ts)
+    if state.status == STATUS_BREACHED:
+        # "Stay out until Blue": the pill shows the Gray, but it is not a signal worth moving "Last signal" for.
+        return replace(state, latest_arrow_kind=kind, latest_arrow_at=ts)
     return replace(state, latest_arrow_kind=kind, latest_arrow_at=ts, last_signal_at=ts)
 
 

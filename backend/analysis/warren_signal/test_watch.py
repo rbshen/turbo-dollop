@@ -107,6 +107,22 @@ def test_gray_up_with_a_row_is_no_action():
     assert lp.asked == []
 
 
+def test_gray_up_on_a_breached_row_moves_the_latest_arrow_but_freezes_last_signal_at():
+    lows = [100, 100, 100, 85, 100, 100, 100]
+    s, lp = _run(lows, [_ev("yellow_up", 1), _ev("gray_up", 5)])
+    assert (s.status, s.breached_at) == ("breached", _ts(3))
+    assert (s.latest_arrow_kind, s.latest_arrow_at, s.last_signal_at) == ("gray_up", _ts(5), _ts(1))
+    assert (s.stop_price, s.instruction_type, s.entry_at) == (pytest.approx(90.0), 3, _ts(1))
+    assert lp.asked == []
+
+
+def test_gray_up_on_an_active_row_still_advances_last_signal_at():
+    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("gray_up", 4)])
+    assert (s.status, s.latest_arrow_kind, s.last_signal_at) == ("active", "gray_up", _ts(4))
+    s, _ = _run(FLAT, [_ev("gray_up", 1), _ev("gray_up", 4)])  # a gray-born row (no entry) is active too
+    assert (s.entry_kind, s.last_signal_at) == (None, _ts(4))
+
+
 def test_gray_up_with_no_row_creates_a_row_with_no_entry_and_no_stop_and_a_later_yellow_is_a_fresh_entry():
     s, _ = _run(FLAT, [_ev("gray_up", 2)])
     assert (s.entry_kind, s.entry_at, s.entry_price, s.stop_price, s.stop_basis) == (None, None, None, None, "none")
