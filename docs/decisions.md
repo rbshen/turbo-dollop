@@ -1523,3 +1523,13 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 - **Same candles as the chart.** The step rebuilds the Chart tab's 2H series (fast builder, forming candle dropped, window-start index, volume guard, `profile_for`); times are window starts, an hour earlier than `WarrenSignalEvent.fired_at` except for the 15:30 candle. Parity of the arrows with the Any-Ticker ThinkScript is pinned by an independent bar-by-bar transcription (`test_thinkscript_parity.py`).
 - **Registry:** both tables are KEEP (never wiped). **No new cron entry:** the step ends `pipeline.nightly_warren_signal_calculation`; failures are counted separately and never change the Warren results.
 - **Seed result (real database):** 133 tickers, 114 rows (96 active, 18 breached), 175 LP calls, 9.6 s; a rerun was identical. Not built: API, page, nav, removal endpoint, intraday refresh (phase 2).
+
+### 2026-10-16 — Technical Ideas page, Investing nav menu (Warren Signals phase 2)
+
+**Decision (owner).** The Warren watch table gets a read endpoint, an admin remove endpoint, a page and a nav entry. Spec: `docs/specs/warren-signals-page.md`, "Phase 2".
+
+- **API:** `GET /api/technical-ideas/warren` (viewer; stored rows only, no FMP, no write) and `DELETE /api/technical-ideas/warren/{ticker}` (admin; the existing soft remove). Removed rows are never returned; a nightly rerun does not resurrect one (test-pinned).
+- **One time convention:** candle START, naive ET, everywhere in the response and on the page ("Oct 15, 15:30 ET"). `last_updated_at` is converted from server wall clock to ET.
+- **Age in bars** is counted on the NYSE calendar (4 windows a session, 2 on an early close), so the endpoint needs no bars read. Two ages are returned: since the latest arrow (the brief's field) and since the latest UP arrow (what the Last signal column shows).
+- **Page:** "Technical Ideas" at `/technical-ideas`; the first section is "RSI WVF ADX by Warren" with a "2h" tag, built on a section shell so a second strategy is a new component, not a rework. Default sort: most recent last signal first. A stop above the entry price shows normally with an explanatory tooltip.
+- **Nav:** Stocks / ETFs / Watchlist / Momentum / **Investing** (Opportunities, Technical Ideas) / Markets (Sectors, Breadth). Opportunities is no longer top-level; its URL and page are unchanged.

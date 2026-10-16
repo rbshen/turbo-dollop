@@ -98,7 +98,7 @@ market context strip (% above the 50 and 200-day SMA, net new highs, sectors in 
 segmented control with counts, and a hairline table (44px rows, soft tinted pills, sentence case): Ticker, Tier, Verdict, vs MA, Rank, Weeks in Advance (the Reversal tab
 shows the rule that fired instead), ADV $M, Tags. The ticker opens its page in a new tab, as does the whole row (as in Momentum). **Tier wording per tab (display only, 2026-10-12):** on the Reversal tab the second tier is drawn "Technical only" (the segmented control, the tier pill and the Momentum-only stocks' why-not-Quality tag, which there reads "Fundamentals not passed" plus the first failed Overall step, "+n" for more, and the full verdict, steps and moat status in its tooltip); the Momentum tab keeps "Momentum-only" and "Not quality: ...". The stored tier is still `momentum_only` everywhere (`lib/opportunities.ts::tierLabel`, `tierFilterOptions`; the export files carry tickers only, so they have no tier wording). Verdict pills: Pass and Strong pass green,
 Pass with caution amber, May not pass slate-blue. The footnote states the rules version and hash, the ranked universe, the not-covered count and any stale-score count.
-The top nav has an "Opportunities" item (same-tab, like Momentum).
+The top nav has an "Investing" dropdown (since 2026-10-16) holding Opportunities and Technical Ideas; the Opportunities page is same-tab, like Momentum.
 
 ## Row selection (2026-10-12)
 

@@ -1,8 +1,9 @@
-# Warren Signals page: the watch table (phase 1, backend only)
+# Warren Signals page: the watch table (phase 1) and the Technical Ideas page (phase 2)
 
 A persistent per-ticker **watch table** built from the Warren arrows on 2h candles. It is not an "in trade now" snapshot:
 a row is created or updated when an arrow fires and stays until the user removes it. Phase 1 is the engine, the tables, the
-final step of the Warren nightly job and a one-off seed. There is no API route, no frontend and no nav change yet (phase 2).
+final step of the Warren nightly job and a one-off seed. Phase 2 (2026-10-16) adds the read and remove API, the
+**Technical Ideas** page at `/technical-ideas` and the Investing nav menu; see "Phase 2" below.
 Arrows are the existing replay's (`docs/specs/warren-signal.md`, the ThinkScripts in `~/warren-thinkscripts/` are the source
 of truth for them); this feature only reads them.
 
@@ -83,7 +84,8 @@ A ticker that leaves the monitored lists is no longer processed; its row stays a
 
 ## Removal
 
-`remove_watch_row(ticker)` sets `removed_at` (naive America/New_York wall clock); the row stays (a soft delete, no endpoint yet).
+`remove_watch_row(ticker)` sets `removed_at` (naive America/New_York wall clock); the row stays (a soft delete; `DELETE
+/api/technical-ideas/warren/{ticker}` calls it, phase 2).
 From then on the ticker's candles at or before `removed_at` are not read (an arrow on a candle that started at or before the
 removal is ignored even if it completes later), a removed row is not breached or refreshed, and only an up arrow on a later
 candle wakes it: it becomes a fresh row (the old state is not carried over, `removed_at` cleared). `list_watch_rows` hides
@@ -131,12 +133,79 @@ about 133 x (15 ms candles + 24 ms replay) = 5 s plus the few LP calls the night
   is untouched here. TQQQ and QQQ each have a Yellow Up fresh entry on 2026-10-15 13:30.
 - **No Blue Up has fired for any ticker in the window except four rows** (BKNG, DASH, PAYX, SYK), so the Blue paths have little live data.
 
-## Phase 1 limits and open decisions for phase 2
+## Phase 1 limits (still true)
 
-- No API route, no page, no nav entry, no removal endpoint (`route_roles.py` needs a viewer line for the read and an admin line for
-  the removal when they are added).
 - The table does not protect a ticker in the tracked-universe sense (KEEP, not PROTECTING): a ticker that falls out of every
   list keeps its stale row, and the user decides when to remove it.
 - A watch row is end-of-day state (nightly); there is no intraday refresh.
-- Whether a down arrow on a breached row should do more than update the text, whether a gray-only row should be listed, and
-  what "age in bars" means on the page are phase 2 decisions.
+- A down arrow on a breached row only updates the text; a gray-only row (no entry, no stop) is listed like any other.
+
+## Phase 2: API, page, nav
+
+### API (`core/main.py`, schemas `WarrenWatchOut` / `WarrenWatchRowOut`, data `data/warren_watch_data.py::watch_table`)
+
+| Route | Role | What |
+| --- | --- | --- |
+| `GET /api/technical-ideas/warren` | viewer | Every non-removed `WarrenWatchRow` plus `as_of`. Reads the stored tables only: no FMP call, no write, no `TickerView` touch (`tests/test_viewer_rules.py` runs it with the other viewer GETs). |
+| `DELETE /api/technical-ideas/warren/{ticker}` | admin | `remove_watch_row`: sets `removed_at`. 404 when the ticker has no row or it is already removed; 422 for a malformed symbol (it carries `TickerPath`, as the registry test requires). |
+
+Both are registered in `core/route_roles.py`. The route lives under `technical-ideas`, not `tickers/{ticker}`, because it is a
+page-level table, not a ticker resource (a viewer is not restricted to tracked tickers here: the table is already the monitored set).
+
+**`as_of`** is the newest `WarrenWatchCursor.processed_through` (the last completed 2h candle any ticker was folded through; it
+covers tickers with no row), falling back to the rows' own `as_of`; `null` only before the first seed.
+
+**Row fields:** `ticker`, `profile`, `latest_arrow_color` (`blue`/`yellow`/`gray`) and `latest_arrow_direction` (`up`/`down`) split from the
+stored kind, `latest_arrow_at`, `instruction_type`, `instruction_text`, `entry_kind`, `entry_price`, `stop_price`, `stop_basis`, `status`,
+`breached_at`, `last_signal_at`, `last_updated_at`, `age_bars`, `last_signal_age_bars`. `entry_at` and `removed_at` are not returned.
+
+**Time convention.** Every datetime in the response is a naive America/New_York ISO string. Candle times are window STARTS, as the chart draws
+them. `last_updated_at` is stored as naive server-local wall clock (UTC on the box) and converted to ET in the response.
+
+**Ages.** `age_bars` = completed 2h candles after the latest arrow's candle up to the table's `as_of` (0 = the arrow is on the last candle);
+`last_signal_age_bars` is the same for the latest UP arrow (`last_signal_at`, the date the page shows). They are counted on the NYSE
+calendar (`helpers/trading_calendar.py::xnys_sessions`, imported lazily): 4 windows a session (09:30, 11:30, 13:30, 15:30), 2 on an early close
+(13:00), none on a holiday. This is a calendar count, not a bars read, which keeps the endpoint cache-only; it equals the candle count
+in the series because the series has one candle per window that has bars. `last_signal_age_bars` is an addition to the brief (which asked
+for one age): the page's Last signal column shows `last_signal_at`, and its age must be measured from that candle, not from a later down arrow.
+
+### Page (`/technical-ideas`, title "Technical Ideas")
+
+`app/technical-ideas/page.tsx` lists sections; each strategy is a self-contained section component built on
+`components/technical-ideas/TechnicalIdeaSection.tsx` (heading, short timeframe tag, "As of" stamp, body, footnote). The first is
+`WarrenWatchSection`: heading **RSI WVF ADX by Warren**, tag **2h**, header stamp "As of Oct 15, 15:30 ET" (the table's `as_of`, a candle START).
+Another strategy adds its own section component, hook and table; nothing here changes. Data: `lib/hooks/useWarrenWatch.ts` (SWR, no polling).
+
+Table (`WarrenWatchTable`, modelled on `MomentumTable`: kit Table, compact Badge pills, mono tabular numbers, whole-row click opens
+`/tickers/{t}` in a new tab; the ticker link and the Remove control keep their own click):
+
+| Column | Content |
+| --- | --- |
+| Ticker | Link; a profiled ticker (spy/qqq/tqqq/tecl) shows "<profile> profile" beneath. |
+| Signal | Up/down pill in the arrow's colour: Blue = `chart-ema21` (the chart's own blue for Blue arrows), Yellow = `chart-warren-yellow`, Gray = `chart-warren-gray`. Title: the arrow candle's time. |
+| Instruction | The stored text (wraps; full text in the title). |
+| Stop | Price plus a neutral basis tag (`10%`, `LP`, `Entry`); a dash when there is no stop. A stop above the entry price shows normally with a small info icon whose tooltip says the latest instruction set it (2nd LP / entry price), so it does not read as a bug. |
+| Status | Green "Active", or a red **Stop breached** badge (title: the breaching candle). |
+| Last signal | `last_signal_at` (ET) and its age in bars ("this candle", "1 bar ago", "5 bars ago"). |
+| Last updated | `last_updated_at` (ET), when the row's content last changed. |
+| (actions) | Admin only: trash icon, then an inline Remove? / Confirm / Cancel (the Watchlist delete pattern). A viewer sees no control (`<AdminOnly>`). |
+
+Default and only sort: `last_signal_at` descending, ties by ticker (`lib/technicalIdeas.ts::sortByLastSignal`). States: skeleton rows while
+loading, an error line, and "No tickers on the watch table yet" when empty.
+
+Removal is a soft remove: the row disappears from the page and a nightly rerun does not bring it back; only an up arrow on a candle after the
+removal does (Removal section above; `tests/test_warren_watch_api.py`).
+
+### Nav
+
+Top-level links are Stocks, ETFs, Watchlist, Momentum; then two dropdowns (the Markets pattern, one `NavMenu` component):
+**Investing** (Opportunities, Technical Ideas) and **Markets** (Sectors, Breadth). Opportunities left the top level; its page and URL
+are unchanged. `/technical-ideas` is a same-tab page like `/opportunities`. Investing is marked current on either route.
+
+### Open for a later phase
+
+- **Intraday refresh.** The table is as of the last nightly run; a refresh during the session would need the 60m cache topped up and the step
+  run outside the Warren job (the cursor makes that safe), plus a decision on whether a forming candle may ever breach a stop.
+- **A second strategy section** needs only a new section component and hook; the page and the shell do not change.
+- **Sorting and filtering** (by status, signal colour, age) are not built; the default order is the only one.
+- **Stale rows.** A ticker that left every monitored list keeps its row and its frozen `as_of`; the page does not flag it.
