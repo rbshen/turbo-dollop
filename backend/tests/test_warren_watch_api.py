@@ -72,10 +72,19 @@ def test_get_returns_the_stored_rows_with_arrow_split_ages_and_et_times(engine, 
     assert b["status"] == "breached" and b["breached_at"] == "2026-10-16T11:30:00"
     assert set(a) == {
         "ticker", "profile", "latest_arrow_color", "latest_arrow_direction", "latest_arrow_at", "instruction_type", "instruction_text",
-        "entry_kind", "entry_at", "entry_price", "stop_price", "stop_basis", "last_price", "last_price_date", "pl_pct",
+        "entry_kind", "entry_at", "entry_price", "stop_price", "stop_basis", "stop_moved_at", "stop_moved_by", "last_price", "last_price_date", "pl_pct",
         "stop_distance_pct", "status", "breached_at", "last_signal_at", "last_updated_at", "age_bars", "last_signal_age_bars",
     }
     assert a["entry_at"] == "2026-10-15T13:30:00" and a["entry_kind"] == "yellow" and a["entry_price"] == 100.0
+    assert a["stop_moved_at"] is None and a["stop_moved_by"] is None  # a row not yet rebuilt shows no stop age
+
+
+def test_get_returns_the_stop_age_as_an_et_stamp_and_the_rule(engine, utc_server):
+    add_row(engine, "AAA", stop_basis="LP", stop_price=95.0, stop_moved_at=datetime(2026, 10, 16, 13, 30), stop_moved_by="trail")
+    add_row(engine, "BBB", stop_price=None, stop_basis="none", entry_kind="blue")
+    a, b = TestClient(main.app).get("/api/technical-ideas/warren").json()["rows"]
+    assert (a["stop_moved_at"], a["stop_moved_by"]) == ("2026-10-16T13:30:00", "trail")
+    assert (b["stop_moved_at"], b["stop_moved_by"]) == (None, None)
 
 
 def test_age_follows_the_nyse_calendar_holiday_and_early_close(engine):

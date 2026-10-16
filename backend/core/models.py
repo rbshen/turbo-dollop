@@ -383,6 +383,8 @@ class WarrenWatchRow(SQLModel, table=True):
     entry_price: float | None = None  # close of the entry arrow's candle
     stop_price: float | None = None
     stop_basis: str = "none"  # "10%" | "LP" | "entry" | "none"
+    stop_moved_at: datetime | None = None  # the candle that last changed the stop value (naive ET); None with no stop
+    stop_moved_by: str | None = None  # yellow_up_entry | yellow_up_repeat | blue_down | yellow_down | gray_down | trail
     status: str = "active"  # "active" | "breached"
     breached_at: datetime | None = None
     last_signal_at: datetime  # the latest UP arrow's candle

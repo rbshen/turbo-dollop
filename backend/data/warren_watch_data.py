@@ -103,6 +103,7 @@ def _state_from_row(row: WarrenWatchRow) -> WatchState:
     return WatchState(
         row.profile, row.latest_arrow_kind, row.latest_arrow_at, row.instruction_type, row.entry_kind, row.entry_at,
         row.entry_price, row.stop_price, row.stop_basis, row.status, row.breached_at, row.last_signal_at,
+        row.stop_moved_at, row.stop_moved_by,
     )
 
 
@@ -110,6 +111,7 @@ def _content(state: WatchState) -> tuple:
     return (
         state.profile, state.latest_arrow_kind, state.latest_arrow_at, state.instruction_type, state.entry_kind, state.entry_at,
         state.entry_price, state.stop_price, state.stop_basis, state.status, state.breached_at, state.last_signal_at,
+        state.stop_moved_at, state.stop_moved_by,
     )
 
 
@@ -118,6 +120,7 @@ def _row_values(state: WatchState) -> dict:
         "profile": state.profile, "latest_arrow_kind": state.latest_arrow_kind, "latest_arrow_at": state.latest_arrow_at,
         "instruction_type": state.instruction_type, "instruction_text": state.instruction_text, "entry_kind": state.entry_kind,
         "entry_at": state.entry_at, "entry_price": state.entry_price, "stop_price": state.stop_price, "stop_basis": state.stop_basis,
+        "stop_moved_at": state.stop_moved_at, "stop_moved_by": state.stop_moved_by,
         "status": state.status, "breached_at": state.breached_at, "last_signal_at": state.last_signal_at,
     }
 
@@ -288,7 +291,8 @@ def watch_table() -> dict:
                 "ticker": r.ticker, "profile": r.profile, "latest_arrow_color": color, "latest_arrow_direction": direction,
                 "latest_arrow_at": r.latest_arrow_at, "instruction_type": r.instruction_type, "instruction_text": r.instruction_text,
                 "entry_kind": r.entry_kind, "entry_at": r.entry_at, "entry_price": r.entry_price, "stop_price": r.stop_price,
-                "stop_basis": r.stop_basis, "last_price": last_price, "last_price_date": last_price_date,
+                "stop_basis": r.stop_basis,
+                "stop_moved_at": r.stop_moved_at, "stop_moved_by": r.stop_moved_by, "last_price": last_price, "last_price_date": last_price_date,
                 "pl_pct": pl_pct(last_price, r.entry_price), "stop_distance_pct": stop_distance_pct(last_price, r.stop_price),
                 "status": r.status, "breached_at": r.breached_at, "last_signal_at": r.last_signal_at,
                 "last_updated_at": _to_et_naive(r.last_updated_at),

@@ -38,9 +38,10 @@ class Lp:
         return self.by_pos.get(pos)
 
 
-def _run(lows, events, lp=None, first_yellow=(), state=None, after=None, closes=None, profile="any"):
+def _run(lows, events, lp=None, first_yellow=(), state=None, after=None, closes=None, profile="any", trail=False, log=None):
+    """The arrow rules are pinned with trailing OFF (the default here); the trailing tests below pass trail=True."""
     lp = lp or Lp()
-    out = w.advance(state, _candles(lows, closes), events, [_ts(i) for i in first_yellow], profile, after, lp)
+    out = w.advance(state, _candles(lows, closes), events, [_ts(i) for i in first_yellow], profile, after, lp, trail, log)
     return out, lp
 
 
@@ -304,3 +305,123 @@ def test_the_instruction_text_follows_the_profile():
     assert s.instruction_text.startswith("YELLOW UP: new entry = 10% stop")
     s, _ = _run(FLAT, [_ev("yellow_up", 1)], profile="any")
     assert s.instruction_text == "YELLOW UP INITIAL ENTRY - Use appropriate stop."
+
+
+# --- trailing stop (2026-10-16) --------------------------------------------------------------------------------
+
+# A yellow entry on candle 1 (10% stop 90), a second yellow on candle 6 whose 2nd LP 75 is below its 10% stop (99 x 0.9 = 89.1 would be
+# 90 at low 100): the row holds an LP stop of 75 from candle 6, with nothing but trailing after it.
+TRAIL_EVENTS = [_ev("yellow_up", 1), _ev("yellow_up", 6)]
+TRAIL_LOWS = [100.0] * 14
+
+
+def _trail_run(lp_by_pos, lows=None, events=None, **kw):
+    return _run(lows or TRAIL_LOWS, events or TRAIL_EVENTS, Lp({6: 75.0, **lp_by_pos}), trail=True, **kw)
+
+
+def test_trailing_raises_an_lp_stop_when_a_higher_2nd_lp_appears_on_a_candle_with_no_arrow():
+    log = []
+    s, _ = _trail_run({8: 80.0, 10: 85.0}, log=log)
+    assert (s.stop_price, s.stop_basis) == (85.0, "LP")
+    assert (s.stop_moved_at, s.stop_moved_by) == (_ts(10), "trail")
+    assert log == [(_ts(8), 75.0, 80.0), (_ts(10), 80.0, 85.0)]
+    assert (s.latest_arrow_kind, s.latest_arrow_at, s.last_signal_at, s.instruction_type) == ("yellow_up", _ts(6), _ts(6), 3)  # the arrow fields do not move
+
+
+def test_trailing_never_lowers_a_stop():
+    s, _ = _trail_run({8: 70.0, 9: None, 10: 75.0})
+    assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by) == (75.0, "LP", _ts(6), "yellow_up_repeat")
+
+
+def test_ten_percent_and_entry_stops_never_trail_and_never_ask_for_the_lp():
+    everywhere_high = Lp({i: 500.0 for i in range(14)})
+    s, _ = w.advance(None, _candles(TRAIL_LOWS), [_ev("yellow_up", 1)], [], "any", None, everywhere_high, True), None
+    assert (s.stop_price, s.stop_basis, s.stop_moved_by) == (pytest.approx(90.0), "10%", "yellow_up_entry") and everywhere_high.asked == []
+    rally = [100.0] * 4 + [120.0] * 10
+    lp = Lp({i: 500.0 for i in range(14)})
+    s = w.advance(None, _candles(rally, [101.0] * 4 + [121.0] * 10), [_ev("yellow_up", 1), _ev("gray_down", 4)], [], "any", None, lp, True)
+    assert (s.stop_price, s.stop_basis, s.stop_moved_by) == (101.0, "entry", "gray_down") and lp.asked == []
+
+
+def test_lp_is_asked_each_candle_only_while_the_row_is_active_with_an_lp_stop():
+    _, lp = _trail_run({})
+    assert sorted(set(lp.asked)) == list(range(6, 14))  # the arrow candle, then every later candle; none before the LP stop exists (the real lookup caches by position)
+    lows = TRAIL_LOWS[:9] + [70.0] + TRAIL_LOWS[10:]  # breached on candle 9: no LP after it
+    _, lp = _trail_run({}, lows=lows)
+    assert sorted(set(lp.asked)) == [6, 7, 8]
+
+
+def test_a_trailed_stop_is_tested_against_the_stop_before_the_candle_and_hit_on_the_next_candle():
+    # Candle 8 trails 75 -> 80 but trades at 78 (above the old 75): no breach on 8. Candle 9 trades at 79 <= 80: breached there.
+    lows = list(TRAIL_LOWS)
+    lows[8], lows[9] = 78.0, 79.0
+    s, _ = _trail_run({8: 80.0}, lows=lows)
+    assert (s.status, s.breached_at, s.stop_price) == ("breached", _ts(9), 80.0)
+    # Candle 8 trades at 74 (<= the old 75): breached on 8 against the OLD stop, and the breached row does not trail.
+    lows = list(TRAIL_LOWS)
+    lows[8] = 74.0
+    s, _ = _trail_run({8: 80.0, 9: 90.0}, lows=lows)
+    assert (s.status, s.breached_at, s.stop_price, s.stop_moved_by) == ("breached", _ts(8), 75.0, "yellow_up_repeat")
+
+
+def test_stop_moved_at_and_by_are_set_for_each_rule():
+    s, _ = _run(FLAT, [_ev("yellow_up", 2)])
+    assert (s.stop_moved_at, s.stop_moved_by) == (_ts(2), "yellow_up_entry")
+    s, _ = _run(FLAT, [_ev("yellow_up", 2), _ev("yellow_up", 6)], Lp({6: 75.0}))
+    assert (s.stop_moved_at, s.stop_moved_by) == (_ts(6), "yellow_up_repeat")
+    s, _ = _run(FLAT, [_ev("blue_up", 1), _ev("blue_down", 4)], Lp({4: 88.0}))
+    assert (s.stop_moved_at, s.stop_moved_by) == (_ts(4), "blue_down")
+    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("yellow_down", 4)], Lp({4: 88.0}))
+    assert (s.stop_moved_at, s.stop_moved_by) == (_ts(4), "yellow_down")
+    s, _ = _run([100.0] * 4 + [120.0] * 8, [_ev("yellow_up", 1), _ev("gray_down", 4)], closes=[101.0] * 4 + [121.0] * 8)
+    assert (s.stop_moved_at, s.stop_moved_by) == (_ts(4), "gray_down")
+    s, _ = _trail_run({8: 80.0})
+    assert (s.stop_moved_at, s.stop_moved_by) == (_ts(8), "trail")
+
+
+def test_a_fresh_entry_after_a_breach_restamps_the_stop_age():
+    lows = [100, 100, 100, 85, 100, 100, 110, 100]
+    s, _ = _run(lows, [_ev("yellow_up", 1), _ev("yellow_up", 6)])
+    assert (s.stop_moved_at, s.stop_moved_by) == (_ts(6), "yellow_up_entry")
+
+
+def test_re_setting_the_same_stop_value_is_not_a_move():
+    # The repeat yellow leaves an LP stop at 75; a Blue Down whose 2nd LP is also 75 changes the text, not the stop age.
+    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("yellow_up", 4), _ev("blue_down", 7)], Lp({4: 75.0, 7: 75.0}))
+    assert (s.stop_price, s.stop_basis, s.instruction_type) == (75.0, "LP", 10)
+    assert (s.stop_moved_at, s.stop_moved_by) == (_ts(4), "yellow_up_repeat")
+    # A trail onto the same value is no move either (and is not logged).
+    log = []
+    s, _ = _trail_run({8: 75.0}, log=log)
+    assert (s.stop_moved_at, s.stop_moved_by) == (_ts(6), "yellow_up_repeat") and log == []
+
+
+def test_a_stop_that_becomes_none_clears_the_stop_age():
+    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("blue_up", 4)])
+    assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by) == (None, "none", None, None)
+    # A row that never had a stop has none either.
+    s, _ = _run(FLAT, [_ev("blue_up", 1)])
+    assert (s.stop_moved_at, s.stop_moved_by) == (None, None)
+    s, _ = _run(FLAT, [_ev("gray_up", 1)])
+    assert (s.stop_moved_at, s.stop_moved_by) == (None, None)
+
+
+def test_a_down_arrow_that_leaves_the_stop_alone_leaves_the_stop_age_alone():
+    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("blue_down", 4)], Lp())  # no 2nd LP
+    assert (s.stop_moved_at, s.stop_moved_by) == (_ts(1), "yellow_up_entry")
+
+
+def test_reading_in_two_steps_equals_reading_once_with_trailing_on():
+    lows = [100, 100, 80, 100, 100, 100, 90, 100, 85, 100, 100, 100, 100, 100]
+    events = [_ev("yellow_up", 2), _ev("yellow_up", 6), _ev("blue_down", 7), _ev("gray_down", 11)]
+    lp_by_pos = {6: 75.0, 7: 78.0, 8: 79.0, 9: 77.0, 10: 82.0, 12: 84.0}
+    once, _ = _run(lows, events, Lp(lp_by_pos), trail=True)
+    for cut in range(1, 13):
+        first, _ = _run(lows[: cut + 1], [e for e in events if e.fired_at <= _ts(cut)], Lp(lp_by_pos), trail=True)
+        second, _ = _run(lows, events, Lp(lp_by_pos), trail=True, state=first, after=_ts(cut))
+        assert second == once, cut
+
+
+def test_trail_false_replays_the_old_rules():
+    s, lp = _run(TRAIL_LOWS, TRAIL_EVENTS, Lp({6: 75.0, 8: 80.0}), trail=False)
+    assert (s.stop_price, s.stop_moved_by) == (75.0, "yellow_up_repeat") and lp.asked == [6]

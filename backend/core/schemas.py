@@ -2718,6 +2718,8 @@ class WarrenWatchRowOut(BaseModel):
     entry_price: float | None = None
     stop_price: float | None = None
     stop_basis: Literal["10%", "LP", "entry", "none"]
+    stop_moved_at: datetime | None = None
+    stop_moved_by: Literal["yellow_up_entry", "yellow_up_repeat", "blue_down", "yellow_down", "gray_down", "trail"] | None = None
     last_price: float | None = None
     last_price_date: date | None = None
     pl_pct: float | None = None

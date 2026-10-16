@@ -165,11 +165,12 @@ def test_a_later_session_reads_only_the_new_candles_and_does_not_reapply_old_arr
     assert first.stop_price == pytest.approx(89.1) and seen == []
     update = run("A", bars("2026-07-01", "2026-10-16"))
     second = rows(engine)["A"]
-    assert update.outcome == "changed" and update.lp_calls == 1
+    assert update.outcome == "changed" and update.lp_calls == 8  # the arrow candle, then each later candle (trailing asks an LP-stop row every candle)
     assert second.last_signal_at == datetime(2026, 10, 15, 9, 30)
     assert second.entry_at == datetime(2026, 9, 1, 9, 30)  # unchanged
     assert (second.stop_price, second.stop_basis) == (70.0, "LP")  # the 2nd of [80, 70, 60]
-    assert seen[-1] == len(wwd.completed_candles(bars("2026-07-01", "2026-10-16"), NOW)) - 7  # sliced as of the arrow candle (2026-10-15 09:30: seven candles remain after it)
+    n = len(wwd.completed_candles(bars("2026-07-01", "2026-10-16"), NOW))
+    assert seen[0] == n - 7 and seen[-1] == n  # first sliced as of the arrow candle (2026-10-15 09:30: seven candles remain after it), then each later candle
 
 
 def test_a_missed_night_catches_up_over_every_candle_since_the_cursor(monkeypatch, engine):
@@ -192,12 +193,14 @@ def test_lp_is_asked_only_where_an_instruction_needs_it_and_uses_the_second_near
     })
     seen = fake_lp(monkeypatch, [96.0, 92.5, 90.0])
     frame = bars("2026-07-01", "2026-10-16")
-    assert [run(t, frame).lp_calls for t in ("Y", "B", "D")] == [0, 0, 1]
+    candles = wwd.completed_candles(frame, NOW)
+    on_lp_stop = int((candles.index >= datetime(2026, 9, 3, 9, 30)).sum())  # D holds an LP stop from the arrow candle on, so trailing asks each candle
+    assert [run(t, frame).lp_calls for t in ("Y", "B", "D")] == [0, 0, on_lp_stop]
     got = rows(engine)
     assert (got["Y"].stop_price, got["Y"].stop_basis, got["Y"].instruction_type) == (pytest.approx(89.1), "10%", 30)
     assert (got["B"].stop_price, got["B"].stop_basis, got["B"].instruction_type) == (None, "none", 20)
     assert (got["D"].stop_price, got["D"].stop_basis, got["D"].instruction_type) == (92.5, "LP", 10)
-    assert len(seen) == 1
+    assert len(seen) == on_lp_stop
 
 
 def test_fewer_than_two_supports_leaves_the_stop_alone(monkeypatch, engine):
@@ -218,6 +221,64 @@ def test_a_breach_through_the_data_layer_then_a_fresh_yellow_resets(monkeypatch,
     r = rows(engine)["A"]
     assert (r.status, r.breached_at, r.entry_at) == ("active", None, datetime(2026, 9, 21, 9, 30))
     assert (r.stop_price, r.stop_basis) == (pytest.approx(89.1), "10%")  # fresh entry, not min(LP 40, ...)
+
+
+# --- trailing stop and stop age --------------------------------------------------------------------------------
+
+
+def fake_lp_by_day(monkeypatch, by_day: dict[str, list[float]], default: list[float]):
+    """The 2nd-LP source varies with the last candle's date (a stand-in for supports forming over time)."""
+
+    def fake(candles, settings):
+        day = candles.index[-1].strftime("%Y-%m-%d")
+        return SimpleNamespace(support=[SimpleNamespace(price=p) for p in by_day.get(day, default)])
+
+    monkeypatch.setattr(wwd, "compute_liquidity_zones_2h", fake)
+
+
+def test_a_new_candle_with_no_arrow_trails_an_lp_stop_and_a_rerun_changes_nothing(monkeypatch, engine):
+    canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30")]})
+    fake_lp_by_day(monkeypatch, {}, [90.0, 80.0, 70.0])
+    run("A", bars("2026-07-01", "2026-10-14"))
+    r = rows(engine)["A"]
+    assert (r.stop_price, r.stop_basis, r.stop_moved_at, r.stop_moved_by) == (80.0, "LP", datetime(2026, 9, 10, 9, 30), "blue_down")
+    first_updated = r.last_updated_at
+
+    fake_lp_by_day(monkeypatch, {"2026-10-16": [95.0, 85.0, 75.0]}, [90.0, 80.0, 70.0])  # a higher 2nd LP on the new session; no arrow on it
+    update = run("A", bars("2026-07-01", "2026-10-16"))
+    r = rows(engine)["A"]
+    assert update.outcome == "changed"
+    assert (r.stop_price, r.stop_basis, r.stop_moved_by) == (85.0, "LP", "trail")
+    assert r.stop_moved_at.date() == datetime(2026, 10, 16).date()  # the first candle of the day to see 85 (the day's four candles all do)
+    assert r.stop_moved_at == datetime(2026, 10, 16, 9, 30)
+    assert r.last_updated_at >= first_updated  # a trail move is a content change
+    assert (r.latest_arrow_kind, r.instruction_type) == ("blue_down", 10)
+
+    with Session(engine) as s:
+        before = [x.model_dump() for x in s.exec(select(WarrenWatchRow)).all()] + [c.model_dump() for c in s.exec(select(WarrenWatchCursor)).all()]
+    again = run("A", bars("2026-07-01", "2026-10-16"))
+    with Session(engine) as s:
+        after = [x.model_dump() for x in s.exec(select(WarrenWatchRow)).all()] + [c.model_dump() for c in s.exec(select(WarrenWatchCursor)).all()]
+    assert again.outcome == "unchanged" and again.candles_read == 0 and again.lp_calls == 0 and after == before
+
+
+def test_a_ten_percent_row_is_never_trailed_through_the_data_layer(monkeypatch, engine):
+    canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30")]})
+    seen = fake_lp(monkeypatch, [500.0, 400.0])
+    run("A", bars("2026-07-01", "2026-10-16"))
+    r = rows(engine)["A"]
+    assert (r.stop_price, r.stop_basis, r.stop_moved_by) == (pytest.approx(89.1), "10%", "yellow_up_entry") and seen == []
+
+
+def test_a_removed_row_is_never_trailed(monkeypatch, engine):
+    canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30")]})
+    fake_lp_by_day(monkeypatch, {}, [90.0, 80.0, 70.0])
+    run("A", bars("2026-07-01", "2026-10-14"))
+    wwd.remove_watch_row("A", now_et=datetime(2026, 10, 14, 16, 0))
+    frozen = rows(engine)["A"].model_dump()
+    fake_lp_by_day(monkeypatch, {}, [99.0, 98.0, 97.0])
+    assert run("A", bars("2026-07-01", "2026-10-16")).outcome == "removed"
+    assert rows(engine)["A"].model_dump() == frozen
 
 
 # --- removal ----------------------------------------------------------------------------------------------------

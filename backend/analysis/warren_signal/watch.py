@@ -26,6 +26,15 @@ on candle t is first tested on t+1, as the ThinkScript's `rawStopHit` needs `bar
    ThinkScript computes no stop for a Gray Down; this is a rule on the instruction text only. No tighten-only rule: a
    stop may move down.
 
+4. Trailing (2026-10-16): after a candle's arrows, an ACTIVE row whose stop basis is LP asks for the 2nd LP as of that candle
+   and, if it is higher than the stop, raises the stop to it (basis stays LP). It never lowers a stop and never touches a
+   10% or entry stop. It runs on every candle, arrow or not, and the breach test always uses the stop as it stood BEFORE
+   the candle.
+
+Stop age: `stop_moved_at` / `stop_moved_by` record the candle and the rule that last changed the stop VALUE (fresh entry,
+repeat Yellow, Blue Down, Yellow Down, Gray Down, trail); re-setting the same value is not a move, and a stop that becomes
+none (a Blue Up) clears both.
+
 2nd LP = the second-nearest support below the close of the arrow candle (`lp_second`, supplied by the caller and
 called only where a rule above needs it)."""
 
@@ -59,6 +68,17 @@ BASIS_NONE = "none"
 ENTRY_BLUE = "blue"
 ENTRY_YELLOW = "yellow"
 
+# What last moved a stop (WatchState.stop_moved_by).
+MOVED_YELLOW_UP_ENTRY = "yellow_up_entry"
+MOVED_YELLOW_UP_REPEAT = "yellow_up_repeat"
+MOVED_BLUE_DOWN = "blue_down"
+MOVED_YELLOW_DOWN = "yellow_down"
+MOVED_GRAY_DOWN = "gray_down"
+MOVED_TRAIL = "trail"
+STOP_MOVED_BY = (
+    MOVED_YELLOW_UP_ENTRY, MOVED_YELLOW_UP_REPEAT, MOVED_BLUE_DOWN, MOVED_YELLOW_DOWN, MOVED_GRAY_DOWN, MOVED_TRAIL,
+)
+
 # The 10% stop is `yellowEntryHeld * (1 - stopPercent / 100)` in the ThinkScript.
 _STOP_FACTOR = 1 - STOP_PERCENT / 100
 
@@ -80,6 +100,8 @@ class WatchState:
     status: str  # "active" | "breached"
     breached_at: datetime | None
     last_signal_at: datetime  # the latest UP arrow's candle (Blue, Yellow or Gray, type 4 included)
+    stop_moved_at: datetime | None = None  # the candle that last changed the stop VALUE; None with no stop
+    stop_moved_by: str | None = None  # one of STOP_MOVED_BY
 
     @property
     def instruction_text(self) -> str:
@@ -87,6 +109,13 @@ class WatchState:
 
 
 LpSecond = Callable[[int], float | None]  # candle position -> the 2nd LP below that candle's close, or None
+
+
+def _with_stop(state: WatchState, stop: float, basis: str, ts: datetime, by: str) -> WatchState:
+    """`state` with a new stop. Stamps stop_moved_at/by only when the stop VALUE changes (re-setting the same value is not a move)."""
+    if state.stop_price is not None and stop == state.stop_price:
+        return replace(state, stop_basis=basis)
+    return replace(state, stop_price=stop, stop_basis=basis, stop_moved_at=ts, stop_moved_by=by)
 
 
 def _up_kind(kinds: Collection[str]) -> str | None:
@@ -123,10 +152,13 @@ def _apply_up(
             return replace(state, latest_arrow_kind=kind, latest_arrow_at=ts, last_signal_at=ts)  # type 4: no action
         ten_pct = low * _STOP_FACTOR
         if fresh:
-            return WatchState(profile, kind, ts, YELLOW_UP, ENTRY_YELLOW, ts, close, ten_pct, BASIS_PCT, STATUS_ACTIVE, None, ts)
+            return WatchState(
+                profile, kind, ts, YELLOW_UP, ENTRY_YELLOW, ts, close, ten_pct, BASIS_PCT, STATUS_ACTIVE, None, ts, ts, MOVED_YELLOW_UP_ENTRY
+            )
         lp = lp_second(pos)
         stop, basis = (lp, BASIS_LP) if lp is not None and lp < ten_pct else (ten_pct, BASIS_PCT)
-        return replace(state, latest_arrow_kind=kind, latest_arrow_at=ts, last_signal_at=ts, instruction_type=YELLOW_UP, stop_price=stop, stop_basis=basis)
+        moved = replace(state, latest_arrow_kind=kind, latest_arrow_at=ts, last_signal_at=ts, instruction_type=YELLOW_UP)
+        return _with_stop(moved, stop, basis, ts, MOVED_YELLOW_UP_REPEAT)
 
     # gray_up (type 1): no action on a row; a new row has no entry and no stop.
     if state is None:
@@ -144,12 +176,23 @@ def _apply_down(state: WatchState, kind: str, ts: datetime, pos: int, close: flo
         return moved  # nothing to tighten on a breached row or one with no entry
     if kind == "gray_down":
         if state.entry_kind == ENTRY_YELLOW and state.entry_price is not None and state.entry_price < close:
-            return replace(moved, stop_price=state.entry_price, stop_basis=BASIS_ENTRY)
+            return _with_stop(moved, state.entry_price, BASIS_ENTRY, ts, MOVED_GRAY_DOWN)
         return moved
     if kind == "yellow_down" and state.entry_kind != ENTRY_YELLOW:
         return moved
     lp = lp_second(pos)
-    return replace(moved, stop_price=lp, stop_basis=BASIS_LP) if lp is not None else moved
+    return _with_stop(moved, lp, BASIS_LP, ts, MOVED_YELLOW_DOWN if kind == "yellow_down" else MOVED_BLUE_DOWN) if lp is not None else moved
+
+
+def _trail(state: WatchState, ts: datetime, pos: int, lp_second: LpSecond) -> tuple[WatchState, float | None]:
+    """Raise an ACTIVE LP-basis stop to the 2nd LP as of this candle when that is higher. Returns the state and the old stop
+    when it moved (None otherwise). LP is asked for only here, only for such a row."""
+    if state.status != STATUS_ACTIVE or state.stop_basis != BASIS_LP or state.stop_price is None:
+        return state, None
+    lp = lp_second(pos)
+    if lp is None or lp <= state.stop_price:
+        return state, None
+    return _with_stop(state, lp, BASIS_LP, ts, MOVED_TRAIL), state.stop_price
 
 
 def advance(
@@ -160,10 +203,13 @@ def advance(
     profile: str,
     after: datetime | None,
     lp_second: LpSecond,
+    trail: bool = True,
+    trail_log: list | None = None,
 ) -> WatchState | None:
     """Fold the candles stamped after `after` (all of them when None) into `state` (None = no row). `candles` needs
     low and close columns and a naive DatetimeIndex; `events` carry fired_at stamps from that same index. Returns the
-    state after the last candle (None if no up arrow has created a row)."""
+    state after the last candle (None if no up arrow has created a row). `trail=False` replays the rules without the
+    trailing stop (the rebuild script's guard); `trail_log`, when given, collects (ts, old stop, new stop) per trail move."""
     arrows: dict[datetime, set[str]] = defaultdict(set)
     for e in events:
         arrows[e.fired_at].add(e.kind)
@@ -178,13 +224,16 @@ def advance(
         if state is not None and state.status == STATUS_ACTIVE and state.stop_price is not None and lows[pos] <= state.stop_price:
             state = replace(state, status=STATUS_BREACHED, breached_at=ts)
         kinds = arrows.get(ts)
-        if not kinds:
-            continue
-        up = _up_kind(kinds)
-        if up is not None:
-            # Type 4 = the Yellow Up that is the first since the last Blue (a same-candle Blue already took precedence).
-            state = _apply_up(state, up, up == "yellow_up" and ts in first_yellows, profile, ts, pos, float(lows[pos]), float(closes[pos]), lp_second)
-        down = _down_kind(kinds)
-        if down is not None and state is not None:
-            state = _apply_down(state, down, ts, pos, float(closes[pos]), lp_second)
+        if kinds:
+            up = _up_kind(kinds)
+            if up is not None:
+                # Type 4 = the Yellow Up that is the first since the last Blue (a same-candle Blue already took precedence).
+                state = _apply_up(state, up, up == "yellow_up" and ts in first_yellows, profile, ts, pos, float(lows[pos]), float(closes[pos]), lp_second)
+            down = _down_kind(kinds)
+            if down is not None and state is not None:
+                state = _apply_down(state, down, ts, pos, float(closes[pos]), lp_second)
+        if trail and state is not None:
+            state, old_stop = _trail(state, ts, pos, lp_second)
+            if old_stop is not None and trail_log is not None:
+                trail_log.append((ts, old_stop, state.stop_price))
     return state
