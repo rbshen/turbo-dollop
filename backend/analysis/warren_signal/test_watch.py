@@ -158,12 +158,42 @@ def test_yellow_down_is_the_2nd_lp_for_a_yellow_entry_and_unchanged_for_a_blue_e
     assert lp.asked == []
 
 
-def test_gray_down_is_the_entry_price_for_a_yellow_entry_and_unchanged_for_a_blue_entry():
-    s, lp = _run(FLAT, [_ev("yellow_up", 1), _ev("gray_down", 4)])
-    assert (s.stop_price, s.stop_basis, s.instruction_type) == (101.0, "entry", 30)
+def test_gray_down_is_the_entry_price_for_a_yellow_entry_below_the_close_and_unchanged_for_a_blue_entry():
+    # entry price 101 (the yellow candle's close); the gray-down candle closes at 121
+    rally = [100.0] * 4 + [120.0] * 8  # the market is well above the entry from the gray-down candle on
+    s, lp = _run(rally, [_ev("yellow_up", 1), _ev("gray_down", 4)], closes=[101.0] * 4 + [121.0] * 8)
+    assert (s.stop_price, s.stop_basis, s.instruction_type, s.status) == (101.0, "entry", 30, "active")
     assert lp.asked == []
     s, _ = _run(FLAT, [_ev("blue_up", 1), _ev("gray_down", 4)])
     assert (s.stop_price, s.stop_basis, s.instruction_type) == (None, "none", 30)
+
+
+CLOSES_FALLING = [101.0, 101.0, 101.0, 101.0, 95.0] + [101.0] * 7  # the gray-down candle (4) closes under the 101 entry
+
+
+def test_gray_down_with_the_entry_above_the_close_leaves_the_stop_alone_and_updates_only_the_arrow_and_text():
+    s, lp = _run(FLAT, [_ev("yellow_up", 1), _ev("gray_down", 4)], closes=CLOSES_FALLING)
+    assert (s.stop_price, s.stop_basis, s.status, s.breached_at) == (pytest.approx(90.0), "10%", "active", None)  # the 10% stop stays
+    assert (s.entry_kind, s.entry_at, s.entry_price) == ("yellow", _ts(1), 101.0)
+    assert (s.instruction_type, s.latest_arrow_kind, s.latest_arrow_at, s.last_signal_at) == (30, "gray_down", _ts(4), _ts(1))
+    assert lp.asked == []
+
+
+def test_gray_down_with_the_entry_equal_to_the_close_also_leaves_the_stop_alone():
+    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("gray_down", 4)], closes=[101.0] * 12)
+    assert (s.stop_price, s.stop_basis, s.instruction_type) == (pytest.approx(90.0), "10%", 30)
+
+
+def test_gray_down_with_the_entry_above_the_close_keeps_a_breached_row_breached():
+    lows = [100, 100, 100, 100, 100, 85, 100, 100, 100, 100, 100, 100]  # the 10% stop (90) breaks on candle 5, gray down on 7
+    s, _ = _run(lows, [_ev("yellow_up", 1), _ev("gray_down", 7)], closes=[101.0] * 7 + [95.0] * 5)
+    assert (s.status, s.breached_at, s.stop_price, s.stop_basis) == ("breached", _ts(5), pytest.approx(90.0), "10%")
+    assert (s.instruction_type, s.latest_arrow_kind) == (30, "gray_down")
+
+
+def test_gray_down_on_a_row_with_no_entry_changes_only_the_text():
+    s, lp = _run(FLAT, [_ev("gray_up", 1), _ev("gray_down", 4)], closes=CLOSES_FALLING)
+    assert (s.entry_kind, s.stop_price, s.stop_basis, s.instruction_type) == (None, None, "none", 30) and lp.asked == []
 
 
 def test_a_down_arrow_with_no_2nd_lp_leaves_the_stop_but_updates_the_text():

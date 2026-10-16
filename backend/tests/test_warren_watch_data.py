@@ -173,7 +173,7 @@ def test_a_missed_night_catches_up_over_every_candle_since_the_cursor(monkeypatc
 
 def test_lp_is_asked_only_where_an_instruction_needs_it_and_uses_the_second_nearest_support(monkeypatch, engine):
     canned(monkeypatch, {
-        "Y": [("yellow_up", "2026-09-01 09:30"), ("gray_down", "2026-09-03 09:30")],  # fresh yellow + gray down: entry price, no LP
+        "Y": [("yellow_up", "2026-09-01 09:30"), ("gray_down", "2026-09-03 09:30")],  # fresh yellow + gray down (entry 100 = close 100): stop untouched, no LP
         "B": [("blue_up", "2026-09-01 09:30"), ("yellow_down", "2026-09-03 09:30")],  # yellow down on a blue entry: no action, no LP
         "D": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-03 09:30")],  # blue down: LP
     })
@@ -181,7 +181,7 @@ def test_lp_is_asked_only_where_an_instruction_needs_it_and_uses_the_second_near
     frame = bars("2026-07-01", "2026-10-16")
     assert [run(t, frame).lp_calls for t in ("Y", "B", "D")] == [0, 0, 1]
     got = rows(engine)
-    assert (got["Y"].stop_price, got["Y"].stop_basis, got["Y"].instruction_type) == (100.0, "entry", 30)
+    assert (got["Y"].stop_price, got["Y"].stop_basis, got["Y"].instruction_type) == (pytest.approx(89.1), "10%", 30)
     assert (got["B"].stop_price, got["B"].stop_basis, got["B"].instruction_type) == (None, "none", 20)
     assert (got["D"].stop_price, got["D"].stop_basis, got["D"].instruction_type) == (92.5, "LP", 10)
     assert len(seen) == 1

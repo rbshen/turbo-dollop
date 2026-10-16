@@ -21,7 +21,10 @@ on candle t is first tested on t+1, as the ThinkScript's `rawStopHit` needs `bar
 3. Down arrows (one per candle; Yellow Down beats Blue Down beats Gray Down, the ThinkScript's text order) apply only
    to an existing row: the instruction text and the latest arrow update; the stop changes only on an active row
    with an entry: Blue Down -> 2nd LP; Yellow Down -> 2nd LP if the entry kind is yellow; Gray Down -> the entry price
-   if the entry kind is yellow. No tighten-only rule: a stop may move down.
+   if the entry kind is yellow AND the entry price is BELOW the Gray Down candle's close (an entry at or above the close
+   would put the stop above the market and breach on the next candle, so the row is left as it is, text only). The
+   ThinkScript computes no stop for a Gray Down; this is a rule on the instruction text only. No tighten-only rule: a
+   stop may move down.
 
 2nd LP = the second-nearest support below the close of the arrow candle (`lp_second`, supplied by the caller and
 called only where a rule above needs it)."""
@@ -134,13 +137,13 @@ def _apply_up(
     return replace(state, latest_arrow_kind=kind, latest_arrow_at=ts, last_signal_at=ts)
 
 
-def _apply_down(state: WatchState, kind: str, ts: datetime, pos: int, lp_second: LpSecond) -> WatchState:
+def _apply_down(state: WatchState, kind: str, ts: datetime, pos: int, close: float, lp_second: LpSecond) -> WatchState:
     itype = {"yellow_down": YELLOW_DOWN, "blue_down": BLUE_DOWN, "gray_down": GRAY_DOWN}[kind]
     moved = replace(state, latest_arrow_kind=kind, latest_arrow_at=ts, instruction_type=itype)
     if state.status != STATUS_ACTIVE or state.entry_kind is None:
         return moved  # nothing to tighten on a breached row or one with no entry
     if kind == "gray_down":
-        if state.entry_kind == ENTRY_YELLOW and state.entry_price is not None:
+        if state.entry_kind == ENTRY_YELLOW and state.entry_price is not None and state.entry_price < close:
             return replace(moved, stop_price=state.entry_price, stop_basis=BASIS_ENTRY)
         return moved
     if kind == "yellow_down" and state.entry_kind != ENTRY_YELLOW:
@@ -183,5 +186,5 @@ def advance(
             state = _apply_up(state, up, up == "yellow_up" and ts in first_yellows, profile, ts, pos, float(lows[pos]), float(closes[pos]), lp_second)
         down = _down_kind(kinds)
         if down is not None and state is not None:
-            state = _apply_down(state, down, ts, pos, lp_second)
+            state = _apply_down(state, down, ts, pos, float(closes[pos]), lp_second)
     return state
