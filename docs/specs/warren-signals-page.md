@@ -184,7 +184,7 @@ them. `last_updated_at` is stored as naive server-local wall clock (UTC on the b
 calendar (`helpers/trading_calendar.py::xnys_sessions`, imported lazily): 4 windows a session (09:30, 11:30, 13:30, 15:30), 2 on an early close
 (13:00), none on a holiday. This is a calendar count, not a bars read, which keeps the endpoint cache-only; it equals the candle count
 in the series because the series has one candle per window that has bars. `last_signal_age_bars` is an addition to the brief (which asked
-for one age): the page's Last signal column shows `last_signal_at`, and its age must be measured from that candle, not from a later down arrow.
+for one age) for a column that showed `last_signal_at`. Since 2026-10-16 the Last signal column shows `latest_arrow_at` and reads `age_bars`; `last_signal_age_bars` is still returned (unchanged, not removed) but no longer read by the UI, and `last_signal_at` appears only in that column's tooltip.
 
 ### Page (`/technical-ideas`, title "Technical Ideas")
 
@@ -203,13 +203,13 @@ Table (`WarrenWatchTable`, modelled on `MomentumTable`: kit Table, compact Badge
 | Instruction | The stored text, wrapped to at most 2 lines in a 220 to 360 px cell, truncated beyond that, the full text in the tooltip (the longest string is the profiled Yellow Up, about 124 characters; the generic set tops out near 50). **A breached row** shows **"Stop hit"** with "since <breach candle, ET>" beneath instead (display only: the stored instruction type, text and stop are unchanged; the tooltip carries "Last instruction: <stored text>"). |
 | Stop | Price plus a neutral basis tag (`10%`, `LP`, `Entry`); a dash when there is no stop. A stop above the entry price shows normally with a small info icon whose tooltip says the latest instruction set it (2nd LP / entry price), so it does not read as a bug. |
 | Status | Green "Active", or a red **Stop breached** badge (title: the breaching candle). A row with **no entry price** (born from a Gray Up) shows a neutral **"No entry"** badge instead of Active, its tooltip saying no up-arrow entry fell inside the seed window so an earlier trade may exist (the string in `lib/technicalIdeas.ts` still says "3-month"; the window is 12 months since 2026-10-16, wording not yet updated); its Stop cell keeps the dash. |
-| Last signal | `last_signal_at` (ET) and its age in bars ("this candle", "1 bar ago", "5 bars ago"). |
+| Last signal | The candle start (ET) of the **latest arrow of any kind**, the same arrow as the Signal pill (`latest_arrow_at`), with its age in bars from `age_bars` ("this candle", "1 bar ago", "5 bars ago"). The tooltip carries **"Last entry/refresh: <date, ET>"**, the latest UP arrow (`last_signal_at`). |
 | Last updated | `last_updated_at` (ET), when the row's content last changed. |
 | (actions) | Admin only: trash icon, then an inline Remove? / Confirm / Cancel (the Watchlist delete pattern). A viewer sees no control (`<AdminOnly>`). |
 
 **Sticky header.** The table sits in its own scroll box (`max-h-[70vh] overflow-auto`, the Watchlist table's pattern) and every header cell is `sticky top-0 z-20 bg-page`, so the header row stays visible while the rows scroll; the top nav is a separate sticky element and the page shell is unchanged.
 
-Default and only sort: `last_signal_at` descending, ties by ticker (`lib/technicalIdeas.ts::sortByLastSignal`). States: skeleton rows while
+Default and only sort: `latest_arrow_at` descending (every arrow, up or down, any colour, so the order always agrees with the Signal pill), ties by ticker (`lib/technicalIdeas.ts::sortByLatestArrow`). States: skeleton rows while
 loading, an error line, and "No tickers on the watch table yet" when empty.
 
 Removal is a soft remove: the row disappears from the page and a nightly rerun does not bring it back; only an up arrow on a candle after the
@@ -238,7 +238,7 @@ A rule change does not touch stored rows (the cursor means old arrows are never 
 bars (no FMP call) and today's LP settings, and compares each result with the stored row field by field. It corrects only a row whose single difference is
 `last_signal_at`, and writes only that column: `removed_at`, the cursor, `last_updated_at` and `as_of` are never touched and a removed row is skipped, so nothing
 is resurrected. Any other difference is printed and the row left alone for review. Dry run on the real database after the Gray Up rule change: 114 non-removed rows,
-113 identical, one correction (WDC `last_signal_at` 2026-10-15 15:30 to 2026-09-16 09:30), none skipped.
+113 identical, one correction (WDC `last_signal_at` 2026-10-15 15:30 to 2026-09-16 09:30), none skipped. Applied the same day: only that one cell changed (a hash of every other row column and the cursors was identical before and after), and a rerun reports 114 identical.
 
 ## Second rebuild: Gray Down rule and the 12-month seed (2026-10-16)
 

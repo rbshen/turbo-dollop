@@ -11,8 +11,9 @@ import {
   fmtBarsAgo,
   fmtEtStamp,
   instructionDisplay,
+  lastEntryRefreshTitle,
   NO_ENTRY_NOTE,
-  sortByLastSignal,
+  sortByLatestArrow,
   STOP_BASIS_LABEL,
   stopAboveEntry,
   stopAboveEntryNote,
@@ -133,7 +134,7 @@ export function WarrenWatchTable({ rows }: Props) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {sortByLastSignal(rows).map((row) => (
+        {sortByLatestArrow(rows).map((row) => (
           <TableRow key={row.ticker} interactive onClick={(e) => handleRowClick(e, row.ticker)}>
             <TableCell>
               <a
@@ -152,11 +153,9 @@ export function WarrenWatchTable({ rows }: Props) {
             <InstructionCell row={row} />
             <StopCell row={row} />
             <StatusCell row={row} />
-            <TableCell className="whitespace-nowrap font-mono text-xs text-text-secondary">
-              {fmtEtStamp(row.last_signal_at)}
-              {fmtBarsAgo(row.last_signal_age_bars) && (
-                <span className="block font-sans text-text-tertiary">{fmtBarsAgo(row.last_signal_age_bars)}</span>
-              )}
+            <TableCell className="whitespace-nowrap font-mono text-xs text-text-secondary" title={lastEntryRefreshTitle(row)}>
+              {fmtEtStamp(row.latest_arrow_at)}
+              {fmtBarsAgo(row.age_bars) && <span className="block font-sans text-text-tertiary">{fmtBarsAgo(row.age_bars)}</span>}
             </TableCell>
             <TableCell className="whitespace-nowrap font-mono text-xs text-text-secondary">{fmtEtStamp(row.last_updated_at)}</TableCell>
             <TableCell className="text-right">

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { WarrenWatchRowOut } from "@/lib/api/types";
-import { fmtAsOf, fmtBarsAgo, fmtEtStamp, sortByLastSignal, stopAboveEntry, stopAboveEntryNote } from "@/lib/technicalIdeas";
+import { fmtAsOf, fmtBarsAgo, fmtEtStamp, lastEntryRefreshTitle, sortByLatestArrow, stopAboveEntry, stopAboveEntryNote } from "@/lib/technicalIdeas";
 
 function row(over: Partial<WarrenWatchRowOut>): WarrenWatchRowOut {
   return {
@@ -32,15 +32,19 @@ describe("technicalIdeas", () => {
     expect(fmtBarsAgo(7)).toBe("7 bars ago");
   });
 
-  it("sorts the most recent last signal first, ties by ticker, without mutating the input", () => {
+  it("sorts the newest latest-arrow candle first (any kind, not last_signal_at), ties by ticker, without mutating the input", () => {
     const rows = [
-      row({ ticker: "OLD", last_signal_at: "2026-10-01T09:30:00" }),
-      row({ ticker: "ZZZ", last_signal_at: "2026-10-15T13:30:00" }),
-      row({ ticker: "AAA", last_signal_at: "2026-10-15T13:30:00" }),
-      row({ ticker: "NEW", last_signal_at: "2026-10-15T15:30:00" }),
+      row({ ticker: "OLD", latest_arrow_at: "2026-10-01T09:30:00", last_signal_at: "2026-10-14T09:30:00" }),
+      row({ ticker: "ZZZ", latest_arrow_at: "2026-10-15T13:30:00" }),
+      row({ ticker: "AAA", latest_arrow_at: "2026-10-15T13:30:00" }),
+      row({ ticker: "NEW", latest_arrow_at: "2026-10-15T15:30:00", last_signal_at: "2026-09-16T09:30:00" }),
     ];
-    expect(sortByLastSignal(rows).map((r) => r.ticker)).toEqual(["NEW", "AAA", "ZZZ", "OLD"]);
+    expect(sortByLatestArrow(rows).map((r) => r.ticker)).toEqual(["NEW", "AAA", "ZZZ", "OLD"]);
     expect(rows.map((r) => r.ticker)).toEqual(["OLD", "ZZZ", "AAA", "NEW"]);
+  });
+
+  it("words the last entry/refresh tooltip from the last up arrow's candle", () => {
+    expect(lastEntryRefreshTitle({ last_signal_at: "2026-09-16T09:30:00" })).toBe("Last entry/refresh: Sep 16, 09:30 ET");
   });
 
   it("flags a stop above the entry price only when both exist", () => {

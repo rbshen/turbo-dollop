@@ -39,10 +39,10 @@ function bodyRow(ticker: string): HTMLElement {
 }
 
 describe("WarrenWatchTable", () => {
-  it("has the seven columns and sorts the most recent last signal first", () => {
+  it("has the seven columns and sorts the newest latest arrow first", () => {
     draw([
-      row({ ticker: "OLD", last_signal_at: "2026-10-01T09:30:00" }),
-      row({ ticker: "NEW", last_signal_at: "2026-10-15T15:30:00" }),
+      row({ ticker: "OLD", latest_arrow_at: "2026-10-01T09:30:00" }),
+      row({ ticker: "NEW", latest_arrow_at: "2026-10-15T15:30:00" }),
     ]);
     expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
       "Ticker", "Signal", "Instruction", "Stop", "Status", "Last signal", "Last updated", "Actions",
@@ -159,12 +159,39 @@ describe("WarrenWatchTable", () => {
     expect(r.getByText("GRAY UP - NO ACTION. Stopped out twice.")).toBeInTheDocument();
   });
 
-  it("shows the last signal as ET date and bars ago, and the last-updated stamp", () => {
-    draw([row({ ticker: "AAA", last_signal_age_bars: 5 }), row({ ticker: "BBB", last_signal_at: "2026-10-15T15:30:00", last_signal_age_bars: 0 })]);
-    expect(within(bodyRow("AAA")).getByText("Oct 15, 13:30")).toBeInTheDocument();
-    expect(within(bodyRow("AAA")).getByText("5 bars ago")).toBeInTheDocument();
-    expect(within(bodyRow("AAA")).getByText("Oct 16, 01:25")).toBeInTheDocument();
+  it("sorts by the latest arrow of any kind, so a down arrow or a gray up on a breached row rises above an older up arrow", () => {
+    draw([
+      row({ ticker: "UPP", latest_arrow_at: "2026-10-14T11:30:00", last_signal_at: "2026-10-14T11:30:00" }),
+      // A Gray Up on a breached row: last_signal_at is frozen at the entry (Sep 16), the arrow is Oct 15 15:30.
+      row({
+        ticker: "WDC", status: "breached", breached_at: "2026-10-13T09:30:00", latest_arrow_color: "gray", latest_arrow_direction: "up",
+        latest_arrow_at: "2026-10-15T15:30:00", last_signal_at: "2026-09-16T09:30:00",
+      }),
+      // A down arrow never moves last_signal_at.
+      row({
+        ticker: "DWN", latest_arrow_color: "yellow", latest_arrow_direction: "down", latest_arrow_at: "2026-10-15T11:30:00",
+        last_signal_at: "2026-09-20T09:30:00",
+      }),
+    ]);
+    const tickers = screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("link")[0].textContent);
+    expect(tickers).toEqual(["WDC", "DWN", "UPP"]);
+  });
+
+  it("shows the latest arrow's ET candle time and age in bars, the last-updated stamp, and the last entry/refresh date in the tooltip", () => {
+    draw([
+      row({ ticker: "AAA", age_bars: 5, last_signal_age_bars: 99 }),
+      row({ ticker: "BBB", latest_arrow_at: "2026-10-15T15:30:00", age_bars: 0, last_signal_at: "2026-09-16T09:30:00" }),
+      row({ ticker: "CCC", age_bars: 1 }),
+    ]);
+    const a = within(bodyRow("AAA"));
+    expect(a.getByText("Oct 15, 13:30")).toBeInTheDocument();
+    expect(a.getByText("5 bars ago")).toBeInTheDocument();
+    expect(a.queryByText("99 bars ago")).toBeNull(); // last_signal_age_bars is no longer read
+    expect(a.getByText("Oct 16, 01:25")).toBeInTheDocument();
     expect(within(bodyRow("BBB")).getByText("this candle")).toBeInTheDocument();
+    expect(within(bodyRow("CCC")).getByText("1 bar ago")).toBeInTheDocument();
+    const cell = within(bodyRow("BBB")).getByText("Oct 15, 15:30").closest("td")!;
+    expect(cell).toHaveAttribute("title", "Last entry/refresh: Sep 16, 09:30 ET");
   });
 
   it("gives an admin a Remove button per row and a viewer none", () => {

@@ -2184,7 +2184,8 @@ export interface OpportunityDateOut {
 
 // GET /api/technical-ideas/warren (docs/specs/warren-signals-page.md). Every datetime is a naive America/New_York ISO string;
 // candle times are 2h window STARTS. `age_bars` / `last_signal_age_bars` count completed 2h candles after the latest arrow's / latest
-// UP arrow's candle up to `as_of` (0 = on the last candle).
+// UP arrow's candle up to `as_of` (0 = on the last candle). The page uses `age_bars` and `latest_arrow_at`; `last_signal_age_bars`
+// is still returned but no longer read by the UI (`last_signal_at` appears only in a tooltip).
 export interface WarrenWatchRowOut {
   ticker: string;
   profile: "any" | "spy" | "qqq" | "tqqq" | "tecl";

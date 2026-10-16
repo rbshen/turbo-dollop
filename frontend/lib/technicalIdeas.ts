@@ -29,9 +29,15 @@ export function fmtBarsAgo(age: number | null): string | null {
   return `${age} ${age === 1 ? "bar" : "bars"} ago`;
 }
 
-/** Most recent signal first (the latest UP arrow's candle); ties by ticker. ISO strings of one format sort as text. */
-export function sortByLastSignal(rows: readonly WarrenWatchRowOut[]): WarrenWatchRowOut[] {
-  return [...rows].sort((a, b) => (a.last_signal_at === b.last_signal_at ? a.ticker.localeCompare(b.ticker) : a.last_signal_at < b.last_signal_at ? 1 : -1));
+/** Newest latest-arrow candle first (the arrow the Signal pill shows, of ANY kind: up, down, any colour); ties by ticker. ISO strings of
+ * one format sort as text. */
+export function sortByLatestArrow(rows: readonly WarrenWatchRowOut[]): WarrenWatchRowOut[] {
+  return [...rows].sort((a, b) => (a.latest_arrow_at === b.latest_arrow_at ? a.ticker.localeCompare(b.ticker) : a.latest_arrow_at < b.latest_arrow_at ? 1 : -1));
+}
+
+/** The Last signal cell's tooltip: the last UP arrow (entry or refresh), which the column no longer shows. */
+export function lastEntryRefreshTitle(row: Pick<WarrenWatchRowOut, "last_signal_at">): string {
+  return `Last entry/refresh: ${fmtEtStamp(row.last_signal_at)} ET`;
 }
 
 export const STOP_BASIS_LABEL: Record<"10%" | "LP" | "entry", string> = { "10%": "10%", LP: "LP", entry: "Entry" };

@@ -1542,6 +1542,10 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 - **Display only:** a breached row's Instruction cell reads "Stop hit since <breach candle>" (the stored type, text and stop are unchanged); a row with no entry price shows a neutral "No entry" status with an explanatory tooltip; the Instruction text wraps to 2 lines with the full text in the tooltip; the header is sticky in a bounded scroll box.
 - **Not changed:** the stop rules, the breach rule, the seed window, the API shape. Open item recorded: verify the state-change logic on live data, blue entries first.
 
+### 2026-10-16 — Warren watch table: Last signal column and sort follow the latest arrow
+
+**Decision (owner).** The Signal pill shows the latest arrow of any kind, but the Last signal column and the default sort used `last_signal_at`, which moves only on up arrows, so the pill and the date disagreed (WDC: a Gray Up on Oct 15 15:30 on a breached row sorted by Sep 16, and no down arrow ever moved a row). The column now shows `latest_arrow_at` with `age_bars`, and the sort is newest latest-arrow first (ties by ticker), so every signal appears in time order. `last_signal_at` (the last entry/refresh) stays in the column's tooltip. Frontend only: no rule, DB or API change; `last_signal_age_bars` is still returned but no longer used by the UI. Spec: `docs/specs/warren-signals-page.md`.
+
 
 ### 2026-10-16 — Warren watch table: Gray Down rule and the 12-month seed
 
