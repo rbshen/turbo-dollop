@@ -364,6 +364,44 @@ class WarrenSignalEvent(SQLModel, table=True):
     __table_args__ = (UniqueConstraint("ticker", "timeframe", "fired_at", "signal_kind", name="uq_warren_signal_event_key"),)
 
 
+class WarrenWatchRow(SQLModel, table=True):
+    """The Warren Signals watch table: one persistent row per ticker, created or updated when a Warren arrow fires and
+    kept until the user removes it (`removed_at`; a soft delete, the row stays). It is NOT an "in trade now" snapshot.
+    Rules and field meanings: analysis/warren_signal/watch.py and docs/specs/warren-signals-page.md; written only by
+    data/warren_watch_data.py. All candle-derived times are naive America/New_York window starts (as the chart draws
+    them); `last_updated_at` is wall-clock server time (like `computed_at` elsewhere) and moves only when the row's
+    content changes; `removed_at` is naive America/New_York so it compares with candle times."""
+
+    ticker: str = Field(primary_key=True)
+    profile: str  # "any" | "spy" | "qqq" | "tqqq" | "tecl"
+    latest_arrow_kind: str  # one of analysis.warren_signal.types.SIGNAL_KINDS, either direction
+    latest_arrow_at: datetime
+    instruction_type: int  # ToS numbering: 1, 2, 3, 10, 20, 30
+    instruction_text: str  # the profile's string for that type
+    entry_kind: str | None = None  # "blue" | "yellow"; None for a row born from a Gray Up
+    entry_at: datetime | None = None
+    entry_price: float | None = None  # close of the entry arrow's candle
+    stop_price: float | None = None
+    stop_basis: str = "none"  # "10%" | "LP" | "entry" | "none"
+    status: str = "active"  # "active" | "breached"
+    breached_at: datetime | None = None
+    last_signal_at: datetime  # the latest UP arrow's candle
+    last_updated_at: datetime
+    removed_at: datetime | None = None
+    as_of: datetime  # the last completed 2h candle the update read
+
+
+class WarrenWatchCursor(SQLModel, table=True):
+    """Per-ticker progress of the watch update: the last 2h candle (naive America/New_York window start) already folded
+    into the watch table. A ticker with no cursor is seeded from the last 3 months; one with a cursor only reads
+    candles after it, which is what makes a rerun idempotent. Kept for tickers with no watch row too (no up arrow yet),
+    and beside the row (see data/ticker_data_registry.py)."""
+
+    ticker: str = Field(primary_key=True)
+    processed_through: datetime
+    updated_at: datetime
+
+
 class LiquidityZoneAnalysis(SQLModel, table=True):
     """Latest Liquidity Zone (LP) detection read per (ticker, timeframe) --
     unbreached swing-low support / swing-high resistance levels, clustered

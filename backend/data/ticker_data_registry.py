@@ -69,6 +69,8 @@ from core.models import (
     TickerView,
     TrendAnalysis,
     WarrenSignalEvent,
+    WarrenWatchCursor,
+    WarrenWatchRow,
     WatchlistTicker,
 )
 
@@ -219,6 +221,12 @@ _ORDERED: tuple[TickerTable, ...] = (
         MoatCheck,
         TableClass.KEEP,
         "advisory independent Moat check history (append-only; about 14 web searches to re-create; not owner-entered, so not in MANUAL_DATA_MODELS)",
+    ),
+    _t(WarrenWatchRow, TableClass.KEEP, "Warren Signals watch table: persists until the user removes it (soft delete); not the wipe's to touch"),
+    _t(
+        WarrenWatchCursor,
+        TableClass.KEEP,
+        "progress of the Warren watch update, kept with its row: a wiped cursor would re-seed and re-apply arrows already folded into the row",
     ),
     _t(OpportunityPick, TableClass.KEEP, "names the user picked from an opportunity run (owner-entered history; insert-only)"),
 )
