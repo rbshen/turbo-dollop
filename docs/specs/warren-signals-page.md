@@ -34,9 +34,9 @@ stamps a window by its LAST 60m bar (10:30 / 12:30 / 14:30 / 15:30), so the two 
 `ticker`, `profile` (any / spy / qqq / tqqq / tecl), `latest_arrow_kind` + `latest_arrow_at` (the latest arrow applied to the
 row, either direction), `instruction_type` + `instruction_text` (ToS number 1, 2, 3, 10, 20, 30 and the profile's string from
 `instructions.py`), `entry_kind` (blue / yellow / null), `entry_at`, `entry_price` (close of the entry arrow's candle),
-`stop_price`, `stop_basis` (`10%` / `LP` / `entry` / `none`), `status` (`active` / `breached`), `breached_at`, `last_signal_at`
+`stop_price`, `stop_basis` (`10%` / `LP` / `entry` / `none`), `stop_moved_at` + `stop_moved_by` (the candle that last changed the stop VALUE and the rule that did it; see "Trailing stop and stop age"), `status` (`active` / `breached`), `breached_at`, `last_signal_at`
 (the latest UP arrow's candle, type 4 and Gray included), `last_updated_at` (wall-clock server time, moves only when the row's
-content changes), `removed_at` (naive America/New_York, so it compares with candle times), `as_of`.
+content changes; since 2026-10-16 a trail move or a stop-age change is a content change too, so a row can now update on a candle with no arrow), `removed_at` (naive America/New_York, so it compares with candle times), `as_of`.
 
 ## Update rules
 
@@ -67,14 +67,31 @@ tested first, so a stop set on candle t is first tested on t+1 (the ThinkScript'
    with no entry is unchanged as before). **The ThinkScript computes no stop for a Gray Down** (its text only says "Adjust stop
    accordingly"); this is a rule on the instruction text only, like the Blue Down 2nd LP. A down arrow with no row is ignored. If a candle has both
    an up and a down arrow, the up applies first, then the down.
-4. **No tighten-only rule.** Stops follow the instruction literally and may move down (a second Yellow whose `0.9 x low` is below the
-   first stop lowers it; a Gray Down's entry price can sit above the market).
+4. **No tighten-only rule for ARROWS.** Stops follow the instruction literally and may move down (a second Yellow whose `0.9 x low` is below the
+   first stop lowers it; a Gray Down's entry price can sit above the market). Only the trail below is raise-only.
+5. **Trailing (2026-10-16).** After a candle's arrows, an ACTIVE row whose stop basis is `LP` takes the 2nd LP as of THAT candle; if it is higher than the
+   stop, the stop is raised to it (basis stays `LP`). It never lowers a stop, never trails a `10%`, `entry` or `none` stop, and does not touch a breached row.
+   It runs on every 2h candle the row reads, arrow or not. The breach test on a candle uses the stop as it stood BEFORE that candle (rule 1), so a stop trailed on
+   candle t is first tested on t+1. Consequence: a trail that is hit on the next candle breaches, and the next Yellow Up then creates a FRESH entry (a
+   breached row restarts), so entry prices on trailed rows jump.
+
+### Trailing stop and stop age
+
+`stop_moved_at` (naive ET candle start) and `stop_moved_by` record the last change of the stop VALUE: `yellow_up_entry` (fresh entry), `yellow_up_repeat`,
+`blue_down`, `yellow_down`, `gray_down`, `trail`. Re-setting the same value is not a move (a Blue Down whose 2nd LP equals the stop changes the text and the basis
+at most, not the stop age); a stop that becomes none (a Blue Up on a row that held one) clears both; a fresh entry always stamps them. Both are nullable
+(`_add_missing_columns` adds them on startup); a row not yet rebuilt shows no stop age. They are part of the row's content (`_content`), so a trail changes
+`last_updated_at`.
+
+**LP cost.** Trailing asks for the 2nd LP only for an ACTIVE row with an `LP` stop, on every candle it reads (the full `compute_liquidity_zones_2h` slice, never
+the pivot-only shortcut, which gives different results). Rows on a `10%`/`entry`/`none` stop and breached rows cost nothing. The lookup caches by candle, so an
+arrow candle that also trails asks once. A normal night reads at most 4 new candles per ticker, so about 4 LP calls (~22 ms each) per active LP-stop row.
 
 **2nd LP** = the second-nearest support below the **close of the arrow candle**, from `compute_liquidity_zones_2h` (the Chart tab's
 2h LP read) over the candles up to and including that candle, with the **shared LP settings as they are** (`LiquidityZoneSettings`;
 `breach_recency_bars` is the 2h override, irrelevant for supports). It is asked for only where a rule needs it: a Yellow Up on an
-active row, a Blue Down, a Yellow Down on a yellow entry. No LP is computed for a fresh entry, a Blue Up, a Gray Down or a
-no-action arrow. **Dependency:** the engine returns at most `max_lps_per_side` supports (3 today), so the 2nd LP exists only if that
+active row, a Blue Down, a Yellow Down on a yellow entry, and (2026-10-16) every candle of an active LP-stop row for the trail. No LP is computed for a fresh entry, a Blue Up, a Gray Down or a
+no-action arrow on a row that does not hold an LP stop. **Dependency:** the engine returns at most `max_lps_per_side` supports (3 today), so the 2nd LP exists only if that
 setting is 2 or more; with fewer than two supports (or a setting of 1) the 2nd LP is "none" and the rules fall back as above (a
 Yellow keeps the `10%` stop; a down arrow leaves the stop). A settings edit changes later stops, never stored ones.
 
@@ -174,7 +191,7 @@ covers tickers with no row), falling back to the rows' own `as_of`; `null` only 
 
 **Row fields:** `ticker`, `profile`, `latest_arrow_color` (`blue`/`yellow`/`gray`) and `latest_arrow_direction` (`up`/`down`) split from the
 stored kind, `latest_arrow_at`, `instruction_type`, `instruction_text`, `entry_kind`, `entry_price`, `stop_price`, `stop_basis`, `status`,
-`breached_at`, `last_signal_at`, `last_updated_at`, `age_bars`, `last_signal_age_bars`, and (2026-10-16) `entry_at`, `last_price`, `last_price_date`, `pl_pct`, `stop_distance_pct` (next paragraph). `removed_at` is not returned.
+`breached_at`, `last_signal_at`, `last_updated_at`, `age_bars`, `last_signal_age_bars`, and (2026-10-16) `entry_at`, `last_price`, `last_price_date`, `pl_pct`, `stop_distance_pct` (next paragraph), `stop_moved_at` (naive ET) and `stop_moved_by` (null on a row with no stop age). `removed_at` is not returned.
 
 **Price fields (2026-10-16).** `last_price` / `last_price_date` are the **latest completed DAILY close** and its date, read per ticker from the cached 1d bars (`clients/shared_bars_cache.py::read_cached_completed_daily_bars`, 30-day lookback; a pure read, so the endpoint stays cache-only and write-free for a viewer: no FMP call, no write, `tests/test_warren_watch_api.py` and `tests/test_viewer_rules.py`). A live in-progress bar is never used. A ticker with no cached daily bar returns nulls for all four computed fields. Both ratios are **fractions** (0.10 = 10%), defined once in `data/warren_watch_data.py`: `pl_pct = (last_price - entry_price) / entry_price` (null with no entry) and `stop_distance_pct = (last_price - stop_price) / last_price` (null with no stop; positive = price above the stop, negative = already below it). `entry_price` is the **close of the entry candle**, not a fill. **Intraday refresh:** if an intraday refresh is ever added (see "Open for a later phase"), "Last" should switch to the latest candle close instead of the daily close.
 
@@ -206,7 +223,7 @@ Table (`WarrenWatchTable`, modelled on `MomentumTable`: kit Table, compact Badge
 | Entry | `entry_price`, mono, dash with no entry (Gray-born rows). Tooltip: entry kind (Blue/Yellow), the entry candle's ET stamp (`entry_at`), its age ("7 months ago", `fmtAgeAgo`) and "The close of the entry candle, not an actual fill." |
 | Last | `last_price`, the latest daily close; tooltip "Daily close of <last_price_date>"; dash when null. |
 | P/L % | `pl_pct`, signed, one decimal (`fmtSignedPct1`): green above the entry, red below. **A breached row is muted (neutral)** with the tooltip "Hypothetical: this trade was stopped out at its stop, not at today's price." Dash with no entry or no price. |
-| Stop | Price plus a neutral basis tag (`10%`, `LP`, `Entry`); a dash when there is no stop. A stop above the entry price shows normally with a small info icon whose tooltip says the latest instruction set it (2nd LP / entry price), so it does not read as a bug. |
+| Stop | Price plus a neutral basis tag (`10%`, `LP`, `Entry`); a dash when there is no stop. A stop above the entry price shows normally with a small info icon whose tooltip says the latest instruction set it (2nd LP / entry price), so it does not read as a bug. **Stop-age tooltip** on the cell (`stopAgeTitle`): "Set at entry, Jun 11, 09:30 ET (10% of the candle low)", "Repeat yellow, Aug 3, 11:30 ET (lower of 2nd LP and 10%)", "Set Oct 15, 11:30 ET by Blue Down (2nd LP)" / "...by Yellow Down (2nd LP)", "Gray Down: stop set to entry, Sep 23, 13:30 ET", "Trailed to 2nd LP Oct 16, 13:30 ET", each followed by " · <age>" (`fmtAgeAgo`); no line when `stop_moved_at` is null. |
 | Stop dist. | `stop_distance_pct`, signed, one decimal. **Red only when negative on an ACTIVE row** (the last close is below a stop the row still holds: a missed breach; tooltip says so); neutral otherwise, including a breached row. Dash with no stop. |
 | Status | Green "Active", or a red **Stop breached** badge (title: the breaching candle). A row with **no entry price** (born from a Gray Up) shows a neutral **"No entry"** badge instead of Active, its tooltip saying no up-arrow entry fell inside the 12-month replay window so an earlier trade may exist (`NO_ENTRY_NOTE` in `lib/technicalIdeas.ts`; it said "3-month seed window" until the seed went to 12 months); its Stop cell keeps the dash. |
 | Last signal | The candle start (ET) of the **latest arrow of any kind**, the same arrow as the Signal pill (`latest_arrow_at`), with its age in bars from `age_bars` ("this candle", "1 bar ago", "5 bars ago"). The tooltip carries **"Last entry/refresh: <date, ET>"**, the latest UP arrow (`last_signal_at`). |
@@ -271,3 +288,32 @@ yellow trade found, breached months ago).
 **Applied 2026-10-16** (owner approval): the 68 rows were written. A before/after dump of both tables showed exactly 68 rows changed, every other row byte-identical, `removed_at`, `as_of`,
 `last_updated_at` and all 133 cursors unchanged for every row. A rerun reports 114 identical, 0 changing, 0 skipped (the first version of the guard skipped already-rebuilt rows on a rerun, fixed the
 same day). MAR is now yellow 353.09 (2026-05-05), stop 367.04 LP, active; IDXX and MTD have yellow entries and are breached; WDC and CRDO keep their stops and breaches with older entries.
+
+## Third rebuild: trailing stop and stop age (2026-10-16, DRY RUN only, not applied)
+
+`pipeline.backfills.rebuild_warren_watch` was rewritten again for the trailing rule and the stop-age columns (the Gray Down and 12-month changes it used to emulate
+are already applied, so that emulation is gone):
+
+- Replays every non-removed row from `REBUILD_START` (2025-10-15 15:30) through the row's own cursor with the CURRENT rules (arrow rules plus trailing), the cached
+  60m bars (no FMP call) and today's LP settings, and diffs all fourteen fields, `stop_moved_at`/`stop_moved_by` included.
+- **Dry run by default**; `--apply` writes only the rows that differ and never touches `removed_at`, the cursor, `as_of` or `last_updated_at`; removed rows are
+  skipped and a ticker with no row never gets one. `--show T1,T2` prints a row before/after in full.
+- **Mismatch guard:** a row that differs is rebuilt only if the same bars and LP settings replayed **without trailing** (`advance(..., trail=False)`) reproduce the
+  stored row exactly on the original twelve fields (the stop-age fields are excluded: stored rows hold null). Otherwise the row is printed as SKIPPED and left alone.
+  **A nightly run on the new code before `--apply` writes trail moves into stored rows, and the guard then skips those rows** (no-trail replay no longer matches);
+  apply the rebuild before the next 1:25 AM Warren run or expect SKIPPED lines for rows that trailed overnight.
+- A dry run needs no schema change: on a database without the two columns it selects only the existing ones (`--apply` refuses until `init_db` has added them).
+- Rows whose twelve original fields match but whose stop age is null count as "stop age fill only" (they are written by `--apply` too).
+
+Dry run on the real database (as_of 2026-10-15 15:30 cursors): 114 non-removed rows, **2 identical, 112 changing, 0 skipped**; 119 s wall, 6612 LP calls (the trailing replays plus
+the no-trail guard replays), 552 trail moves in total. Of the 112: **45 stop age fill only** (nothing else differs), 37 final stops change (7 of them also the basis), **53 entries
+change (all later than before, none earlier)**, **17 active -> breached, 0 breached -> active**, 3 rows differ in the stop and its basis alone. After the rebuild 112 rows carry
+`stop_moved_at`; the 2 null rows have no stop. Final state: active 81 (10% 61, entry 10, LP 8, none 2), breached 33 (LP 21, 10% 7, entry 5). `stop_moved_by`: yellow_up_entry 37,
+yellow_up_repeat 32, trail 23, gray_down 15, blue_down 4, yellow_down 1. The 17 flips: AMZN 08-12, APH 09-02, CIBR 09-02, ETN 10-14, FTNT 09-18, HACK 09-02, IGV 08-26, ISRG 10-02, KLAC 09-14,
+LLY 09-08, LMT 09-11, MRNA 09-10, NDSN 10-08, PLTR 09-28, PTC 10-14, SEZL 10-13, VEEV 08-24. This reconciles exactly with the earlier simulation (37 stops, 17 flips, 0 reverse, 53 entries, 552 trail moves).
+Nightly cost afterwards: only the 8 active LP-stop rows are asked each candle, about 32 LP calls (~0.7 s) a night plus the few an arrow needs.
+
+**Why entries jump.** A trailed stop that is hit breaches the row; the next Yellow Up on a breached row is a FRESH entry (entry kind yellow, entry = that candle's close, a new 10% stop), where
+before the same row stayed "active" with an old entry. So on the 53 rows the entry price is the close of the post-breach re-entry, often far above the old one, and P/L % is measured from it.
+The Entry tooltip (kind, candle, age) already says so; a row whose Stop-age tooltip reads "Set at entry" with the same stamp as the Entry cell is such a restart.
+
