@@ -61,7 +61,11 @@ tested first, so a stop set on candle t is first tested on t+1 (the ThinkScript'
 3. **Down arrows** (one per candle: Yellow Down, then Blue Down, then Gray Down, the ThinkScript's text order) apply only to an
    existing row. The instruction and `latest_arrow_*` always update; `last_signal_at` does not. The stop moves only on an active
    row with an entry: Blue Down -> 2nd LP (basis `LP`); Yellow Down -> 2nd LP if the entry is yellow, else unchanged; Gray Down ->
-   `entry_price` (basis `entry`) if the entry is yellow, else unchanged. A down arrow with no row is ignored. If a candle has both
+   `entry_price` (basis `entry`) if the entry is yellow **and the entry price is BELOW the Gray Down candle's close**, else unchanged
+   (2026-10-16: an entry at or above the close would put the stop above the market and breach on the next candle, so the row keeps its
+   stop, basis, status, `breached_at` and entry, and only `latest_arrow_*` and the instruction type/text update; a blue entry or a row
+   with no entry is unchanged as before). **The ThinkScript computes no stop for a Gray Down** (its text only says "Adjust stop
+   accordingly"); this is a rule on the instruction text only, like the Blue Down 2nd LP. A down arrow with no row is ignored. If a candle has both
    an up and a down arrow, the up applies first, then the down.
 4. **No tighten-only rule.** Stops follow the instruction literally and may move down (a second Yellow whose `0.9 x low` is below the
    first stop lowers it; a Gray Down's entry price can sit above the market).
@@ -77,10 +81,17 @@ Yellow keeps the `10%` stop; a down arrow leaves the stop). A settings edit chan
 ## Seed, cursor and idempotence
 
 `WarrenWatchCursor` (`ticker`, `processed_through`, `updated_at`) records the last candle already folded in, for every processed
-ticker (with a row or not). A ticker with **no cursor is seeded**: it reads the candles after `as_of - 3 months`
-(`SEED_MONTHS`); a ticker with a cursor reads only the candles after it. So seed and nightly are the same code. A ticker gets a row
-only if an up arrow falls in what it reads: a down arrow with no earlier up arrow in the window creates nothing; a young ticker is
-seeded from whatever history it has. The row and the cursor are written in one transaction. A rerun for the same session reads no
+ticker (with a row or not). A ticker with **no cursor is seeded**: it replays the candles after `as_of - 12 months`
+(`SEED_MONTHS`, was 3 until 2026-10-16); a ticker with a cursor reads only the candles after it. So seed and nightly are the same code.
+**The 12-month replay only determines the state; a first-time ticker gets a row only if an up arrow (Blue, Yellow or Gray) fell in the
+LAST 3 months** (`ROW_MONTHS`, candles after `as_of - 3 months`; `_has_recent_up`). A down arrow with no earlier up arrow creates nothing; a
+young ticker is seeded from whatever history it has. Why 12 months: a 3-month seed made an arrow near the window start look like a fresh
+entry when an earlier trade existed (MAR: its Aug 5 Yellow became the entry at 358.69 where the June yellow implied about 378).
+A ticker that already has a cursor but no row (no recent up arrow at seed time) is not re-seeded: a later up arrow creates its row fresh.
+**Warm-up.** The watch path replays the WHOLE cached 60m history (`LOOKBACK_DAYS` = 730 days requested) and only cuts what it applies
+(`after`), so the engine has everything before the 12-month start as warm-up (about a year for a full-history ticker). The 180-day
+`EVENT_WRITE_WARMUP_DAYS` buffer belongs to the stored `WarrenSignalEvent` writes and is not part of this path (unchanged). A ticker whose
+first candle is later than start minus 180 days has a thinner warm-up (AIPO today, 283 days of history); the rebuild script lists them. The row and the cursor are written in one transaction. A rerun for the same session reads no
 candle, makes no LP call and writes nothing but an unchanged `as_of` (test-pinned: the table is identical, `last_updated_at`
 included). A catch-up after missed nights reads every candle since the cursor, so a breach on a skipped night is still found.
 A ticker that leaves the monitored lists is no longer processed; its row stays as it was.
@@ -110,6 +121,7 @@ Both tables are `KEEP` in `data/ticker_data_registry.py`: the wipe never deletes
 
 ## First seed (2026-10-16, real database)
 
+(3-month window and the old Gray Down rule; replaced by the 12-month seed and the new rule above, see "Second rebuild" at the end.)
 `pipeline.seed_warren_watch` over the 133 monitored tickers (as_of 2026-10-15 15:30): **114 rows created**, 19 tickers with a cursor and
 no row (no up arrow in the window: ACN, ADI, AMD, ANET, CLH, CRM, CTAS, DELL, GWW, HUT, ICE, ILMN, JPM, MEDP, MSFT, SNOW, SPY, TMO, V).
 96 active, 18 breached. By latest instruction: type 3 x68 (4 breached), type 10 x17 (8 breached), type 30 x16 (2 breached), type 20 x11
@@ -124,7 +136,8 @@ about 133 x (15 ms candles + 24 ms replay) = 5 s plus the few LP calls the night
 
 - **Stops above the entry price.** 18 rows have `stop_price > entry_price` (for example ABNB: entry 142.42, Blue Down stop 162.55 LP). That is
   the rule working (the 2nd LP below the arrow candle's close, after a rally), not a bug, but a page reading "stop vs entry" must expect it.
-  A Gray Down also sets the stop to the entry price, which can sit above the market (it breaches on the next candle).
+  A Gray Down used to set the stop to the entry price even when that sat above the market (it breached on the next candle); since 2026-10-16 it
+  does so only when the entry price is below the Gray Down candle's close (rule 3).
 - **Stops can move down.** A second Yellow's `0.9 x low` can be below the first Yellow's stop; there is no tighten-only rule.
 - **A Blue entry gets its first stop from a later down arrow.** PAYX: blue entry 101.80, Blue Down moved the stop to an LP at 101.42.
   Blue entries otherwise carry no stop and cannot breach.
@@ -189,7 +202,7 @@ Table (`WarrenWatchTable`, modelled on `MomentumTable`: kit Table, compact Badge
 | Signal | Up/down pill in the arrow's colour: Blue = `chart-ema21` (the chart's own blue for Blue arrows), Yellow = `chart-warren-yellow`, Gray = `chart-warren-gray`. Title: the arrow candle's time. |
 | Instruction | The stored text, wrapped to at most 2 lines in a 220 to 360 px cell, truncated beyond that, the full text in the tooltip (the longest string is the profiled Yellow Up, about 124 characters; the generic set tops out near 50). **A breached row** shows **"Stop hit"** with "since <breach candle, ET>" beneath instead (display only: the stored instruction type, text and stop are unchanged; the tooltip carries "Last instruction: <stored text>"). |
 | Stop | Price plus a neutral basis tag (`10%`, `LP`, `Entry`); a dash when there is no stop. A stop above the entry price shows normally with a small info icon whose tooltip says the latest instruction set it (2nd LP / entry price), so it does not read as a bug. |
-| Status | Green "Active", or a red **Stop breached** badge (title: the breaching candle). A row with **no entry price** (born from a Gray Up) shows a neutral **"No entry"** badge instead of Active, its tooltip saying no up-arrow entry fell inside the 3-month seed window so an earlier trade may exist; its Stop cell keeps the dash. |
+| Status | Green "Active", or a red **Stop breached** badge (title: the breaching candle). A row with **no entry price** (born from a Gray Up) shows a neutral **"No entry"** badge instead of Active, its tooltip saying no up-arrow entry fell inside the seed window so an earlier trade may exist (the string in `lib/technicalIdeas.ts` still says "3-month"; the window is 12 months since 2026-10-16, wording not yet updated); its Stop cell keeps the dash. |
 | Last signal | `last_signal_at` (ET) and its age in bars ("this candle", "1 bar ago", "5 bars ago"). |
 | Last updated | `last_updated_at` (ET), when the row's content last changed. |
 | (actions) | Admin only: trash icon, then an inline Remove? / Confirm / Cancel (the Watchlist delete pattern). A viewer sees no control (`<AdminOnly>`). |
@@ -226,3 +239,22 @@ bars (no FMP call) and today's LP settings, and compares each result with the st
 `last_signal_at`, and writes only that column: `removed_at`, the cursor, `last_updated_at` and `as_of` are never touched and a removed row is skipped, so nothing
 is resurrected. Any other difference is printed and the row left alone for review. Dry run on the real database after the Gray Up rule change: 114 non-removed rows,
 113 identical, one correction (WDC `last_signal_at` 2026-10-15 15:30 to 2026-09-16 09:30), none skipped.
+
+## Second rebuild: Gray Down rule and the 12-month seed (2026-10-16)
+
+Two rule changes (Gray Down at or above the entry price leaves the stop alone; first-time tickers replay 12 months, row only with an up arrow in
+the last 3) left the stored rows built under the old rules. `pipeline.backfills.rebuild_warren_watch` was rewritten for it (the earlier
+`last_signal_at`-only correction is superseded, its result above stands):
+
+- Replays every non-removed row from `REBUILD_START` (2025-10-15 15:30 = the first seed's as_of minus 12 months, a fixed date) through the row's
+  own cursor, with the current rules, the cached 60m bars (no FMP call) and today's LP settings, and diffs every field.
+- **Dry run by default.** `--apply` writes only the rows that differ (the fields of `WarrenWatchRow` the state covers, instruction text included) and never
+  touches `removed_at`, the cursor, `as_of` or `last_updated_at`; removed rows are skipped, a ticker with no row never gets one.
+- **Mismatch guard:** the same bars and LP settings are first replayed under the OLD rules (3-month window from 2026-07-15 15:30 and the old Gray Down rule,
+  emulated inside the script) and must reproduce the stored row exactly; if not, the difference is not explained by the rule changes, so the row is printed and skipped.
+- It also prints a history check (first candle vs the replay start and the 180-day warm-up).
+
+Dry run on the real database (before `--apply`): 114 non-removed rows, 46 identical, 68 changing, 0 skipped by the guard; one ticker with short history (AIPO, 283 days,
+unchanged). The 68 are almost all an earlier entry: a yellow trade that never breached keeps its first Yellow as the entry (later Yellows only refresh the stop), so entries
+move back months and many entry prices are far below the market. Stop changes 21, breached -> active 4 (CIBR, LLY, MAR, SEZL), active -> breached 2 (IDXX, MTD: now a
+yellow trade found, breached months ago). Not applied until the owner approves.
