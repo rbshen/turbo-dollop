@@ -202,7 +202,7 @@ Table (`WarrenWatchTable`, modelled on `MomentumTable`: kit Table, compact Badge
 | Signal | Up/down pill in the arrow's colour: Blue = `chart-ema21` (the chart's own blue for Blue arrows), Yellow = `chart-warren-yellow`, Gray = `chart-warren-gray`. Title: the arrow candle's time. |
 | Instruction | The stored text, wrapped to at most 2 lines in a 220 to 360 px cell, truncated beyond that, the full text in the tooltip (the longest string is the profiled Yellow Up, about 124 characters; the generic set tops out near 50). **A breached row** shows **"Stop hit"** with "since <breach candle, ET>" beneath instead (display only: the stored instruction type, text and stop are unchanged; the tooltip carries "Last instruction: <stored text>"). |
 | Stop | Price plus a neutral basis tag (`10%`, `LP`, `Entry`); a dash when there is no stop. A stop above the entry price shows normally with a small info icon whose tooltip says the latest instruction set it (2nd LP / entry price), so it does not read as a bug. |
-| Status | Green "Active", or a red **Stop breached** badge (title: the breaching candle). A row with **no entry price** (born from a Gray Up) shows a neutral **"No entry"** badge instead of Active, its tooltip saying no up-arrow entry fell inside the seed window so an earlier trade may exist (the string in `lib/technicalIdeas.ts` still says "3-month"; the window is 12 months since 2026-10-16, wording not yet updated); its Stop cell keeps the dash. |
+| Status | Green "Active", or a red **Stop breached** badge (title: the breaching candle). A row with **no entry price** (born from a Gray Up) shows a neutral **"No entry"** badge instead of Active, its tooltip saying no up-arrow entry fell inside the 12-month replay window so an earlier trade may exist (`NO_ENTRY_NOTE` in `lib/technicalIdeas.ts`; it said "3-month seed window" until the seed went to 12 months); its Stop cell keeps the dash. |
 | Last signal | The candle start (ET) of the **latest arrow of any kind**, the same arrow as the Signal pill (`latest_arrow_at`), with its age in bars from `age_bars` ("this candle", "1 bar ago", "5 bars ago"). The tooltip carries **"Last entry/refresh: <date, ET>"**, the latest UP arrow (`last_signal_at`). |
 | Last updated | `last_updated_at` (ET), when the row's content last changed. |
 | (actions) | Admin only: trash icon, then an inline Remove? / Confirm / Cancel (the Watchlist delete pattern). A viewer sees no control (`<AdminOnly>`). |
@@ -250,11 +250,16 @@ the last 3) left the stored rows built under the old rules. `pipeline.backfills.
   own cursor, with the current rules, the cached 60m bars (no FMP call) and today's LP settings, and diffs every field.
 - **Dry run by default.** `--apply` writes only the rows that differ (the fields of `WarrenWatchRow` the state covers, instruction text included) and never
   touches `removed_at`, the cursor, `as_of` or `last_updated_at`; removed rows are skipped, a ticker with no row never gets one.
-- **Mismatch guard:** the same bars and LP settings are first replayed under the OLD rules (3-month window from 2026-07-15 15:30 and the old Gray Down rule,
-  emulated inside the script) and must reproduce the stored row exactly; if not, the difference is not explained by the rule changes, so the row is printed and skipped.
+- **Mismatch guard:** a row that already equals the new replay is identical (a rerun after `--apply` reports every row identical); a row that differs is rebuilt only if the same
+  bars and LP settings replayed under the OLD rules (3-month window from 2026-07-15 15:30 and the old Gray Down rule, emulated inside the script) reproduce the stored row
+  exactly; if not, the difference is not explained by the rule changes, so the row is printed and skipped.
 - It also prints a history check (first candle vs the replay start and the 180-day warm-up).
 
 Dry run on the real database (before `--apply`): 114 non-removed rows, 46 identical, 68 changing, 0 skipped by the guard; one ticker with short history (AIPO, 283 days,
 unchanged). The 68 are almost all an earlier entry: a yellow trade that never breached keeps its first Yellow as the entry (later Yellows only refresh the stop), so entries
 move back months and many entry prices are far below the market. Stop changes 21, breached -> active 4 (CIBR, LLY, MAR, SEZL), active -> breached 2 (IDXX, MTD: now a
-yellow trade found, breached months ago). Not applied until the owner approves.
+yellow trade found, breached months ago).
+
+**Applied 2026-10-16** (owner approval): the 68 rows were written. A before/after dump of both tables showed exactly 68 rows changed, every other row byte-identical, `removed_at`, `as_of`,
+`last_updated_at` and all 133 cursors unchanged for every row. A rerun reports 114 identical, 0 changing, 0 skipped (the first version of the guard skipped already-rebuilt rows on a rerun, fixed the
+same day). MAR is now yellow 353.09 (2026-05-05), stop 367.04 LP, active; IDXX and MTD have yellow entries and are breached; WDC and CRDO keep their stops and breaches with older entries.
