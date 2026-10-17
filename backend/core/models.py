@@ -378,13 +378,13 @@ class WarrenWatchRow(SQLModel, table=True):
     latest_arrow_at: datetime
     instruction_type: int  # ToS numbering: 1, 2, 3, 10, 20, 30
     instruction_text: str  # the profile's string for that type
-    entry_kind: str | None = None  # "blue" | "yellow"; None for a row born from a Gray Up
+    entry_kind: str | None = None  # "blue" | "yellow" | "gray" (a Gray Up that opened a trade, 2026-10-17); None only for a legacy row born from a Gray Up
     entry_at: datetime | None = None
     entry_price: float | None = None  # close of the entry arrow's candle
     stop_price: float | None = None
     stop_basis: str = "none"  # "10%" | "LP" | "entry" | "none"
     stop_moved_at: datetime | None = None  # the candle that last changed the stop value (naive ET); None with no stop
-    stop_moved_by: str | None = None  # yellow_up_entry | yellow_up_repeat | blue_down | yellow_down | gray_down | trail
+    stop_moved_by: str | None = None  # yellow_up_entry | yellow_up_repeat | blue_down | yellow_down | gray_down | trail | gray_up_entry
     status: str = "active"  # "active" | "breached"
     breached_at: datetime | None = None
     last_signal_at: datetime  # the latest UP arrow's candle

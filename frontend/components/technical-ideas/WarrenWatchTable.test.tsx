@@ -240,6 +240,22 @@ describe("WarrenWatchTable", () => {
     expect(r.getByText("$376.25")).toBeInTheDocument();
   });
 
+  it("tags a gray-entry row with Gray entry and its risk tooltip, and no other row", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-16T12:00:00Z"));
+    draw([
+      row({ ticker: "GRY", entry_kind: "gray", entry_at: "2026-10-09T09:30:00", entry_price: 80, latest_arrow_color: "yellow" }),
+      row({ ticker: "YEL", entry_kind: "yellow" }),
+      row({ ticker: "BLU", entry_kind: "blue" }),
+    ]);
+    const tag = within(bodyRow("GRY")).getByText("Gray entry");
+    expect(tag).toHaveAttribute("title", "Two stop-outs in a row, higher risk");
+    expect(within(bodyRow("YEL")).queryByText("Gray entry")).toBeNull();
+    expect(within(bodyRow("BLU")).queryByText("Gray entry")).toBeNull();
+    expect(within(bodyRow("GRY")).getByText("$80.00")).toHaveAttribute("title", expect.stringContaining("Gray entry · Oct 9, 09:30 ET"));
+    vi.useRealTimers();
+  });
+
   it("shows a neutral No entry status, with a note and a dash for the stop, when the row has no entry price", () => {
     draw([row({ ticker: "NOE", entry_kind: null, entry_at: null, entry_price: null, pl_pct: null, stop_price: null, stop_distance_pct: null, stop_basis: "none", instruction_text: "GRAY UP - NO ACTION. Stopped out twice." })]);
     const r = within(bodyRow("NOE"));

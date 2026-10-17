@@ -2713,13 +2713,13 @@ class WarrenWatchRowOut(BaseModel):
     latest_arrow_at: datetime
     instruction_type: int
     instruction_text: str
-    entry_kind: Literal["blue", "yellow"] | None = None
+    entry_kind: Literal["blue", "yellow", "gray"] | None = None
     entry_at: datetime | None = None
     entry_price: float | None = None
     stop_price: float | None = None
     stop_basis: Literal["10%", "LP", "entry", "none"]
     stop_moved_at: datetime | None = None
-    stop_moved_by: Literal["yellow_up_entry", "yellow_up_repeat", "blue_down", "yellow_down", "gray_down", "trail"] | None = None
+    stop_moved_by: Literal["yellow_up_entry", "yellow_up_repeat", "blue_down", "yellow_down", "gray_down", "trail", "gray_up_entry"] | None = None
     last_price: float | None = None
     last_price_date: date | None = None
     pl_pct: float | None = None

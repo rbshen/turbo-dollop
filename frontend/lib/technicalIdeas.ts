@@ -92,11 +92,16 @@ export function fmtAgeAgo(iso: string, nowMs: number): string | null {
   return `${years} years ago`;
 }
 
+/** The "Gray entry" tag's tooltip on a row whose trade was opened by a Gray Up. */
+export const GRAY_ENTRY_NOTE = "Two stop-outs in a row, higher risk";
+
+const ENTRY_KIND_LABEL: Record<NonNullable<WarrenWatchRowOut["entry_kind"]>, string> = { blue: "Blue", yellow: "Yellow", gray: "Gray" };
+
 export const ENTRY_PRICE_NOTE = "The close of the entry candle, not an actual fill.";
 
 /** The Entry cell's tooltip: entry kind, the entry candle's ET stamp, its age, and the close-not-fill note. */
 export function entryTitle(row: Pick<WarrenWatchRowOut, "entry_kind" | "entry_at">, nowMs: number): string {
-  const kind = row.entry_kind ? `${row.entry_kind === "blue" ? "Blue" : "Yellow"} entry` : "Entry";
+  const kind = row.entry_kind ? `${ENTRY_KIND_LABEL[row.entry_kind]} entry` : "Entry";
   const parts = [kind];
   if (row.entry_at) {
     parts.push(`${fmtEtStamp(row.entry_at)} ET`);
@@ -113,6 +118,7 @@ export function stopAgeTitle(row: Pick<WarrenWatchRowOut, "stop_moved_at" | "sto
   const at = fmtEtStamp(row.stop_moved_at);
   const text: Record<NonNullable<WarrenWatchRowOut["stop_moved_by"]>, string> = {
     yellow_up_entry: `Set at entry, ${at} ET (10% of the candle low)`,
+    gray_up_entry: `Set at entry, ${at} ET (10% of the candle low, gray entry)`,
     yellow_up_repeat: `Repeat yellow, ${at} ET (lower of 2nd LP and 10%)`,
     blue_down: `Set ${at} ET by Blue Down (2nd LP)`,
     yellow_down: `Set ${at} ET by Yellow Down (2nd LP)`,

@@ -223,6 +223,38 @@ def test_a_breach_through_the_data_layer_then_a_fresh_yellow_resets(monkeypatch,
     assert (r.stop_price, r.stop_basis) == (pytest.approx(89.1), "10%")  # fresh entry, not min(LP 40, ...)
 
 
+def test_a_gray_up_with_no_row_creates_a_gray_entry_row_through_the_data_layer(monkeypatch, engine):
+    canned(monkeypatch, {"A": [("gray_up", "2026-09-01 09:30")]})
+    fake_lp(monkeypatch, [50.0, 40.0])
+    run("A", bars("2026-07-01", "2026-10-16", lows={"2026-09-01": 80.0}))
+    r = rows(engine)["A"]
+    assert (r.entry_kind, r.entry_at, r.entry_price) == ("gray", datetime(2026, 9, 1, 9, 30), 100.0)
+    assert (r.stop_price, r.stop_basis, r.stop_moved_by, r.status, r.instruction_type) == (pytest.approx(72.0), "10%", "gray_up_entry", "active", 1)
+
+
+def test_down_arrows_on_a_breached_row_change_nothing_stored_not_even_last_updated_at(monkeypatch, engine):
+    canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30")]})
+    fake_lp(monkeypatch, [50.0, 40.0])
+    run("A", bars("2026-07-01", "2026-09-18", lows={"2026-09-10": 85.0}))
+    before = rows(engine)["A"].model_dump()
+    assert before["status"] == "breached"
+    canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-21 09:30"), ("gray_down", "2026-09-22 09:30")]})
+    run("A", bars("2026-07-01", "2026-10-16", lows={"2026-09-10": 85.0}))
+    after = rows(engine)["A"].model_dump()
+    assert {k: v for k, v in after.items() if k != "as_of"} == {k: v for k, v in before.items() if k != "as_of"}  # latest arrow, instruction, last_updated_at: all unchanged
+
+
+def test_a_gray_up_restarts_a_breached_row_as_a_gray_entry_through_the_data_layer(monkeypatch, engine):
+    canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30")]})
+    fake_lp(monkeypatch, [50.0, 40.0])
+    run("A", bars("2026-07-01", "2026-09-18", lows={"2026-09-10": 85.0}))
+    canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30"), ("gray_up", "2026-09-21 09:30")]})
+    run("A", bars("2026-07-01", "2026-10-16", lows={"2026-09-10": 85.0}))
+    r = rows(engine)["A"]
+    assert (r.status, r.breached_at, r.entry_kind, r.entry_at) == ("active", None, "gray", datetime(2026, 9, 21, 9, 30))
+    assert (r.stop_price, r.stop_basis, r.last_signal_at) == (pytest.approx(89.1), "10%", datetime(2026, 9, 21, 9, 30))
+
+
 # --- trailing stop and stop age --------------------------------------------------------------------------------
 
 

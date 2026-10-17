@@ -33,7 +33,7 @@ stamps a window by its LAST 60m bar (10:30 / 12:30 / 14:30 / 15:30), so the two 
 
 `ticker`, `profile` (any / spy / qqq / tqqq / tecl), `latest_arrow_kind` + `latest_arrow_at` (the latest arrow applied to the
 row, either direction), `instruction_type` + `instruction_text` (ToS number 1, 2, 3, 10, 20, 30 and the profile's string from
-`instructions.py`), `entry_kind` (blue / yellow / null), `entry_at`, `entry_price` (close of the entry arrow's candle),
+`instructions.py`), `entry_kind` (blue / yellow / gray / null; `gray` since 2026-10-17, null only on a legacy row born from a Gray Up), `entry_at`, `entry_price` (close of the entry arrow's candle),
 `stop_price`, `stop_basis` (`10%` / `LP` / `entry` / `none`), `stop_moved_at` + `stop_moved_by` (the candle that last changed the stop VALUE and the rule that did it; see "Trailing stop and stop age"), `status` (`active` / `breached`), `breached_at`, `last_signal_at`
 (the latest UP arrow's candle, type 4 and Gray included), `last_updated_at` (wall-clock server time, moves only when the row's
 content changes; since 2026-10-16 a trail move or a stop-age change is a content change too, so a row can now update on a candle with no arrow), `removed_at` (naive America/New_York, so it compares with candle times), `as_of`.
@@ -46,27 +46,37 @@ tested first, so a stop set on candle t is first tested on t+1 (the ThinkScript'
 1. **Breach.** Active row with a stop and `low <= stop` -> `status = breached`, `breached_at` = the candle; stop and last
    instruction are kept. A row with no stop cannot breach.
 2. **Up arrows** (one per candle: Blue, then Yellow, then Gray; a Blue on the same candle as a Yellow wins, as the ThinkScript
-   resets its yellow count on a Blue):
-   - **Blue Up** (type 2): entry blue, entry = this candle, **no stop** (`none`), active. Clears a breach.
+   resets its yellow count on a Blue). **On a BREACHED row every up arrow restarts the row as a new entry** (2026-10-17): the breach
+   state, entry, stop and stop age are all replaced, as for any new entry.
+   - **Blue Up** (type 2): entry blue, entry = this candle, **no stop** (`none`), active. On an ACTIVE row it does the same: entry price,
+     entry date and entry kind are replaced by this candle's and the stop (and its age) is cleared, so a Blue Up on an active yellow
+     row turns it into a stop-less blue entry. **The one exception (2026-10-17): an active GRAY-entry row** keeps its entry, its stop
+     and its stop age; only `latest_arrow_*`, the instruction (Blue Up, type 2) and `last_signal_at` move.
    - **Yellow Up** (type 3), no row / breached row / row with no entry: a **fresh entry**: entry yellow, stop = `0.9 x` the arrow
      candle's low, basis `10%`.
-   - **Yellow Up** on an active row with an entry: stop = `min(2nd LP, 0.9 x low)`, basis whichever is lower (`10%` on a tie or when
-     there is no 2nd LP). The entry is not moved.
-   - **First yellow after a Blue** (type 4, from the engine's `first_yellow_after_blue_at`) and **Gray Up** (type 1) on an active row
-     with an entry: no action; the instruction and stop stay, `latest_arrow_*` and `last_signal_at` move.
-   - A Gray Up with no row creates one with no entry, no stop, type 1.
-   - **A Gray Up on a BREACHED row** (2026-10-16) moves `latest_arrow_*` only, so the pill shows the Gray, but `last_signal_at` stays
-     frozen: a "stay out until Blue" arrow is not a signal worth re-dating the row for. A Gray Up on an active row (with or without an
-     entry) advances `last_signal_at` as before.
+   - **Yellow Up** on an active row with an entry (a gray entry included): stop = `min(2nd LP, 0.9 x low)`, basis whichever is lower (`10%` on
+     a tie or when there is no 2nd LP). The entry is not moved, so a repeat Yellow never replaces a gray entry.
+   - **Gray Up** (type 1), **no open trade** (no row, a breached row, or a legacy row with no entry): a **gray entry** (2026-10-17):
+     entry kind `gray`, entry = the arrow candle's 2h close, stop = `0.9 x` the arrow candle's low, basis `10%` (stop age `gray_up_entry`),
+     instruction type 1, active, `last_signal_at` = the candle. The engine's rule for when a Gray Up fires is untouched. On an **active
+     row with an entry** a Gray Up changes **no entry, stop or status**: `latest_arrow_*` and `last_signal_at` move and the instruction stays.
+   - **First yellow after a Blue** (type 4, from the engine's `first_yellow_after_blue_at`) on an active row with an entry: no action; the
+     instruction and stop stay, `latest_arrow_*` and `last_signal_at` move. With no row (or a breached one) it is a fresh yellow entry.
 3. **Down arrows** (one per candle: Yellow Down, then Blue Down, then Gray Down, the ThinkScript's text order) apply only to an
-   existing row. The instruction and `latest_arrow_*` always update; `last_signal_at` does not. The stop moves only on an active
-   row with an entry: Blue Down -> 2nd LP (basis `LP`); Yellow Down -> 2nd LP if the entry is yellow, else unchanged; Gray Down ->
-   `entry_price` (basis `entry`) if the entry is yellow **and the entry price is BELOW the Gray Down candle's close**, else unchanged
+   existing ACTIVE row. **On a BREACHED row a down arrow is ignored entirely** (2026-10-17): no change to the arrow pill, instruction text,
+   `latest_arrow_*`, `last_signal_at`, `last_updated_at` (the content does not change), sort position, stop or status. On an active row the instruction and
+   `latest_arrow_*` always update; `last_signal_at` does not. The stop moves only on a row with an entry: Blue Down -> 2nd LP (basis `LP`),
+   any entry kind; Yellow Down -> 2nd LP if the entry is yellow **or gray**, else unchanged; Gray Down -> `entry_price` (basis `entry`) if the
+   entry is yellow **or gray** **and the entry price is BELOW the Gray Down candle's close**, else unchanged
    (2026-10-16: an entry at or above the close would put the stop above the market and breach on the next candle, so the row keeps its
    stop, basis, status, `breached_at` and entry, and only `latest_arrow_*` and the instruction type/text update; a blue entry or a row
    with no entry is unchanged as before). **The ThinkScript computes no stop for a Gray Down** (its text only says "Adjust stop
    accordingly"); this is a rule on the instruction text only, like the Blue Down 2nd LP. A down arrow with no row is ignored. If a candle has both
-   an up and a down arrow, the up applies first, then the down.
+   an up and a down arrow, the up applies first, then the down; a breached row that the same candle's up arrow restarted is active when the down arrow is
+   judged, so that down applies to the new entry.
+   **Order within a candle is unchanged:** the breach is tested against the stop in force BEFORE the candle, then the arrows, then the trail. Consequences: a Gray (or Yellow
+   or Blue) Up on the same candle as a breach finds a breached row and restarts it as a new entry, so the breach is never shown (the stopped trade is replaced by the new entry
+   on that candle); a down arrow on the candle that breaches the row is ignored.
 4. **No tighten-only rule for ARROWS.** Stops follow the instruction literally and may move down (a second Yellow whose `0.9 x low` is below the
    first stop lowers it; a Gray Down's entry price can sit above the market). Only the trail below is raise-only.
 5. **Trailing (2026-10-16).** After a candle's arrows, an ACTIVE row whose stop basis is `LP` takes the 2nd LP as of THAT candle; if it is higher than the
@@ -78,7 +88,7 @@ tested first, so a stop set on candle t is first tested on t+1 (the ThinkScript'
 ### Trailing stop and stop age
 
 `stop_moved_at` (naive ET candle start) and `stop_moved_by` record the last change of the stop VALUE: `yellow_up_entry` (fresh entry), `yellow_up_repeat`,
-`blue_down`, `yellow_down`, `gray_down`, `trail`. Re-setting the same value is not a move (a Blue Down whose 2nd LP equals the stop changes the text and the basis
+`blue_down`, `yellow_down`, `gray_down`, `trail`, `gray_up_entry` (a Gray Up entry, 2026-10-17). Re-setting the same value is not a move (a Blue Down whose 2nd LP equals the stop changes the text and the basis
 at most, not the stop age); a stop that becomes none (a Blue Up on a row that held one) clears both; a fresh entry always stamps them. Both are nullable
 (`_add_missing_columns` adds them on startup); a row not yet rebuilt shows no stop age. They are part of the row's content (`_content`), so a trail changes
 `last_updated_at`.
@@ -87,10 +97,12 @@ at most, not the stop age); a stop that becomes none (a Blue Up on a row that he
 the pivot-only shortcut, which gives different results). Rows on a `10%`/`entry`/`none` stop and breached rows cost nothing. The lookup caches by candle, so an
 arrow candle that also trails asks once. A normal night reads at most 4 new candles per ticker, so about 4 LP calls (~22 ms each) per active LP-stop row.
 
+**Gray-entry rows** follow the yellow-entry rules afterwards (rule 3 above: Gray Down, Yellow Down, Blue Down, repeat Yellow, trailing, breach, P/L %); the `gray` kind stays for the life of the trade, a 10%- or entry-basis stop never trails. Only a breach followed by an up arrow ends the trade.
+
 **2nd LP** = the second-nearest support below the **close of the arrow candle**, from `compute_liquidity_zones_2h` (the Chart tab's
 2h LP read) over the candles up to and including that candle, with the **shared LP settings as they are** (`LiquidityZoneSettings`;
 `breach_recency_bars` is the 2h override, irrelevant for supports). It is asked for only where a rule needs it: a Yellow Up on an
-active row, a Blue Down, a Yellow Down on a yellow entry, and (2026-10-16) every candle of an active LP-stop row for the trail. No LP is computed for a fresh entry, a Blue Up, a Gray Down or a
+active row, a Blue Down, a Yellow Down on a yellow or gray entry, and (2026-10-16) every candle of an active LP-stop row for the trail. No LP is computed for a fresh entry, a Blue Up, a Gray Down or a
 no-action arrow on a row that does not hold an LP stop. **Dependency:** the engine returns at most `max_lps_per_side` supports (3 today), so the 2nd LP exists only if that
 setting is 2 or more; with fewer than two supports (or a setting of 1) the 2nd LP is "none" and the rules fall back as above (a
 Yellow keeps the `10%` stop; a down arrow leaves the stop). A settings edit changes later stops, never stored ones.
@@ -158,8 +170,8 @@ about 133 x (15 ms candles + 24 ms replay) = 5 s plus the few LP calls the night
 - **Stops can move down.** A second Yellow's `0.9 x low` can be below the first Yellow's stop; there is no tighten-only rule.
 - **A Blue entry gets its first stop from a later down arrow.** PAYX: blue entry 101.80, Blue Down moved the stop to an LP at 101.42.
   Blue entries otherwise carry no stop and cannot breach.
-- **A Gray Up on a breached row** used to advance `last_signal_at` (WDC: the Gray of 2026-10-15 re-dated a row whose trade began 2026-09-16 and was stopped on 10-13). It no longer does (rule 2); the page also shows such a row's instruction as "Stop hit".
-- **Gray-born rows** (IDXX, MTD) have no entry and no stop; their down arrows change only the text. The page shows them as "No entry", not "Active". IDXX's yellow trade pre-dates the 3-month
+- **A Gray Up on a breached row** used to advance `last_signal_at` (WDC: the Gray of 2026-10-15 re-dated a row whose trade began 2026-09-16 and was stopped on 10-13), then (2026-10-16) froze it; since 2026-10-17 it restarts the row as a gray entry (rule 2; WDC would show a gray entry at the 2026-10-15 15:30 close).
+- **Gray-born rows** (IDXX, MTD in the first seed; superseded: the second rebuild gave both a yellow entry and a Gray Up now opens a gray entry, so no new row is born without an entry; the "No entry" badge stays in the UI for a legacy row). Originally they had no entry and no stop and the page showed them as "No entry", not "Active". IDXX's yellow trade pre-dates the 3-month
   window, so the table shows only its Gray Up.
 - **Young tickers** are seeded from the history they have; a 180-day-old Gray/Yellow label can still be wrong at the left edge of their
   replay (`docs/specs/warren-signal.md`, warm-up).
@@ -172,7 +184,7 @@ about 133 x (15 ms candles + 24 ms replay) = 5 s plus the few LP calls the night
 - The table does not protect a ticker in the tracked-universe sense (KEEP, not PROTECTING): a ticker that falls out of every
   list keeps its stale row, and the user decides when to remove it.
 - A watch row is end-of-day state (nightly); there is no intraday refresh.
-- A down arrow on a breached row only updates the text; a gray-only row (no entry, no stop) is listed like any other.
+- A down arrow on a breached row is ignored (2026-10-17; it used to update the text only), so a breached row's arrow pill and sort position stay on the arrow that was last applied to it.
 
 ## Phase 2: API, page, nav
 
@@ -190,7 +202,7 @@ page-level table, not a ticker resource (a viewer is not restricted to tracked t
 covers tickers with no row), falling back to the rows' own `as_of`; `null` only before the first seed.
 
 **Row fields:** `ticker`, `profile`, `latest_arrow_color` (`blue`/`yellow`/`gray`) and `latest_arrow_direction` (`up`/`down`) split from the
-stored kind, `latest_arrow_at`, `instruction_type`, `instruction_text`, `entry_kind`, `entry_price`, `stop_price`, `stop_basis`, `status`,
+stored kind, `latest_arrow_at`, `instruction_type`, `instruction_text`, `entry_kind` (`blue`/`yellow`/`gray`), `entry_price`, `stop_price`, `stop_basis`, `status`,
 `breached_at`, `last_signal_at`, `last_updated_at`, `age_bars`, `last_signal_age_bars`, and (2026-10-16) `entry_at`, `last_price`, `last_price_date`, `pl_pct`, `stop_distance_pct` (next paragraph), `stop_moved_at` (naive ET) and `stop_moved_by` (null on a row with no stop age). `removed_at` is not returned.
 
 **Price fields (2026-10-16).** `last_price` / `last_price_date` are the **latest completed DAILY close** and its date, read per ticker from the cached 1d bars (`clients/shared_bars_cache.py::read_cached_completed_daily_bars`, 30-day lookback; a pure read, so the endpoint stays cache-only and write-free for a viewer: no FMP call, no write, `tests/test_warren_watch_api.py` and `tests/test_viewer_rules.py`). A live in-progress bar is never used. A ticker with no cached daily bar returns nulls for all four computed fields. Both ratios are **fractions** (0.10 = 10%), defined once in `data/warren_watch_data.py`: `pl_pct = (last_price - entry_price) / entry_price` (null with no entry; a BREACHED row uses `stop_price` in place of `last_price`, see the P/L % column) and `stop_distance_pct = (last_price - stop_price) / last_price` (null with no stop; positive = price above the stop, negative = already below it). `entry_price` is the **close of the entry candle**, not a fill. **Intraday refresh:** if an intraday refresh is ever added (see "Open for a later phase"), "Last" should switch to the latest candle close instead of the daily close.
@@ -218,12 +230,12 @@ Table (`WarrenWatchTable`, modelled on `MomentumTable`: kit Table, compact Badge
 | Column | Content |
 | --- | --- |
 | Ticker | Link; a profiled ticker (spy/qqq/tqqq/tecl) shows "<profile> profile" beneath. |
-| Signal | Up/down pill in the arrow's colour: Blue = `chart-ema21` (the chart's own blue for Blue arrows), Yellow = `chart-warren-yellow`, Gray = `chart-warren-gray`. Title: the arrow candle's time. |
+| Signal | Up/down pill in the arrow's colour: Blue = `chart-ema21` (the chart's own blue for Blue arrows), Yellow = `chart-warren-yellow`, Gray = `chart-warren-gray`. Title: the arrow candle's time. A row whose trade was opened by a Gray Up (`entry_kind = gray`, 2026-10-17) also shows a small neutral **"Gray entry"** tag under the pill, tooltip "Two stop-outs in a row, higher risk" (`GRAY_ENTRY_NOTE`). |
 | Instruction | The stored text, wrapped to at most 2 lines in a 220 to 360 px cell, truncated beyond that, the full text in the tooltip (the longest string is the profiled Yellow Up, about 124 characters; the generic set tops out near 50). **A breached row** shows **"Stop hit"** with "since <breach candle, ET>" beneath instead (display only: the stored instruction type, text and stop are unchanged; the tooltip carries "Last instruction: <stored text>"). |
-| Entry | `entry_price`, mono, dash with no entry (Gray-born rows). Tooltip: entry kind (Blue/Yellow), the entry candle's ET stamp (`entry_at`), its age ("7 months ago", `fmtAgeAgo`) and "The close of the entry candle, not an actual fill." |
+| Entry | `entry_price`, mono, dash with no entry (Gray-born rows). Tooltip: entry kind (Blue/Yellow/Gray), the entry candle's ET stamp (`entry_at`), its age ("7 months ago", `fmtAgeAgo`) and "The close of the entry candle, not an actual fill." |
 | Last | `last_price`, the latest daily close; tooltip "Daily close of <last_price_date>"; dash when null. |
 | P/L % | `pl_pct`, signed, one decimal (`fmtSignedPct1`). **Active row:** `(last_price - entry_price) / entry_price`, green above the entry, red below. **Breached row (2026-10-16): frozen at the stop**, `(stop_price - entry_price) / entry_price`, computed server-side (`data/warren_watch_data.py::row_pl_pct`) from stored fields, so it does not move with the daily close; an estimate of the exit, not a fill (a gap through the stop is not included). Neutral colour (no green/red) with the tooltip "Stopped out at $<stop> on <breach date> ET. P/L estimated at the stop, not a real fill; gaps through the stop are not included." (`breachedPlTitle`). A new Yellow/Blue Up that returns the row to active switches it back to the active formula by itself. Dash with no entry, or on a breached row with no stop. Last and Stop dist. keep following the cached daily close, so on a breached row Stop dist. is how far price has moved from the stop since the stop-out. |
-| Stop | Price plus a neutral basis tag (`10%`, `LP`, `Entry`); a dash when there is no stop. A stop above the entry price shows normally with a small info icon whose tooltip says the latest instruction set it (2nd LP / entry price), so it does not read as a bug. **Stop-age tooltip** on the cell (`stopAgeTitle`): "Set at entry, Jun 11, 09:30 ET (10% of the candle low)", "Repeat yellow, Aug 3, 11:30 ET (lower of 2nd LP and 10%)", "Set Oct 15, 11:30 ET by Blue Down (2nd LP)" / "...by Yellow Down (2nd LP)", "Gray Down: stop set to entry, Sep 23, 13:30 ET", "Trailed to 2nd LP Oct 16, 13:30 ET", each followed by " · <age>" (`fmtAgeAgo`); no line when `stop_moved_at` is null. |
+| Stop | Price plus a neutral basis tag (`10%`, `LP`, `Entry`); a dash when there is no stop. A stop above the entry price shows normally with a small info icon whose tooltip says the latest instruction set it (2nd LP / entry price), so it does not read as a bug. **Stop-age tooltip** on the cell (`stopAgeTitle`): "Set at entry, Jun 11, 09:30 ET (10% of the candle low)", "Repeat yellow, Aug 3, 11:30 ET (lower of 2nd LP and 10%)", "Set Oct 15, 11:30 ET by Blue Down (2nd LP)" / "...by Yellow Down (2nd LP)", "Gray Down: stop set to entry, Sep 23, 13:30 ET", "Set at entry, ... (10% of the candle low, gray entry)" (`gray_up_entry`), "Trailed to 2nd LP Oct 16, 13:30 ET", each followed by " · <age>" (`fmtAgeAgo`); no line when `stop_moved_at` is null. |
 | Stop dist. | `stop_distance_pct`, signed, one decimal. **Red only when negative on an ACTIVE row** (the last close is below a stop the row still holds: a missed breach; tooltip says so); neutral otherwise, including a breached row. Dash with no stop. |
 | Status | Green "Active", or a red **Stop breached** badge (title: the breaching candle). A row with **no entry price** (born from a Gray Up) shows a neutral **"No entry"** badge instead of Active, its tooltip saying no up-arrow entry fell inside the 12-month replay window so an earlier trade may exist (`NO_ENTRY_NOTE` in `lib/technicalIdeas.ts`; it said "3-month seed window" until the seed went to 12 months); its Stop cell keeps the dash. |
 | Last signal | The candle start (ET) of the **latest arrow of any kind**, the same arrow as the Signal pill (`latest_arrow_at`), with its age in bars from `age_bars` ("this candle", "1 bar ago", "5 bars ago"). The tooltip carries **"Last entry/refresh: <date, ET>"**, the latest UP arrow (`last_signal_at`). |
@@ -251,6 +263,8 @@ are unchanged. `/technical-ideas` is a same-tab page like `/opportunities`. Inve
 - **Intraday refresh.** The table is as of the last nightly run; a refresh during the session would need the 60m cache topped up and the step
   run outside the Warren job (the cursor makes that safe), plus a decision on whether a forming candle may ever breach a stop.
 - **A second strategy section** needs only a new section component and hook; the page and the shell do not change.
+- **Gray entries are new (2026-10-17).** The gray rules have no live history: check the first real Gray Up entry end to end (entry at the close, 10% stop under the low, tag, tooltip), and watch whether a gray entry that is later hit by a Blue Up behaves as wanted (rule 2: it keeps the entry and the stop; the Blue is only shown in the pill and instruction).
+- **Ignored down arrows on a breached row** hide the newest arrow: a breached row's "Last signal" can now be weeks old while a down arrow fired yesterday. Revisit if that reads as stale.
 - **Sorting and filtering** (by status, signal colour, age) are not built; the default order is the only one.
 - **Stale rows.** A ticker that left every monitored list keeps its row and its frozen `as_of`; the page does not flag it.
 - **Verify state-change logic on live data.** The transitions (entry, refresh, breach, down-arrow stop updates, reset by a new yellow, removal then new arrow) cannot be fully verified yet; recheck as real arrows fire, starting with a blue entry, which has little live coverage.
@@ -318,3 +332,29 @@ before the same row stayed "active" with an old entry. So on the 53 rows the ent
 The Entry tooltip (kind, candle, age) already says so; a row whose Stop-age tooltip reads "Set at entry" with the same stamp as the Entry cell is such a restart.
 
 **Applied 2026-10-16** (owner approval, after the columns existed in the real DB): 112 rows written, the dry-run numbers exactly (45 stop age only, 37 stops, 53 entries, 17 active -> breached, 0 reverse, 0 skipped). A before/after dump showed exactly 112 rows changed; `removed_at`, `as_of`, `last_updated_at` and all cursors were identical on every row, and no removed row existed or was touched. A rerun reports 114 identical, 0 changing, 0 skipped.
+
+## Fourth rebuild: gray entry and breached-row rules (2026-10-17, dry run only, NOT applied)
+
+Rule changes (watch.py, `WatchRules`): a Gray Up with no open trade opens a gray entry; every up arrow restarts a breached row; down arrows are ignored on a breached row; a
+Blue Up never replaces an active gray entry. `pipeline.backfills.rebuild_warren_watch` was updated for it:
+
+- Replays every non-removed row from `REBUILD_START` through its cursor with the CURRENT rules, the cached 60m bars (no FMP call) and today's LP settings, and diffs all fourteen fields.
+- **Mismatch guard:** a differing row is rebuilt only if the same bars and LP settings replayed under `PREVIOUS_RULES` (no gray entry, down arrows applied on a breached row, Gray Up frozen on a
+  breached row; trailing ON) reproduce the stored row on all fourteen fields. A skipped row prints what the rule change alone would do to it (`old` replay vs new replay on today's bars).
+- Prints the new flip counts: breached -> active, no entry -> entry, rows now on a gray entry, rows whose arrow fields change and how many of those only because breached-row down arrows are now
+  ignored (an extra replay under the current rules with those arrows applied), and the rows still without an entry. Dry run by default; `--apply` is unchanged (only the differing rows, never
+  `removed_at`, the cursor, `as_of` or `last_updated_at`).
+
+Dry run on the real database (117 non-removed rows, cursors at 2026-10-16 15:30; 132 s, 7843 LP calls): **95 identical, 8 changing, 14 skipped by the guard**.
+- Flips: active -> breached 0; breached -> active 2 (IDXX, WDC); no entry -> entry 0 (no stored row lacks an entry; the "No entry" badge shows on no row).
+- Rows now on a gray entry: 3, all restarts of a breached row by a later Gray Up (IDXX 2026-09-11 15:30, MTD 2026-09-11 11:30, WDC 2026-10-15 15:30).
+- Arrow/sort fields change on 6 rows; 5 of them only because down arrows on a breached row are now ignored (CIBR, FIX, IGV, LMT, NTAP: the pill reverts to an older arrow; LMT 10-16 15:30
+  Blue Down -> 09-08 Yellow Up, FIX 10-06 -> 08-26, NTAP 10-02 -> 08-25, CIBR 09-15 -> 08-27, IGV 08-27 -> 08-04), the sixth is WDC's restart.
+- Named rows: IDXX breached -> active gray entry 504.88 (2026-09-11 15:30), stop moved to entry 504.88 by the 10-16 Gray Down (entry below the close); MTD gray entry 1300.04, stop trailed to 1485.02 LP
+  (above the entry) and breached 2026-10-01; WDC gray entry 356.43 (2026-10-15 15:30), stop 315.68, active. QCOM, LRCX, MRNA unchanged (QCOM yellow 149.69 active; LRCX and MRNA stay breached with their
+  entries; MRNA's frozen P/L is unaffected). The 2 rows with no stop, DASH and SYK, are blue entries (a Blue sets no stop) and are unchanged.
+- 14 skipped: 11 are cent-level drift between the stored entry/stop and today's cached bars (ALAB, ASML, CRWV, LITE, MPWR, MU, QQQ, SNPS, STX, TQQQ, VRT; the rule change alone changes none of them);
+  ADP differs in its arrow history (also unchanged by the rules); **RMD and ROBO differ for other reasons and RMD would be a gray-entry row under the new rules** (RMD stored yellow 09-09 vs a replay
+  that ends on a Gray Down 10-15; ROBO is a row created by the nightly job after the third rebuild, with a different window start). They stay as stored until reviewed.
+
+**Not applied.** The nightly job applies the new rules to new candles only (the cursor), so stored rows keep the old results until a rebuild is applied; do not run `--apply` without review.

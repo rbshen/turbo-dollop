@@ -87,6 +87,14 @@ def test_get_returns_the_stop_age_as_an_et_stamp_and_the_rule(engine, utc_server
     assert (b["stop_moved_at"], b["stop_moved_by"]) == (None, None)
 
 
+def test_get_exposes_the_gray_entry_kind_and_its_stop_age_rule(engine, utc_server):
+    add_row(engine, "GRY", entry_kind="gray", latest_arrow_kind="gray_up", instruction_type=1, stop_moved_at=datetime(2026, 10, 15, 13, 30), stop_moved_by="gray_up_entry")
+    response = TestClient(main.app).get("/api/technical-ideas/warren")
+    assert response.status_code == 200
+    (row,) = response.json()["rows"]
+    assert (row["entry_kind"], row["stop_moved_by"], row["latest_arrow_color"], row["latest_arrow_direction"]) == ("gray", "gray_up_entry", "gray", "up")
+
+
 def test_age_follows_the_nyse_calendar_holiday_and_early_close(engine):
     # Thanksgiving 2026-11-26 is closed; the Friday 11-27 closes at 13:00 (windows 09:30 and 11:30 only).
     add_row(engine, "AAA", latest_arrow_at=datetime(2026, 11, 25, 15, 30), last_signal_at=datetime(2026, 11, 25, 15, 30),

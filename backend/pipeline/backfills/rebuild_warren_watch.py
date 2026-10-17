@@ -1,18 +1,16 @@
-"""One-off rebuild of stored Warren watch rows for the 2026-10-16 trailing-stop rule and the stop-age columns
-(docs/specs/warren-signals-page.md). Replays every non-removed row's candles from REBUILD_START (the first seed's as_of minus
-SEED_MONTHS, a fixed date so a rerun is stable) through the row's own cursor with the CURRENT rules (arrow rules plus the trailing
-stop), the cached 60m bars (a pure read: no FMP call) and today's LP settings, fills `stop_moved_at` / `stop_moved_by`, and compares
-every field with the stored row.
+"""One-off rebuild of stored Warren watch rows after a rule change (docs/specs/warren-signals-page.md); the current one is the
+2026-10-17 gray-entry / breached-row rules. Replays every non-removed row's candles from REBUILD_START (the first seed's as_of
+minus SEED_MONTHS, a fixed date so a rerun is stable) through the row's own cursor with the CURRENT rules (arrow rules plus the
+trailing stop), the cached 60m bars (a pure read: no FMP call) and today's LP settings, and compares every field with the stored row.
 
 Writes (only with --apply) the changed columns of a row that differs, and nothing else: `removed_at`, the cursor, `as_of` and
 `last_updated_at` are never touched, a removed row is skipped (never resurrected) and a ticker with no row never gets one.
 
 Mismatch guard. A row that already equals the new replay is identical (so a rerun after --apply reports every row identical). A row
-that differs is only rebuilt if the same bars and LP settings replayed WITHOUT trailing (the rules the stored rows were built under:
-arrow rules, 12-month replay, the 2026-10-16 Gray Down rule) reproduce the stored row exactly on the original twelve fields; the
-stop-age fields are excluded from that comparison (stored rows hold null there). If they do not, the difference is not explained by
-the trailing rule (the bars, the LP settings or the arrows moved, or the nightly job already trailed the row), so the row is printed
-and skipped.
+that differs is only rebuilt if the same bars and LP settings replayed under the PREVIOUS arrow rules (`PREVIOUS_RULES`: no gray
+entry, down arrows applied on a breached row, a Gray Up on a breached row frozen; trailing on) reproduce the stored row exactly on
+all fourteen fields. If they do not, the difference is not explained by the rule change (the bars, the LP settings or the arrows
+moved), so the row is printed and skipped.
 
 A dry run reads even when the database has not yet been migrated to the stop-age columns (it selects only the columns that exist);
 --apply refuses until they exist (start the app or run a job once: init_db adds them).
@@ -25,6 +23,7 @@ Run for real:
 
 import argparse
 import time
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
 
@@ -32,7 +31,7 @@ import pandas as pd
 from sqlalchemy import inspect
 from sqlmodel import Session, select
 
-from analysis.warren_signal.watch import STATUS_ACTIVE, STATUS_BREACHED, WatchState, advance
+from analysis.warren_signal.watch import CURRENT_RULES, PREVIOUS_RULES, STATUS_ACTIVE, STATUS_BREACHED, WatchRules, WatchState, advance
 from clients.shared_bars_cache import INTRADAY_INTERVAL, _load_frames
 from core.db import engine
 from core.models import LiquidityZoneSettings, WarrenWatchCursor, WarrenWatchRow
@@ -47,13 +46,14 @@ REBUILD_START = (pd.Timestamp(FIRST_SEED_AS_OF) - pd.DateOffset(months=SEED_MONT
 # A 180-day engine warm-up before the replay start is the comfortable minimum for a clean left edge (warren-signal.md).
 WARMUP_DAYS = 180
 
-# The twelve fields the stored rows were built with; the guard compares only these (the stop-age fields are null in stored rows).
+# The fields the arrow rules and the guard cover. The stop-age fields are filled on every row since the 2026-10-16 rebuild, so the guard compares all fourteen.
 GUARD_FIELDS = (
     "profile", "latest_arrow_kind", "latest_arrow_at", "instruction_type", "entry_kind", "entry_at", "entry_price", "stop_price",
     "stop_basis", "status", "breached_at", "last_signal_at",
 )
 AGE_FIELDS = ("stop_moved_at", "stop_moved_by")
 FIELDS = GUARD_FIELDS + AGE_FIELDS
+ARROW_FIELDS = ("latest_arrow_kind", "latest_arrow_at", "instruction_type")
 
 
 class Replay(NamedTuple):
@@ -63,16 +63,18 @@ class Replay(NamedTuple):
 
 
 def replay_state(
-    ticker: str, bars: pd.DataFrame, settings, through: datetime, start: datetime = REBUILD_START, trail: bool = True
+    ticker: str, bars: pd.DataFrame, settings, through: datetime, start: datetime = REBUILD_START, trail: bool = True,
+    rules: WatchRules = CURRENT_RULES,
 ) -> Replay:
-    """The row the rules give for `ticker` from `start` through the candle `through` (`trail=False`: without the trailing stop)."""
+    """The row the rules give for `ticker` from `start` through the candle `through` (`trail=False`: without the trailing stop;
+    `rules`: the arrow rules, CURRENT_RULES or PREVIOUS_RULES)."""
     candles = completed_candles(bars, datetime.now(timezone.utc))
     candles = candles[candles.index <= pd.Timestamp(through)]
     if candles.empty:
         return Replay(None, 0, [])
     result = watch_replay(ticker, candles)
     lookup, log = SecondSupportLookup(candles, settings), []
-    state = advance(None, candles, result.events, result.first_yellow_after_blue_at, profile_for(ticker).name, start, lookup, trail, log)
+    state = advance(None, candles, result.events, result.first_yellow_after_blue_at, profile_for(ticker).name, start, lookup, trail, log, rules)
     return Replay(state, lookup.calls, log)
 
 
@@ -98,6 +100,8 @@ def history_gap(bars: pd.DataFrame, through: datetime) -> str | None:
 def classify(changes: dict) -> list[str]:
     """The kinds of change in a diff dict {field: (stored, new)}."""
     kinds = []
+    if "entry_kind" in changes and changes["entry_kind"][1] == "gray":
+        kinds.append("restarted as gray entry")
     if {"entry_kind", "entry_at", "entry_price"} & set(changes):
         kinds.append("entry changed")
     if "stop_price" in changes:
@@ -148,7 +152,7 @@ def main(apply: bool, tickers: list[str] | None = None, show: tuple[str, ...] = 
         cursors = {c.ticker: c.processed_through for c in session.exec(select(WarrenWatchCursor)).all()}
         bars = _load_frames(session, [r.ticker for r in rows], INTRADAY_INTERVAL, (datetime.now() - timedelta(days=LOOKBACK_DAYS)).date())
 
-        changing, same, skipped, gaps, spotlight, finals = [], 0, [], [], {}, {}
+        changing, same, skipped, gaps, spotlight, finals, downs_ignored = [], 0, [], [], {}, {}, []
         lp_calls, trail_moves = 0, 0
         for row in rows:
             frame, through = bars.get(row.ticker), cursors.get(row.ticker)
@@ -173,12 +177,22 @@ def main(apply: bool, tickers: list[str] | None = None, show: tuple[str, ...] = 
                 same += 1  # already on the current rules (a rerun after --apply)
                 finals[row.ticker] = fresh
                 continue
-            old = replay_state(row.ticker, frame, settings, through, trail=False)
+            old = replay_state(row.ticker, frame, settings, through, rules=PREVIOUS_RULES)
             lp_calls += old.lp_calls
-            baseline = diff(stored, old.state, GUARD_FIELDS)
+            baseline = diff(stored, old.state)
             if baseline:
-                skipped.append((row.ticker, f"the rules without trailing do not reproduce the stored row, left alone: {baseline}"))
+                effect = diff(old.state, fresh)  # what the rule change alone would do to this row, on today's bars (the drift aside)
+                skipped.append((
+                    row.ticker,
+                    f"the previous rules do not reproduce the stored row, left alone: {baseline}; "
+                    f"the rule change alone would {'change ' + ', '.join(effect) if effect else 'change nothing'}",
+                ))
                 continue
+            # What ignoring down arrows on a breached row does to this row on its own: the current rules with those arrows applied.
+            applied = replay_state(row.ticker, frame, settings, through, rules=replace(CURRENT_RULES, ignore_breached_downs=False))
+            lp_calls += applied.lp_calls
+            if applied.state is not None and any(getattr(applied.state, f) != getattr(fresh, f) for f in ARROW_FIELDS):
+                downs_ignored.append(row.ticker)
             changing.append((row.ticker, changes, stored, fresh))
             finals[row.ticker] = fresh
             if apply:
@@ -204,6 +218,17 @@ def main(apply: bool, tickers: list[str] | None = None, show: tuple[str, ...] = 
             print(f"      {f}: {a} -> {b}")
     print("by kind (a row can count in several):", dict(sorted(kinds.items())))
     print(f"active -> breached ({len(flips)}):", ", ".join(f"{t} {d:%Y-%m-%d %H:%M}" for t, d in flips))
+    to_active = [t for t, _, stored, fresh in changing if stored.status == STATUS_BREACHED and fresh.status == STATUS_ACTIVE]
+    got_entry = [t for t, _, stored, fresh in changing if stored.entry_kind is None and fresh.entry_kind is not None]
+    gray_restarts = [t for t, _, stored, fresh in changing if fresh.entry_kind == "gray" and stored.entry_kind != "gray"]
+    arrow_changed = [t for t, ch, _, _ in changing if set(ch) & set(ARROW_FIELDS)]
+    print(f"breached -> active ({len(to_active)}):", ", ".join(to_active))
+    print(f"no entry -> entry ({len(got_entry)}):", ", ".join(got_entry))
+    print(f"rows now on a gray entry that were not ({len(gray_restarts)}):", ", ".join(gray_restarts))
+    print(f"rows whose arrow/instruction fields change from stored ({len(arrow_changed)}), of which because down arrows on a breached row are now ignored ({len([t for t in downs_ignored if t in arrow_changed])}):", ", ".join(t for t in downs_ignored if t in arrow_changed))
+    print(f"rows where ignoring down arrows changes the final arrow fields at all ({len(downs_ignored)}):", ", ".join(downs_ignored))
+    no_entry_left = sorted(t for t, f in finals.items() if f.entry_kind is None)
+    print(f"rows with no entry after the rebuild ({len(no_entry_left)}):", ", ".join(no_entry_left))
     for ticker, (stored, fresh, log) in spotlight.items():
         print(f"  SHOW {ticker}\n      before: {_brief(stored)}\n      after:  {_brief(fresh)}\n      trail moves: {len(log)}")
     for ticker, why in skipped:
@@ -216,6 +241,8 @@ def main(apply: bool, tickers: list[str] | None = None, show: tuple[str, ...] = 
     print(f"stop_moved_at after the rebuild ({len(finals)} rows with a verdict): {filled} filled; {len(finals) - filled} null ({no_stop} with no stop, {no_age_with_stop} with a stop)")
     print(f"{lp_calls} LP calls (trailing replays and guard replays); {trail_moves} trail moves; {time.monotonic() - started:.1f}s")
     return {
+        "to_active": to_active, "got_entry": got_entry, "gray_restarts": gray_restarts, "arrow_changed": arrow_changed,
+        "downs_ignored": downs_ignored, "no_entry_left": no_entry_left,
         "changing": len(changing), "same": same, "skipped": len(skipped), "gaps": len(gaps), "kinds": kinds, "flips": flips,
         "lp_calls": lp_calls, "trail_moves": trail_moves, "filled": filled, "no_stop": no_stop, "no_age_with_stop": no_age_with_stop,
     }

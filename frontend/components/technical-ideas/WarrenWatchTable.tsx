@@ -10,6 +10,7 @@ import { fmtMoney } from "@/lib/format";
 import {
   breachedPlTitle,
   entryTitle,
+  GRAY_ENTRY_NOTE,
   fmtBarsAgo,
   fmtEtDate,
   fmtEtStamp,
@@ -210,6 +211,13 @@ export function WarrenWatchTable({ rows }: Props) {
             </TableCell>
             <TableCell className={`${PAD} whitespace-nowrap`}>
               <SignalPill row={row} />
+              {row.entry_kind === "gray" && (
+                <p className="mt-1">
+                  <Badge size="compact" tone="neutral" title={GRAY_ENTRY_NOTE}>
+                    Gray entry
+                  </Badge>
+                </p>
+              )}
             </TableCell>
             <InstructionCell row={row} />
             <EntryCell row={row} nowMs={nowMs} />

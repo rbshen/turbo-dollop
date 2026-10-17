@@ -1,6 +1,7 @@
 """The one-time watch-row rebuild (pipeline/backfills/rebuild_warren_watch.py): the field diff, the kinds of change, the 12-month start,
-the mismatch guard (the rules WITHOUT trailing must reproduce a stored row, the stop-age fields excluded), the dry run that writes
-nothing (even on a database without the stop-age columns) and --apply that fills the stop age and touches nothing else."""
+the mismatch guard (the PREVIOUS arrow rules, trailing on, must reproduce a stored row on all fourteen fields), the dry run that
+writes nothing (even on a database without the stop-age columns) and --apply that writes only the rows the 2026-10-17 rules change
+(gray entry, down arrows ignored on a breached row) and touches nothing else."""
 
 from dataclasses import replace
 from datetime import datetime
@@ -58,11 +59,16 @@ def test_classify_names_the_kinds_of_change():
 
 LAST = datetime(2026, 10, 16, 15, 30)
 ARROWS = {
-    "A": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30")],  # an LP stop of 80 that the 10-15 session's LP trails to 85
+    "A": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30")],  # an LP stop that trails to 85: the same under both rule sets
     "B": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30")],  # removed: must be skipped
-    "C": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30")],  # stored stop the old rules cannot reproduce: must be skipped
-    "D": [("yellow_up", "2026-09-01 09:30")],  # a 10% stop: nothing to trail, only the stop age to fill
+    "C": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30")],  # a stored stop the previous rules cannot reproduce: must be skipped
+    "D": [("yellow_up", "2026-09-01 09:30")],  # a 10% stop: the same under both rule sets
+    "E": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30")],  # breached on 09-03; the Blue Down is now ignored
+    "F": [("gray_up", "2026-09-01 09:30")],  # a gray-born, entry-less stored row; now a gray entry
+    "G": [("yellow_up", "2026-09-01 09:30"), ("gray_up", "2026-09-10 09:30")],  # breached on 09-03; the Gray Up now restarts it as a gray entry
 }
+LOWS = {"2026-09-03": 80.0}  # under every 10% stop (89.1): the 09:30 candle of that day breaches an active row that holds one
+BREACHING = ("E", "G")
 
 
 @pytest.fixture
@@ -70,10 +76,11 @@ def world(monkeypatch):
     eng = create_engine("sqlite://", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(eng)
     frame = bars("2025-08-01", "2026-10-16")
+    frames = {t: bars("2025-08-01", "2026-10-16", LOWS) if t in BREACHING else frame for t in ARROWS}
     canned(monkeypatch, ARROWS)
     monkeypatch.setattr(rb, "watch_replay", wwd.watch_replay)
     monkeypatch.setattr(rb, "engine", eng)
-    monkeypatch.setattr(rb, "_load_frames", lambda session, tickers, interval, start: {t: frame for t in tickers})
+    monkeypatch.setattr(rb, "_load_frames", lambda session, tickers, interval, start: {t: frames[t] for t in tickers})
     monkeypatch.setattr(rb, "completed_candles", lambda b, now: wwd.completed_candles(b, NOW))
     monkeypatch.setattr(rb, "history_gap", lambda *a: None)
 
@@ -90,9 +97,8 @@ def world(monkeypatch):
     candles = wwd.completed_candles(frame, NOW)
     settings = SimpleNamespace(max_lps_per_side=3)
     for ticker in ARROWS:
-        old = rb.replay_state(ticker, frame, settings, LAST, trail=False).state  # what the stored rows hold: the rules without trailing
+        old = rb.replay_state(ticker, frames[ticker], settings, LAST, rules=rb.PREVIOUS_RULES).state  # what the stored rows hold: the previous rules
         values = wwd._row_values(old)
-        values.update(stop_moved_at=None, stop_moved_by=None)  # stored rows have no stop age yet
         if ticker == "C":
             values["stop_price"] = 77.0
         with Session(eng) as s:
@@ -115,15 +121,16 @@ def test_a_dry_run_writes_nothing_and_reports_the_trailed_and_filled_rows(world,
     before = snapshot(eng)
     out = rb.main(apply=False)
     assert snapshot(eng) == before
-    # A (trails 80 -> 85) and D (stop age only) change; B is removed (not read); C fails the guard.
-    assert (out["changing"], out["same"], out["skipped"]) == (2, 0, 1)
-    assert out["kinds"]["stop changed"] == 1 and out["kinds"]["stop age fill only"] == 1 and out["kinds"]["stop only"] == 1
-    assert out["trail_moves"] >= 1 and out["lp_calls"] > 0 and out["flips"] == []
+    # A and D are already on the current rules; E, F, G change; B is removed (not read); C fails the guard.
+    assert (out["changing"], out["same"], out["skipped"]) == (3, 2, 1)
+    assert out["to_active"] == ["G"] and out["got_entry"] == ["F"] and sorted(out["gray_restarts"]) == ["F", "G"]
+    assert out["arrow_changed"] == ["E", "G"] and out["downs_ignored"] == ["E"] and out["no_entry_left"] == []
+    assert out["flips"] == [] and out["lp_calls"] > 0
     printed = capsys.readouterr().out
-    assert "SKIPPED C" in printed and "the rules without trailing do not reproduce the stored row" in printed
+    assert "SKIPPED C" in printed and "the previous rules do not reproduce the stored row" in printed
 
 
-def test_apply_fills_the_stop_age_and_touches_nothing_else_and_a_rerun_is_identical(world):
+def test_apply_writes_only_the_rows_the_new_rules_change_and_a_rerun_is_identical(world):
     eng, _ = world
     before_rows, before_cursors = snapshot(eng)
     rb.main(apply=True)
@@ -131,14 +138,17 @@ def test_apply_fills_the_stop_age_and_touches_nothing_else_and_a_rerun_is_identi
     assert after_cursors == before_cursors
     by_ticker = lambda rows: {r["ticker"]: r for r in rows}  # noqa: E731
     b, a = by_ticker(before_rows), by_ticker(after_rows)
-    assert a["B"] == b["B"] and a["C"] == b["C"]  # removed and guard-skipped rows untouched
-    assert (a["A"]["stop_price"], a["A"]["stop_basis"], a["A"]["stop_moved_by"]) == (85.0, "LP", "trail")
-    assert (a["D"]["stop_price"], a["D"]["stop_moved_by"], a["D"]["stop_moved_at"]) == (b["D"]["stop_price"], "yellow_up_entry", datetime(2026, 9, 1, 9, 30))
-    for ticker in ("A", "D"):
+    for untouched in ("A", "B", "C", "D"):  # identical, removed and guard-skipped rows
+        assert a[untouched] == b[untouched]
+    assert (a["E"]["status"], a["E"]["instruction_type"], a["E"]["latest_arrow_kind"]) == ("breached", 3, "yellow_up")  # the Blue Down is gone
+    assert (b["E"]["instruction_type"], b["E"]["latest_arrow_kind"]) == (10, "blue_down")
+    assert (a["F"]["entry_kind"], a["F"]["entry_at"], a["F"]["stop_basis"], a["F"]["stop_moved_by"]) == ("gray", datetime(2026, 9, 1, 9, 30), "10%", "gray_up_entry")
+    assert (a["G"]["entry_kind"], a["G"]["status"], a["G"]["breached_at"], a["G"]["entry_at"]) == ("gray", "active", None, datetime(2026, 9, 10, 9, 30))
+    for ticker in ("E", "F", "G"):
         for untouched in ("removed_at", "as_of", "last_updated_at"):
             assert a[ticker][untouched] == b[ticker][untouched]
     again = rb.main(apply=False)
-    assert (again["changing"], again["same"], again["skipped"]) == (0, 2, 1)
+    assert (again["changing"], again["same"], again["skipped"]) == (0, 5, 1)
 
 
 def test_a_dry_run_reads_a_database_without_the_stop_age_columns_and_apply_refuses(world):
@@ -146,7 +156,7 @@ def test_a_dry_run_reads_a_database_without_the_stop_age_columns_and_apply_refus
     with eng.begin() as conn:
         conn.execute(text("ALTER TABLE warrenwatchrow DROP COLUMN stop_moved_at"))
         conn.execute(text("ALTER TABLE warrenwatchrow DROP COLUMN stop_moved_by"))
-    out = rb.main(apply=False)
-    assert (out["changing"], out["skipped"]) == (2, 1)
+    out = rb.main(apply=False)  # reads fine; the stored rows carry no stop age, so the guard (all fourteen fields) cannot vouch for them
+    assert out["changing"] + out["same"] + out["skipped"] == 6
     with pytest.raises(SystemExit, match="stop_moved_at"):
         rb.main(apply=True)

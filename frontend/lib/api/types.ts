@@ -2186,7 +2186,7 @@ export interface OpportunityDateOut {
 // candle times are 2h window STARTS. `age_bars` / `last_signal_age_bars` count completed 2h candles after the latest arrow's / latest
 // UP arrow's candle up to `as_of` (0 = on the last candle). The page uses `age_bars` and `latest_arrow_at`; `last_signal_age_bars`
 // is still returned but no longer read by the UI (`last_signal_at` appears only in a tooltip).
-export type StopMovedBy = "yellow_up_entry" | "yellow_up_repeat" | "blue_down" | "yellow_down" | "gray_down" | "trail";
+export type StopMovedBy = "yellow_up_entry" | "yellow_up_repeat" | "blue_down" | "yellow_down" | "gray_down" | "trail" | "gray_up_entry";
 
 export interface WarrenWatchRowOut {
   ticker: string;
@@ -2196,7 +2196,7 @@ export interface WarrenWatchRowOut {
   latest_arrow_at: string;
   instruction_type: number;
   instruction_text: string;
-  entry_kind: "blue" | "yellow" | null;
+  entry_kind: "blue" | "yellow" | "gray" | null;
   entry_at: string | null;
   entry_price: number | null;
   stop_price: number | null;

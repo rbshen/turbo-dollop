@@ -83,6 +83,9 @@ describe("entry and P/L formatting", () => {
     expect(entryTitle({ entry_kind: "blue", entry_at: "2026-10-09T09:30:00" }, now)).toBe(
       "Blue entry · Oct 9, 09:30 ET · 7 days ago. The close of the entry candle, not an actual fill.",
     );
+    expect(entryTitle({ entry_kind: "gray", entry_at: "2026-10-09T09:30:00" }, now)).toBe(
+      "Gray entry · Oct 9, 09:30 ET · 7 days ago. The close of the entry candle, not an actual fill.",
+    );
     expect(entryTitle({ entry_kind: null, entry_at: null }, now)).toBe("Entry. The close of the entry candle, not an actual fill.");
   });
   it("words the stop-age tooltip for each rule, and gives nothing without a stop age", () => {
@@ -92,6 +95,7 @@ describe("entry and P/L formatting", () => {
     expect(at("trail", "2026-10-16T09:30:00")).toBe("Trailed to 2nd LP Oct 16, 09:30 ET · today");
     expect(at("yellow_up_entry", "2026-06-11T09:30:00")).toBe("Set at entry, Jun 11, 09:30 ET (10% of the candle low) · 4 months ago");
     expect(at("yellow_up_repeat", "2026-08-03T11:30:00")).toBe("Repeat yellow, Aug 3, 11:30 ET (lower of 2nd LP and 10%) · 2 months ago");
+    expect(at("gray_up_entry", "2026-09-23T13:30:00")).toBe("Set at entry, Sep 23, 13:30 ET (10% of the candle low, gray entry) · 23 days ago");
     expect(at("gray_down", "2026-09-23T13:30:00")).toBe("Gray Down: stop set to entry, Sep 23, 13:30 ET · 23 days ago");
     expect(stopAgeTitle({ stop_moved_at: null, stop_moved_by: null }, now)).toBeNull();
     expect(stopAgeTitle({ stop_moved_at: "2026-10-09T11:30:00", stop_moved_by: null }, now)).toBeNull();
