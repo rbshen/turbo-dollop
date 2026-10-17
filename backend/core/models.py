@@ -376,7 +376,7 @@ class WarrenWatchRow(SQLModel, table=True):
     profile: str  # "any" | "spy" | "qqq" | "tqqq" | "tecl"
     latest_arrow_kind: str  # one of analysis.warren_signal.types.SIGNAL_KINDS, either direction
     latest_arrow_at: datetime
-    instruction_type: int  # ToS numbering: 1, 2, 3, 10, 20, 30
+    instruction_type: int  # ToS numbering: 1, 2, 3, 4, 10, 20, 30, plus 5 (watch table only: a Blue Up in an open trade); always the type of the arrow in the pill
     instruction_text: str  # the profile's string for that type
     entry_kind: str | None = None  # "blue" | "yellow" | "gray" (a Gray Up that opened a trade, 2026-10-17); None only for a legacy row born from a Gray Up
     entry_at: datetime | None = None

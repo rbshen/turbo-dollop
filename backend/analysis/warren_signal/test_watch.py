@@ -95,15 +95,18 @@ def test_yellow_up_on_an_active_blue_row_sets_a_stop_and_keeps_the_blue_entry():
 
 def test_first_yellow_after_blue_is_no_action_only_dates_move():
     s, lp = _run(FLAT, [_ev("blue_up", 1), _ev("yellow_up", 4)], Lp({4: 70.0}), first_yellow=[4])
-    assert (s.stop_price, s.stop_basis, s.instruction_type) == (None, "none", 2)
+    assert (s.stop_price, s.stop_basis, s.instruction_type) == (None, "none", 4)  # the text follows the pill: "FIRST YELLOW UP ... NO ACTION"
+    assert s.instruction_text == "FIRST YELLOW UP ARROW AFTER BLUE ENTRY - NO ACTION"
     assert (s.latest_arrow_kind, s.latest_arrow_at, s.last_signal_at) == ("yellow_up", _ts(4), _ts(4))
     assert lp.asked == []
+    old, _ = _run(FLAT, [_ev("blue_up", 1), _ev("yellow_up", 4)], Lp({4: 70.0}), first_yellow=[4], rules=w.PREVIOUS_RULES)
+    assert old.instruction_type == 2  # the previous rules left the Blue Up text under the Yellow pill
 
 
 def test_gray_up_with_a_row_is_no_action():
     lows = [100, 100, 80, 100, 100, 100, 100]
     s, lp = _run(lows, [_ev("yellow_up", 2), _ev("gray_up", 5)])
-    assert (s.stop_price, s.stop_basis, s.instruction_type, s.entry_kind) == (pytest.approx(72.0), "10%", 3, "yellow")
+    assert (s.stop_price, s.stop_basis, s.instruction_type, s.entry_kind) == (pytest.approx(72.0), "10%", 1, "yellow")  # the text follows the Gray pill
     assert (s.latest_arrow_kind, s.last_signal_at) == ("gray_up", _ts(5))
     assert lp.asked == []
 
@@ -121,7 +124,8 @@ def test_gray_up_on_an_active_row_with_an_entry_moves_only_the_arrow_and_the_dat
     s, lp = _run(FLAT, [_ev("yellow_up", 1), _ev("gray_up", 4)])
     assert (s.status, s.latest_arrow_kind, s.last_signal_at) == ("active", "gray_up", _ts(4))
     assert (s.entry_kind, s.entry_at, s.entry_price) == ("yellow", _ts(1), 101.0)  # entry unchanged
-    assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.instruction_type) == (pytest.approx(90.0), "10%", _ts(1), 3)  # stop and instruction unchanged
+    assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.instruction_type) == (pytest.approx(90.0), "10%", _ts(1), 1)  # stop unchanged; the instruction follows the pill (Gray Up)
+    assert s.instruction_text == "GRAY UP - NO ACTION. Stopped out twice."
     s, _ = _run(FLAT, [_ev("blue_up", 1), _ev("gray_up", 4)])  # a blue entry (no stop) is an open trade too
     assert (s.entry_kind, s.entry_at, s.stop_price, s.last_signal_at) == ("blue", _ts(1), None, _ts(4))
     assert lp.asked == []
@@ -701,7 +705,7 @@ def test_after_an_in_trade_blue_up_the_next_yellow_is_no_action_and_the_second_o
     lp = Lp({5: 70.0, 8: 60.0})
     # the arrow replay marks candle 5 as the first Yellow after the Blue (the counter reset on the in-trade Blue)
     s, lp = _run(lows, events[:3], lp, first_yellow=[5])
-    assert (s.stop_price, s.stop_basis, s.stop_moved_by, s.instruction_type) == (pytest.approx(90.0), "10%", "yellow_up_entry", 5)
+    assert (s.stop_price, s.stop_basis, s.stop_moved_by, s.instruction_type) == (pytest.approx(90.0), "10%", "yellow_up_entry", 4)  # the pill is Yellow Up, so is the text
     assert (s.latest_arrow_kind, s.last_signal_at) == ("yellow_up", _ts(5)) and lp.asked == []
     s, lp = _run(lows, events, Lp({5: 70.0, 8: 60.0}), first_yellow=[5])  # the second Yellow after the Blue is armed: min(2nd LP 60, 90) = 60
     assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by, s.instruction_type) == (60.0, "LP", _ts(8), "yellow_up_repeat", 3)
@@ -755,3 +759,68 @@ def test_a_breach_and_a_gray_down_on_one_candle_breach_first_and_the_gray_down_i
     s, _ = _run(lows, [_ev("yellow_up", 1), _ev("gray_down", 2), _ev("gray_down", 4)], closes=closes)
     assert (s.status, s.breached_at, s.stop_price, s.stop_basis) == ("breached", _ts(4), 100.0, "entry")
     assert (s.latest_arrow_at, s.latest_arrow_kind, s.instruction_type) == (_ts(2), "gray_down", 30)  # the second Gray Down changed nothing, not even the pill
+
+
+# --- the instruction text follows the pill (2026-10-17) ----------------------------------------------------------------
+
+# pill -> the instruction types it may carry: Blue Up is 2 (new entry) or 5 (in an open trade), Yellow Up is 3 or 4 (first Yellow after a Blue), the rest one each
+PILL_TYPES = {"blue_up": {2, 5}, "yellow_up": {3, 4}, "gray_up": {1}, "blue_down": {10}, "yellow_down": {20}, "gray_down": {30}}
+RISE = [100.0] * 4 + [120.0] * 12
+RISE_CLOSES = [101.0] * 4 + [121.0] * 12
+
+
+def _situations():
+    """(name, lows, closes, events, lp, first_yellow): every arrow type on each kind of row, active and breached, restarts, and first Yellows."""
+    out = []
+    low_breach = [100, 100, 100, 85, 100, 100, 100, 100, 100, 100]
+    for entry in ("yellow_up", "blue_up", "gray_up"):
+        for arrow in PILL_TYPES:
+            out.append((f"{arrow} on active {entry}", RISE, RISE_CLOSES, [_ev(entry, 1), _ev(arrow, 6)], {6: 105.0}, ()))
+            out.append((f"{arrow} on breached {entry}", low_breach, None, [_ev(entry, 1), _ev(arrow, 6)], {6: 95.0}, ()))
+            out.append((f"{arrow} on the breaching candle of {entry}", low_breach, None, [_ev(entry, 1), _ev(arrow, 3)], {3: 95.0}, ()))
+            out.append((f"{arrow} then a down arrow, same candle, on {entry}", RISE, RISE_CLOSES, [_ev(entry, 1), _ev(arrow, 6), _ev("blue_down", 6)], {6: 105.0}, ()))
+    out.append(("first Yellow after a Blue entry", RISE, RISE_CLOSES, [_ev("blue_up", 1), _ev("yellow_up", 6)], {6: 105.0}, (6,)))
+    out.append(("first Yellow after an in-trade Blue Up on a yellow entry", RISE, RISE_CLOSES, [_ev("yellow_up", 1), _ev("blue_up", 4), _ev("yellow_up", 6)], {6: 105.0}, (6,)))
+    out.append(("first Yellow with no row", RISE, RISE_CLOSES, [_ev("yellow_up", 6)], {}, (6,)))
+    out.append(("second Yellow after a Blue", RISE, RISE_CLOSES, [_ev("blue_up", 1), _ev("yellow_up", 5), _ev("yellow_up", 8)], {8: 105.0}, (5,)))
+    for arrow in PILL_TYPES:
+        out.append((f"{arrow} with no row", RISE, RISE_CLOSES, [_ev(arrow, 6)], {6: 105.0}, ()))
+    return out
+
+
+@pytest.mark.parametrize("name, lows, closes, events, lp, first", _situations(), ids=[x[0] for x in _situations()])
+def test_the_instruction_type_is_always_one_the_arrow_in_the_pill_can_carry(name, lows, closes, events, lp, first):
+    s, _ = _run(lows, events, Lp(lp), closes=closes, first_yellow=first)
+    if s is None:
+        return  # a down arrow with no row creates nothing
+    assert s.instruction_type in PILL_TYPES[s.latest_arrow_kind], (name, s.latest_arrow_kind, s.instruction_type)
+
+
+def test_the_invariant_has_teeth_the_previous_rules_break_it():
+    broken = [x for x in _situations() if (lambda s: s is not None and s.instruction_type not in PILL_TYPES[s.latest_arrow_kind])(
+        _run(x[1], x[3], Lp(x[4]), closes=x[2], first_yellow=x[5], rules=w.PREVIOUS_RULES)[0])]
+    assert broken  # first Yellow after a Blue and Gray Up on an open trade
+    assert all(("first Yellow" in x[0] or "gray_up" in x[0]) for x in broken)
+
+
+def test_the_exact_texts_for_the_two_known_mismatches_and_the_gray_entry_row():
+    # (a) BKNG / DASH: an in-trade Blue Up, then the first Yellow after the Blue
+    s, _ = _run(RISE, [_ev("yellow_up", 1), _ev("blue_up", 4), _ev("yellow_up", 6)], Lp({6: 105.0}), closes=RISE_CLOSES, first_yellow=(6,))
+    assert (s.latest_arrow_kind, s.instruction_type, s.instruction_text) == ("yellow_up", 4, "FIRST YELLOW UP ARROW AFTER BLUE ENTRY - NO ACTION")
+    s, _ = _run(RISE, [_ev("yellow_up", 1), _ev("blue_up", 4), _ev("yellow_up", 6)], Lp({6: 105.0}), closes=RISE_CLOSES, first_yellow=(6,), profile="qqq")
+    assert s.instruction_text == "FIRST YELLOW UP AFTER BLUE = NO ACTION"
+    # (b) a Gray Up on an open trade: pill, text and dates move; entry and stop do not
+    s, _ = _run(RISE, [_ev("yellow_up", 1), _ev("gray_up", 6)], closes=RISE_CLOSES)
+    assert (s.latest_arrow_kind, s.instruction_type, s.instruction_text) == ("gray_up", 1, "GRAY UP - NO ACTION. Stopped out twice.")
+    assert (s.entry_kind, s.entry_price, s.stop_price, s.stop_basis) == ("yellow", 101.0, pytest.approx(90.0), "10%")
+    # a gray-entry row (the trade a Gray Up opened) carries the same text
+    s, _ = _run(RISE, [_ev("gray_up", 1)], closes=RISE_CLOSES)
+    assert (s.entry_kind, s.instruction_type, s.instruction_text) == ("gray", 1, "GRAY UP - NO ACTION. Stopped out twice.")
+
+
+def test_a_breached_row_freezes_the_pill_and_the_text_together():
+    lows = [100, 100, 100, 85, 100, 100, 100, 100]
+    base, _ = _run(lows, [_ev("yellow_up", 1)])
+    for down in ("blue_down", "yellow_down", "gray_down"):
+        s, _ = _run(lows, [_ev("yellow_up", 1), _ev(down, 6)], Lp({6: 95.0}))
+        assert s == base and (s.latest_arrow_kind, s.instruction_type) == ("yellow_up", 3)

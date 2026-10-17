@@ -22,9 +22,9 @@ on candle t is first tested on t+1, as the ThinkScript's `rawStopHit` needs `bar
      basis whichever is lower ("10%" on a tie, or when there is no 2nd LP); the entry is unchanged.
    - Gray Up (type 1), no open trade (no row, a breached row, or a row with no entry): a fresh GRAY entry (2026-10-17): entry kind
      gray, entry = this candle's close, stop = 0.9 x this candle's low, basis "10%". On an active row with an entry: no action,
-     only the dates (and the latest arrow) move.
-   - Yellow Up that is the first after a Blue (type 4): no action on an existing active row, only the dates (and the latest
-     arrow) move; with no row it is treated as a fresh yellow entry. A Yellow Up on an active gray-entry row is a repeat Yellow
+     only the pill, the instruction (Gray Up, type 1) and the dates move.
+   - Yellow Up that is the first after a Blue (type 4): no action on an existing active row, only the pill, the instruction (type 4) and the dates
+     move; with no row it is treated as a fresh yellow entry. A Yellow Up on an active gray-entry row is a repeat Yellow
      (stop only; the gray entry is never replaced).
 3. Down arrows (one per candle; Yellow Down beats Blue Down beats Gray Down, the ThinkScript's text order) apply only
    to an existing ACTIVE row; on a BREACHED row they are ignored entirely (2026-10-17: nothing changes, not even the latest
@@ -42,6 +42,9 @@ on candle t is first tested on t+1, as the ThinkScript's `rawStopHit` needs `bar
    and, if it is higher than the stop, raises the stop to it (basis stays LP). It never lowers a stop and never touches a
    10% or entry stop. It runs on every candle, arrow or not, and the breach test always uses the stop as it stood BEFORE
    the candle.
+
+Instruction text (2026-10-17): the instruction type always follows the arrow in the pill (Blue Up 2 / 5 in an open trade, Yellow Up 3 / 4
+for a first Yellow after a Blue, Gray Up 1, Yellow Down 20, Blue Down 10, Gray Down 30); a breached row ignores a down arrow, pill and text together.
 
 Stop age: `stop_moved_at` / `stop_moved_by` record the candle and the rule that last changed the stop VALUE (fresh entry,
 repeat Yellow, Blue Down, Yellow Down, Gray Down, trail); re-setting the same value is not a move, and a stop that becomes
@@ -61,6 +64,7 @@ from .instructions import (
     BLUE_DOWN,
     BLUE_UP,
     BLUE_UP_IN_TRADE,
+    FIRST_YELLOW_UP,
     GRAY_DOWN,
     GRAY_UP,
     YELLOW_DOWN,
@@ -110,17 +114,18 @@ class WatchRules:
     gray_down_raise_only: bool = True  # a Gray Down never lowers a stop (stop = max(stop, entry)); False = it set the stop to the entry price
     blue_up_in_trade_no_op: bool = True  # a Blue Up on an active row with an entry changes nothing about the trade; False = it replaced the entry (gray entries excepted)
     down_arrows_raise_only: bool = True  # Blue Down / Yellow Down: stop = max(stop, 2nd LP); False = the stop was set to the 2nd LP, lower or not
+    text_follows_pill: bool = True  # the instruction type follows the arrow in the pill on every candle; False = a no-action up arrow (first Yellow after Blue, Gray Up on an open trade) left the old text
 
 
 CURRENT_RULES = WatchRules()
 # The rules on main before the raise-only down arrows / Blue Up no-op change (b19cbc4): what the stored rows were built under, so the rebuild guard replays them.
-PREVIOUS_RULES = WatchRules(blue_up_in_trade_no_op=False, down_arrows_raise_only=False)
+PREVIOUS_RULES = WatchRules(blue_up_in_trade_no_op=False, down_arrows_raise_only=False, text_follows_pill=False)
 # The rules before the Gray Down raise-only change (2026-10-17, earlier): for tests that pin that behaviour.
 PRE_GRAY_RAISE_ONLY_RULES = replace(PREVIOUS_RULES, gray_down_raise_only=False)
 # The rules before the gray-entry / breached-row change (2026-10-17, earliest): for tests that pin that behaviour.
 LEGACY_RULES = WatchRules(
     gray_entry=False, ignore_breached_downs=False, gray_up_freezes_breached=True, gray_down_raise_only=False,
-    blue_up_in_trade_no_op=False, down_arrows_raise_only=False,
+    blue_up_in_trade_no_op=False, down_arrows_raise_only=False, text_follows_pill=False,
 )
 
 
@@ -157,6 +162,11 @@ def _with_stop(state: WatchState, stop: float, basis: str, ts: datetime, by: str
     if state.stop_price is not None and stop == state.stop_price:
         return replace(state, stop_basis=basis)
     return replace(state, stop_price=stop, stop_basis=basis, stop_moved_at=ts, stop_moved_by=by)
+
+
+def _text(rules: WatchRules, instruction_type: int) -> dict:
+    """The instruction type a no-action up arrow sets: the arrow's own type, or nothing (the old text stays) under the previous rules."""
+    return {"instruction_type": instruction_type} if rules.text_follows_pill else {}
 
 
 def _up_kind(kinds: Collection[str]) -> str | None:
@@ -199,7 +209,8 @@ def _apply_up(
     if kind == "yellow_up":
         fresh = state is None or state.status == STATUS_BREACHED or state.entry_kind is None
         if first_yellow and not fresh:
-            return replace(state, latest_arrow_kind=kind, latest_arrow_at=ts, last_signal_at=ts)  # type 4: no action
+            # type 4: no action; the pill moves to Yellow Up and (since 2026-10-17) the text follows it ("FIRST YELLOW UP AFTER BLUE = NO ACTION")
+            return replace(state, latest_arrow_kind=kind, latest_arrow_at=ts, last_signal_at=ts, **_text(rules, FIRST_YELLOW_UP))
         ten_pct = low * _STOP_FACTOR
         if fresh:
             return WatchState(
@@ -216,7 +227,7 @@ def _apply_up(
             return WatchState(
                 profile, kind, ts, GRAY_UP, ENTRY_GRAY, ts, close, low * _STOP_FACTOR, BASIS_PCT, STATUS_ACTIVE, None, ts, ts, MOVED_GRAY_UP_ENTRY
             )
-        return replace(state, latest_arrow_kind=kind, latest_arrow_at=ts, last_signal_at=ts)  # an open trade: dates only
+        return replace(state, latest_arrow_kind=kind, latest_arrow_at=ts, last_signal_at=ts, **_text(rules, GRAY_UP))  # an open trade: pill, text and dates only
     # Previous rule: no action on a row; a new row has no entry and no stop.
     if state is None:
         return WatchState(profile, kind, ts, GRAY_UP, None, None, None, None, BASIS_NONE, STATUS_ACTIVE, None, ts)

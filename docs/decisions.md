@@ -1599,3 +1599,9 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 - **Mechanism:** two more `WatchRules` switches (`blue_up_in_trade_no_op`, `down_arrows_raise_only`); `PREVIOUS_RULES` is main's rules before this change (the rebuild guard replays it), `PRE_GRAY_RAISE_ONLY_RULES` the one before the Gray Down change, `LEGACY_RULES` everything off. No schema change.
 - **Effect on the live table (dry run):** 6 of 117 rows would change (ADP, DASH, NOC, PAYX, PTC, SNPS), 0 skipped. Replay: 34 Blue Up replacements gone, total R +259.8 -> +252.4, expectancy +0.727R -> +0.690R, R below -1: 23 -> 25. Not merged or applied; the merge is the owner's decision. Spec: `docs/specs/warren-signals-page.md`, "Rules at a glance" and the last section.
 
+### 2026-10-17 — Warren watch: the instruction text follows the pill (branch `warren-raise-only-arrows`)
+
+- **Problem:** two no-action up arrows moved the pill but left the old text: the first Yellow after a Blue (pill Yellow Up, text still the Blue Up message; BKNG, DASH) and a Gray Up on an open trade (pill Gray Up, text still the entry's).
+- **Rule:** the instruction type is derived from the arrow in the pill (plus the existing first-Yellow-within-20-candles context) on every candle where the pill changes: first Yellow after a Blue -> type 4, Gray Up on an open trade -> type 1. Existing texts only, no schema change, no change to trades, stops, entries, status or sorting; a breached row still ignores a down arrow (pill and text frozen together).
+- **Mechanism:** `WatchRules.text_follows_pill` (off in `PREVIOUS_RULES` and `LEGACY_RULES`, so the rebuild guard reproduces stored rows). Rows whose only difference is the text are rewritten by the next nightly replay; no dry run was run for this change.
+

@@ -46,12 +46,14 @@ down arrow (judged after the up arrow, so a breached row the up arrow restarted 
 
 | Arrow | No row or breached | Active row |
 |---|---|---|
-| **Yellow Up** | New yellow entry (entry = close, stop = `0.9 x low`, basis `10%`) | **Armed repeat Yellow:** stop = `min(2nd LP, 0.9 x candle low)`, the ONLY rule that can lower a stop; entry and kind unchanged. The **first Yellow after a Blue** is no action (pill and dates only). |
+| **Yellow Up** | New yellow entry (entry = close, stop = `0.9 x low`, basis `10%`) | **Armed repeat Yellow:** stop = `min(2nd LP, 0.9 x candle low)`, the ONLY rule that can lower a stop; entry and kind unchanged. The **first Yellow after a Blue** (within 20 candles) is no action (pill, instruction text type 4 and dates only). |
 | **Blue Up** | New blue entry (entry = close, no stop) | No trade change (entry, kind, stop, basis, status stay); pill, instruction text ("BLUE UP - no change to an open trade") and dates update; resets the first-Yellow-after-Blue counter. |
-| **Gray Up** | New gray entry (entry = close, stop = `0.9 x low`, basis `10%`) | No trade change; pill and dates update, **the instruction text stays** (it is not touched by a Gray Up on an open trade). |
+| **Gray Up** | New gray entry (entry = close, stop = `0.9 x low`, basis `10%`) | No trade change; pill, instruction text (type 1, "GRAY UP - NO ACTION. Stopped out twice.") and dates update. |
 | **Blue Down** | Ignored completely | stop = `max(current stop, 2nd LP)`; no stop yet -> the 2nd LP. Any entry kind. |
 | **Yellow Down** | Ignored completely | Yellow or gray entry: stop = `max(current stop, 2nd LP)`. Blue entry: no action (pill and text only). |
 | **Gray Down** | Ignored completely | Yellow or gray entry: stop = `max(current stop, entry price)`, only if the entry price is below the candle's close. Blue entry: no stop action (pill and text only). |
+
+**Invariant (2026-10-17): the instruction text always follows the arrow in the pill** (Blue Up 2, or 5 in an open trade; Yellow Up 3, or 4 for a first Yellow after a Blue within 20 candles; Gray Up 1; Blue Down 10; Yellow Down 20; Gray Down 30), on every candle where the pill changes. A breached row ignores a down arrow, pill and text frozen together. No wording was added; type 4 and type 1 reuse the chart's texts. Switch: `WatchRules.text_follows_pill` (off in `PREVIOUS_RULES` / `LEGACY_RULES`, which keep the stale text so the guard reproduces stored rows).
 
 **Other.** Trailing: every candle, an active `LP`-basis stop moves up to the 2nd LP if that is higher, never down; `10%` and `entry` stops never trail. Breached rows: P/L frozen at `(stop - entry) / entry`, no trailing, only an up arrow restarts. Stop age updates only when the stop value changes (a repeat Yellow that re-sets the same value may change the basis without stamping the age). "Ignored completely" = no pill, instruction, date or sort change. When a down arrow's level is not higher than the stop: no stop move, no stop-age update, basis unchanged, but the pill and instruction text still update.
 
@@ -72,7 +74,7 @@ down arrow (judged after the up arrow, so a breached row the up arrow restarted 
 13. Blue entry with no stop, Blue Down with 2nd LP 95 -> stop 95, basis `LP`.
 14. Breach and Gray Up on one candle -> breach first, then the Gray Up restarts the row as a new gray entry (the breach is never shown).
 
-**Where the literal wording needed a correction** (checked against the code and tests when this section was written): (a) a Gray Up on an open trade moves the pill and dates only, **not the instruction text**; (b) the first Yellow after a Blue is flagged by the arrow replay only within 20 candles of that Blue (`BLUE_UP_WITHIN_BARS`) and never for a gray-flavoured yellow, so a later first Yellow is an ordinary repeat Yellow; (c) "stop age updates only when the stop value changes" holds for every rule, but a repeat Yellow that re-sets the same value can still change the stop basis; (d) a down arrow on a breached row is ignored only if the same candle's up arrow did not restart the row (that down then applies to the new entry).
+**Where the literal wording needed a correction** (checked against the code and tests when this section was written): (a) a Gray Up on an open trade moves the pill, the instruction text (now type 1) and the dates; before the pill/text fix (2026-10-17) it moved the pill and dates but left the old text; (b) the first Yellow after a Blue is flagged by the arrow replay only within 20 candles of that Blue (`BLUE_UP_WITHIN_BARS`) and never for a gray-flavoured yellow, so a later first Yellow is an ordinary repeat Yellow; (c) "stop age updates only when the stop value changes" holds for every rule, but a repeat Yellow that re-sets the same value can still change the stop basis; (d) a down arrow on a breached row is ignored only if the same candle's up arrow did not restart the row (that down then applies to the new entry).
 
 ## Update rules
 
@@ -99,7 +101,7 @@ tested first, so a stop set on candle t is first tested on t+1 (the ThinkScript'
    - **Gray Up** (type 1), **no open trade** (no row, a breached row, or a legacy row with no entry): a **gray entry** (2026-10-17):
      entry kind `gray`, entry = the arrow candle's 2h close, stop = `0.9 x` the arrow candle's low, basis `10%` (stop age `gray_up_entry`),
      instruction type 1, active, `last_signal_at` = the candle. The engine's rule for when a Gray Up fires is untouched. On an **active
-     row with an entry** a Gray Up changes **no entry, stop or status**: `latest_arrow_*` and `last_signal_at` move and the instruction stays.
+     row with an entry** a Gray Up changes **no entry, stop or status**: `latest_arrow_*`, the instruction (type 1) and `last_signal_at` move.
    - **First yellow after a Blue** (type 4, from the engine's `first_yellow_after_blue_at`) on an active row with an entry: no action; the
      instruction and stop stay, `latest_arrow_*` and `last_signal_at` move. With no row (or a breached one) it is a fresh yellow entry.
 3. **Down arrows** (one per candle: Yellow Down, then Blue Down, then Gray Down, the ThinkScript's text order) apply only to an
