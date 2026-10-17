@@ -179,9 +179,9 @@ def test_a_gray_up_and_a_breach_on_the_same_candle_restarts_the_row_as_a_gray_en
 # --- a gray-entry row follows the yellow-entry rules afterwards --------------------------------------------------
 
 
-def _gray_row(lows, extra, lp=None, closes=None, trail=False):
+def _gray_row(lows, extra, lp=None, closes=None, trail=False, rules=w.CURRENT_RULES):
     """A gray entry on candle 1, then `extra` events."""
-    return _run(lows, [_ev("gray_up", 1), *extra], lp, closes=closes, trail=trail)
+    return _run(lows, [_ev("gray_up", 1), *extra], lp, closes=closes, trail=trail, rules=rules)
 
 
 def test_gray_down_on_a_gray_entry_moves_the_stop_to_the_entry_price_when_the_entry_is_below_the_close():
@@ -199,10 +199,12 @@ def test_gray_down_on_a_gray_entry_leaves_the_stop_when_the_entry_is_at_or_above
 
 
 @pytest.mark.parametrize("kind, instruction, moved_by", [("yellow_down", 20, "yellow_down"), ("blue_down", 10, "blue_down")])
-def test_yellow_down_and_blue_down_on_a_gray_entry_move_the_stop_to_the_2nd_lp(kind, instruction, moved_by):
-    s, lp = _gray_row(FLAT, [_ev(kind, 4)], Lp({4: 88.0}))
-    assert (s.stop_price, s.stop_basis, s.stop_moved_by, s.instruction_type, s.entry_kind) == (88.0, "LP", moved_by, instruction, "gray")
+def test_yellow_down_and_blue_down_on_a_gray_entry_raise_the_stop_to_a_higher_2nd_lp(kind, instruction, moved_by):
+    s, lp = _gray_row(FLAT, [_ev(kind, 4)], Lp({4: 95.0}))  # the 10% stop is 90
+    assert (s.stop_price, s.stop_basis, s.stop_moved_by, s.instruction_type, s.entry_kind) == (95.0, "LP", moved_by, instruction, "gray")
     assert lp.asked == [4]
+    s, _ = _gray_row(FLAT, [_ev(kind, 4)], Lp({4: 88.0}))  # a lower 2nd LP is not a cut: the stop, its basis and its age stay
+    assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by, s.instruction_type) == (pytest.approx(90.0), "10%", _ts(1), "gray_up_entry", instruction)
 
 
 def test_a_repeat_yellow_up_on_an_active_gray_entry_sets_min_2nd_lp_and_ten_percent_and_keeps_the_gray_entry():
@@ -224,18 +226,15 @@ def test_a_blue_up_on_an_active_gray_entry_keeps_the_entry_and_the_stop():
     s, lp = _gray_row(FLAT, [_ev("blue_up", 4)])
     assert (s.entry_kind, s.entry_at, s.entry_price) == ("gray", _ts(1), 101.0)
     assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by) == (pytest.approx(90.0), "10%", _ts(1), "gray_up_entry")
-    assert (s.latest_arrow_kind, s.latest_arrow_at, s.last_signal_at, s.instruction_type, s.status) == ("blue_up", _ts(4), _ts(4), 2, "active")
+    assert (s.latest_arrow_kind, s.latest_arrow_at, s.last_signal_at, s.instruction_type, s.status) == ("blue_up", _ts(4), _ts(4), 5, "active")
     assert lp.asked == []
-
-
-def test_a_blue_up_on_an_active_yellow_row_still_replaces_the_entry_and_clears_the_stop():
-    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("blue_up", 4)])
-    assert (s.entry_kind, s.entry_at, s.entry_price, s.stop_price, s.stop_basis, s.status) == ("blue", _ts(4), 101.0, None, "none", "active")
+    s, _ = _gray_row(FLAT, [_ev("blue_up", 4)], rules=w.PREVIOUS_RULES)  # the previous rules gave the same trade; only the text differed
+    assert (s.entry_kind, s.entry_at, s.stop_price, s.instruction_type) == ("gray", _ts(1), pytest.approx(90.0), 2)
 
 
 def test_the_gray_entry_kind_stays_through_a_breach_free_trade_with_trailing():
-    s, lp = _gray_row(FLAT, [_ev("blue_down", 3)], Lp({3: 80.0, 5: 85.0, 7: 84.0}), trail=True)
-    assert (s.entry_kind, s.stop_price, s.stop_basis, s.stop_moved_by) == ("gray", 85.0, "LP", "trail")  # an LP stop trails up, never down
+    s, lp = _gray_row(FLAT, [_ev("blue_down", 3)], Lp({3: 92.0, 5: 95.0, 7: 94.0}), trail=True)
+    assert (s.entry_kind, s.stop_price, s.stop_basis, s.stop_moved_by) == ("gray", 95.0, "LP", "trail")  # an LP stop trails up, never down
     s, lp = _gray_row(FLAT, [], Lp({5: 99.0}), trail=True)
     assert (s.stop_price, s.stop_basis) == (pytest.approx(90.0), "10%") and lp.asked == []  # a 10% stop never trails
 
@@ -255,18 +254,47 @@ def test_a_blue_beats_a_yellow_on_the_same_candle():
 # --- down arrows -----------------------------------------------------------------------------------------------
 
 
-def test_blue_down_moves_the_stop_to_the_2nd_lp_for_either_entry_kind():
-    for entry in ("blue_up", "yellow_up"):
-        s, lp = _run(FLAT, [_ev(entry, 1), _ev("blue_down", 4)], Lp({4: 88.0}))
-        assert (s.stop_price, s.stop_basis, s.instruction_type) == (88.0, "LP", 10)
-        assert (s.latest_arrow_kind, s.latest_arrow_at) == ("blue_down", _ts(4))
-        assert s.last_signal_at == _ts(1)  # a down arrow is not an up signal
-        assert lp.asked == [4]
+def test_blue_down_sets_the_2nd_lp_on_a_blue_entry_with_no_stop_and_raises_a_lower_stop_on_a_yellow_entry():
+    s, lp = _run(FLAT, [_ev("blue_up", 1), _ev("blue_down", 4)], Lp({4: 88.0}))  # no stop yet: the 2nd LP, wherever it is
+    assert (s.stop_price, s.stop_basis, s.instruction_type) == (88.0, "LP", 10)
+    assert (s.latest_arrow_kind, s.latest_arrow_at) == ("blue_down", _ts(4))
+    assert s.last_signal_at == _ts(1)  # a down arrow is not an up signal
+    assert (s.stop_moved_at, s.stop_moved_by) == (_ts(4), "blue_down") and lp.asked == [4]
+    s, lp = _run(FLAT, [_ev("yellow_up", 1), _ev("blue_down", 4)], Lp({4: 95.0}))  # the 10% stop (90) is lower: raised
+    assert (s.stop_price, s.stop_basis, s.instruction_type, s.stop_moved_at, s.stop_moved_by) == (95.0, "LP", 10, _ts(4), "blue_down")
+    assert lp.asked == [4]
+
+
+@pytest.mark.parametrize("down, text_type, entry", [("blue_down", 10, "yellow_up"), ("yellow_down", 20, "yellow_up"), ("blue_down", 10, "gray_up")])
+def test_a_down_arrow_with_a_2nd_lp_at_or_below_the_stop_is_text_only(down, text_type, entry):
+    # stop 90 (10% basis). 2nd LP below (88) or equal (90): no stop move, no stop-age update, basis unchanged.
+    for lp_value in (88.0, 90.0):
+        s, lp = _run(FLAT, [_ev(entry, 1), _ev(down, 4)], Lp({4: lp_value}))
+        assert (s.stop_price, s.stop_basis, s.stop_moved_at) == (pytest.approx(90.0), "10%", _ts(1))
+        assert s.stop_moved_by == ("yellow_up_entry" if entry == "yellow_up" else "gray_up_entry")
+        assert (s.instruction_type, s.latest_arrow_kind, s.latest_arrow_at) == (text_type, down, _ts(4)) and lp.asked == [4]
+        old, _ = _run(FLAT, [_ev(entry, 1), _ev(down, 4)], Lp({4: lp_value}), rules=w.PREVIOUS_RULES)
+        assert old.stop_price == lp_value and old.stop_basis == "LP"  # what the previous rule did (cut the stop to the 2nd LP)
+
+
+def test_a_down_arrow_never_lowers_an_lp_or_entry_basis_stop_either():
+    s, _ = _run(RALLY, [_ev("yellow_up", 1), _ev("blue_down", 3), _ev("yellow_down", 5)], Lp({3: 110.0, 5: 105.0}), closes=RALLY_CLOSES)
+    assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by) == (110.0, "LP", _ts(3), "blue_down")
+    s, _ = _run(RALLY, [_ev("yellow_up", 1), _ev("gray_down", 4), _ev("blue_down", 6)], Lp({6: 99.0}), closes=RALLY_CLOSES)  # stop 101 (entry basis)
+    assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by) == (101.0, "entry", _ts(4), "gray_down")
+    assert s.instruction_type == 10  # the text still follows the arrow
+
+
+def test_a_higher_2nd_lp_from_a_down_arrow_lifts_an_entry_basis_stop_and_trailing_resumes():
+    s, _ = _run(RALLY, [_ev("yellow_up", 1), _ev("gray_down", 4), _ev("yellow_down", 6)], Lp({6: 105.0, 8: 108.0}), closes=RALLY_CLOSES, trail=True)
+    assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by) == (108.0, "LP", _ts(8), "trail")
+    s, _ = _run(RALLY, [_ev("yellow_up", 1), _ev("gray_down", 4), _ev("yellow_down", 6)], Lp({6: 105.0}), closes=RALLY_CLOSES)
+    assert (s.stop_price, s.stop_basis, s.stop_moved_by) == (105.0, "LP", "yellow_down")
 
 
 def test_yellow_down_is_the_2nd_lp_for_a_yellow_entry_and_unchanged_for_a_blue_entry():
-    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("yellow_down", 4)], Lp({4: 88.0}))
-    assert (s.stop_price, s.stop_basis, s.instruction_type) == (88.0, "LP", 20)
+    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("yellow_down", 4)], Lp({4: 95.0}))
+    assert (s.stop_price, s.stop_basis, s.instruction_type) == (95.0, "LP", 20)
     s, lp = _run(FLAT, [_ev("blue_up", 1), _ev("yellow_down", 4)], Lp({4: 88.0}))
     assert (s.stop_price, s.stop_basis, s.instruction_type) == (None, "none", 20)  # text updates, stop does not
     assert lp.asked == []
@@ -318,8 +346,8 @@ def test_a_down_arrow_with_no_2nd_lp_leaves_the_stop_but_updates_the_text():
 
 
 def test_the_dominant_down_arrow_wins_on_one_candle():
-    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("gray_down", 4), _ev("yellow_down", 4), _ev("blue_down", 4)], Lp({4: 88.0}))
-    assert s.instruction_type == 20 and s.latest_arrow_kind == "yellow_down" and s.stop_price == 88.0
+    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("gray_down", 4), _ev("yellow_down", 4), _ev("blue_down", 4)], Lp({4: 95.0}))
+    assert s.instruction_type == 20 and s.latest_arrow_kind == "yellow_down" and s.stop_price == 95.0
 
 
 def test_a_down_arrow_with_no_row_creates_nothing_and_never_asks_for_the_lp():
@@ -351,7 +379,7 @@ def test_gray_down_does_not_lower_a_stop_already_above_the_entry_price_lp_stop()
     s, _ = _run(RALLY, [_ev("yellow_up", 1), _ev("blue_down", 3), _ev("gray_down", 5)], Lp({3: 110.0}), closes=RALLY_CLOSES)
     assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by) == (110.0, "LP", _ts(3), "blue_down")  # no move, no stop-age change
     assert (s.instruction_type, s.latest_arrow_kind, s.latest_arrow_at) == (30, "gray_down", _ts(5))  # the text and the pill still update
-    s, _ = _run(RALLY, [_ev("yellow_up", 1), _ev("blue_down", 3), _ev("gray_down", 5)], Lp({3: 110.0}), closes=RALLY_CLOSES, rules=w.PREVIOUS_RULES)
+    s, _ = _run(RALLY, [_ev("yellow_up", 1), _ev("blue_down", 3), _ev("gray_down", 5)], Lp({3: 110.0}), closes=RALLY_CLOSES, rules=w.PRE_GRAY_RAISE_ONLY_RULES)
     assert (s.stop_price, s.stop_basis, s.stop_moved_by) == (101.0, "entry", "gray_down")  # what the previous rule did
 
 
@@ -392,10 +420,10 @@ def test_gray_down_with_the_entry_at_or_above_the_close_is_still_text_only_and_b
     assert s == base and s.status == "breached"
 
 
-def test_a_gray_down_raise_is_the_only_difference_between_the_current_and_the_previous_rules_here():
+def test_a_gray_down_raise_is_the_only_difference_between_the_current_and_the_pre_raise_only_rules_here():
     lows_events = [_ev("yellow_up", 1), _ev("blue_down", 3), _ev("gray_down", 5)]
     new, _ = _run(RALLY, lows_events, Lp({3: 110.0}), closes=RALLY_CLOSES)
-    old, _ = _run(RALLY, lows_events, Lp({3: 110.0}), closes=RALLY_CLOSES, rules=w.PREVIOUS_RULES)
+    old, _ = _run(RALLY, lows_events, Lp({3: 110.0}), closes=RALLY_CLOSES, rules=w.PRE_GRAY_RAISE_ONLY_RULES)
     assert {f for f in new.__dataclass_fields__ if getattr(new, f) != getattr(old, f)} == {"stop_price", "stop_basis", "stop_moved_at", "stop_moved_by"}
 
 
@@ -423,8 +451,9 @@ def test_a_row_with_no_stop_cannot_breach():
 
 def test_a_stop_moved_by_a_down_arrow_is_what_later_candles_are_tested_against():
     lows = [100, 100, 100, 100, 100, 87, 100]
-    s, _ = _run(lows, [_ev("yellow_up", 1), _ev("blue_down", 3)], Lp({3: 88.0}))
-    assert s.status == "breached" and s.breached_at == _ts(5) and s.stop_price == 88.0  # 87 <= 88, not <= 90
+    lows[5] = 94.0  # 94 <= the raised stop 95, but above the 10% stop 90
+    s, _ = _run(lows, [_ev("yellow_up", 1), _ev("blue_down", 3)], Lp({3: 95.0}))
+    assert s.status == "breached" and s.breached_at == _ts(5) and s.stop_price == 95.0  # 94 <= 95, not <= 90
 
 
 def test_a_fresh_yellow_after_a_breach_resets_the_row():
@@ -471,7 +500,9 @@ def test_a_down_arrow_on_the_candle_that_breaches_the_row_is_ignored_and_one_aft
     s, _ = _run(lows, [_ev("yellow_up", 1), _ev("blue_down", 3)], Lp({3: 70.0}))
     assert (s.status, s.latest_arrow_kind, s.instruction_type) == ("breached", "yellow_up", 3)
     s, lp = _run(lows, [_ev("yellow_up", 1), _ev("gray_up", 5), _ev("blue_down", 5)], Lp({5: 70.0}))  # up restarts, then the down applies
-    assert (s.entry_kind, s.status, s.latest_arrow_kind, s.stop_basis, s.stop_price) == ("gray", "active", "blue_down", "LP", 70.0)
+    assert (s.entry_kind, s.status, s.latest_arrow_kind, s.stop_basis, s.stop_price) == ("gray", "active", "blue_down", "10%", pytest.approx(90.0))  # 70 is no raise
+    s, lp = _run(lows, [_ev("yellow_up", 1), _ev("gray_up", 5), _ev("blue_down", 5)], Lp({5: 95.0}))
+    assert (s.entry_kind, s.status, s.latest_arrow_kind, s.stop_basis, s.stop_price) == ("gray", "active", "blue_down", "LP", 95.0)
 
 
 def test_up_arrows_restart_a_breached_row_and_the_new_entry_clears_the_breach():
@@ -573,7 +604,7 @@ def test_stop_moved_at_and_by_are_set_for_each_rule():
     assert (s.stop_moved_at, s.stop_moved_by) == (_ts(6), "yellow_up_repeat")
     s, _ = _run(FLAT, [_ev("blue_up", 1), _ev("blue_down", 4)], Lp({4: 88.0}))
     assert (s.stop_moved_at, s.stop_moved_by) == (_ts(4), "blue_down")
-    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("yellow_down", 4)], Lp({4: 88.0}))
+    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("yellow_down", 4)], Lp({4: 95.0}))
     assert (s.stop_moved_at, s.stop_moved_by) == (_ts(4), "yellow_down")
     s, _ = _run([100.0] * 4 + [120.0] * 8, [_ev("yellow_up", 1), _ev("gray_down", 4)], closes=[101.0] * 4 + [121.0] * 8)
     assert (s.stop_moved_at, s.stop_moved_by) == (_ts(4), "gray_down")
@@ -599,7 +630,10 @@ def test_re_setting_the_same_stop_value_is_not_a_move():
 
 
 def test_a_stop_that_becomes_none_clears_the_stop_age():
-    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("blue_up", 4)])
+    lows = [100, 100, 100, 85, 100, 100]
+    s, _ = _run(lows, [_ev("yellow_up", 1), _ev("blue_up", 4)])  # a Blue Up on a BREACHED row: a new blue entry, no stop
+    assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by) == (None, "none", None, None)
+    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("blue_up", 4)], rules=w.PREVIOUS_RULES)  # the previous rules: a Blue Up in a trade did the same
     assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by) == (None, "none", None, None)
     # A row that never had a stop has none either.
     s, _ = _run(FLAT, [_ev("blue_up", 1)])
@@ -629,3 +663,95 @@ def test_reading_in_two_steps_equals_reading_once_with_trailing_on():
 def test_trail_false_replays_the_old_rules():
     s, lp = _run(TRAIL_LOWS, TRAIL_EVENTS, Lp({6: 75.0, 8: 80.0}), trail=False)
     assert (s.stop_price, s.stop_moved_by) == (75.0, "yellow_up_repeat") and lp.asked == [6]
+
+
+# --- Blue Up is not an action while a trade is open; the armed repeat Yellow is the only lowering rule (2026-10-17) ------------
+
+def _same_trade(a, b):
+    return all(getattr(a, f) == getattr(b, f) for f in (
+        "entry_kind", "entry_at", "entry_price", "stop_price", "stop_basis", "stop_moved_at", "stop_moved_by", "status", "breached_at"))
+
+
+@pytest.mark.parametrize("first", ["yellow_up", "blue_up", "gray_up"])
+def test_a_blue_up_on_an_active_row_changes_nothing_about_the_trade(first):
+    before, _ = _run(FLAT, [_ev(first, 1)])
+    s, lp = _run(FLAT, [_ev(first, 1), _ev("blue_up", 4)])
+    assert _same_trade(s, before) and s.status == "active"
+    assert (s.latest_arrow_kind, s.latest_arrow_at, s.last_signal_at) == ("blue_up", _ts(4), _ts(4))
+    assert s.instruction_type == 5 and s.instruction_text == "BLUE UP - no change to an open trade"
+    assert lp.asked == []
+    old, _ = _run(FLAT, [_ev(first, 1), _ev("blue_up", 4)], rules=w.PREVIOUS_RULES)
+    assert (old.instruction_type, old.instruction_text) == (2, "BLUE UP - Use appropriate stop.")  # the previous text
+
+
+def test_the_in_trade_blue_up_text_is_the_same_for_a_profiled_ticker():
+    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("blue_up", 4)], profile="qqq")
+    assert s.instruction_text == "BLUE UP - no change to an open trade"
+
+
+def test_a_blue_up_on_an_active_row_with_a_trailing_lp_stop_keeps_the_stop_and_the_trail():
+    s, _ = _trail_run({8: 80.0}, events=[*TRAIL_EVENTS, _ev("blue_up", 9)])
+    assert (s.entry_kind, s.entry_at, s.stop_price, s.stop_basis) == ("yellow", _ts(1), 80.0, "LP")
+    assert (s.stop_moved_at, s.stop_moved_by) == (_ts(8), "trail")
+
+
+def test_after_an_in_trade_blue_up_the_next_yellow_is_no_action_and_the_second_one_acts():
+    lows = [100.0] * 14
+    events = [_ev("yellow_up", 1), _ev("blue_up", 3), _ev("yellow_up", 5), _ev("yellow_up", 8)]
+    lp = Lp({5: 70.0, 8: 60.0})
+    # the arrow replay marks candle 5 as the first Yellow after the Blue (the counter reset on the in-trade Blue)
+    s, lp = _run(lows, events[:3], lp, first_yellow=[5])
+    assert (s.stop_price, s.stop_basis, s.stop_moved_by, s.instruction_type) == (pytest.approx(90.0), "10%", "yellow_up_entry", 5)
+    assert (s.latest_arrow_kind, s.last_signal_at) == ("yellow_up", _ts(5)) and lp.asked == []
+    s, lp = _run(lows, events, Lp({5: 70.0, 8: 60.0}), first_yellow=[5])  # the second Yellow after the Blue is armed: min(2nd LP 60, 90) = 60
+    assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by, s.instruction_type) == (60.0, "LP", _ts(8), "yellow_up_repeat", 3)
+    assert (s.entry_kind, s.entry_at) == ("yellow", _ts(1))
+
+
+def test_a_blue_up_on_a_breached_row_or_no_row_is_a_new_blue_entry_with_no_stop():
+    lows = [100, 100, 100, 85, 100, 100]
+    s, lp = _run(lows, [_ev("yellow_up", 1), _ev("blue_up", 4)])
+    assert (s.status, s.breached_at, s.entry_kind, s.entry_at, s.entry_price, s.stop_price, s.stop_basis) == ("active", None, "blue", _ts(4), 101.0, None, "none")
+    assert (s.instruction_type, s.instruction_text) == (2, "BLUE UP - Use appropriate stop.") and lp.asked == []
+    s, _ = _run(FLAT, [_ev("blue_up", 2)])
+    assert (s.entry_kind, s.entry_at, s.stop_price, s.instruction_type) == ("blue", _ts(2), None, 2)
+
+
+def test_a_blue_up_and_a_blue_down_on_one_candle_apply_in_order_the_blue_does_nothing_the_down_raises():
+    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("blue_up", 4), _ev("blue_down", 4)], Lp({4: 95.0}))
+    assert (s.entry_kind, s.entry_at, s.stop_price, s.stop_basis, s.instruction_type, s.latest_arrow_kind) == ("yellow", _ts(1), 95.0, "LP", 10, "blue_down")
+
+
+def test_a_blue_entry_with_no_stop_takes_the_2nd_lp_from_a_blue_down_wherever_it_is():
+    s, lp = _run(FLAT, [_ev("blue_up", 1), _ev("blue_down", 4)], Lp({4: 95.0}))
+    assert (s.entry_kind, s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by) == ("blue", 95.0, "LP", _ts(4), "blue_down") and lp.asked == [4]
+    s, _ = _run(FLAT, [_ev("blue_up", 1), _ev("blue_down", 4)], Lp())  # no 2nd LP: still no stop
+    assert (s.stop_price, s.stop_basis, s.instruction_type) == (None, "none", 10)
+
+
+def test_a_yellow_down_on_a_blue_entry_is_no_action_even_with_a_2nd_lp():
+    s, lp = _run(FLAT, [_ev("blue_up", 1), _ev("yellow_down", 4)], Lp({4: 95.0}))
+    assert (s.stop_price, s.stop_basis, s.instruction_type) == (None, "none", 20) and lp.asked == []
+
+
+def test_only_an_armed_repeat_yellow_lowers_a_stop_and_a_later_gray_down_lifts_it_back_to_the_entry():
+    # entry 100 (candle 1 close); a Gray Down at 2 (close 110) puts the stop at 100 (entry basis)
+    lows = [100.0] * 3 + [108.0] * 7
+    closes = [100.0, 100.0, 110.0] + [110.0] * 3 + [112.0] * 4
+    s, lp = _run(lows, [_ev("yellow_up", 1), _ev("gray_down", 2)], closes=closes)
+    assert (s.entry_price, s.stop_price, s.stop_basis) == (100.0, 100.0, "entry")
+    # the armed repeat Yellow at 4 (low 108, 2nd LP 104): min(104, 97.2) = 97.2 -- below the entry, basis 10%
+    s, _ = _run(lows, [_ev("yellow_up", 1), _ev("gray_down", 2), _ev("yellow_up", 4)], Lp({4: 104.0}), closes=closes, trail=True)
+    assert (s.entry_price, s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by) == (100.0, pytest.approx(97.2), "10%", _ts(4), "yellow_up_repeat")
+    # a 10% stop never trails, and a later Gray Down closing above the entry lifts the stop back to 100
+    s, _ = _run(lows, [_ev("yellow_up", 1), _ev("gray_down", 2), _ev("yellow_up", 4), _ev("gray_down", 6)], Lp({4: 104.0}), closes=closes, trail=True)
+    assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by) == (100.0, "entry", _ts(6), "gray_down")
+
+
+def test_a_breach_and_a_gray_down_on_one_candle_breach_first_and_the_gray_down_is_ignored():
+    # entry 100, stop 100 (entry basis); candle 4 trades 99.5 (<= 100) and closes 118 with a Gray Down
+    lows = [100.0, 100.0, 100.0, 105.0, 99.5, 120.0]
+    closes = [100.0, 100.0, 110.0, 110.0, 118.0, 120.0]
+    s, _ = _run(lows, [_ev("yellow_up", 1), _ev("gray_down", 2), _ev("gray_down", 4)], closes=closes)
+    assert (s.status, s.breached_at, s.stop_price, s.stop_basis) == ("breached", _ts(4), 100.0, "entry")
+    assert (s.latest_arrow_at, s.latest_arrow_kind, s.instruction_type) == (_ts(2), "gray_down", 30)  # the second Gray Down changed nothing, not even the pill

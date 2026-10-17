@@ -268,17 +268,17 @@ def fake_lp_by_day(monkeypatch, by_day: dict[str, list[float]], default: list[fl
 
 def test_a_new_candle_with_no_arrow_trails_an_lp_stop_and_a_rerun_changes_nothing(monkeypatch, engine):
     canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30")]})
-    fake_lp_by_day(monkeypatch, {}, [90.0, 80.0, 70.0])
+    fake_lp_by_day(monkeypatch, {}, [100.0, 95.0, 90.0])  # the Blue Down's 2nd LP (95) is above the 10% stop (89.1): a raise
     run("A", bars("2026-07-01", "2026-10-14"))
     r = rows(engine)["A"]
-    assert (r.stop_price, r.stop_basis, r.stop_moved_at, r.stop_moved_by) == (80.0, "LP", datetime(2026, 9, 10, 9, 30), "blue_down")
+    assert (r.stop_price, r.stop_basis, r.stop_moved_at, r.stop_moved_by) == (95.0, "LP", datetime(2026, 9, 10, 9, 30), "blue_down")
     first_updated = r.last_updated_at
 
-    fake_lp_by_day(monkeypatch, {"2026-10-16": [95.0, 85.0, 75.0]}, [90.0, 80.0, 70.0])  # a higher 2nd LP on the new session; no arrow on it
+    fake_lp_by_day(monkeypatch, {"2026-10-16": [101.0, 97.0, 92.0]}, [100.0, 95.0, 90.0])  # a higher 2nd LP on the new session; no arrow on it
     update = run("A", bars("2026-07-01", "2026-10-16"))
     r = rows(engine)["A"]
     assert update.outcome == "changed"
-    assert (r.stop_price, r.stop_basis, r.stop_moved_by) == (85.0, "LP", "trail")
+    assert (r.stop_price, r.stop_basis, r.stop_moved_by) == (97.0, "LP", "trail")
     assert r.stop_moved_at.date() == datetime(2026, 10, 16).date()  # the first candle of the day to see 85 (the day's four candles all do)
     assert r.stop_moved_at == datetime(2026, 10, 16, 9, 30)
     assert r.last_updated_at >= first_updated  # a trail move is a content change
@@ -302,11 +302,11 @@ def test_a_ten_percent_row_is_never_trailed_through_the_data_layer(monkeypatch, 
 
 def test_a_removed_row_is_never_trailed(monkeypatch, engine):
     canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30")]})
-    fake_lp_by_day(monkeypatch, {}, [90.0, 80.0, 70.0])
+    fake_lp_by_day(monkeypatch, {}, [100.0, 95.0, 90.0])
     run("A", bars("2026-07-01", "2026-10-14"))
     wwd.remove_watch_row("A", now_et=datetime(2026, 10, 14, 16, 0))
     frozen = rows(engine)["A"].model_dump()
-    fake_lp_by_day(monkeypatch, {}, [99.0, 98.0, 97.0])
+    fake_lp_by_day(monkeypatch, {}, [100.0, 99.0, 97.0])  # an active row would trail 95 -> 99
     assert run("A", bars("2026-07-01", "2026-10-16")).outcome == "removed"
     assert rows(engine)["A"].model_dump() == frozen
 
@@ -524,3 +524,13 @@ def test_the_watch_reads_the_same_candles_and_arrows_as_the_chart_range(ticker):
     assert watch_result.events == chart_result.events
     assert watch_result.first_yellow_after_blue_at == chart_result.first_yellow_after_blue_at
     assert chart_result.events  # the walk fires arrows, so this compares something
+
+
+def test_a_blue_up_inside_an_open_trade_changes_only_the_pill_the_text_and_the_dates(monkeypatch, engine):
+    canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30"), ("blue_up", "2026-09-10 09:30")]})
+    run("A", bars("2026-07-01", "2026-10-16"))
+    r = rows(engine)["A"]
+    assert (r.entry_kind, r.entry_at, r.entry_price, r.status) == ("yellow", datetime(2026, 9, 1, 9, 30), 100.0, "active")
+    assert (r.stop_price, r.stop_basis, r.stop_moved_by) == (pytest.approx(89.1), "10%", "yellow_up_entry")
+    assert (r.latest_arrow_kind, r.latest_arrow_at, r.last_signal_at) == ("blue_up", datetime(2026, 9, 10, 9, 30), datetime(2026, 9, 10, 9, 30))
+    assert (r.instruction_type, r.instruction_text) == (5, "BLUE UP - no change to an open trade")

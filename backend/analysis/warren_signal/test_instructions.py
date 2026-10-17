@@ -179,3 +179,9 @@ def test_text_follows_the_profile_name():
 def test_empty_candle_list_gives_none():
     result, _ = _run(3, scan4=(1,))
     assert ins.current_instruction(result, [], ANY_TICKER.name) is None
+
+
+def test_the_watch_only_in_trade_blue_up_text_is_shared_and_stays_out_of_the_chart_tables():
+    assert ins.BLUE_UP_IN_TRADE == 5 and ins.WATCH_ONLY_TEXTS == {5: "BLUE UP - no change to an open trade"}
+    assert ins.text_for(5, QQQ.name) == ins.text_for(5, ANY_TICKER.name) == "BLUE UP - no change to an open trade"
+    assert 5 not in ins.TYPE_KIND and 5 not in ins.TYPE_TONE and 5 not in ins.PROFILED_TEXTS and 5 not in ins.GENERIC_TEXTS

@@ -60,7 +60,7 @@ def test_classify_names_the_kinds_of_change():
 
 LAST = datetime(2026, 10, 16, 15, 30)
 ARROWS = {
-    "A": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30")],  # an LP stop that trails to 85: the same under both rule sets
+    "A": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30")],  # an LP stop (93, above the 89.1 10% stop) that trails to 95: the same under both rule sets
     "B": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30")],  # removed: must be skipped
     "C": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30")],  # a stored stop the previous rules cannot reproduce: must be skipped
     "D": [("yellow_up", "2026-09-01 09:30")],  # a 10% stop: the same under both rule sets
@@ -95,7 +95,7 @@ def world(monkeypatch):
         late = candles.index[-1] >= datetime(2026, 10, 15, 9, 30)
         if candles["close"].iloc[-1] > 110:  # H's rising market: supports above its entry
             return SimpleNamespace(support=[SimpleNamespace(price=p) for p in (115.0, 110.0, 105.0)])
-        return SimpleNamespace(support=[SimpleNamespace(price=p) for p in ([95.0, 85.0, 75.0] if late else [90.0, 80.0, 70.0])])
+        return SimpleNamespace(support=[SimpleNamespace(price=p) for p in ([99.0, 95.0, 90.0] if late else [97.0, 93.0, 90.0])])  # 2nd LP 93 / 95: above the 10% stop (89.1), below the 99 lows
 
     monkeypatch.setattr(wwd, "compute_liquidity_zones_2h", fake_lp)
     with Session(eng) as s:

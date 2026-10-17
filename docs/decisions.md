@@ -1591,3 +1591,11 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 - **Cost:** about 128 s for 136 tickers (8,123 LP calls), so the Warren job goes from about 150 s to about 280 s. **First run:** the night after the commit rewrites 24 rows (11 raise-only effects, 10 cent-level drift, ADP/RMD/ROBO arrow histories); see the spec's "first run". Not applied by hand: cron does it.
 
 - **Applied 2026-10-17 by hand** (owner approval, after a verified backup `backend/fathom_pre_stateless_20261017_121242.db`): the stateless step's first run changed exactly the 24 expected rows; a dry run afterwards reports 0 changing. Revert: restore the backup, then `git revert 1e43b3b 6797c38`. Spec: "applied once by hand".
+
+### 2026-10-17 — Warren watch: down arrows are raise-only, Blue Up is not an action in an open trade (branch `warren-raise-only-arrows`, not merged)
+
+- **Principle:** no change to the ThinkScript logic, only how its instructions are read. A down arrow is a floor, never a cut; Blue Up is not an action when a trade is open; the armed repeat Yellow Up is the only rule that can lower a stop. Gray Down was already raise-only.
+- **Rules:** Blue Up on an active row (any entry kind, with or without a stop) changes nothing about the trade; only the pill, the instruction ("BLUE UP - no change to an open trade", type 5, watch table only) and the dates move, and the first-Yellow-after-Blue counter (it lives in the arrow replay) still resets. Blue Down / Yellow Down: `max(stop, 2nd LP)`, no change (no stop age, basis unchanged) when the 2nd LP is not higher; a row with no stop yet takes the 2nd LP.
+- **Mechanism:** two more `WatchRules` switches (`blue_up_in_trade_no_op`, `down_arrows_raise_only`); `PREVIOUS_RULES` is main's rules before this change (the rebuild guard replays it), `PRE_GRAY_RAISE_ONLY_RULES` the one before the Gray Down change, `LEGACY_RULES` everything off. No schema change.
+- **Effect on the live table (dry run):** 6 of 117 rows would change (ADP, DASH, NOC, PAYX, PTC, SNPS), 0 skipped. Replay: 34 Blue Up replacements gone, total R +259.8 -> +252.4, expectancy +0.727R -> +0.690R, R below -1: 23 -> 25. Not merged or applied; the merge is the owner's decision. Spec: `docs/specs/warren-signals-page.md`, "Rules at a glance" and the last section.
+

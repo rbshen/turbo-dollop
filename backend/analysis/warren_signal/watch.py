@@ -12,9 +12,11 @@ on candle t is first tested on t+1, as the ThinkScript's `rawStopHit` needs `bar
    last instruction are kept. A row with no stop cannot breach.
 2. Up arrows (one per candle; Blue beats Yellow beats Gray, as the ThinkScript resets its yellow count on a Blue). On a
    BREACHED row every up arrow restarts the row as a new entry (Blue, Yellow, Gray):
-   - Blue Up (type 2): entry kind blue, entry = this candle's close, no stop, active (clears a breach). On an ACTIVE row it
-     does the same (entry price, date and kind are replaced and the stop is cleared) EXCEPT on an active GRAY-entry row, where
-     the entry and the stop are kept and only the latest arrow, instruction (Blue Up) and last signal move (2026-10-17).
+   - Blue Up (type 2): no row, a breached row, or a row with no entry -> entry kind blue, entry = this candle's close, no stop,
+     active (clears a breach). On an ACTIVE row with an entry it is not an action (2026-10-17): entry price, date and kind, stop,
+     basis and status stay; only the latest arrow, the instruction (BLUE_UP_IN_TRADE, "BLUE UP - no change to an open trade") and
+     last signal move. It still resets the first-Yellow-after-Blue counter, which lives in the arrow replay, so the next Yellow Up
+     is type 4 (no action) and the one after it acts.
    - Yellow Up (type 3): fresh entry (no row, breached row, or a row that never had an entry) -> entry kind yellow,
      stop = 0.9 x this candle's low, basis "10%". On an active row with an entry -> stop = min(2nd LP, 0.9 x low),
      basis whichever is lower ("10%" on a tie, or when there is no 2nd LP); the entry is unchanged.
@@ -26,14 +28,15 @@ on candle t is first tested on t+1, as the ThinkScript's `rawStopHit` needs `bar
      (stop only; the gray entry is never replaced).
 3. Down arrows (one per candle; Yellow Down beats Blue Down beats Gray Down, the ThinkScript's text order) apply only
    to an existing ACTIVE row; on a BREACHED row they are ignored entirely (2026-10-17: nothing changes, not even the latest
-   arrow). On an active row the instruction text and the latest arrow update; the stop changes only on a row
-   with an entry: Blue Down -> 2nd LP; Yellow Down -> 2nd LP if the entry kind is yellow or gray; Gray Down -> the entry price
-   if the entry kind is yellow or gray AND the entry price is BELOW the Gray Down candle's close (an entry at or above the close
-   would put the stop above the market and breach on the next candle, so the row is left as it is, text only), and, since
-   2026-10-17, RAISE-ONLY: stop = max(current stop, entry price), so a stop already at or above the entry price is left
-   alone (no stop move, no stop-age change). The ThinkScript computes no stop for a Gray Down; this is a rule on the
-   instruction text only. A blue entry takes no stop from a Gray Down ("GRAY DOWN on BLUE ENTRY = No Action" in the scripts).
-   Apart from the Gray Down raise-only rule there is no tighten-only rule for arrows: a repeat Yellow may move a stop down.
+   arrow). On an active row the instruction text and the latest arrow update; the stop changes only on a row with an entry, and
+   a down arrow is RAISE-ONLY (a floor, never a cut; 2026-10-17): Blue Down -> stop = max(current stop, 2nd LP) (no stop yet ->
+   the 2nd LP); Yellow Down -> the same if the entry kind is yellow or gray (a blue entry: no action); Gray Down -> stop =
+   max(current stop, entry price) if the entry kind is yellow or gray AND the entry price is BELOW the Gray Down candle's close
+   (an entry at or above the close would put the stop above the market and breach on the next candle, so the row is left as it
+   is, text only). When the new level is not higher there is no change at all: no stop move, no stop-age update, basis unchanged.
+   The ThinkScript computes no stop for a Gray Down; this is a rule on the instruction text only. A blue entry takes no stop from
+   a Gray Down ("GRAY DOWN on BLUE ENTRY = No Action" in the scripts). The armed repeat Yellow Up (rule 2) is the ONLY rule that
+   can lower a stop.
 
 4. Trailing (2026-10-16): after a candle's arrows, an ACTIVE row whose stop basis is LP asks for the 2nd LP as of that candle
    and, if it is higher than the stop, raises the stop to it (basis stays LP). It never lowers a stop and never touches a
@@ -57,6 +60,7 @@ import pandas as pd
 from .instructions import (
     BLUE_DOWN,
     BLUE_UP,
+    BLUE_UP_IN_TRADE,
     GRAY_DOWN,
     GRAY_UP,
     YELLOW_DOWN,
@@ -100,17 +104,24 @@ class WatchRules:
     """Switches for the arrow rules that changed on 2026-10-17, so the rebuild script can replay the PREVIOUS rules (its mismatch
     guard) and attribute a difference to one change. The defaults are the current rules."""
 
-    gray_entry: bool = True  # a Gray Up with no open trade opens a gray entry; a Blue Up never replaces an active gray entry
+    gray_entry: bool = True  # a Gray Up with no open trade opens a gray entry
     ignore_breached_downs: bool = True  # a down arrow does nothing on a breached row
-    gray_up_freezes_breached: bool = False  # the previous rule: a Gray Up on a breached row moved only the latest arrow
+    gray_up_freezes_breached: bool = False  # the oldest rule: a Gray Up on a breached row moved only the latest arrow
     gray_down_raise_only: bool = True  # a Gray Down never lowers a stop (stop = max(stop, entry)); False = it set the stop to the entry price
+    blue_up_in_trade_no_op: bool = True  # a Blue Up on an active row with an entry changes nothing about the trade; False = it replaced the entry (gray entries excepted)
+    down_arrows_raise_only: bool = True  # Blue Down / Yellow Down: stop = max(stop, 2nd LP); False = the stop was set to the 2nd LP, lower or not
 
 
 CURRENT_RULES = WatchRules()
-# The rules in force before the Gray Down raise-only change (2026-10-17): what the stored rows were built under, so the rebuild guard replays them.
-PREVIOUS_RULES = WatchRules(gray_down_raise_only=False)
-# The rules before the gray-entry / breached-row change (2026-10-17, earlier): for tests that pin that behaviour.
-LEGACY_RULES = WatchRules(gray_entry=False, ignore_breached_downs=False, gray_up_freezes_breached=True, gray_down_raise_only=False)
+# The rules on main before the raise-only down arrows / Blue Up no-op change (b19cbc4): what the stored rows were built under, so the rebuild guard replays them.
+PREVIOUS_RULES = WatchRules(blue_up_in_trade_no_op=False, down_arrows_raise_only=False)
+# The rules before the Gray Down raise-only change (2026-10-17, earlier): for tests that pin that behaviour.
+PRE_GRAY_RAISE_ONLY_RULES = replace(PREVIOUS_RULES, gray_down_raise_only=False)
+# The rules before the gray-entry / breached-row change (2026-10-17, earliest): for tests that pin that behaviour.
+LEGACY_RULES = WatchRules(
+    gray_entry=False, ignore_breached_downs=False, gray_up_freezes_breached=True, gray_down_raise_only=False,
+    blue_up_in_trade_no_op=False, down_arrows_raise_only=False,
+)
 
 
 @dataclass(frozen=True)
@@ -175,8 +186,13 @@ def _apply_up(
     rules: WatchRules = CURRENT_RULES,
 ) -> WatchState:
     if kind == "blue_up":
+        in_trade = state is not None and state.status == STATUS_ACTIVE and state.entry_kind is not None
+        if rules.blue_up_in_trade_no_op and in_trade:
+            # Not an action while a trade is open: entry, stop, basis and status stay; the arrow, text and dates move. (The first-Yellow-after-Blue
+            # counter lives in the arrow replay, state_machine.py, and resets on every Blue regardless of the row.)
+            return replace(state, latest_arrow_kind=kind, latest_arrow_at=ts, last_signal_at=ts, instruction_type=BLUE_UP_IN_TRADE)
         if rules.gray_entry and state is not None and state.status == STATUS_ACTIVE and state.entry_kind == ENTRY_GRAY:
-            # A gray trade keeps its entry and its stop for its whole life; the Blue only moves the arrow, instruction and date.
+            # Previous rule: a gray trade keeps its entry and its stop for its whole life; the Blue only moves the arrow, instruction and date.
             return replace(state, latest_arrow_kind=kind, latest_arrow_at=ts, last_signal_at=ts, instruction_type=BLUE_UP)
         return WatchState(profile, kind, ts, BLUE_UP, ENTRY_BLUE, ts, close, None, BASIS_NONE, STATUS_ACTIVE, None, ts)
 
@@ -226,7 +242,11 @@ def _apply_down(
     if kind == "yellow_down" and state.entry_kind not in (ENTRY_YELLOW, ENTRY_GRAY):
         return moved
     lp = lp_second(pos)
-    return _with_stop(moved, lp, BASIS_LP, ts, MOVED_YELLOW_DOWN if kind == "yellow_down" else MOVED_BLUE_DOWN) if lp is not None else moved
+    if lp is None:
+        return moved
+    if rules.down_arrows_raise_only and state.stop_price is not None and lp <= state.stop_price:
+        return moved  # a floor, never a cut: the 2nd LP is not higher than the stop (no stop move, no stop-age change, basis unchanged)
+    return _with_stop(moved, lp, BASIS_LP, ts, MOVED_YELLOW_DOWN if kind == "yellow_down" else MOVED_BLUE_DOWN)
 
 
 def _trail(state: WatchState, ts: datetime, pos: int, lp_second: LpSecond) -> tuple[WatchState, float | None]:

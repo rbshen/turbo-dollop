@@ -36,6 +36,10 @@ FIRST_YELLOW_UP = 4
 YELLOW_UP = 3
 BLUE_UP = 2
 GRAY_UP = 1
+# Watch table only (analysis/warren_signal/watch.py): a Blue Up that lands inside an open trade changes nothing about the trade (2026-10-17).
+# Not an arrow type of the ThinkScript chain, so it is in none of the dicts below: the chart's current_instruction never produces it.
+BLUE_UP_IN_TRADE = 5
+WATCH_ONLY_TEXTS = {BLUE_UP_IN_TRADE: "BLUE UP - no change to an open trade"}
 
 TYPE_KIND = {
     STOP_HIT: "stop_hit",
@@ -89,6 +93,8 @@ GENERIC_TEXTS = {
 def text_for(instruction_type: int, profile_name: str) -> str:
     """The wording for one type: the shortened set for every named per-ticker profile, the generic set for the
     ANY-TICKER profile."""
+    if instruction_type in WATCH_ONLY_TEXTS:
+        return WATCH_ONLY_TEXTS[instruction_type]
     return (GENERIC_TEXTS if profile_name == ANY_TICKER.name else PROFILED_TEXTS)[instruction_type]
 
 
