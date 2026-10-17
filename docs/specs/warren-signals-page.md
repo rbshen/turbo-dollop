@@ -460,3 +460,9 @@ expectancy +0.727R -> +0.690R, median +0.09 -> 0.00, profit factor 3.00 -> 2.85,
 Stops lowered at any point: only the repeat Yellow (138 trades; before 137 + Yellow Down 4 + Blue Down 6). Blue entries (no initial stop, % P/L only): 21 -> 18 counted, average +9.1% -> +11.1%.
 Small and close to what the sample can resolve; the mechanism (a Blue Up in a trade no longer wipes the entry) is the change, not the number.
 
+
+### Merged into main (2026-10-17, 23:38 UTC, fast-forward, not pushed)
+
+Branch `warren-raise-only-arrows` (commits `6b5ca2b` raise-only down arrows / Blue Up no-op, `1f72648` instruction text follows the pill) was fast-forwarded into `main` (main was `b19cbc4`) and deployed by restarting the backend. The two commits plus this docs commit are the whole change; no schema change. **The full test suite is pending the owner's confirmation:** the new and updated tests were written but never run. No dry run was run for the text change, so the set of text-only rows tonight's replay will rewrite is unverified (the last dry run, before the text fix, expected 6: ADP, DASH, NOC, PAYX, PTC, SNPS).
+
+**Revert plan.** `git revert 1f72648 6b5ca2b` (newest first) on main, restart the backend; the next nightly replay rewrites the rows back (it is stateless, so reverting the code is enough). Restore `backend/fathom_pre_stateless_20261017_121242.db` only if the data looks wrong, because it is older than the stateless replay and loses everything written since.
