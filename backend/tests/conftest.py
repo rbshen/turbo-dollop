@@ -158,8 +158,9 @@ def _isolate_core_db_engine(monkeypatch):
     reference, never `core.db.engine`, so those calls hit the real fathom.db: on 2026-10-10 a column drop from a branch
     reached the live file that way (the write guard did not yet cover DDL). Pointing `core.db.engine` at a fresh in-memory
     engine per test makes every init_db() run against a throwaway database, whichever module imported it. Modules that
-    did `from core.db import engine` keep the real engine (reads of real rows still work; the guard above blocks any write or
-    schema change). A test of the db module patches `db.engine` itself afterwards, which simply overrides this one."""
+    did `from core.db import engine` keep the session's throwaway engine (backend/conftest.py points DATABASE_PATH at an empty
+    temp file before any import, so that engine is never the real fathom.db: reads see empty tables, and the guard above blocks any
+    write or schema change). A test of the db module patches `db.engine` itself afterwards, which simply overrides this one."""
     import core.db as db
 
     isolated = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)

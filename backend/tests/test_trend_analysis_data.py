@@ -215,7 +215,7 @@ def _synthetic_downtrend_rows(n: int = 150, ticker: str = "AAPL") -> pd.DataFram
 
 
 
-def test_weinstein_fields_read_as_none_on_a_legacy_pre_migration_row():
+def test_weinstein_fields_read_as_none_on_a_legacy_pre_migration_row(monkeypatch):
     """A row written before the Weinstein columns' ALTER TABLE migration has
     NULL in them -- must read back as None (falsy), not raise a validation
     error. This is also the regression test for the
@@ -225,6 +225,7 @@ def test_weinstein_fields_read_as_none_on_a_legacy_pre_migration_row():
     "genuinely insufficient" state, where a real compute ran and
     weinstein_weeks_available holds a real (sub-40) count."""
     engine = _fresh_engine()
+    monkeypatch.setattr(trend_analysis_data_module, "engine", engine)  # get_trend_analysis_data below must read the row seeded here
 
     with Session(engine) as session:
         session.add(
