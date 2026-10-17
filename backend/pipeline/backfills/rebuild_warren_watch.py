@@ -36,13 +36,13 @@ from clients.shared_bars_cache import INTRADAY_INTERVAL, _load_frames
 from core.db import engine
 from core.models import LiquidityZoneSettings, WarrenWatchCursor, WarrenWatchRow
 from data.warren_signal_data import profile_for
-from data.warren_watch_data import SEED_MONTHS, SecondSupportLookup, _row_values, _state_from_row, completed_candles, watch_replay
+from data.warren_watch_data import REPLAY_ANCHOR, SecondSupportLookup, _row_values, _state_from_row, completed_candles, watch_replay
 from helpers.liquidity_zone_config import to_engine_settings
 from pipeline.nightly_warren_signal_calculation import LOOKBACK_DAYS
 
-# The first seed's as_of (2026-10-15 15:30) minus SEED_MONTHS: the replay start.
+# The replay start: the nightly step's fixed anchor (the first seed's as_of, 2026-10-15 15:30, minus 12 months).
 FIRST_SEED_AS_OF = datetime(2026, 10, 15, 15, 30)
-REBUILD_START = (pd.Timestamp(FIRST_SEED_AS_OF) - pd.DateOffset(months=SEED_MONTHS)).to_pydatetime()
+REBUILD_START = REPLAY_ANCHOR
 # A 180-day engine warm-up before the replay start is the comfortable minimum for a clean left edge (warren-signal.md).
 WARMUP_DAYS = 180
 
@@ -126,7 +126,7 @@ def _read_rows(session: Session, tickers: list[str] | None) -> tuple[list[Warren
     """Every non-removed row, and whether the table already has the stop-age columns. Without them (a database not yet migrated)
     only the existing columns are selected, so a dry run needs no schema change."""
     present = {c["name"] for c in inspect(session.get_bind()).get_columns(WarrenWatchRow.__tablename__)}
-    migrated = set(AGE_FIELDS) <= present
+    migrated = (set(AGE_FIELDS) | {"replay_from"}) <= present
     if migrated:
         stmt = select(WarrenWatchRow).where(WarrenWatchRow.removed_at.is_(None)).order_by(WarrenWatchRow.ticker)
         rows = list(session.exec(stmt).all())
@@ -151,7 +151,7 @@ def main(apply: bool, tickers: list[str] | None = None, show: tuple[str, ...] = 
         settings = to_engine_settings(session.get(LiquidityZoneSettings, "default"))
         rows, migrated = _read_rows(session, tickers)
         if apply and not migrated:
-            raise SystemExit("WarrenWatchRow has no stop_moved_at/stop_moved_by columns yet: start the app (or run a job) once so init_db adds them.")
+            raise SystemExit("WarrenWatchRow has no stop_moved_at/stop_moved_by/replay_from columns yet: start the app (or run a job) once so init_db adds them.")
         cursors = {c.ticker: c.processed_through for c in session.exec(select(WarrenWatchCursor)).all()}
         bars = _load_frames(session, [r.ticker for r in rows], INTRADAY_INTERVAL, (datetime.now() - timedelta(days=LOOKBACK_DAYS)).date())
 

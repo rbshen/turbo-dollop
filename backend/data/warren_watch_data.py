@@ -1,24 +1,31 @@
 """Orchestration for the Warren Signals watch table (docs/specs/warren-signals-page.md): reads the 2h arrows from the
-existing replay, folds them into `WarrenWatchRow` with analysis/warren_signal/watch.py, and keeps `WarrenWatchCursor`
-so a rerun is a no-op.
+existing replay and replays them into `WarrenWatchRow` with analysis/warren_signal/watch.py.
+
+STATELESS since 2026-10-17: every night each ticker's row is recomputed by replaying ALL its completed 2h candles from
+REPLAY_ANCHOR on the bars as they are NOW, and the stored row is rewritten only if the result differs. The earlier cursor
+design folded each session in once, from the 60m bars FMP serves the night right after it; those are provisional (the
+newest session's prices and volumes are revised on later fetches), so a row could keep arrows and prices the final bars no
+longer give (RMD, ADP, ROBO). `WarrenWatchCursor` is now only bookkeeping (the page's "as of").
 
 The candles are built exactly as the Chart tab's 2H·90D range builds them (the fast builder, the forming candle
 dropped, window-start index, the same volume-guarded replay for SPY/QQQ/TQQQ/TECL), so the arrows the table acts on
 cannot drift from the chart. Candle times in the table are therefore window starts (09:30/11:30/13:30/15:30), which
 differ from `WarrenSignalEvent.fired_at` (the window's LAST bar) for every window but the 15:30 one.
 
-Seed and nightly are the same code: a ticker with no cursor reads the last SEED_MONTHS (12) of candles, so an arrow near the
-window start is not mistaken for a fresh entry when an earlier trade existed; one with a cursor reads the candles after it.
-A first-time ticker gets a row only if it had an up arrow in the last ROW_MONTHS (3): the long replay decides the state,
-not whether a row exists. The cursor and the row are written in one transaction."""
+Seed and nightly are the same code. The replay starts at a FIXED anchor (not a sliding 12 months, which would change the
+state of an open trade as the window moves), so an arrow near the start is not mistaken for a fresh entry when an earlier
+trade existed. A ticker with no row gets one only if it had an up arrow in the last ROW_MONTHS (3): the long replay decides
+the state, not whether a row exists. A removed row (`removed_at`) is replayed only from the removal on and stays removed
+until an up arrow falls after it; the woken row keeps `replay_from` = the removal time, so later nights do not bring the
+old trade back. The row and the cursor are written in one transaction."""
 
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-from sqlalchemy import func
+from sqlalchemy import func, inspect
 from sqlmodel import Session, select
 
 from analysis.entry_signal.resample import build_2h_session_candles_fast, drop_forming_candles, index_by_window_start
@@ -40,6 +47,10 @@ logger = logging.getLogger(__name__)
 # creates a row only if an up arrow falls in the last ROW_MONTHS of them.
 SEED_MONTHS = 12
 ROW_MONTHS = 3
+# The fixed start of every replay: the first seed's as_of (2026-10-15 15:30) minus SEED_MONTHS. A constant so the state does not
+# depend on the date; it must be moved forward before the cached 60m history (LOOKBACK_DAYS = 730) no longer leaves a 180-day
+# warm-up before it (about April 2027), and the rows rebuilt when it is.
+REPLAY_ANCHOR = datetime(2025, 10, 15, 15, 30)
 _UP_KINDS = ("blue_up", "yellow_up", "gray_up")
 
 # How far back the page's "Last" price looks for a cached daily bar (a long weekend plus a delisting-style gap still finds one).
@@ -90,7 +101,8 @@ class WatchUpdate:
 
     outcome: str
     lp_calls: int
-    candles_read: int
+    candles_read: int  # the candles replayed (everything after the replay start)
+    changes: dict = field(default_factory=dict)  # {field: (stored, new)} for a "changed" row; {"<new row>": ...} for a created one
 
 
 def _has_recent_up(events, as_of: datetime) -> bool:
@@ -125,16 +137,35 @@ def _row_values(state: WatchState) -> dict:
     }
 
 
+_STATE_FIELDS = (
+    "profile", "latest_arrow_kind", "latest_arrow_at", "instruction_type", "entry_kind", "entry_at", "entry_price", "stop_price",
+    "stop_basis", "status", "breached_at", "last_signal_at", "stop_moved_at", "stop_moved_by",
+)
+
+
+def _load_row(session: Session, ticker: str) -> WarrenWatchRow | None:
+    """The ticker's row. Reads even a database that does not have the newest columns yet (a dry run against a file `init_db` has
+    not migrated): then only the columns that exist are selected and the missing ones read as None."""
+    present = {c["name"] for c in inspect(session.get_bind()).get_columns(WarrenWatchRow.__tablename__)}
+    if {c.name for c in WarrenWatchRow.__table__.c} <= present:
+        return session.get(WarrenWatchRow, ticker)
+    cols = [c for c in WarrenWatchRow.__table__.c if c.name in present]
+    found = session.exec(select(*cols).where(WarrenWatchRow.ticker == ticker)).first()
+    return None if found is None else WarrenWatchRow.model_construct(**dict(zip([c.name for c in cols], found)))
+
+
 def update_warren_watch(
     ticker: str,
     bars: pd.DataFrame,
     settings: LiquidityZoneSettings,
     now: datetime | None = None,
     daily_volume: pd.Series | None = None,
+    dry_run: bool = False,
 ) -> WatchUpdate:
-    """Fold the ticker's new completed 2h candles into its watch row. `bars` are the raw 60m bars (the shared cache's
-    frame). Raises ValueError when no completed candle can be built. Idempotent: a second call with the same bars
-    reads no candle and writes nothing but an unchanged `as_of`."""
+    """Recompute the ticker's watch row from scratch: replay every completed 2h candle after REPLAY_ANCHOR (or after the removal /
+    `replay_from` of a removed or woken row) on `bars` (the shared cache's raw 60m frame; no download here) and write the row only
+    if the result differs from the stored one. Raises ValueError when no completed candle can be built. Idempotent: a second call
+    on the same bars writes nothing but an unchanged `as_of`. `dry_run` computes and reports (`changes`) and writes nothing."""
     ticker = normalize_ticker(ticker)
     now = now or datetime.now(timezone.utc)
     candles = completed_candles(bars, now)
@@ -142,51 +173,66 @@ def update_warren_watch(
         raise ValueError("No completed 2h candles")
     as_of = candles.index[-1].to_pydatetime()
     wall = datetime.now()
+    profile = profile_for(ticker).name
 
     with Session(engine) as session:
-        row = session.get(WarrenWatchRow, ticker)
+        row = _load_row(session, ticker)
         cursor = session.get(WarrenWatchCursor, ticker)
         removed_at = row.removed_at if row is not None else None
 
-        after = cursor.processed_through if cursor is not None else (pd.Timestamp(as_of) - pd.DateOffset(months=SEED_MONTHS)).to_pydatetime()
-        if removed_at is not None and removed_at > after:
-            after = removed_at  # arrows at or before the removal are ignored
-        state = _state_from_row(row) if row is not None and removed_at is None else None
+        after = REPLAY_ANCHOR
+        for cut in (getattr(row, "replay_from", None), removed_at):  # a woken row replays from its removal; a removed one too
+            if cut is not None and cut > after:
+                after = cut
+        stored = _state_from_row(row) if row is not None and removed_at is None else None
 
         lookup = SecondSupportLookup(candles, settings)
         read = int(len(candles) - candles.index.searchsorted(pd.Timestamp(after), side="right"))
-        new_state = state
-        if read > 0:
-            result = watch_replay(ticker, candles, daily_volume)
-            new_state = advance(
-                state, candles, result.events, result.first_yellow_after_blue_at, profile_for(ticker).name, after, lookup
-            )
-            if new_state is not None:
-                new_state = replace(new_state, profile=profile_for(ticker).name)
-            if cursor is None and state is None and new_state is not None and not _has_recent_up(result.events, as_of):
-                new_state = None  # seeded from 12 months, but no up arrow in the last 3: no row
+        result = watch_replay(ticker, candles, daily_volume)
+        new_state = advance(None, candles, result.events, result.first_yellow_after_blue_at, profile, after, lookup)
+        if new_state is not None:
+            new_state = replace(new_state, profile=profile)
 
-        if new_state is None:
-            outcome = "removed" if row is not None else "no_row"
-        elif row is None or removed_at is not None:
-            session.merge(WarrenWatchRow(ticker=ticker, last_updated_at=wall, removed_at=None, as_of=as_of, **_row_values(new_state)))
-            outcome = "created"
-        elif _content(new_state) != _content(state):
-            for field, value in _row_values(new_state).items():
-                setattr(row, field, value)
-            row.last_updated_at, row.as_of = wall, as_of
-            session.add(row)
+        changes: dict = {}
+        if row is None:
+            create = new_state is not None and _has_recent_up(result.events, as_of)  # a first row needs an up arrow in the last 3 months
+            outcome = "created" if create else "no_row"
+        elif removed_at is not None:
+            outcome = "created" if new_state is not None else "removed"  # only an up arrow after the removal wakes it
+        elif new_state is None:
+            outcome = "unchanged"  # the replay gives no row (history revised away): keep what is stored, never delete
+        elif _content(new_state) != _content(stored):
             outcome = "changed"
+            changes = {f: (getattr(stored, f), getattr(new_state, f)) for f in _STATE_FIELDS if getattr(stored, f) != getattr(new_state, f)}
         else:
-            if row.as_of != as_of:
+            outcome = "unchanged"
+        if outcome == "created":
+            changes = {"<new row>": (None, _brief(new_state))}
+
+        if not dry_run:
+            if outcome == "created":
+                values = _row_values(new_state)
+                session.merge(
+                    WarrenWatchRow(ticker=ticker, last_updated_at=wall, removed_at=None, as_of=as_of, replay_from=removed_at, **values)
+                )
+            elif outcome == "changed":
+                for name, value in _row_values(new_state).items():
+                    setattr(row, name, value)
+                row.last_updated_at, row.as_of = wall, as_of
+                session.add(row)
+            elif outcome == "unchanged" and row is not None and removed_at is None and row.as_of != as_of:
                 row.as_of = as_of
                 session.add(row)
-            outcome = "unchanged"
+            if cursor is None or cursor.processed_through < as_of:
+                session.merge(WarrenWatchCursor(ticker=ticker, processed_through=as_of, updated_at=wall))
+            session.commit()
+    return WatchUpdate(outcome, lookup.calls, max(read, 0), changes)
 
-        if cursor is None or cursor.processed_through < as_of:
-            session.merge(WarrenWatchCursor(ticker=ticker, processed_through=as_of, updated_at=wall))
-        session.commit()
-    return WatchUpdate(outcome, lookup.calls, max(read, 0))
+
+def _brief(state: WatchState) -> str:
+    stop = "no stop" if state.stop_price is None else f"stop {state.stop_price:.2f} {state.stop_basis}"
+    entry = "no entry" if state.entry_price is None else f"{state.entry_kind} entry {state.entry_price:.2f} {state.entry_at:%Y-%m-%d %H:%M}"
+    return f"{entry}; {stop}; {state.status}; latest {state.latest_arrow_kind} {state.latest_arrow_at:%Y-%m-%d %H:%M}"
 
 
 def remove_watch_row(ticker: str, now_et: datetime | None = None) -> bool:

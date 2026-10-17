@@ -226,7 +226,7 @@ _ORDERED: tuple[TickerTable, ...] = (
     _t(
         WarrenWatchCursor,
         TableClass.KEEP,
-        "progress of the Warren watch update, kept with its row: a wiped cursor would re-seed and re-apply arrows already folded into the row",
+        "bookkeeping of the Warren watch update (the page's as-of), kept with its row",
     ),
     _t(OpportunityPick, TableClass.KEEP, "names the user picked from an opportunity run (owner-entered history; insert-only)"),
 )

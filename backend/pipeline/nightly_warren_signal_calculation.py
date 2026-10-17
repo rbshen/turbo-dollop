@@ -58,7 +58,7 @@ from core.logging_config import configure_logging
 from data.warren_signal_data import compute_and_store_warren_signal, prune_warren_signal_events, sweep_stale_warren_signals
 from data.warren_watch_data import update_warren_watch
 from data.watchlists import MONITORED_WATCHLIST_PATTERN, list_monitored_tickers
-from helpers.liquidity_zone_config import get_liquidity_zone_settings, to_engine_settings
+from helpers.liquidity_zone_config import get_liquidity_zone_settings, peek_liquidity_zone_settings, to_engine_settings
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "nightly_warren_signal_calculation.log"
 
@@ -71,24 +71,32 @@ LOOKBACK_DAYS = 730
 logger = logging.getLogger(__name__)
 
 
-def update_watch_table(tickers: list[str], bars_by_ticker: dict) -> dict:
-    """The final step: fold each ticker's new completed 2h candles into the Warren Signals watch table
-    (data/warren_watch_data.py, docs/specs/warren-signals-page.md). A failure here is counted on its own and never
-    changes the Warren signal results above; the 2nd-LP settings are read once."""
+def update_watch_table(tickers: list[str], bars_by_ticker: dict, dry_run: bool = False) -> dict:
+    """The final step: replay every ticker's completed 2h candles from the fixed anchor on the bars the job just read and
+    rewrite the Warren Signals watch rows whose result differs (data/warren_watch_data.py, docs/specs/warren-signals-page.md;
+    stateless since 2026-10-17, no extra download). A failure here is counted on its own and never changes the Warren signal
+    results above; the 2nd-LP settings are read once. `dry_run` writes nothing (not even the settings row) and returns the
+    per-ticker outcomes and field changes in `watch_details`."""
     start = time.monotonic()
     with Session(engine) as session:
-        settings = to_engine_settings(get_liquidity_zone_settings(session))
+        if dry_run:  # a pure read: get_liquidity_zone_settings would create the default row
+            settings = to_engine_settings(peek_liquidity_zone_settings(session))
+        else:
+            settings = to_engine_settings(get_liquidity_zone_settings(session))
     created = changed = lp_calls = 0
+    details: list[tuple[str, str, dict]] = []
     failures: list[tuple[str, str]] = []
     for ticker in tickers:
         try:
             bars = bars_by_ticker.get(ticker)
             if bars is None or bars.empty:
                 raise ValueError("No intraday bars returned")
-            update = update_warren_watch(ticker, bars, settings)
+            update = update_warren_watch(ticker, bars, settings, dry_run=True) if dry_run else update_warren_watch(ticker, bars, settings)
             created += update.outcome == "created"
             changed += update.outcome == "changed"
             lp_calls += update.lp_calls
+            if update.outcome in ("created", "changed"):
+                details.append((ticker, update.outcome, update.changes))
         except Exception as exc:  # noqa: BLE001 -- one bad ticker must never abort the watch step
             logger.error("Warren watch %s: FAILED - %s", ticker, exc)
             failures.append((ticker, str(exc)))
@@ -99,7 +107,7 @@ def update_watch_table(tickers: list[str], bars_by_ticker: dict) -> dict:
     )
     return {
         "watch_attempted": len(tickers), "watch_failed": len(failures), "watch_created": created, "watch_changed": changed,
-        "watch_lp_calls": lp_calls, "watch_seconds": duration, "watch_failures": failures,
+        "watch_lp_calls": lp_calls, "watch_seconds": duration, "watch_failures": failures, "watch_details": details,
     }
 
 

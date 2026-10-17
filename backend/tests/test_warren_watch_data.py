@@ -1,5 +1,5 @@
-"""The Warren Signals watch table's data layer (data/warren_watch_data.py): the 12-month seed (row only with an up arrow in the last 3), idempotent reruns, the
-incremental cursor, removal, the 2nd-LP lookup and the nightly job's final step. The replay is stubbed with canned
+"""The Warren Signals watch table's data layer (data/warren_watch_data.py): the stateless nightly replay from the fixed anchor (row only with an up arrow in
+the last 3 months), writing only rows that differ, idempotent reruns, provisional-vs-final bars, removal, the 2nd-LP lookup and the nightly job's final step. The replay is stubbed with canned
 arrows (its arrows are pinned against the ThinkScript in analysis/warren_signal/test_thinkscript_parity.py); the bars
 are real 60m frames so the candles, the forming-candle drop and the window-start times are the production ones."""
 
@@ -84,14 +84,14 @@ def run(ticker, frame, **kw):
 
 def test_seed_replays_twelve_months_and_creates_rows_only_for_tickers_with_an_up_arrow_in_the_last_three(monkeypatch, engine):
     frame = bars("2025-08-01", "2026-10-16")
-    # as_of is 2026-10-16 15:30: the seed reads candles after 2025-10-16 15:30 and a row needs an up arrow after 2026-07-16 15:30.
+    # as_of is 2026-10-16 15:30: the replay reads candles after the anchor (2025-10-15 15:30) and a row needs an up arrow after 2026-07-16 15:30.
     canned(monkeypatch, {
         "OLD": [("yellow_up", "2026-05-04 09:30")],  # inside the 12 months, outside the last 3: no row
         "ANCIENT": [("yellow_up", "2025-09-01 09:30")],  # before the 12 months
         "DOWN": [("blue_down", "2026-08-03 09:30")],  # a down arrow with no earlier up arrow
         "NEW": [("yellow_up", "2026-05-04 09:30"), ("blue_up", "2026-09-01 09:30")],
         "EDGE": [("blue_up", "2026-07-16 15:30"), ("blue_up", "2026-07-17 09:30")],  # the first is at the 3-month cutoff (not recent), the next is
-        "CUT12": [("blue_up", "2025-10-16 15:30"), ("yellow_up", "2026-08-03 09:30")],  # at the 12-month `after`: ignored
+        "CUT12": [("blue_up", "2025-10-15 15:30"), ("yellow_up", "2026-08-03 09:30")],  # at the replay anchor (`after`): ignored
     })
     outcomes = {t: run(t, frame).outcome for t in ("OLD", "ANCIENT", "DOWN", "NEW", "EDGE", "CUT12")}
     assert outcomes == {"OLD": "no_row", "ANCIENT": "no_row", "DOWN": "no_row", "NEW": "created", "EDGE": "created", "CUT12": "created"}
@@ -102,7 +102,7 @@ def test_seed_replays_twelve_months_and_creates_rows_only_for_tickers_with_an_up
     assert got["CUT12"].entry_kind == "yellow" and got["CUT12"].entry_at == datetime(2026, 8, 3, 9, 30)
     with Session(engine) as s:
         cursors = {c.ticker: c.processed_through for c in s.exec(select(WarrenWatchCursor)).all()}
-    assert set(cursors) == {"OLD", "ANCIENT", "DOWN", "NEW", "EDGE", "CUT12"}  # every ticker is seeded once, row or not
+    assert set(cursors) == {"OLD", "ANCIENT", "DOWN", "NEW", "EDGE", "CUT12"}  # every ticker's progress is recorded, row or not
     assert set(cursors.values()) == {datetime(2026, 10, 16, 15, 30)}
     assert got["NEW"].as_of == datetime(2026, 10, 16, 15, 30)
 
@@ -135,7 +135,7 @@ def test_a_young_ticker_with_less_history_than_the_window_is_seeded_from_what_it
     assert run("IPO", frame).outcome == "created"
 
 
-# --- idempotence and the cursor ---------------------------------------------------------------------------------
+# --- idempotence and the full replay ---------------------------------------------------------------------------------
 
 
 def test_a_rerun_for_the_same_session_changes_nothing(monkeypatch, engine):
@@ -147,17 +147,15 @@ def test_a_rerun_for_the_same_session_changes_nothing(monkeypatch, engine):
     with Session(engine) as s:
         before = [r.model_dump() for r in s.exec(select(WarrenWatchRow).order_by(WarrenWatchRow.ticker)).all()]
         cursors_before = [c.model_dump() for c in s.exec(select(WarrenWatchCursor).order_by(WarrenWatchCursor.ticker)).all()]
-    seen = fake_lp(monkeypatch, [95.0, 90.0, 85.0])
     second = [run(t, frame) for t in ("A", "B")]
-    assert [u.outcome for u in second] == ["unchanged", "unchanged"]
-    assert [u.candles_read for u in second] == [0, 0] and [u.lp_calls for u in second] == [0, 0] and seen == []
+    assert [u.outcome for u in second] == ["unchanged", "unchanged"] and all(not u.changes for u in second)
     with Session(engine) as s:
         after = [r.model_dump() for r in s.exec(select(WarrenWatchRow).order_by(WarrenWatchRow.ticker)).all()]
         cursors_after = [c.model_dump() for c in s.exec(select(WarrenWatchCursor).order_by(WarrenWatchCursor.ticker)).all()]
     assert after == before and cursors_after == cursors_before
 
 
-def test_a_later_session_reads_only_the_new_candles_and_does_not_reapply_old_arrows(monkeypatch, engine):
+def test_a_later_session_replays_everything_and_applies_each_arrow_once(monkeypatch, engine):
     canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30"), ("yellow_up", "2026-10-15 09:30")]})
     seen = fake_lp(monkeypatch, [80.0, 70.0, 60.0])
     run("A", bars("2026-07-01", "2026-10-14"))  # the second yellow does not exist yet in the bars
@@ -173,7 +171,7 @@ def test_a_later_session_reads_only_the_new_candles_and_does_not_reapply_old_arr
     assert seen[0] == n - 7 and seen[-1] == n  # first sliced as of the arrow candle (2026-10-15 09:30: seven candles remain after it), then each later candle
 
 
-def test_a_missed_night_catches_up_over_every_candle_since_the_cursor(monkeypatch, engine):
+def test_a_missed_night_is_found_by_the_full_replay(monkeypatch, engine):
     canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30")]})
     run("A", bars("2026-07-01", "2026-10-12", lows={}))
     assert rows(engine)["A"].status == "active"
@@ -291,7 +289,7 @@ def test_a_new_candle_with_no_arrow_trails_an_lp_stop_and_a_rerun_changes_nothin
     again = run("A", bars("2026-07-01", "2026-10-16"))
     with Session(engine) as s:
         after = [x.model_dump() for x in s.exec(select(WarrenWatchRow)).all()] + [c.model_dump() for c in s.exec(select(WarrenWatchCursor)).all()]
-    assert again.outcome == "unchanged" and again.candles_read == 0 and again.lp_calls == 0 and after == before
+    assert again.outcome == "unchanged" and after == before
 
 
 def test_a_ten_percent_row_is_never_trailed_through_the_data_layer(monkeypatch, engine):
@@ -333,7 +331,13 @@ def test_a_removed_ticker_stays_removed_until_a_genuinely_newer_arrow(monkeypatc
     assert run("A", bars("2026-07-01", "2026-10-16")).outcome == "created"
     r = rows(engine)["A"]
     assert (r.removed_at, r.entry_kind, r.entry_at, r.stop_price, r.instruction_type) == (None, "blue", datetime(2026, 10, 5, 9, 30), None, 2)
+    assert r.replay_from == datetime(2026, 9, 16, 10, 0)  # the removal time: the next replays start there, not at the anchor
     assert [x.ticker for x in wwd.list_watch_rows()] == ["A"]
+
+    # The next night replays from the removal, so the pre-removal trade (the yellow of 09-10) does not come back.
+    woken = rows(engine)["A"].model_dump()
+    again = run("A", bars("2026-07-01", "2026-10-16"))
+    assert again.outcome == "unchanged" and rows(engine)["A"].model_dump() == woken
 
 
 def test_arrows_at_or_before_removed_at_are_ignored_even_if_the_cursor_is_older(monkeypatch, engine):
@@ -367,7 +371,7 @@ def test_the_job_step_counts_created_changed_failed_and_lp_calls(monkeypatch, en
     monkeypatch.setattr(nightly, "engine", engine)
     canned(monkeypatch, {"A": [("blue_up", "2026-09-01 09:30")], "B": []})
     frame = bars("2026-07-01", "2026-10-16")
-    monkeypatch.setattr(nightly, "update_warren_watch", lambda t, b, s: wwd.update_warren_watch(t, b, s, now=NOW))
+    monkeypatch.setattr(nightly, "update_warren_watch", lambda t, b, s, **kw: wwd.update_warren_watch(t, b, s, now=NOW, **kw))
     summary = nightly.update_watch_table(["A", "B", "C"], {"A": frame, "B": frame})  # C has no bars
     assert (summary["watch_attempted"], summary["watch_created"], summary["watch_changed"], summary["watch_failed"]) == (3, 1, 0, 1)
     assert summary["watch_failures"] == [("C", "No intraday bars returned")]
@@ -382,6 +386,113 @@ def test_record_outcome_reports_the_watch_step_and_fails_a_broken_one():
     assert run_.message.endswith("; watch table: 3 created, 2 changed, 1 failed")
     with pytest.raises(RuntimeError, match="watch table"):
         nightly.record_outcome({**base, "watch_attempted": 105, "watch_failed": 105, "watch_created": 0, "watch_changed": 0}, CronRunContext())
+
+
+# --- the stateless nightly step (2026-10-17) --------------------------------------------------------------------
+
+
+def snapshot(engine):
+    with Session(engine) as s:
+        return (
+            [r.model_dump() for r in s.exec(select(WarrenWatchRow).order_by(WarrenWatchRow.ticker)).all()],
+            [c.model_dump() for c in s.exec(select(WarrenWatchCursor).order_by(WarrenWatchCursor.ticker)).all()],
+        )
+
+
+def test_the_step_writes_only_the_rows_whose_result_changed(monkeypatch, engine):
+    monkeypatch.setattr(nightly, "engine", engine)
+    canned(monkeypatch, {"A": [("blue_up", "2026-09-01 09:30")], "B": [("yellow_up", "2026-09-02 09:30")], "C": [("blue_up", "2026-09-03 09:30")]})
+    frame = bars("2026-07-01", "2026-10-16")
+    monkeypatch.setattr(nightly, "update_warren_watch", lambda t, b, s, **kw: wwd.update_warren_watch(t, b, s, now=NOW, **kw))
+    nightly.update_watch_table(["A", "B", "C"], {t: frame for t in "ABC"})
+    before = {r["ticker"]: r for r in snapshot(engine)[0]}
+    # B's 10% stop (89.1) is hit on 10-14 in the revised bars; A and C see the same bars as before.
+    revised = bars("2026-07-01", "2026-10-16", lows={"2026-10-14": 80.0})
+    summary = nightly.update_watch_table(["A", "B", "C"], {"A": frame, "B": revised, "C": frame})
+    after = {r["ticker"]: r for r in snapshot(engine)[0]}
+    assert (summary["watch_created"], summary["watch_changed"], summary["watch_failed"]) == (0, 1, 0)
+    assert after["A"] == before["A"] and after["C"] == before["C"]  # untouched, last_updated_at included
+    assert (after["B"]["status"], after["B"]["breached_at"]) == ("breached", datetime(2026, 10, 14, 9, 30))
+    assert after["B"]["last_updated_at"] >= before["B"]["last_updated_at"]
+    assert [d[0] for d in summary["watch_details"]] == ["B"] and "status" in summary["watch_details"][0][2]
+
+
+def test_a_second_run_on_the_same_bars_writes_nothing(monkeypatch, engine):
+    canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30")], "B": [("blue_up", "2026-09-02 09:30")]})
+    fake_lp(monkeypatch, [95.0, 90.0, 85.0])
+    frame = bars("2026-07-01", "2026-10-16")
+    for t in ("A", "B"):
+        run(t, frame)
+    before = snapshot(engine)
+    assert [run(t, frame).outcome for t in ("A", "B")] == ["unchanged", "unchanged"]
+    assert snapshot(engine) == before
+
+
+def test_provisional_bars_one_night_final_bars_the_next_rewrite_the_stored_row(monkeypatch, engine):
+    # Night 1: the newest session's bars are provisional (a low of 80 under the 89.1 stop): the row is breached on 10-16.
+    canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30")]})
+    run("A", bars("2026-07-01", "2026-10-16", lows={"2026-10-16": 80.0}))
+    assert (rows(engine)["A"].status, rows(engine)["A"].breached_at) == ("breached", datetime(2026, 10, 16, 9, 30))
+    # Night 2: the same candles re-fetched final (low 99): the stored row follows the bars, no cursor in the way.
+    update = run("A", bars("2026-07-01", "2026-10-16"))
+    r = rows(engine)["A"]
+    assert update.outcome == "changed" and set(update.changes) == {"status", "breached_at"}
+    assert (r.status, r.breached_at) == ("active", None)
+    # A revised arrow works the same way: an arrow that disappears from the replay changes the row (here the second Yellow's stop).
+    canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30"), ("yellow_up", "2026-10-15 09:30")]})
+    fake_lp(monkeypatch, [80.0, 70.0, 60.0])
+    assert run("A", bars("2026-07-01", "2026-10-16")).outcome == "changed" and rows(engine)["A"].stop_price == 70.0
+    canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30")]})
+    assert run("A", bars("2026-07-01", "2026-10-16")).outcome == "changed" and rows(engine)["A"].stop_price == pytest.approx(89.1)
+
+
+def test_a_new_ticker_gets_its_row_from_the_full_history_and_only_with_a_recent_up_arrow(monkeypatch, engine):
+    canned(monkeypatch, {"OLDER": [("yellow_up", "2026-01-12 09:30"), ("blue_down", "2026-02-02 09:30")], "NEW": [("yellow_up", "2026-01-12 09:30"), ("yellow_up", "2026-09-01 09:30")]})
+    fake_lp(monkeypatch, [80.0, 70.0, 60.0])
+    frame = bars("2025-08-01", "2026-10-16")
+    assert run("OLDER", frame).outcome == "no_row"  # no up arrow in the last 3 months
+    assert run("NEW", frame).outcome == "created"
+    r = rows(engine)["NEW"]
+    assert r.entry_at == datetime(2026, 1, 12, 9, 30) and r.last_signal_at == datetime(2026, 9, 1, 9, 30)  # the state comes from the whole replay
+    assert set(rows(engine)) == {"NEW"} and r.replay_from is None
+
+
+def test_a_dry_run_reports_the_changes_and_writes_nothing(monkeypatch, engine):
+    canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30")], "B": [("blue_up", "2026-09-02 09:30")]})
+    frame = bars("2026-07-01", "2026-10-16")
+    run("A", frame)
+    before = snapshot(engine)
+    revised = bars("2026-07-01", "2026-10-16", lows={"2026-10-14": 80.0})
+    changed = wwd.update_warren_watch("A", revised, SETTINGS, now=NOW, dry_run=True)
+    created = wwd.update_warren_watch("B", frame, SETTINGS, now=NOW, dry_run=True)
+    assert (changed.outcome, set(changed.changes)) == ("changed", {"status", "breached_at"})
+    assert created.outcome == "created" and "<new row>" in created.changes
+    assert snapshot(engine) == before  # no row, no cursor written
+
+
+def test_the_dry_run_reads_a_database_that_has_not_been_migrated_to_replay_from(monkeypatch, engine):
+    from sqlalchemy import text
+
+    canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30")]})
+    run("A", bars("2026-07-01", "2026-10-16"))
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE warrenwatchrow DROP COLUMN replay_from"))
+    update = wwd.update_warren_watch("A", bars("2026-07-01", "2026-10-16", lows={"2026-10-14": 80.0}), SETTINGS, now=NOW, dry_run=True)
+    assert update.outcome == "changed" and "status" in update.changes
+
+
+def test_the_job_step_dry_run_reports_per_ticker_details_and_writes_nothing(monkeypatch, engine):
+    monkeypatch.setattr(nightly, "engine", engine)
+    canned(monkeypatch, {"A": [("blue_up", "2026-09-01 09:30")]})
+    frame = bars("2026-07-01", "2026-10-16")
+    monkeypatch.setattr(nightly, "update_warren_watch", lambda t, b, s, **kw: wwd.update_warren_watch(t, b, s, now=NOW, **kw))
+    summary = nightly.update_watch_table(["A"], {"A": frame}, dry_run=True)
+    assert summary["watch_created"] == 1 and summary["watch_details"][0][:2] == ("A", "created")
+    assert snapshot(engine) == ([], [])
+    with Session(engine) as s:
+        from core.models import LiquidityZoneSettings as SettingsRow
+
+        assert s.exec(select(SettingsRow)).all() == []  # not even the settings row is created
 
 
 # --- the arrows the table acts on are the chart's ---------------------------------------------------------------

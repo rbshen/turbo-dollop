@@ -390,14 +390,17 @@ class WarrenWatchRow(SQLModel, table=True):
     last_signal_at: datetime  # the latest UP arrow's candle
     last_updated_at: datetime
     removed_at: datetime | None = None
+    # Set when a removed row is woken by a newer up arrow (2026-10-17): the removal time, so the stateless nightly replay starts there and the old trade
+    # does not come back. Nullable; added by init_db's additive column sweep.
+    replay_from: datetime | None = None
     as_of: datetime  # the last completed 2h candle the update read
 
 
 class WarrenWatchCursor(SQLModel, table=True):
-    """Per-ticker progress of the watch update: the last 2h candle (naive America/New_York window start) already folded
-    into the watch table. A ticker with no cursor is seeded from the last 12 months (a row only if an up arrow fell in the last 3); one with a cursor only reads
-    candles after it, which is what makes a rerun idempotent. Kept for tickers with no watch row too (no up arrow yet),
-    and beside the row (see data/ticker_data_registry.py)."""
+    """Per-ticker bookkeeping of the watch update: the last completed 2h candle (naive America/New_York window start) the nightly step
+    replayed through; the page's "as of" is the newest of them. Since 2026-10-17 the step is a stateless full replay, so the cursor no
+    longer decides what is read (it used to, which froze a row on the provisional bars of the night it was folded in). Kept for tickers
+    with no watch row too (no up arrow yet), and beside the row (see data/ticker_data_registry.py)."""
 
     ticker: str = Field(primary_key=True)
     processed_through: datetime

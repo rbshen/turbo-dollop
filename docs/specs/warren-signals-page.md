@@ -15,7 +15,7 @@ of truth for them); this feature only reads them.
 | Orchestration, 2nd LP lookup, removal | `backend/data/warren_watch_data.py` |
 | Tables | `WarrenWatchRow`, `WarrenWatchCursor` (`backend/core/models.py`; classified KEEP in `data/ticker_data_registry.py`) |
 | Nightly step | `update_watch_table` in `pipeline/nightly_warren_signal_calculation.py`, the last thing `main()` does |
-| Seed | `uv run python -m pipeline.seed_warren_watch` (the same step on its own, idempotent) |
+| Seed / dry run | `uv run python -m pipeline.seed_warren_watch [--dry-run]` (the same step on its own, idempotent; `--dry-run` reports and writes nothing) |
 | Tests | `analysis/warren_signal/test_watch.py`, `analysis/warren_signal/test_thinkscript_parity.py`, `tests/test_warren_watch_data.py` |
 
 ### Universe, candles and arrows
@@ -36,7 +36,7 @@ row, either direction), `instruction_type` + `instruction_text` (ToS number 1, 2
 `instructions.py`), `entry_kind` (blue / yellow / gray / null; `gray` since 2026-10-17, null only on a legacy row born from a Gray Up), `entry_at`, `entry_price` (close of the entry arrow's candle),
 `stop_price`, `stop_basis` (`10%` / `LP` / `entry` / `none`), `stop_moved_at` + `stop_moved_by` (the candle that last changed the stop VALUE and the rule that did it; see "Trailing stop and stop age"), `status` (`active` / `breached`), `breached_at`, `last_signal_at`
 (the latest UP arrow's candle, type 4 and Gray included), `last_updated_at` (wall-clock server time, moves only when the row's
-content changes; since 2026-10-16 a trail move or a stop-age change is a content change too, so a row can now update on a candle with no arrow), `removed_at` (naive America/New_York, so it compares with candle times), `as_of`.
+content changes; since 2026-10-16 a trail move or a stop-age change is a content change too, so a row can now update on a candle with no arrow), `removed_at` (naive America/New_York, so it compares with candle times), `replay_from` (nullable; the removal time of a woken row, 2026-10-17), `as_of`.
 
 ## Update rules
 
@@ -111,23 +111,18 @@ no-action arrow on a row that does not hold an LP stop. **Dependency:** the engi
 setting is 2 or more; with fewer than two supports (or a setting of 1) the 2nd LP is "none" and the rules fall back as above (a
 Yellow keeps the `10%` stop; a down arrow leaves the stop). A settings edit changes later stops, never stored ones.
 
-## Seed, cursor and idempotence
+## Stateless nightly replay (2026-10-17), the cursor and idempotence
 
-`WarrenWatchCursor` (`ticker`, `processed_through`, `updated_at`) records the last candle already folded in, for every processed
-ticker (with a row or not). A ticker with **no cursor is seeded**: it replays the candles after `as_of - 12 months`
-(`SEED_MONTHS`, was 3 until 2026-10-16); a ticker with a cursor reads only the candles after it. So seed and nightly are the same code.
-**The 12-month replay only determines the state; a first-time ticker gets a row only if an up arrow (Blue, Yellow or Gray) fell in the
-LAST 3 months** (`ROW_MONTHS`, candles after `as_of - 3 months`; `_has_recent_up`). A down arrow with no earlier up arrow creates nothing; a
-young ticker is seeded from whatever history it has. Why 12 months: a 3-month seed made an arrow near the window start look like a fresh
-entry when an earlier trade existed (MAR: its Aug 5 Yellow became the entry at 358.69 where the June yellow implied about 378).
-A ticker that already has a cursor but no row (no recent up arrow at seed time) is not re-seeded: a later up arrow creates its row fresh.
-**Warm-up.** The watch path replays the WHOLE cached 60m history (`LOOKBACK_DAYS` = 730 days requested) and only cuts what it applies
-(`after`), so the engine has everything before the 12-month start as warm-up (about a year for a full-history ticker). The 180-day
-`EVENT_WRITE_WARMUP_DAYS` buffer belongs to the stored `WarrenSignalEvent` writes and is not part of this path (unchanged). A ticker whose
-first candle is later than start minus 180 days has a thinner warm-up (AIPO today, 283 days of history); the rebuild script lists them. The row and the cursor are written in one transaction. A rerun for the same session reads no
-candle, makes no LP call and writes nothing but an unchanged `as_of` (test-pinned: the table is identical, `last_updated_at`
-included). A catch-up after missed nights reads every candle since the cursor, so a breach on a skipped night is still found.
-A ticker that leaves the monitored lists is no longer processed; its row stays as it was.
+**Every night each monitored ticker's row is recomputed from scratch**: all completed 2h candles after `REPLAY_ANCHOR` (a FIXED 2025-10-15 15:30, the first seed's as_of minus 12 months) are replayed on the 60m bars the Warren job just read from the shared cache (no extra download), and the stored row is rewritten only if the result differs (`last_updated_at` moves only then). This replaced the cursor design, which folded each session in once from the provisional bars FMP serves the night right after it and never looked at those candles again (RMD, ADP and ROBO kept arrows and prices the final bars no longer give; see the open items). `WarrenWatchCursor` (`ticker`, `processed_through`, `updated_at`) is now bookkeeping only: the page's "as of" is its newest `processed_through`.
+- **Anchor, not a sliding window.** A window that slides with the date would change the state of an open trade as it moves (the entry would jump to the next up arrow once the trade is 12 months old). The anchor is a constant, so the window grows from 12 months. **It must be moved forward (and the rows rebuilt) before the cached 60m history (730 days) leaves under 180 days of warm-up before it, about April 2027.**
+- **Row creation (unchanged):** a ticker with no row gets one only if an up arrow (Blue, Yellow or Gray) fell in the LAST 3 months (`ROW_MONTHS`, `_has_recent_up`); the whole replay decides its state, so it starts with the full history (a ticker that gained its first recent up arrow later is no longer "fresh from that arrow": its state is what the replay gives). A down arrow with no earlier up arrow creates nothing. A new ticker entering the monitored lists is handled the same way the night it appears (it needs its 60m history in the cache, as before); a young ticker is replayed from whatever history it has.
+- **A row whose replay gives nothing** (history revised away) is kept as stored and never deleted.
+- **Removal is preserved:** a removed row is replayed only from `removed_at` on and stays removed until an up arrow falls after it; the woken row is rewritten fresh with `removed_at` cleared and **`replay_from` = the removal time** (new nullable column, added by `init_db`'s additive column sweep), so later nights replay from there and the pre-removal trade does not come back.
+- **Idempotent:** a second run on the same bars writes nothing but an unchanged `as_of`/cursor (test-pinned: the tables are identical, `last_updated_at` included). A missed night costs nothing: the next replay sees every candle.
+- **Warm-up.** The replay uses the WHOLE cached 60m history (`LOOKBACK_DAYS` = 730) and applies only what falls after the anchor, so the engine has about a year before it as warm-up. The 180-day `EVENT_WRITE_WARMUP_DAYS` buffer belongs to the stored `WarrenSignalEvent` writes and is not part of this path (unchanged). A ticker whose first candle is later than anchor minus 180 days has a thinner warm-up (AIPO, 283 days of history).
+- A ticker that leaves the monitored lists is no longer processed; its row stays as it was.
+- **Dry run:** `uv run python -m pipeline.seed_warren_watch --dry-run` replays every monitored ticker from the cache with the network blocked in practice (cache read only, no FMP call, no top-up), never runs `init_db` and never creates a settings row, and prints what it WOULD create or change (field by field) without writing anything. It reads a database that has not got `replay_from` yet.
+- **Cost (measured 2026-10-17 on the live data, 136 tickers, no network):** about 128 s, almost all of it 8,123 `compute_liquidity_zones_2h` calls (trailing asks an LP-stop row on every candle after its stop was set, so a row's cost grows with its age); the candles and arrows take 6 s. The Warren job took about 150 s before; it now takes about 280 s, still finishing around 1:30 AM before the next job (1:35). If it grows, memoise the LP per (ticker, candle) or move the anchor forward.
 
 ## Removal
 
@@ -135,22 +130,22 @@ A ticker that leaves the monitored lists is no longer processed; its row stays a
 /api/technical-ideas/warren/{ticker}` calls it, phase 2).
 From then on the ticker's candles at or before `removed_at` are not read (an arrow on a candle that started at or before the
 removal is ignored even if it completes later), a removed row is not breached or refreshed, and only an up arrow on a later
-candle wakes it: it becomes a fresh row (the old state is not carried over, `removed_at` cleared). `list_watch_rows` hides
+candle wakes it: it becomes a fresh row (the old state is not carried over, `removed_at` cleared, `replay_from` = the removal time so the next replays do not bring the old trade back). `list_watch_rows` hides
 removed rows by default.
 
 ## Nightly step
 
 Final step of `pipeline.nightly_warren_signal_calculation` (1:25 AM), after the Warren replay, sweep and prune, reusing the bars
-the job already read. No new cron entry: the `JOB_METADATA` description of the Warren job now says so, and a separate job was not
+the job already read: `update_watch_table(tickers, bars_by_ticker)` calls `update_warren_watch` per ticker (the stateless replay above). No new cron entry: the `JOB_METADATA` description of the Warren job now says so, and a separate job was not
 needed because the step needs the same 60m cache read and must see the same session. Failures are counted on their own
 (`watch_failed`), never change the Warren results, and appear in the heartbeat message
 (`...; watch table: N created, M changed, F failed`); `check_failure_threshold` applies to the watch step on its own counts.
-The LP settings are read once per run.
+"Changed" now includes rows corrected after a bars revision. The LP settings are read once per run. **The first run on the new code (the night after the commit) rewrites every row whose stored value differs from a fresh replay** (see "Stateless nightly replay: first run").
 
 ## Registry
 
-Both tables are `KEEP` in `data/ticker_data_registry.py`: the wipe never deletes them. The cursor is kept with its row on purpose
-(a wiped cursor would re-seed and re-apply arrows already folded into the row).
+Both tables are `KEEP` in `data/ticker_data_registry.py`: the wipe never deletes them. The cursor is kept with its row (it carries the page's "as of"); since the stateless replay a wiped cursor no longer
+re-applies anything.
 
 ## First seed (2026-10-16, real database)
 
@@ -267,7 +262,7 @@ are unchanged. `/technical-ideas` is a same-tab page like `/opportunities`. Inve
 - **Intraday refresh.** The table is as of the last nightly run; a refresh during the session would need the 60m cache topped up and the step
   run outside the Warren job (the cursor makes that safe), plus a decision on whether a forming candle may ever breach a stop.
 - **A second strategy section** needs only a new section component and hook; the page and the shell do not change.
-- **RMD / ADP / stored-row drift (2026-10-17, read-only finding, no fix built).** 14 rows do not equal a replay on today's cache (ADP, ALAB, ASML, CRWV, LITE, MPWR, MU, QQQ, RMD, ROBO, SNPS, STX, TQQQ, VRT), so the rebuild's guard skips them.
+- **RMD / ADP / ROBO / stored-row drift (2026-10-17). FIXED the same day by the stateless nightly replay (see "Stateless nightly replay" and "first run"); the finding is kept for the evidence.** 14 rows do not equal a replay on today's cache (ADP, ALAB, ASML, CRWV, LITE, MPWR, MU, QQQ, RMD, ROBO, SNPS, STX, TQQQ, VRT), so the rebuild's guard skips them.
   **Cause: the nightly watch step folds a session's candles in the night right after it, from FMP 60m bars that are still provisional, and the cursor then never looks at those candles again.**
   Evidence: `SharedBarsCache.fetched_at` shows the last ~5 sessions re-fetched every night (the 10-12 to 10-16 bars were all rewritten on 10-17 01:20); the newest session's bars still carry raw prices (ADP 10-16 13:30 close 285.7792, RMD 12:30 238.345 and 15:30 238.965) where older bars are 2-decimal; 12 of the 14 rows were created or moved on the 10-15 session and differ from the replay by cents (ALAB entry stored 294.6434 vs 294.59 now); `WarrenSignalEvent` rows are append-only and
   carry arrows today's replay no longer produces (ADP: gray_down and yellow_down 10-09 15:30, yellow_down 10-15 12:30 stamps) or got an arrow only a night late (RMD: gray_down 10-15 15:30 inserted 10-17 01:26, not 10-16). The replay itself is causal and stable (identical arrows through 10-15 15:30 or 10-16 15:30, and with the bar history's start moved by 1 to 90 days), so the difference is the bars; some arrows are knife-edge (RMD's gray_down at 10-15 15:30 moves to 10-16 09:30 when that bar's close changes by +0.05%).
@@ -275,7 +270,10 @@ are unchanged. `/technical-ideas` is a same-tab page like `/opportunities`. Inve
   **Which side is right:** the replay on the final bars. **RMD:** stored = yellow entry 219.74 (2026-09-09 13:30), 10% stop 196.87, arrow yellow up; replay = the 10-15 15:30 Gray Down is real. **ADP:** stored = blue entry 211.67, 10% stop 240.07 (yellow up repeat 09-11), arrow yellow down 10-15; replay = blue down 10-15 11:30 only (no yellow down), 2nd-LP stop 263.90 trailed 10-16 11:30; a 24-point stop difference, ADP is active either way (last close 288.95).
   **RMD rebuilt under the current rules would NOT be a yellow row:** the replay finds a Gray Up on 2026-06-03 15:30 on a row with no open trade, so the entry is gray at 186.52 and the 09-09 Yellow is only a repeat Yellow (stop, not entry, by the gray-entry rule); the 10-15 Gray Down then puts the stop at the entry price 186.52 (entry below the close); active, arrow gray down. (With the previous rules and the same bars it is yellow 219.74, stop 219.74 entry-basis.) This is the rules working as specified, but a long-lived gray entry can sit months under later yellow signals: review before applying RMD.
   **Not a bug in the rebuild** (its guard did its job). It is a design weakness of the cursor: every row that was created or moved by the most recent session is exposed (33 rows have an entry, stop, breach or arrow stamp on 10-15 or 10-16; the 10-16 candles were processed on 10-17 01:27 from the not-yet-final bars), and the next night's refetch can make any of them differ. ROBO also differs (its stored row starts at the 10-15 15:30 Yellow while its events show Yellow Ups from 08-21; not investigated, cause unverified).
-  **Recommended fix (not built):** make the nightly step stateless: replay every row from `REBUILD_START` on the current cache each night and write the rows that differ (about 40 s and 2.6k LP calls for 117 rows, the rebuild without the guard replays), or at least rewind the cursor by the re-fetch window (about 5 sessions) and replay from a stored state. Until then, rerun the dry rebuild after a rule change and expect the newest session's rows to be skipped.
+  **Recommended fix (built 2026-10-17, commit with this spec):** make the nightly step stateless: replay every row from `REBUILD_START` on the current cache each night and write the rows that differ (about 40 s and 2.6k LP calls for 117 rows, the rebuild without the guard replays), or at least rewind the cursor by the re-fetch window (about 5 sessions) and replay from a stored state. Until then, rerun the dry rebuild after a rule change and expect the newest session's rows to be skipped.
+- **Stale `WarrenSignalEvent` rows (2026-10-17).** The events table keeps arrows computed on provisional bars (see the first-run section for who reads them). Not changed by the stateless watch step. A fix would re-derive the last ~5 sessions of events each night (replace, not append), which breaks the append-only rule on purpose, so it needs its own decision.
+- **Anchor.** `REPLAY_ANCHOR` is a fixed date: move it forward (and rebuild) before about April 2027, when the cached 60m history no longer leaves 180 days of warm-up before it.
+- **Warren job runtime** grew from about 150 s to about 280 s (LP calls). If it threatens the 1:35 job, memoise the 2nd LP per (ticker, candle) or move the anchor.
 - **Gray entries are new (2026-10-17).** The gray rules have no live history: check the first real Gray Up entry end to end (entry at the close, 10% stop under the low, tag, tooltip), and watch whether a gray entry that is later hit by a Blue Up behaves as wanted (rule 2: it keeps the entry and the stop; the Blue is only shown in the pill and instruction).
 - **Ignored down arrows on a breached row** hide the newest arrow: a breached row's "Last signal" can now be weeks old while a down arrow fired yesterday. Revisit if that reads as stale.
 - **Sorting and filtering** (by status, signal colour, age) are not built; the default order is the only one.
@@ -385,3 +383,13 @@ All 10 changing rows trace to a stop that the old rule lowered to the entry pric
 - LRCX: entry 290.73 (09-03) -> 301.13 (10-13 15:30), stop 265.70 LP -> 268.43 10%, breached_at 10-16 13:30 -> 10-15 09:30.
 - Entry only (stop and status unchanged): FTNT 78.98 -> 151.51 (08-21), KEYS 199.82 -> 316.75 (08-20), PLTR 112.69 -> 169.46 (09-02), RY 159.23 -> 205.83 (08-24), SOXX 318.33 -> 541.16 (10-13), UNH 273.9 -> 391.32 (08-21).
 - Named: IDXX, WDC and MTD are unchanged (their Gray Downs did not lower a stop). **RMD** is skipped by the guard (provisional-bar drift) but its replay under the new rule is a yellow entry 219.74 (09-09 13:30) with stop 219.74 (entry basis, raised by the 10-15 Gray Down), active, instead of the gray 186.52 trace: the 07-06 Gray Down no longer lowers the LP stop 192.84, so the June gray entry is breached before 09-09 and the Yellow restarts the row.
+
+## Stateless nightly replay: first run, events and consumers (2026-10-17)
+
+**What the first nightly run on this code writes** (dry run of `seed_warren_watch --dry-run` on the live cache, 136 tickers, 0 created, **24 rows would change**, 0 failed, 8,123 LP calls, 127 s; nothing was written and the schema was not touched):
+- **Gray Down raise-only (11 rows):** A (active -> breached 10-01, stop 111.69 entry -> 169.60 LP), APH (breached -> active, entry 62.52 -> 77.47), COST (stop 903.65 -> 953.63 LP), LRCX (entry 290.73 -> 301.13, breached 10-16 -> 10-15), MU (entry 847.38 on 07-30 -> 952.43 on 10-13), FTNT, KEYS, PLTR, RY, SOXX, UNH (entry only; each entry moves to a later Yellow Up).
+- **Provisional-bar drift (10 rows, cents):** ALAB, ASML, CRWV, LITE, MPWR, QQQ, SNPS, STX, TQQQ, VRT (entry or stop prices from the 10-15 session's not-yet-final bars; ALAB 294.6434 -> 294.59).
+- **Arrow history revised (3 rows):** ADP (the 10-15 yellow_down is gone: blue_down, stop 240.07 10% -> 263.90 LP trailed 10-16), RMD (the 10-15 15:30 gray_down appears: yellow entry 219.74 stays, stop 196.87 -> 219.74 entry basis, active), ROBO (the 10-15 15:30 yellow_up was a provisional-bar arrow and is gone: yellow entry 81.18 on 08-21, LP stop 80.27, **breached 2026-10-08**, instead of an active fresh entry 77.33).
+IDXX, WDC, MTD, CIBR, FIX, IGV, LMT and NTAP (the fourth rebuild's 8 rows) do not change. The rebuild script's own dry run under the same rules reports 117 rows, 93 identical, 10 changing, 14 skipped by its guard (the guard cannot vouch for stored rows that differ for other reasons than a rule change; the nightly step has no guard by design); for RMD, ADP and ROBO the rebuild's replay and the new step's are identical and each is identical on a second replay.
+
+**`WarrenSignalEvent` is untouched** (append-only; the Warren job still writes it exactly as before, with its 180-day write-side buffer). Stale events therefore still exist (ADP's 10-09 gray_down and yellow_down, 10-15 yellow_down; ROBO's 10-15 yellow_up), and the new step does not stop new ones: it changes what the watch table says, not what the events table records. Who reads events: the Chart tab's markers on the daily ranges (`data/chart_data.py::_fetch_warren_signal_events`: a stale arrow shows as a marker there), the Opportunities daily flags (`opportunity_daily_data._load_events`: stale UP arrows count as triggers), and `TickerScore.warren_last_buy_fired_at` (`last_buy_signal_fired_at`). **The Technical Ideas page and its API read only `WarrenWatchRow`/`WarrenWatchCursor`, never the events, so the page no longer shows stale arrows after a rewrite. There are no alerts built on events.** A stale UP event can still feed an Opportunities trigger or the screener's last buy date (open item).

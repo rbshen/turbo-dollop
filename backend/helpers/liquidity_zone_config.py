@@ -21,24 +21,33 @@ OVER_CAP_PRIORITIES = ("nearest_price", "most_recent")
 _CONFIG_KEY = "default"
 
 
+def _default_row() -> LiquidityZoneSettings:
+    return LiquidityZoneSettings(
+        key=_CONFIG_KEY,
+        swing_bars_each_side=DEFAULT_SWING_BARS,
+        cluster_pct=DEFAULT_CLUSTER_PCT,
+        max_lps_per_side=DEFAULT_MAX_LPS_PER_SIDE,
+        over_cap_priority=DEFAULT_OVER_CAP_PRIORITY,
+        keep_last_breached_support=True,
+        keep_last_breached_resistance=True,
+        only_keep_if_breached_recently=True,
+        breach_recency_bars=DEFAULT_BREACH_RECENCY_BARS,
+        updated_at=datetime.now(),
+    )
+
+
+def peek_liquidity_zone_settings(session: Session) -> LiquidityZoneSettings:
+    """The saved settings row, or an UNSAVED default when none exists: a pure read, for dry runs."""
+    return session.get(LiquidityZoneSettings, _CONFIG_KEY) or _default_row()
+
+
 def get_liquidity_zone_settings(session: Session) -> LiquidityZoneSettings:
     """Get-or-create -- this app has no migration tooling (see
     DiscountRateConfig's own comment), so a first-boot default row is
     seeded lazily on first read rather than via a separate seed script."""
     row = session.get(LiquidityZoneSettings, _CONFIG_KEY)
     if row is None:
-        row = LiquidityZoneSettings(
-            key=_CONFIG_KEY,
-            swing_bars_each_side=DEFAULT_SWING_BARS,
-            cluster_pct=DEFAULT_CLUSTER_PCT,
-            max_lps_per_side=DEFAULT_MAX_LPS_PER_SIDE,
-            over_cap_priority=DEFAULT_OVER_CAP_PRIORITY,
-            keep_last_breached_support=True,
-            keep_last_breached_resistance=True,
-            only_keep_if_breached_recently=True,
-            breach_recency_bars=DEFAULT_BREACH_RECENCY_BARS,
-            updated_at=datetime.now(),
-        )
+        row = _default_row()
         session.add(row)
         session.commit()
         session.refresh(row)
