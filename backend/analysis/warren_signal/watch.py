@@ -29,9 +29,11 @@ on candle t is first tested on t+1, as the ThinkScript's `rawStopHit` needs `bar
    arrow). On an active row the instruction text and the latest arrow update; the stop changes only on a row
    with an entry: Blue Down -> 2nd LP; Yellow Down -> 2nd LP if the entry kind is yellow or gray; Gray Down -> the entry price
    if the entry kind is yellow or gray AND the entry price is BELOW the Gray Down candle's close (an entry at or above the close
-   would put the stop above the market and breach on the next candle, so the row is left as it is, text only). The
-   ThinkScript computes no stop for a Gray Down; this is a rule on the instruction text only. No tighten-only rule: a
-   stop may move down.
+   would put the stop above the market and breach on the next candle, so the row is left as it is, text only), and, since
+   2026-10-17, RAISE-ONLY: stop = max(current stop, entry price), so a stop already at or above the entry price is left
+   alone (no stop move, no stop-age change). The ThinkScript computes no stop for a Gray Down; this is a rule on the
+   instruction text only. A blue entry takes no stop from a Gray Down ("GRAY DOWN on BLUE ENTRY = No Action" in the scripts).
+   Apart from the Gray Down raise-only rule there is no tighten-only rule for arrows: a repeat Yellow may move a stop down.
 
 4. Trailing (2026-10-16): after a candle's arrows, an ACTIVE row whose stop basis is LP asks for the 2nd LP as of that candle
    and, if it is higher than the stop, raises the stop to it (basis stays LP). It never lowers a stop and never touches a
@@ -101,10 +103,14 @@ class WatchRules:
     gray_entry: bool = True  # a Gray Up with no open trade opens a gray entry; a Blue Up never replaces an active gray entry
     ignore_breached_downs: bool = True  # a down arrow does nothing on a breached row
     gray_up_freezes_breached: bool = False  # the previous rule: a Gray Up on a breached row moved only the latest arrow
+    gray_down_raise_only: bool = True  # a Gray Down never lowers a stop (stop = max(stop, entry)); False = it set the stop to the entry price
 
 
 CURRENT_RULES = WatchRules()
-PREVIOUS_RULES = WatchRules(gray_entry=False, ignore_breached_downs=False, gray_up_freezes_breached=True)
+# The rules in force before the Gray Down raise-only change (2026-10-17): what the stored rows were built under, so the rebuild guard replays them.
+PREVIOUS_RULES = WatchRules(gray_down_raise_only=False)
+# The rules before the gray-entry / breached-row change (2026-10-17, earlier): for tests that pin that behaviour.
+LEGACY_RULES = WatchRules(gray_entry=False, ignore_breached_downs=False, gray_up_freezes_breached=True, gray_down_raise_only=False)
 
 
 @dataclass(frozen=True)
@@ -204,13 +210,17 @@ def _apply_up(
     return replace(state, latest_arrow_kind=kind, latest_arrow_at=ts, last_signal_at=ts)
 
 
-def _apply_down(state: WatchState, kind: str, ts: datetime, pos: int, close: float, lp_second: LpSecond) -> WatchState:
+def _apply_down(
+    state: WatchState, kind: str, ts: datetime, pos: int, close: float, lp_second: LpSecond, rules: WatchRules = CURRENT_RULES
+) -> WatchState:
     itype = {"yellow_down": YELLOW_DOWN, "blue_down": BLUE_DOWN, "gray_down": GRAY_DOWN}[kind]
     moved = replace(state, latest_arrow_kind=kind, latest_arrow_at=ts, instruction_type=itype)
     if state.status != STATUS_ACTIVE or state.entry_kind is None:
         return moved  # nothing to tighten on a breached row or one with no entry
     if kind == "gray_down":
         if state.entry_kind in (ENTRY_YELLOW, ENTRY_GRAY) and state.entry_price is not None and state.entry_price < close:
+            if rules.gray_down_raise_only and state.stop_price is not None and state.stop_price >= state.entry_price:
+                return moved  # already at or above the entry: a Gray Down never lowers a stop (and moves no stop age)
             return _with_stop(moved, state.entry_price, BASIS_ENTRY, ts, MOVED_GRAY_DOWN)
         return moved
     if kind == "yellow_down" and state.entry_kind not in (ENTRY_YELLOW, ENTRY_GRAY):
@@ -246,7 +256,7 @@ def advance(
     low and close columns and a naive DatetimeIndex; `events` carry fired_at stamps from that same index. Returns the
     state after the last candle (None if no up arrow has created a row). `trail=False` replays the rules without the
     trailing stop (the rebuild script's guard); `trail_log`, when given, collects (ts, old stop, new stop) per trail move; `rules`
-    selects the arrow rules (CURRENT_RULES, or PREVIOUS_RULES for the rebuild's guard)."""
+    selects the arrow rules (CURRENT_RULES, or PREVIOUS_RULES / LEGACY_RULES for the rebuild's guard and tests)."""
     arrows: dict[datetime, set[str]] = defaultdict(set)
     for e in events:
         arrows[e.fired_at].add(e.kind)
@@ -269,7 +279,7 @@ def advance(
             down = _down_kind(kinds)
             # A breached row ignores down arrows completely (judged after this candle's up arrow, which may have restarted it).
             if down is not None and state is not None and not (rules.ignore_breached_downs and state.status == STATUS_BREACHED):
-                state = _apply_down(state, down, ts, pos, float(closes[pos]), lp_second)
+                state = _apply_down(state, down, ts, pos, float(closes[pos]), lp_second, rules)
         if trail and state is not None:
             state, old_stop = _trail(state, ts, pos, lp_second)
             if old_stop is not None and trail_log is not None:

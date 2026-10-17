@@ -7,8 +7,8 @@ Writes (only with --apply) the changed columns of a row that differs, and nothin
 `last_updated_at` are never touched, a removed row is skipped (never resurrected) and a ticker with no row never gets one.
 
 Mismatch guard. A row that already equals the new replay is identical (so a rerun after --apply reports every row identical). A row
-that differs is only rebuilt if the same bars and LP settings replayed under the PREVIOUS arrow rules (`PREVIOUS_RULES`: no gray
-entry, down arrows applied on a breached row, a Gray Up on a breached row frozen; trailing on) reproduce the stored row exactly on
+that differs is only rebuilt if the same bars and LP settings replayed under the PREVIOUS arrow rules (`GUARD_RULES` = `PREVIOUS_RULES`: the rules before the 2026-10-17 Gray Down raise-only change, i.e. a
+Gray Down set the stop to the entry price even when that lowered it; trailing on) reproduce the stored row exactly on
 all fourteen fields. If they do not, the difference is not explained by the rule change (the bars, the LP settings or the arrows
 moved), so the row is printed and skipped.
 
@@ -45,6 +45,9 @@ FIRST_SEED_AS_OF = datetime(2026, 10, 15, 15, 30)
 REBUILD_START = (pd.Timestamp(FIRST_SEED_AS_OF) - pd.DateOffset(months=SEED_MONTHS)).to_pydatetime()
 # A 180-day engine warm-up before the replay start is the comfortable minimum for a clean left edge (warren-signal.md).
 WARMUP_DAYS = 180
+
+# The rules the stored rows were built under: the guard replays these (PREVIOUS_RULES = before the Gray Down raise-only change).
+GUARD_RULES = PREVIOUS_RULES
 
 # The fields the arrow rules and the guard cover. The stop-age fields are filled on every row since the 2026-10-16 rebuild, so the guard compares all fourteen.
 GUARD_FIELDS = (
@@ -177,7 +180,7 @@ def main(apply: bool, tickers: list[str] | None = None, show: tuple[str, ...] = 
                 same += 1  # already on the current rules (a rerun after --apply)
                 finals[row.ticker] = fresh
                 continue
-            old = replay_state(row.ticker, frame, settings, through, rules=PREVIOUS_RULES)
+            old = replay_state(row.ticker, frame, settings, through, rules=GUARD_RULES)
             lp_calls += old.lp_calls
             baseline = diff(stored, old.state)
             if baseline:

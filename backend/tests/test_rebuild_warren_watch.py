@@ -14,6 +14,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 import data.warren_watch_data as wwd
 from core.models import LiquidityZoneSettings, WarrenWatchCursor, WarrenWatchRow
 from data.warren_watch_data import SEED_MONTHS
+from analysis.warren_signal import watch as w
 from pipeline.backfills import rebuild_warren_watch as rb
 from pipeline.backfills.rebuild_warren_watch import GUARD_FIELDS, WatchState, classify, diff
 from test_warren_watch_data import NOW, bars, canned
@@ -66,6 +67,7 @@ ARROWS = {
     "E": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30")],  # breached on 09-03; the Blue Down is now ignored
     "F": [("gray_up", "2026-09-01 09:30")],  # a gray-born, entry-less stored row; now a gray entry
     "G": [("yellow_up", "2026-09-01 09:30"), ("gray_up", "2026-09-10 09:30")],  # breached on 09-03; the Gray Up now restarts it as a gray entry
+    "H": [("yellow_up", "2026-09-01 09:30"), ("blue_down", "2026-09-10 09:30"), ("gray_down", "2026-09-15 09:30")],  # Gray Down no longer lowers the LP stop 110 to the entry 100
 }
 LOWS = {"2026-09-03": 80.0}  # under every 10% stop (89.1): the 09:30 candle of that day breaches an active row that holds one
 BREACHING = ("E", "G")
@@ -77,6 +79,11 @@ def world(monkeypatch):
     SQLModel.metadata.create_all(eng)
     frame = bars("2025-08-01", "2026-10-16")
     frames = {t: bars("2025-08-01", "2026-10-16", LOWS) if t in BREACHING else frame for t in ARROWS}
+    rising = bars("2025-08-01", "2026-10-16")
+    for col, value in (("open", 120.0), ("high", 121.0), ("low", 119.0), ("close", 120.0)):
+        rising.loc[rising.index >= "2026-09-05", col] = value  # H: the market is above the 100 entry from 09-05 on (lows too, so the 110 LP stop is not hit)
+    frames["H"] = rising
+    monkeypatch.setattr(rb, "GUARD_RULES", w.LEGACY_RULES)  # E, F, G were built by the rules before the 2026-10-17 gray-entry change
     canned(monkeypatch, ARROWS)
     monkeypatch.setattr(rb, "watch_replay", wwd.watch_replay)
     monkeypatch.setattr(rb, "engine", eng)
@@ -86,6 +93,8 @@ def world(monkeypatch):
 
     def fake_lp(candles, settings):
         late = candles.index[-1] >= datetime(2026, 10, 15, 9, 30)
+        if candles["close"].iloc[-1] > 110:  # H's rising market: supports above its entry
+            return SimpleNamespace(support=[SimpleNamespace(price=p) for p in (115.0, 110.0, 105.0)])
         return SimpleNamespace(support=[SimpleNamespace(price=p) for p in ([95.0, 85.0, 75.0] if late else [90.0, 80.0, 70.0])])
 
     monkeypatch.setattr(wwd, "compute_liquidity_zones_2h", fake_lp)
@@ -97,7 +106,7 @@ def world(monkeypatch):
     candles = wwd.completed_candles(frame, NOW)
     settings = SimpleNamespace(max_lps_per_side=3)
     for ticker in ARROWS:
-        old = rb.replay_state(ticker, frames[ticker], settings, LAST, rules=rb.PREVIOUS_RULES).state  # what the stored rows hold: the previous rules
+        old = rb.replay_state(ticker, frames[ticker], settings, LAST, rules=w.LEGACY_RULES).state  # what the stored rows hold: the previous rules
         values = wwd._row_values(old)
         if ticker == "C":
             values["stop_price"] = 77.0
@@ -122,7 +131,7 @@ def test_a_dry_run_writes_nothing_and_reports_the_trailed_and_filled_rows(world,
     out = rb.main(apply=False)
     assert snapshot(eng) == before
     # A and D are already on the current rules; E, F, G change; B is removed (not read); C fails the guard.
-    assert (out["changing"], out["same"], out["skipped"]) == (3, 2, 1)
+    assert (out["changing"], out["same"], out["skipped"]) == (4, 2, 1)
     assert out["to_active"] == ["G"] and out["got_entry"] == ["F"] and sorted(out["gray_restarts"]) == ["F", "G"]
     assert out["arrow_changed"] == ["E", "G"] and out["downs_ignored"] == ["E"] and out["no_entry_left"] == []
     assert out["flips"] == [] and out["lp_calls"] > 0
@@ -144,11 +153,13 @@ def test_apply_writes_only_the_rows_the_new_rules_change_and_a_rerun_is_identica
     assert (b["E"]["instruction_type"], b["E"]["latest_arrow_kind"]) == (10, "blue_down")
     assert (a["F"]["entry_kind"], a["F"]["entry_at"], a["F"]["stop_basis"], a["F"]["stop_moved_by"]) == ("gray", datetime(2026, 9, 1, 9, 30), "10%", "gray_up_entry")
     assert (a["G"]["entry_kind"], a["G"]["status"], a["G"]["breached_at"], a["G"]["entry_at"]) == ("gray", "active", None, datetime(2026, 9, 10, 9, 30))
-    for ticker in ("E", "F", "G"):
+    assert (b["H"]["stop_price"], b["H"]["stop_basis"], b["H"]["stop_moved_by"]) == (100.0, "entry", "gray_down")  # lowered by the previous rule
+    assert (a["H"]["stop_price"], a["H"]["stop_basis"], a["H"]["stop_moved_by"]) == (110.0, "LP", "blue_down")  # raise-only keeps the LP stop
+    for ticker in ("E", "F", "G", "H"):
         for untouched in ("removed_at", "as_of", "last_updated_at"):
             assert a[ticker][untouched] == b[ticker][untouched]
     again = rb.main(apply=False)
-    assert (again["changing"], again["same"], again["skipped"]) == (0, 5, 1)
+    assert (again["changing"], again["same"], again["skipped"]) == (0, 6, 1)
 
 
 def test_a_dry_run_reads_a_database_without_the_stop_age_columns_and_apply_refuses(world):
@@ -157,6 +168,6 @@ def test_a_dry_run_reads_a_database_without_the_stop_age_columns_and_apply_refus
         conn.execute(text("ALTER TABLE warrenwatchrow DROP COLUMN stop_moved_at"))
         conn.execute(text("ALTER TABLE warrenwatchrow DROP COLUMN stop_moved_by"))
     out = rb.main(apply=False)  # reads fine; the stored rows carry no stop age, so the guard (all fourteen fields) cannot vouch for them
-    assert out["changing"] + out["same"] + out["skipped"] == 6
+    assert out["changing"] + out["same"] + out["skipped"] == 7
     with pytest.raises(SystemExit, match="stop_moved_at"):
         rb.main(apply=True)

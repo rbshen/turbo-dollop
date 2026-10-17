@@ -67,7 +67,9 @@ tested first, so a stop set on candle t is first tested on t+1 (the ThinkScript'
    `latest_arrow_*`, `last_signal_at`, `last_updated_at` (the content does not change), sort position, stop or status. On an active row the instruction and
    `latest_arrow_*` always update; `last_signal_at` does not. The stop moves only on a row with an entry: Blue Down -> 2nd LP (basis `LP`),
    any entry kind; Yellow Down -> 2nd LP if the entry is yellow **or gray**, else unchanged; Gray Down -> `entry_price` (basis `entry`) if the
-   entry is yellow **or gray** **and the entry price is BELOW the Gray Down candle's close**, else unchanged
+   entry is yellow **or gray** **and the entry price is BELOW the Gray Down candle's close**, else unchanged, and **raise-only (2026-10-17): stop = max(current stop, entry price)**:
+   a stop already at or above the entry price (an LP stop or a repeat-Yellow stop above the entry) is left alone, with no stop move and no stop-age update (the pill and the instruction still update);
+   a blue entry takes no stop from a Gray Down at all ("GRAY DOWN on BLUE ENTRY = No Action" in the profiled scripts, which the table matches; only the text and the pill update)
    (2026-10-16: an entry at or above the close would put the stop above the market and breach on the next candle, so the row keeps its
    stop, basis, status, `breached_at` and entry, and only `latest_arrow_*` and the instruction type/text update; a blue entry or a row
    with no entry is unchanged as before). **The ThinkScript computes no stop for a Gray Down** (its text only says "Adjust stop
@@ -78,7 +80,7 @@ tested first, so a stop set on candle t is first tested on t+1 (the ThinkScript'
    or Blue) Up on the same candle as a breach finds a breached row and restarts it as a new entry, so the breach is never shown (the stopped trade is replaced by the new entry
    on that candle); a down arrow on the candle that breaches the row is ignored.
 4. **No tighten-only rule for ARROWS.** Stops follow the instruction literally and may move down (a second Yellow whose `0.9 x low` is below the
-   first stop lowers it; a Gray Down's entry price can sit above the market). Only the trail below is raise-only.
+   first stop lowers it). A Gray Down (since 2026-10-17) and the trail below are raise-only.
 5. **Trailing (2026-10-16).** After a candle's arrows, an ACTIVE row whose stop basis is `LP` takes the 2nd LP as of THAT candle; if it is higher than the
    stop, the stop is raised to it (basis stays `LP`). It never lowers a stop, never trails a `10%`, `entry` or `none` stop, and does not touch a breached row.
    It runs on every 2h candle the row reads, arrow or not. The breach test on a candle uses the stop as it stood BEFORE that candle (rule 1), so a stop trailed on
@@ -96,6 +98,8 @@ at most, not the stop age); a stop that becomes none (a Blue Up on a row that he
 **LP cost.** Trailing asks for the 2nd LP only for an ACTIVE row with an `LP` stop, on every candle it reads (the full `compute_liquidity_zones_2h` slice, never
 the pivot-only shortcut, which gives different results). Rows on a `10%`/`entry`/`none` stop and breached rows cost nothing. The lookup caches by candle, so an
 arrow candle that also trails asks once. A normal night reads at most 4 new candles per ticker, so about 4 LP calls (~22 ms each) per active LP-stop row.
+
+**Gray Down raise-only (2026-10-17).** Before it, a Gray Down set the stop to the entry price even when that LOWERED a higher stop (RMD 07-06: LP 192.84 -> entry 186.52; 10-15: repeat-Yellow 196.87 -> 186.52). `WatchRules.gray_down_raise_only` carries the previous behaviour (`PREVIOUS_RULES`) so the rebuild guard replays what the stored rows were built under; `LEGACY_RULES` is the behaviour before the gray-entry change. Yellow Down, Blue Down, repeat Yellow ("whichever is lower") and trailing are unchanged.
 
 **Gray-entry rows** follow the yellow-entry rules afterwards (rule 3 above: Gray Down, Yellow Down, Blue Down, repeat Yellow, trailing, breach, P/L %); the `gray` kind stays for the life of the trade, a 10%- or entry-basis stop never trails. Only a breach followed by an up arrow ends the trade.
 
@@ -370,3 +374,14 @@ Dry run on the real database (117 non-removed rows, cursors at 2026-10-16 15:30;
 - **Backup:** `/home/shen/fathom/backend/fathom_pre_rebuild4_20261017_083559.db` (SQLite online backup, 1,408,663,552 bytes = the original's size, same page count and `warrenwatchrow` / cursor row counts, `quick_check` ok; kept on purpose, git-ignored by `*.db`). It is 1.4 GB on a disk with about 1.5 GB free: delete it once the rebuild has been checked in use.
 - Before/after (entry, kind, stop, basis, status): IDXX 637.14 yellow, 513.88 10%, breached -> 504.88 gray, 504.88 entry, active (P/L -19.3% -> +11.0%); MTD 1237.81 yellow, 1070.24 10%, breached -> 1300.04 gray, 1485.02 LP, breached 2026-10-01 (P/L -13.5% -> +14.2%, frozen at the stop); WDC 425.00 yellow, 376.25 10%, breached -> 356.43 gray, 315.68 10%, active (P/L -11.5% -> -6.9%, instruction "GRAY UP - NO ACTION"). The five down-arrow rows keep entry, stop and status: CIBR pill yellow down 09-15 -> gray down 08-27, FIX blue down 10-06 -> yellow up 08-26, IGV yellow down 08-27 -> blue down 08-04, LMT blue down 10-16 -> yellow up 09-08, NTAP blue down 10-02 -> yellow up 08-25.
 - The 14 skipped rows were left alone (see "RMD / ADP / stored-row drift" in the open items).
+
+## Gray Down raise-only: effect on stored rows (2026-10-17, dry run only, NOT applied)
+
+Dry run of `pipeline.backfills.rebuild_warren_watch` under the raise-only rule on the real database (117 non-removed rows; 153 s, 9284 LP calls): **93 identical, 10 changing, 14 skipped by the guard** (the same 14).
+All 10 changing rows trace to a stop that the old rule lowered to the entry price: it then breached, or did not breach, at a different candle, and the next Yellow Up restarted the row (8 entry changes).
+- A: active -> breached 2026-10-01 11:30; stop 111.69 entry -> 169.60 LP (trail 09-29), moved by trail.
+- APH: breached -> active; entry 62.52 (05-12) -> 77.47 (08-21), stop 77.985 LP -> 69.219 10%.
+- COST: stop 903.65 entry -> 953.63 LP (trail 10-16).
+- LRCX: entry 290.73 (09-03) -> 301.13 (10-13 15:30), stop 265.70 LP -> 268.43 10%, breached_at 10-16 13:30 -> 10-15 09:30.
+- Entry only (stop and status unchanged): FTNT 78.98 -> 151.51 (08-21), KEYS 199.82 -> 316.75 (08-20), PLTR 112.69 -> 169.46 (09-02), RY 159.23 -> 205.83 (08-24), SOXX 318.33 -> 541.16 (10-13), UNH 273.9 -> 391.32 (08-21).
+- Named: IDXX, WDC and MTD are unchanged (their Gray Downs did not lower a stop). **RMD** is skipped by the guard (provisional-bar drift) but its replay under the new rule is a yellow entry 219.74 (09-09 13:30) with stop 219.74 (entry basis, raised by the 10-15 Gray Down), active, instead of the gray 186.52 trace: the 07-06 Gray Down no longer lowers the LP stop 192.84, so the June gray entry is breached before 09-09 and the Yellow restarts the row.
