@@ -55,7 +55,12 @@ from core.cron_health import check_failure_threshold, cron_heartbeat
 from core.data_groups import job_skip_reason
 from core.db import engine, init_db
 from core.logging_config import configure_logging
-from data.warren_signal_data import compute_and_store_warren_signal, prune_warren_signal_events, sweep_stale_warren_signals
+from data.warren_signal_data import (
+    compute_and_store_warren_signal_with_events,
+    prune_warren_signal_events,
+    refresh_warren_score_fields,
+    sweep_stale_warren_signals,
+)
 from data.warren_watch_data import update_warren_watch
 from data.watchlists import MONITORED_WATCHLIST_PATTERN, list_monitored_tickers
 from helpers.liquidity_zone_config import get_liquidity_zone_settings, peek_liquidity_zone_settings, to_engine_settings
@@ -158,12 +163,23 @@ async def main() -> dict:
     stale_count, _ = stale_ticker_count(tickers, INTRADAY_INTERVAL)
 
     failures: list[tuple[str, str]] = []
+    # The event log is reconciled with each ticker's replay as it is computed (data/warren_signal_data.py::reconcile_events): a ticker whose
+    # bars are missing or whose replay fails raises BEFORE any event is touched, so a failed ticker keeps its events as they were.
+    events_added = events_deleted = 0
+    events_skipped: list[tuple[str, str]] = []
+    events_changed: list[str] = []
     for i, ticker in enumerate(tickers, start=1):
         try:
             bars = bars_by_ticker.get(ticker)
             if bars is None or bars.empty:
                 raise ValueError("No intraday bars returned")
-            compute_and_store_warren_signal(ticker, bars, source="fmp")
+            _, plan = compute_and_store_warren_signal_with_events(ticker, bars, source="fmp")
+            events_added += len(plan.added)
+            events_deleted += len(plan.deleted)
+            if plan.changed:
+                events_changed.append(ticker)
+            if plan.skipped:
+                events_skipped.append((ticker, plan.skipped))
             logger.info("[%d/%d] %s: ok", i, len(tickers), ticker)
         except Exception as exc:  # noqa: BLE001 -- a single bad ticker must never abort the whole run
             logger.error("[%d/%d] %s: FAILED - %s", i, len(tickers), ticker, exc)
@@ -171,6 +187,10 @@ async def main() -> dict:
 
     swept = sweep_stale_warren_signals()
     pruned = prune_warren_signal_events()
+    # The Warren fields of TickerScore / EtfScreenerRow follow the log in the same run for every ticker whose events changed.
+    score_rows_refreshed = refresh_warren_score_fields(events_changed) if events_changed else 0
+    if events_added or events_deleted:
+        logger.info("Warren events reconciled: %d added, %d deleted across %d tickers; %d score rows refreshed.", events_added, events_deleted, len(events_changed), score_rows_refreshed)
     watch = update_watch_table(tickers, bars_by_ticker)
 
     duration = time.monotonic() - start_time
@@ -194,6 +214,11 @@ async def main() -> dict:
         "swept": swept,
         "pruned": pruned,
         "stale_count": stale_count,
+        "events_added": events_added,
+        "events_deleted": events_deleted,
+        "events_skipped": events_skipped,
+        "events_changed_tickers": events_changed,
+        "score_rows_refreshed": score_rows_refreshed,
         **watch,
     }
 
@@ -211,6 +236,8 @@ def record_outcome(summary: dict, run) -> None:
         f"{summary['stale_count']} still stale after fetch"
     )
     check_failure_threshold(processed, failed, message)
+    if summary.get("events_added") or summary.get("events_deleted") or summary.get("events_skipped"):
+        message += f"; events: {summary['events_added']} added, {summary['events_deleted']} deleted, {len(summary['events_skipped'])} skipped"
     if "watch_attempted" in summary:
         message += f"; watch table: {summary['watch_created']} created, {summary['watch_changed']} changed, {summary['watch_failed']} failed"
         check_failure_threshold(summary["watch_attempted"], summary["watch_failed"], message)

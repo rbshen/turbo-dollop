@@ -27,8 +27,15 @@ module (not a branch inside that one) since Warren's persistence and
   equivalent exposure). Only events past EVENT_WRITE_WARMUP_DAYS from the
   first replayed candle are persisted to WarrenSignalEvent; the latest-state
   row is unaffected. See that constant for the measurements behind the value.
+- Since 2026-10-18 the event log at or after that write gate is RECONCILED with the replay every night (reconcile_events below): a stored
+  event the replay no longer produces is deleted, a replay arrow with no stored event is inserted, a matching event is left alone.
+  Before, events were insert-only, so an arrow that moved (a provisional newest session corrected the next night, a bar-source change)
+  left its old row behind for good. Events before the gate are never touched.
 """
 
+import logging
+from collections.abc import Collection, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from sqlalchemy import delete, func, or_, update
@@ -42,10 +49,12 @@ from analysis.warren_signal.types import ANY_TICKER, WarrenProfile, WarrenReplay
 from analysis.warren_signal.volume_guard import guard_for_profile
 from clients.shared_bars_cache import read_cached_completed_daily_bars
 from core.db import engine
-from core.models import TechnicalEntrySignal, WarrenSignalEvent
+from core.models import EtfScreenerRow, TechnicalEntrySignal, TickerScore, WarrenSignalEvent
 from core.schemas import TechnicalEntrySignalOut
 from core.tickers import normalize_ticker
 from pandas import DataFrame, Series
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_SIGNAL_TYPE = "warren"
 DEFAULT_TIMEFRAME = "2h"
@@ -180,6 +189,119 @@ def last_buy_signal_fired_at(session: Session, ticker: str) -> datetime | None:
     ).one()
 
 
+# A reconcile that would delete at least this many stored events AND more than this share of the ticker's stored window is not applied (the
+# bars or the replay are suspect, not the log): logged and skipped, nothing written for that ticker.
+RECONCILE_MAX_DELETE_FRACTION = 0.5
+RECONCILE_MIN_DELETES_TO_GUARD = 5
+
+
+@dataclass(frozen=True)
+class EventReconcile:
+    """What one ticker's reconcile did (or, in a dry run, would do). `added` / `deleted` are (kind, fired_at) keys; `unchanged` counts the
+    matching events left untouched. `skipped` is a reason when the reconcile was refused (nothing is deleted or inserted then)."""
+
+    ticker: str
+    added: tuple = ()
+    deleted: tuple = ()
+    unchanged: int = 0
+    skipped: str | None = None
+
+    @property
+    def changed(self) -> bool:
+        return bool(self.added or self.deleted)
+
+
+def plan_event_reconcile(
+    ticker: str,
+    stored: Collection[tuple[str, datetime]],
+    replay_events: Sequence,
+    write_events_from: datetime,
+    as_of: datetime,
+) -> EventReconcile:
+    """The pure plan: `stored` = the keys of the ticker's stored events at or after `write_events_from`; `replay_events` = the engine's
+    events for the same bars. Deletes the stored keys the replay does not produce (only up to `as_of`, the last replayed candle, so a
+    short or stale bar series can never delete an event it did not cover); adds the replay keys that are not stored. Refuses (skipped, no
+    changes) when the replay yields nothing at all for a window that holds events, or would delete most of the window."""
+    wanted = {(e.kind, e.fired_at) for e in replay_events if e.fired_at >= write_events_from}
+    have = set(stored)
+    deleted = sorted((k for k in have - wanted if k[1] <= as_of), key=lambda k: (k[1], k[0]))
+    added = sorted(wanted - have, key=lambda k: (k[1], k[0]))
+    unchanged = len(have & wanted)
+    if have and not wanted:
+        return EventReconcile(ticker, unchanged=len(have), skipped=f"the replay yields no event at or after {write_events_from:%Y-%m-%d} but {len(have)} are stored")
+    if len(deleted) >= RECONCILE_MIN_DELETES_TO_GUARD and len(deleted) > RECONCILE_MAX_DELETE_FRACTION * len(have):
+        return EventReconcile(ticker, unchanged=len(have & wanted), skipped=f"would delete {len(deleted)} of {len(have)} stored events")
+    return EventReconcile(ticker, tuple(added), tuple(deleted), unchanged)
+
+
+def _stored_window_keys(session: Session, ticker: str, timeframe: str, write_events_from: datetime) -> set[tuple[str, datetime]]:
+    rows = session.exec(
+        select(WarrenSignalEvent.signal_kind, WarrenSignalEvent.fired_at).where(
+            WarrenSignalEvent.ticker == ticker, WarrenSignalEvent.timeframe == timeframe, WarrenSignalEvent.fired_at >= write_events_from
+        )
+    ).all()
+    return {(k, f) for k, f in rows}
+
+
+def reconcile_events(
+    session: Session,
+    ticker: str,
+    timeframe: str,
+    result: WarrenReplayResult,
+    write_events_from: datetime,
+    computed_at: datetime,
+    dry_run: bool = False,
+) -> EventReconcile:
+    """Bring the ticker's stored WarrenSignalEvent rows at or after `write_events_from` in line with `result` (the full replay of the bars
+    the caller holds): delete a stored event the replay does not reproduce, insert a replay arrow that has no stored event (created_at =
+    `computed_at`), leave a matching event untouched (its created_at and stop_price stay as written). Events before the gate are never read
+    or changed. Idempotent: a second call with the same result changes nothing. The caller commits. `dry_run` plans without writing."""
+    plan = plan_event_reconcile(ticker, _stored_window_keys(session, ticker, timeframe, write_events_from), result.events, write_events_from, result.as_of)
+    if plan.skipped:
+        logger.warning("Warren events %s: reconcile skipped - %s", ticker, plan.skipped)
+        return plan
+    if dry_run or not plan.changed:
+        return plan
+    for kind, fired_at in plan.deleted:
+        session.execute(
+            delete(WarrenSignalEvent).where(
+                WarrenSignalEvent.ticker == ticker, WarrenSignalEvent.timeframe == timeframe,
+                WarrenSignalEvent.signal_kind == kind, WarrenSignalEvent.fired_at == fired_at,
+            )
+        )
+    stops = {(e.kind, e.fired_at): e.stop_price for e in result.events}
+    for kind, fired_at in plan.added:
+        stmt = sqlite_insert(WarrenSignalEvent).values(
+            ticker=ticker, timeframe=timeframe, signal_kind=kind, fired_at=fired_at, stop_price=stops[(kind, fired_at)], created_at=computed_at
+        )
+        session.execute(stmt.on_conflict_do_nothing(index_elements=["ticker", "timeframe", "fired_at", "signal_kind"]))
+    logger.info("Warren events %s: reconciled - %d deleted, %d added, %d unchanged.", ticker, len(plan.deleted), len(plan.added), plan.unchanged)
+    return plan
+
+
+def refresh_warren_score_fields(tickers: Collection[str]) -> int:
+    """Rewrite the Warren fields of the denormalized read-models (TickerScore for the Screener, EtfScreenerRow for the ETFs screener) for
+    `tickers` straight from the event log and the latest-state row, so they cannot disagree with the log after a reconcile (otherwise they
+    wait for the 03:25 score recompute / the ETF job). Only `warren_last_buy_fired_at` reads the event table (last_buy_signal_fired_at);
+    `warren_active_signal_kind` reads the latest-state row. A ticker with no such row is skipped. Returns the number of rows changed."""
+    changed = 0
+    with Session(engine) as session:
+        for ticker in tickers:
+            last_buy = last_buy_signal_fired_at(session, ticker)
+            signal = session.get(TechnicalEntrySignal, (ticker, DEFAULT_SIGNAL_TYPE, DEFAULT_TIMEFRAME))
+            kind = warren_active_up_kind(signal.signal_kind) if signal else None
+            for model in (TickerScore, EtfScreenerRow):
+                row = session.get(model, ticker)
+                if row is None or (row.warren_last_buy_fired_at == last_buy and row.warren_active_signal_kind == kind):
+                    continue
+                row.warren_last_buy_fired_at = last_buy
+                row.warren_active_signal_kind = kind
+                session.add(row)
+                changed += 1
+        session.commit()
+    return changed
+
+
 def _upsert(
     ticker: str,
     signal_type: str,
@@ -188,15 +310,15 @@ def _upsert(
     source: str,
     computed_at: datetime,
     write_events_from: datetime,
-) -> None:
+) -> EventReconcile:
     """Unlike entry_signal_data.py::_upsert, there is no should_advance
     guard here -- `result` is always the true, complete current state (a
     full replay from scratch), so every field is always written, not just
     conditionally advanced. See module docstring.
 
-    `write_events_from` gates only the WarrenSignalEvent inserts below (see
+    `write_events_from` gates only the WarrenSignalEvent log (see
     EVENT_WRITE_WARMUP_DAYS): the latest-state row is deliberately derived
-    from the full, unfiltered `result`."""
+    from the full, unfiltered `result`. Returns the event reconcile that was applied."""
     with Session(engine) as session:
         last_event = result.events[-1] if result.events else None
 
@@ -224,27 +346,12 @@ def _upsert(
         stmt = stmt.on_conflict_do_update(index_elements=["ticker", "signal_type", "timeframe"], set_=fields)
         session.execute(stmt)
 
-        # Every event from this full replay that clears the warm-up buffer
-        # gets (re-)inserted -- on_conflict_do_nothing makes re-inserting an
-        # already-recorded event (the overwhelming majority, every night) a
-        # cheap no-op rather than an error or a duplicate row. Anything
-        # earlier than write_events_from is dropped, whatever the state
-        # machine produced there.
-        for event in result.events:
-            if event.fired_at < write_events_from:
-                continue
-            event_stmt = sqlite_insert(WarrenSignalEvent).values(
-                ticker=ticker,
-                timeframe=timeframe,
-                signal_kind=event.kind,
-                fired_at=event.fired_at,
-                stop_price=event.stop_price,
-                created_at=computed_at,
-            )
-            event_stmt = event_stmt.on_conflict_do_nothing(index_elements=["ticker", "timeframe", "fired_at", "signal_kind"])
-            session.execute(event_stmt)
+        # The event log at or after the warm-up gate is reconciled with this full replay (see reconcile_events): stale rows deleted, missing
+        # arrows inserted, matching rows untouched. Anything earlier than write_events_from is never read or changed.
+        plan = reconcile_events(session, ticker, timeframe, result, write_events_from, computed_at)
 
         session.commit()
+    return plan
 
 
 def _row_to_out(row: TechnicalEntrySignal) -> TechnicalEntrySignalOut:
@@ -275,6 +382,18 @@ def compute_and_store_warren_signal(
     timeframe: str = DEFAULT_TIMEFRAME,
     daily_volume: Series | None = None,
 ) -> TechnicalEntrySignalOut:
+    """compute_and_store_warren_signal_with_events, returning only the latest-state row (the shape most callers want)."""
+    return compute_and_store_warren_signal_with_events(ticker, ohlcv, source, signal_type, timeframe, daily_volume)[0]
+
+
+def compute_and_store_warren_signal_with_events(
+    ticker: str,
+    ohlcv: DataFrame,
+    source: str,
+    signal_type: str = DEFAULT_SIGNAL_TYPE,
+    timeframe: str = DEFAULT_TIMEFRAME,
+    daily_volume: Series | None = None,
+) -> tuple[TechnicalEntrySignalOut, EventReconcile]:
     """Runs the pure state-machine replay against already-fetched raw
     intraday OHLCV bars (the full available history -- see
     pipeline/nightly_warren_signal_calculation.py's own 2-year fetch) and
@@ -289,7 +408,8 @@ def compute_and_store_warren_signal(
     signal_candles); `daily_volume` overrides the cached-1d-bars lookup (tests, callers that already hold it).
 
     Only events fired at or after (first replayed candle + EVENT_WRITE_WARMUP_
-    DAYS) are persisted to WarrenSignalEvent -- see that constant for why. The
+    DAYS) are kept in WarrenSignalEvent, and that part of the log is reconciled with this replay (reconcile_events) -- see that constant
+    for why the gate exists. Returns the latest-state row and the event reconcile. The
     first replayed candle is the start of the data actually handed in, so a
     ticker with less history than the fetch window (a recent IPO) has its
     buffer measured from its own first candle, same as any other.
@@ -298,19 +418,42 @@ def compute_and_store_warren_signal(
     could be built at all -- callers (the nightly job's per-ticker loop)
     treat this like any other per-ticker failure, same convention as
     entry_signal_data.py::compute_and_store_entry_signal."""
-    ticker = normalize_ticker(ticker)
-    candles = build_2h_session_candles(ohlcv)
-    if volume_guard_applies(ticker) and daily_volume is None:
-        daily_volume = read_cached_daily_volume(ticker)  # the cached 1d bars; none cached -> guard fails closed
-    result = replay(signal_candles(ticker, candles, daily_volume), profile_for(ticker))
+    ticker, result, write_events_from = _replay_for_events(ticker, ohlcv, daily_volume)  # a guarded ticker with no daily volume given reads the cached 1d bars; none cached -> the guard fails closed
     computed_at = datetime.now()
-    replay_start = candles.index[0].to_pydatetime().replace(tzinfo=None)
-    write_events_from = replay_start + timedelta(days=EVENT_WRITE_WARMUP_DAYS)
-    _upsert(ticker, signal_type, timeframe, result, source, computed_at, write_events_from)
+    plan = _upsert(ticker, signal_type, timeframe, result, source, computed_at, write_events_from)
 
     with Session(engine) as session:
         row = session.get(TechnicalEntrySignal, (ticker, signal_type, timeframe))
-    return _row_to_out(row)
+    return _row_to_out(row), plan
+
+
+def _replay_for_events(ticker: str, ohlcv: DataFrame, daily_volume: Series | None) -> tuple[str, WarrenReplayResult, datetime]:
+    """The nightly's own candle build, volume guard, replay and write gate for these bars: (normalized ticker, result, write_events_from)."""
+    ticker = normalize_ticker(ticker)
+    candles = build_2h_session_candles(ohlcv)
+    if volume_guard_applies(ticker) and daily_volume is None:
+        daily_volume = read_cached_daily_volume(ticker)
+    result = replay(signal_candles(ticker, candles, daily_volume), profile_for(ticker))
+    return ticker, result, candles.index[0].to_pydatetime().replace(tzinfo=None) + timedelta(days=EVENT_WRITE_WARMUP_DAYS)
+
+
+def plan_warren_event_reconcile(ticker: str, ohlcv: DataFrame, daily_volume: Series | None = None, timeframe: str = DEFAULT_TIMEFRAME) -> EventReconcile:
+    """A pure READ of what the nightly reconcile would do for `ticker` on these bars: the same candle build, replay, write gate and plan
+    as compute_and_store_warren_signal, but nothing is written (not even the latest-state row). Raises ValueError (from replay) when no
+    candles can be built -- the caller treats that like a failed ticker, and nothing is deleted."""
+    ticker, result, write_events_from = _replay_for_events(ticker, ohlcv, daily_volume)
+    with Session(engine) as session:
+        return reconcile_events(session, ticker, timeframe, result, write_events_from, datetime.now(), dry_run=True)
+
+
+def apply_warren_event_reconcile(ticker: str, ohlcv: DataFrame, daily_volume: Series | None = None, timeframe: str = DEFAULT_TIMEFRAME) -> EventReconcile:
+    """The reconcile alone (what the one-time cleanup runs): the same plan as plan_warren_event_reconcile, applied and committed. It does not
+    touch the latest-state row (the nightly does). Raises like plan_warren_event_reconcile, with nothing written."""
+    ticker, result, write_events_from = _replay_for_events(ticker, ohlcv, daily_volume)
+    with Session(engine) as session:
+        plan = reconcile_events(session, ticker, timeframe, result, write_events_from, datetime.now())
+        session.commit()
+    return plan
 
 
 async def get_warren_signal_data(

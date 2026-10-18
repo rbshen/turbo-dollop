@@ -14,6 +14,7 @@ from analysis.entry_signal.resample import build_2h_session_candles
 from analysis.warren_signal.state_machine import replay
 from core.cron_health import CronRunContext
 from core.models import SharedBarsCache, TechnicalEntrySignal, TickerScore, Watchlist, WatchlistTicker
+from data.warren_signal_data import EventReconcile
 from data.warren_watch_data import WatchUpdate
 
 
@@ -86,9 +87,9 @@ def _patch_store(monkeypatch, fail_for: set[str] | None = None):
         calls.append(ticker)
         if ticker in fail_for:
             raise RuntimeError(f"simulated failure computing {ticker}")
-        return None
+        return None, EventReconcile(ticker)
 
-    monkeypatch.setattr(nightly_warren_signal, "compute_and_store_warren_signal", fake_store)
+    monkeypatch.setattr(nightly_warren_signal, "compute_and_store_warren_signal_with_events", fake_store)
     return calls
 
 
@@ -337,3 +338,53 @@ def test_the_watch_step_runs_last_for_every_ticker_and_its_failure_never_touches
     assert order == ["watch AAA", "watch BBB"]
     assert (summary["watch_attempted"], summary["watch_failed"], summary["watch_created"], summary["watch_lp_calls"]) == (2, 1, 1, 2)
     assert summary["watch_failures"] == [("BBB", "watch exploded")]
+
+
+def test_main_counts_the_reconciled_events_and_refreshes_the_score_rows_of_changed_tickers(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_watchlist(engine, "E1", ["AAPL", "MSFT", "GOOG"])
+    _patch_batch_fetch(monkeypatch, {"AAPL": _fake_bars(), "MSFT": _fake_bars(), "GOOG": _fake_bars()})
+    plans = {
+        "AAPL": EventReconcile("AAPL", added=(("yellow_up", datetime(2026, 9, 1, 14, 30)),), deleted=(("yellow_up", datetime(2026, 9, 1, 12, 30)), ("blue_down", datetime(2026, 9, 2, 12, 30)))),
+        "MSFT": EventReconcile("MSFT", unchanged=3),
+        "GOOG": EventReconcile("GOOG", unchanged=1, skipped="would delete 6 of 6 stored events"),
+    }
+    monkeypatch.setattr(nightly_warren_signal, "compute_and_store_warren_signal_with_events", lambda ticker, bars, source: (None, plans[ticker]))
+    refreshed: list[list[str]] = []
+    monkeypatch.setattr(nightly_warren_signal, "refresh_warren_score_fields", lambda tickers: refreshed.append(list(tickers)) or 2)
+
+    summary = asyncio.run(nightly_warren_signal.main())
+
+    assert (summary["events_added"], summary["events_deleted"]) == (1, 2)
+    assert summary["events_changed_tickers"] == ["AAPL"] and refreshed == [["AAPL"]] and summary["score_rows_refreshed"] == 2
+    assert summary["events_skipped"] == [("GOOG", "would delete 6 of 6 stored events")]
+    run = CronRunContext()
+    nightly_warren_signal.record_outcome(summary, run)
+    assert "; events: 1 added, 2 deleted, 1 skipped" in run.message
+
+
+def test_a_quiet_night_refreshes_nothing_and_adds_nothing_to_the_heartbeat(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_watchlist(engine, "E1", ["AAPL"])
+    _patch_batch_fetch(monkeypatch, {"AAPL": _fake_bars()})
+    _patch_store(monkeypatch)
+    refreshed: list = []
+    monkeypatch.setattr(nightly_warren_signal, "refresh_warren_score_fields", lambda tickers: refreshed.append(list(tickers)) or 0)
+
+    summary = asyncio.run(nightly_warren_signal.main())
+
+    assert refreshed == [] and summary["events_changed_tickers"] == [] and summary["score_rows_refreshed"] == 0
+    run = CronRunContext()
+    nightly_warren_signal.record_outcome(summary, run)
+    assert "events:" not in run.message
+
+
+def test_a_ticker_with_no_bars_fails_before_its_events_are_touched(monkeypatch, tmp_path):
+    engine = _fresh_engine(monkeypatch, tmp_path)
+    _seed_watchlist(engine, "E1", ["AAPL"])
+    _patch_batch_fetch(monkeypatch, {})  # nothing returned for AAPL
+    calls = _patch_store(monkeypatch)
+
+    summary = asyncio.run(nightly_warren_signal.main())
+
+    assert calls == [] and summary["failed"] == 1 and summary["events_added"] == summary["events_deleted"] == 0
