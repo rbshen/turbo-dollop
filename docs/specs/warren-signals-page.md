@@ -466,3 +466,14 @@ Small and close to what the sample can resolve; the mechanism (a Blue Up in a tr
 Branch `warren-raise-only-arrows` (commits `6b5ca2b` raise-only down arrows / Blue Up no-op, `1f72648` instruction text follows the pill) was fast-forwarded into `main` (main was `b19cbc4`) and deployed by restarting the backend. The two commits plus this docs commit are the whole change; no schema change. **The full test suite is pending the owner's confirmation:** the new and updated tests were written but never run. No dry run was run for the text change, so the set of text-only rows tonight's replay will rewrite is unverified (the last dry run, before the text fix, expected 6: ADP, DASH, NOC, PAYX, PTC, SNPS).
 
 **Revert plan.** `git revert 1f72648 6b5ca2b` (newest first) on main, restart the backend; the next nightly replay rewrites the rows back (it is stateless, so reverting the code is enough). Restore `backend/fathom_pre_stateless_20261017_121242.db` only if the data looks wrong, because it is older than the stateless replay and loses everything written since.
+
+### Full test suite and backups (2026-10-18)
+
+**Full backend suite on `main` at `3bcdaa8`** (run 00:02-00:23 UTC): **5996 passed, 2 failed**, 0 errors, 0 skipped, 1225.91 s. The two failures, both re-run alone and failing again, are not bugs in the new code:
+- `tests/test_warren_watch_data.py::test_seed_replays_twelve_months_and_creates_rows_only_for_tickers_with_an_up_arrow_in_the_last_three`: **encodes the old rule, not yet updated.** Ticker NEW has a Yellow Up (2026-05-04) and a later Blue Up (2026-09-01); the test expects the Blue Up to replace the entry (`entry_kind == "blue"`), but a Blue Up in an open trade is now a no-op, so the row stays yellow.
+- `tests/test_warren_watch_api.py::test_a_breached_rows_pl_is_frozen_at_the_stop_and_ignores_the_last_price`: **unrelated, weekday-dependent.** `add_daily_bars` dates bars `days_ago` before today; the test adds a bar 1 day ago, which on a Sunday is a Saturday, after the last completed session, so `read_cached_completed_daily_bars` drops it (last price 60.0, expected 150.0). It passes on a weekday run.
+Neither was changed or skipped; both are open items for the owner.
+
+**Production check.** The 01:25 UTC Warren job on 2026-10-18 ran the merged code: 136 tickers, 0 created, **6 changed**, 0 failed (the six rows the dry run expected; no extra text-only rows).
+
+**Backups.** No `fathom_pre_*.db` other than the keeper existed (`fathom_pre_rebuild4_20261017_083559.db` had already been deleted; only its empty `-shm` / `-wal` stubs remain, untouched). Nothing was deleted. `backend/fathom_pre_stateless_20261017_121242.db` (1,408,663,552 bytes, 2026-10-17 12:12 UTC) is retained as the restore point; the revert plan above is unchanged.
