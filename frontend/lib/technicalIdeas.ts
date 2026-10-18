@@ -17,6 +17,13 @@ export function fmtEtStamp(iso: string): string {
   return `${month} ${Number(m[3])}, ${m[4]}:${m[5]}`;
 }
 
+/** "Jan 18, 2027" from a calendar date "2027-01-18"; the input unchanged when it does not parse. */
+export function fmtDay(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  const month = m ? MONTHS[Number(m[2]) - 1] : undefined;
+  return m && month ? `${month} ${Number(m[3])}, ${m[1]}` : iso;
+}
+
 /** "Oct 15, 15:30 ET" -- the table's as-of stamp. */
 export function fmtAsOf(iso: string): string {
   return `${fmtEtStamp(iso)} ET`;

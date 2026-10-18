@@ -2218,7 +2218,21 @@ export interface WarrenWatchRowOut {
   last_signal_age_bars: number | null;
 }
 
+// The replay-anchor warm-up banner data (admin only; null for a viewer and while the headroom is 300 days or more). `days` = the anchor date minus
+// the nightly slice's first date; the dates ("YYYY-MM-DD") are the first day below 300 days (warning), the first day below 270 (urgent) and the day
+// it reaches 180 (the hard deadline). Spec: docs/specs/warren-signals-page.md, "Anchor headroom and re-anchor runbook".
+export interface AnchorHeadroomOut {
+  days: number;
+  level: "warning" | "urgent";
+  anchor: string;
+  slice_start: string;
+  warning_date: string;
+  urgent_date: string;
+  deadline_date: string;
+}
+
 export interface WarrenWatchOut {
   as_of: string | null;
   rows: WarrenWatchRowOut[];
+  anchor_headroom?: AnchorHeadroomOut | null;
 }

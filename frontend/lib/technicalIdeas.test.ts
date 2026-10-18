@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { WarrenWatchRowOut } from "@/lib/api/types";
-import { entryTitle, fmtAgeAgo, fmtAsOf, fmtBarsAgo, fmtEtDate, fmtEtStamp, fmtSignedPct1, lastEntryRefreshTitle, sortByLatestArrow, stopAboveEntry, stopAboveEntryNote, stopAgeTitle } from "@/lib/technicalIdeas";
+import { entryTitle, fmtAgeAgo, fmtAsOf, fmtBarsAgo, fmtDay, fmtEtDate, fmtEtStamp, fmtSignedPct1, lastEntryRefreshTitle, sortByLatestArrow, stopAboveEntry, stopAboveEntryNote, stopAgeTitle } from "@/lib/technicalIdeas";
 
 function row(over: Partial<WarrenWatchRowOut>): WarrenWatchRowOut {
   return {
@@ -74,6 +74,9 @@ describe("entry and P/L formatting", () => {
   });
   it("formats a date and a signed one-decimal percent", () => {
     expect(fmtEtDate("2026-10-15")).toBe("Oct 15");
+    expect(fmtDay("2027-01-18")).toBe("Jan 18, 2027");
+    expect(fmtDay("2026-12-09")).toBe("Dec 9, 2026");
+    expect(fmtDay("soon")).toBe("soon");
     expect(fmtSignedPct1(0.1234)).toBe("+12.3%");
     expect(fmtSignedPct1(-0.0456)).toBe("-4.6%");
     expect(fmtSignedPct1(0)).toBe("0.0%");
