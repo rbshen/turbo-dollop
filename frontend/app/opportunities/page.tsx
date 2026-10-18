@@ -138,7 +138,7 @@ export default function OpportunitiesPage() {
   return (
     <PageContainer className="space-y-6 pb-12">
       <PageHeader
-        title="Opportunities"
+        title="Weekly Routine"
         subtitle={run ? `Frozen weekly lists as of ${run.as_of_date}, built from stored data only` : "Frozen weekly lists, built from stored data only"}
         actions={
           <>
@@ -179,8 +179,8 @@ export default function OpportunitiesPage() {
         }
       />
 
-      {noRuns && <p className="text-sm text-text-tertiary">No snapshot yet — the weekly opportunity job has not run.</p>}
-      {!noRuns && error && <p className="text-sm text-negative">Couldn&apos;t load the opportunity lists — {error.message}</p>}
+      {noRuns && <p className="text-sm text-text-tertiary">No snapshot yet — the weekly routine job has not run.</p>}
+      {!noRuns && error && <p className="text-sm text-negative">Couldn&apos;t load the weekly routine lists — {error.message}</p>}
 
       {!noRuns && !error && run && <MarketContextStrip market={summary?.market} asOf={run.as_of_date} />}
 
@@ -188,7 +188,7 @@ export default function OpportunitiesPage() {
         <Section>
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <Tabs
-              aria-label="Opportunity list"
+              aria-label="Weekly Routine list"
               value={list}
               onValueChange={(v) => setList(v as OpportunityListName)}
               items={(["momentum", "reversal"] as const).map((name) => ({ value: name, label: LIST_LABEL[name], count: tabCount(name) }))}

@@ -61,13 +61,17 @@ describe("WarrenWatchTable", () => {
     expect(screen.getAllByText(/profile$/)).toHaveLength(1);
   });
 
-  it("opens the ticker in a new tab on a row click, but not from the ticker link or the remove control", () => {
+  it("does nothing on a row click; only the ticker link opens the ticker page", () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
     draw([row({ ticker: "AAA" })]);
-    fireEvent.click(within(bodyRow("AAA")).getByText("YELLOW UP - Buy."));
-    expect(open).toHaveBeenCalledWith("/tickers/AAA", "_blank", "noopener,noreferrer");
-    open.mockClear();
-    fireEvent.click(screen.getByRole("link", { name: "AAA" }));
+    const tr = bodyRow("AAA");
+    fireEvent.click(within(tr).getByText("YELLOW UP - Buy."));
+    fireEvent.click(tr);
+    expect(open).not.toHaveBeenCalled();
+    expect(tr.className).not.toMatch(/cursor-pointer|hover:bg-surface/);
+    const link = screen.getByRole("link", { name: "AAA" });
+    expect(link).toHaveAttribute("href", "/tickers/AAA");
+    expect(link.className).toMatch(/cursor-pointer/);
     fireEvent.click(screen.getByRole("button", { name: "Remove AAA" }));
     expect(open).not.toHaveBeenCalled();
   });

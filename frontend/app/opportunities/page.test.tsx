@@ -148,7 +148,7 @@ const body = () => within(screen.getByRole("table"));
 describe("OpportunitiesPage", () => {
   it("shows a pulsing skeleton before data arrives and the page title", () => {
     const { container } = renderPage();
-    expect(screen.getByRole("heading", { level: 1, name: "Opportunities" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Weekly Routine" })).toBeInTheDocument();
     expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
   });
 

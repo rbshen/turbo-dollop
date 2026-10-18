@@ -1,4 +1,4 @@
-import { useState, type MouseEvent } from "react";
+import { useState } from "react";
 import { ArrowDown, ArrowUp, Info } from "@phosphor-icons/react";
 
 import { WarrenWatchRemoveButton } from "@/components/technical-ideas/WarrenWatchRemoveButton";
@@ -44,13 +44,6 @@ const SIGNAL_LABEL: Record<WarrenWatchRowOut["latest_arrow_color"], string> = { 
 
 interface Props {
   rows: WarrenWatchRowOut[];
-}
-
-// The whole row opens the ticker page in a new tab (as MomentumTable does); a click that starts on the ticker link or the Remove
-// control is left to that element.
-function handleRowClick(e: MouseEvent<HTMLTableRowElement>, ticker: string) {
-  if ((e.target as HTMLElement).closest("a, button")) return;
-  window.open(`/tickers/${ticker}`, "_blank", "noopener,noreferrer");
 }
 
 function SignalPill({ row }: { row: WarrenWatchRowOut }) {
@@ -197,13 +190,13 @@ export function WarrenWatchTable({ rows }: Props) {
       </TableHeader>
       <TableBody>
         {sortByLatestArrow(rows).map((row) => (
-          <TableRow key={row.ticker} interactive onClick={(e) => handleRowClick(e, row.ticker)}>
+          <TableRow key={row.ticker}>
             <TableCell className={PAD}>
               <a
                 href={`/tickers/${row.ticker}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-mono text-sm font-semibold text-text-primary"
+                className="cursor-pointer font-mono text-sm font-semibold text-text-primary underline-offset-2 hover:underline focus-visible:underline"
               >
                 {row.ticker}
               </a>

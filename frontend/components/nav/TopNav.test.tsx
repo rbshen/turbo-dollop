@@ -47,7 +47,6 @@ describe("TopNav", () => {
       ["Stocks", "/screener"],
       ["ETFs", "/etfs"],
       ["Watchlist", "/watchlist"],
-      ["Momentum", "/momentum"],
     ];
     for (const [name, href] of expected) {
       const link = screen.getByRole("link", { name });
@@ -63,7 +62,7 @@ describe("TopNav", () => {
     cleanup();
     render(<TopNav />);
     const investing = await openInvesting();
-    for (const [name, href] of [["Opportunities", "/opportunities"], ["Technical Ideas", "/technical-ideas"]]) {
+    for (const [name, href] of [["Technical Ideas", "/technical-ideas"], ["Weekly Routine", "/opportunities"], ["Momentum", "/momentum"]]) {
       const item = investing.find((el) => el.textContent === name)!;
       expect(item).toHaveAttribute("href", href);
       expect(item).toHaveAttribute("target", "_blank");
@@ -78,7 +77,7 @@ describe("TopNav", () => {
       e.preventDefault(); // jsdom has no navigation
     };
     document.addEventListener("click", spy);
-    const notPrevented = fireEvent.click(screen.getByRole("link", { name: "Momentum" }));
+    const notPrevented = fireEvent.click(screen.getByRole("link", { name: "Watchlist" }));
     document.removeEventListener("click", spy);
     expect(notPrevented).toBe(false); // the original click is cancelled...
     const replay = seen.find((e) => e.ctrlKey || e.metaKey);
@@ -88,7 +87,7 @@ describe("TopNav", () => {
 
   it("leaves already-modified clicks alone", () => {
     render(<TopNav />);
-    expect(fireEvent.click(screen.getByRole("link", { name: "Momentum" }), { ctrlKey: true })).toBe(true);
+    expect(fireEvent.click(screen.getByRole("link", { name: "Watchlist" }), { ctrlKey: true })).toBe(true);
   });
 
   it.each(["/screener", "/etfs", "/watchlist", "/tickers/AAPL"])("on %s, every nav link and the logo open in a new tab", (path) => {
@@ -125,10 +124,10 @@ describe("TopNav", () => {
   );
 
   it("marks the link for the current page and no other", () => {
-    h.pathname = "/momentum";
+    h.pathname = "/watchlist";
     render(<TopNav />);
-    expect(isCurrent(screen.getByRole("link", { name: "Momentum" }))).toBe(true);
-    for (const name of ["Stocks", "ETFs", "Watchlist"]) {
+    expect(isCurrent(screen.getByRole("link", { name: "Watchlist" }))).toBe(true);
+    for (const name of ["Stocks", "ETFs"]) {
       expect(isCurrent(screen.getByRole("link", { name }))).toBe(false);
     }
     expect(isCurrent(screen.getByRole("button", { name: "Markets" }))).toBe(false);
@@ -136,21 +135,22 @@ describe("TopNav", () => {
     expect(isCurrent(screen.getByText("Ticker Analysis"))).toBe(false);
   });
 
-  it("lists the pages in order: Stocks, ETFs, Watchlist, Momentum, then the Investing and Markets menus", () => {
+  it("lists the pages in order: Stocks, ETFs, Watchlist, then the Investing and Markets menus", () => {
     render(<TopNav />);
     const labels = screen.getAllByRole("link").map((a) => a.textContent);
-    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Momentum"]);
-    expect(screen.queryByRole("link", { name: "Opportunities" })).not.toBeInTheDocument(); // moved into Investing
+    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist"]);
+    expect(screen.queryByRole("link", { name: "Weekly Routine" })).not.toBeInTheDocument(); // in Investing
+    expect(screen.queryByRole("link", { name: "Momentum" })).not.toBeInTheDocument(); // in Investing
     expect(screen.queryByRole("link", { name: "Screener" })).not.toBeInTheDocument();
     const order = [...document.querySelectorAll("nav a, nav button")].map((el) => el.textContent);
-    expect(order.slice(0, 7)).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Momentum", "Investing", "Markets"]);
+    expect(order.slice(0, 6)).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Investing", "Markets"]);
   });
 
   it("marks ETFs (and only ETFs) on /etfs", () => {
     h.pathname = "/etfs";
     render(<TopNav />);
     expect(isCurrent(screen.getByRole("link", { name: "ETFs" }))).toBe(true);
-    for (const name of ["Stocks", "Watchlist", "Momentum"]) {
+    for (const name of ["Stocks", "Watchlist"]) {
       expect(isCurrent(screen.getByRole("link", { name }))).toBe(false);
     }
   });
@@ -167,7 +167,7 @@ describe("TopNav", () => {
     render(<TopNav />);
     expect(isCurrent(screen.getByText("Ticker Analysis"))).toBe(true);
     expect(screen.queryByRole("link", { name: "Ticker Analysis" })).not.toBeInTheDocument();
-    for (const name of ["Stocks", "ETFs", "Watchlist", "Momentum"]) {
+    for (const name of ["Stocks", "ETFs", "Watchlist"]) {
       expect(isCurrent(screen.getByRole("link", { name }))).toBe(false);
     }
     expect(isCurrent(screen.getByRole("button", { name: "Markets" }))).toBe(false);
@@ -176,7 +176,7 @@ describe("TopNav", () => {
 });
 
 describe("TopNav: the Investing dropdown", () => {
-  it("is a menu button sitting between Momentum and Markets", () => {
+  it("is a menu button sitting between Watchlist and Markets", () => {
     render(<TopNav />);
     const trigger = screen.getByRole("button", { name: "Investing" });
     expect(trigger).toHaveAttribute("aria-haspopup", "menu");
@@ -184,19 +184,20 @@ describe("TopNav: the Investing dropdown", () => {
     expect(trigger).not.toHaveAttribute("href");
     expect(screen.queryByRole("link", { name: "Technical Ideas" })).toBeNull();
     const order = [...document.querySelectorAll("nav a, nav button")].map((el) => el.textContent);
-    expect(order.indexOf("Momentum")).toBeLessThan(order.indexOf("Investing"));
+    expect(order.indexOf("Watchlist")).toBeLessThan(order.indexOf("Investing"));
     expect(order.indexOf("Investing")).toBeLessThan(order.indexOf("Markets"));
   });
 
-  it("lists Opportunities then Technical Ideas once opened", async () => {
+  it("lists Technical Ideas, Weekly Routine, then Momentum once opened", async () => {
     render(<TopNav />);
     const items = await openInvesting();
-    expect(items.map((i) => i.textContent)).toEqual(["Opportunities", "Technical Ideas"]);
+    expect(items.map((i) => i.textContent)).toEqual(["Technical Ideas", "Weekly Routine", "Momentum"]);
   });
 
   it.each([
-    ["/opportunities", "Opportunities"],
     ["/technical-ideas", "Technical Ideas"],
+    ["/opportunities", "Weekly Routine"],
+    ["/momentum", "Momentum"],
   ])("on %s, marks Investing and the %s item, and not Markets", async (path, item) => {
     h.pathname = path;
     render(<TopNav />);
@@ -208,14 +209,14 @@ describe("TopNav: the Investing dropdown", () => {
   });
 
   it("does not mark Investing on another page", () => {
-    h.pathname = "/momentum";
+    h.pathname = "/watchlist";
     render(<TopNav />);
     expect(isCurrent(screen.getByRole("button", { name: "Investing" }))).toBe(false);
   });
 });
 
 describe("TopNav: the Markets dropdown", () => {
-  it("is a menu button, not a link, sitting after Momentum and before the User menu", () => {
+  it("is a menu button, not a link, sitting after Investing and before the User menu", () => {
     render(<TopNav />);
     const trigger = screen.getByRole("button", { name: "Markets" });
     expect(trigger).toHaveAttribute("aria-haspopup", "menu");
@@ -224,7 +225,7 @@ describe("TopNav: the Markets dropdown", () => {
     expect(screen.queryByRole("link", { name: "Sectors" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Breadth" })).toBeNull();
     const order = [...document.querySelectorAll("nav a, nav button")].map((el) => el.textContent);
-    expect(order.indexOf("Momentum")).toBeLessThan(order.indexOf("Markets"));
+    expect(order.indexOf("Investing")).toBeLessThan(order.indexOf("Markets"));
     expect(order.indexOf("Markets")).toBeLessThan(order.indexOf("ann"));
   });
 
@@ -250,7 +251,7 @@ describe("TopNav: the Markets dropdown", () => {
   });
 
   it("does not mark Markets on another page, and leaves its items unmarked", async () => {
-    h.pathname = "/momentum";
+    h.pathname = "/watchlist";
     render(<TopNav />);
     expect(isCurrent(screen.getByRole("button", { name: "Markets" }))).toBe(false);
     for (const el of await openMarkets()) expect(isCurrent(el)).toBe(false);
@@ -300,9 +301,9 @@ describe("TopNav: the Markets dropdown", () => {
 // Session 16: the current page is neutral (a surface-2 fill with text-primary) and says so with aria-current, never brand blue.
 describe("TopNav: the current item is neutral", () => {
   it("draws the current link with surface-2 and text-primary, and no brand blue anywhere in the nav", () => {
-    h.pathname = "/momentum";
+    h.pathname = "/watchlist";
     const { container } = render(<TopNav />);
-    const current = screen.getByRole("link", { name: "Momentum" });
+    const current = screen.getByRole("link", { name: "Watchlist" });
     expect(current).toHaveClass("bg-surface-2", "text-text-primary");
     expect(screen.getByRole("link", { name: "Stocks" })).not.toHaveClass("bg-surface-2");
     expect(container.innerHTML).not.toMatch(/(bg|text|border)-brand/);
@@ -368,7 +369,7 @@ describe("TopNav: the account block", () => {
   it("shows every other nav link to a viewer too", () => {
     draw("viewer");
     const labels = screen.getAllByRole("link").map((a) => a.textContent);
-    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist", "Momentum"]);
+    expect(labels).toEqual(["Fathom", "Stocks", "ETFs", "Watchlist"]);
     expect(screen.getByRole("button", { name: "Investing" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Markets" })).toBeInTheDocument();
   });
@@ -429,7 +430,7 @@ describe("TopNav: the account block", () => {
 
   it("keeps the full bar, without an account block, while the session is being checked", () => {
     draw(null, { loading: true });
-    expect(screen.getByRole("link", { name: "Momentum" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Watchlist" })).toBeInTheDocument();
     expect(screen.queryByTestId("account")).toBeNull();
   });
 
@@ -473,7 +474,7 @@ describe("TopNav: the bar does not wrap or overlap", () => {
 
   it("lets the link group scroll sideways rather than run under the search or account block", () => {
     draw("admin");
-    const group = screen.getByRole("link", { name: "Momentum" }).parentElement!;
+    const group = screen.getByRole("link", { name: "Watchlist" }).parentElement!;
     expect(group).toHaveClass("min-w-0", "overflow-x-auto");
     expect(group).not.toHaveClass("shrink-0");
   });

@@ -20,20 +20,21 @@ const NAV_LINKS: NavLink[] = [
   { href: "/screener", label: "Stocks" },
   { href: "/etfs", label: "ETFs" },
   { href: "/watchlist", label: "Watchlist" },
-  { href: "/momentum", label: "Momentum" },
 ];
 
-// "Investing" and "Markets" are dropdowns, not pages: both sit after Momentum, Investing first. Each is active on any of its routes
-// and their sub-routes (/breadth/[sector]). Investing groups the idea lists; Markets the two market-wide views.
+// "Investing" and "Markets" are dropdowns, not pages: both sit after Watchlist, Investing first. Each is active on any of its routes
+// and their sub-routes (/breadth/[sector]). Investing groups the idea lists and Momentum; Markets the two market-wide views.
+// "Weekly Routine" is the label of the /opportunities route (the route and its files keep the old name).
 const INVESTING_LINKS: NavLink[] = [
-  { href: "/opportunities", label: "Opportunities" },
   { href: "/technical-ideas", label: "Technical Ideas" },
+  { href: "/opportunities", label: "Weekly Routine" },
+  { href: "/momentum", label: "Momentum" },
 ];
 const MARKETS_LINKS: NavLink[] = [
   { href: "/sectors", label: "Sectors" },
   { href: "/breadth", label: "Breadth" },
 ];
-const MENUS_AFTER = "/momentum";
+const MENUS_AFTER = "/watchlist";
 const SETTINGS_HREF = "/settings";
 
 function isUnder(pathname: string, href: string): boolean {
