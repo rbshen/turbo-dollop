@@ -2204,6 +2204,8 @@ export interface WarrenWatchRowOut {
   // The candle (naive ET window start) that last changed the stop VALUE and the rule that did it; both null with no stop or a row not yet rebuilt.
   stop_moved_at: string | null;
   stop_moved_by: StopMovedBy | null;
+  // Display flag derived by the API from the stored fields: an ACTIVE LP stop whose last move was a trail with no arrow since. Never true on a breached row.
+  stop_trailed_since_arrow: boolean;
   // Latest completed DAILY close from the cached 1d bars (naive date "YYYY-MM-DD"); null when none is cached.
   last_price: number | null;
   last_price_date: string | null;

@@ -79,7 +79,7 @@ def test_get_returns_the_stored_rows_with_arrow_split_ages_and_et_times(engine, 
     assert b["status"] == "breached" and b["breached_at"] == "2026-10-16T11:30:00"
     assert set(a) == {
         "ticker", "profile", "latest_arrow_color", "latest_arrow_direction", "latest_arrow_at", "instruction_type", "instruction_text",
-        "entry_kind", "entry_at", "entry_price", "stop_price", "stop_basis", "stop_moved_at", "stop_moved_by", "last_price", "last_price_date", "pl_pct",
+        "entry_kind", "entry_at", "entry_price", "stop_price", "stop_basis", "stop_moved_at", "stop_moved_by", "stop_trailed_since_arrow", "last_price", "last_price_date", "pl_pct",
         "stop_distance_pct", "status", "breached_at", "last_signal_at", "last_updated_at", "age_bars", "last_signal_age_bars",
     }
     assert a["entry_at"] == "2026-10-15T13:30:00" and a["entry_kind"] == "yellow" and a["entry_price"] == 100.0
@@ -92,6 +92,22 @@ def test_get_returns_the_stop_age_as_an_et_stamp_and_the_rule(engine, utc_server
     a, b = TestClient(main.app).get("/api/technical-ideas/warren").json()["rows"]
     assert (a["stop_moved_at"], a["stop_moved_by"]) == ("2026-10-16T13:30:00", "trail")
     assert (b["stop_moved_at"], b["stop_moved_by"]) == (None, None)
+
+
+def test_get_flags_a_stop_trailed_since_the_last_arrow(engine, utc_server):
+    lp = dict(stop_basis="LP", stop_price=95.0, stop_moved_by="trail")
+    add_row(engine, "TRL", stop_moved_at=datetime(2026, 10, 16, 9, 30), **lp)  # arrow 10-15 13:30, trail after it
+    add_row(engine, "SAM", stop_moved_at=datetime(2026, 10, 15, 13, 30), **lp)  # arrow and trail on the same candle
+    add_row(engine, "ARW", stop_moved_at=datetime(2026, 10, 14, 9, 30), **lp)  # an arrow (left the stop alone) came after the trail
+    add_row(engine, "BDN", stop_basis="LP", stop_price=95.0, stop_moved_at=datetime(2026, 10, 16, 9, 30), stop_moved_by="blue_down")
+    add_row(engine, "BRC", stop_moved_at=datetime(2026, 10, 16, 9, 30), status="breached", breached_at=datetime(2026, 10, 16, 11, 30), **lp)
+    add_row(engine, "PCT", stop_basis="10%", stop_moved_at=datetime(2026, 10, 16, 9, 30), stop_moved_by="trail")
+    add_row(engine, "OLD", stop_basis="LP", stop_price=95.0)  # not yet rebuilt: no stop age
+    add_row(engine, "NON", stop_price=None, stop_basis="none", entry_kind="blue")
+    rows = {r["ticker"]: r for r in TestClient(main.app).get("/api/technical-ideas/warren").json()["rows"]}
+    assert {t: r["stop_trailed_since_arrow"] for t, r in rows.items()} == {
+        "TRL": True, "SAM": True, "ARW": False, "BDN": False, "BRC": False, "PCT": False, "OLD": False, "NON": False,
+    }
 
 
 def test_get_exposes_the_gray_entry_kind_and_its_stop_age_rule(engine, utc_server):

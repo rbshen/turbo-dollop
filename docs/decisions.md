@@ -1628,3 +1628,10 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 - **Process:** merged on main as the apply (the Warren cron runs main's working tree and the nightly step has no guard); no dry run, backup or rebuild by the owner's decision. **Trial:** re-measure after a down or sideways stretch and drop the switch if it does not hold.
 - **Runbook change:** the re-anchor and rebuild paths now depend on the cached daily bars; the rebuild guard replays gate-off rules, so after the first gated nightly run it can no longer rebuild rows (use `seed_warren_watch`). Spec: `docs/specs/warren-signals-page.md`, "LP gate".
 
+### 2026-10-18 — Warren watch: yellow "LP" pill when the stop was last moved by the trail (display only)
+
+- **What:** on an active row the Stop cell's `LP` pill turns yellow when the last stop move was a trail and no arrow has been recorded since (`stop_moved_by = trail` and `latest_arrow_at <= stop_moved_at`; the same candle counts). Any later arrow clears it, even one that left the stop unchanged; the next trail sets it again. Hover gets one extra line and the pill carries the title/aria-label "LP, trailed since last arrow" (colour is never the only signal).
+- **Why derived, not stored:** the flag is computed in the GET response from stored fields (`watch.py::stop_trailed_since_arrow`), so no schema change, no rewrite of rows, no change to the nightly output, the cursor or the events. The old stop value is not stored and is not added.
+- **Instruction text intentionally unchanged:** the table keeps the arrow's own text; the pill says what the text cannot, that the stop has moved since that arrow.
+- **Spec:** `docs/specs/warren-signals-page.md`, "Rules at a glance" (trail vs arrow moves), the Stop column and the API fields.
+

@@ -22,7 +22,9 @@ import {
   STOP_BASIS_LABEL,
   stopAboveEntry,
   stopAboveEntryNote,
-  stopAgeTitle,
+  showTrailedPill,
+  stopCellTitle,
+  TRAILED_SINCE_ARROW_LABEL,
 } from "@/lib/technicalIdeas";
 import { cn } from "@/lib/utils";
 
@@ -147,8 +149,9 @@ function StopCell({ row, nowMs }: { row: WarrenWatchRowOut; nowMs: number }) {
   if (row.stop_price == null) return <TableCell className={`${NUM_CLASS} text-text-tertiary`}>—</TableCell>;
   const above = stopAboveEntry(row);
   const basis = row.stop_basis === "none" ? null : STOP_BASIS_LABEL[row.stop_basis];
+  const trailed = showTrailedPill(row);
   return (
-    <TableCell className={`${PAD} whitespace-nowrap text-right`} title={stopAgeTitle(row, nowMs) ?? undefined}>
+    <TableCell className={`${PAD} whitespace-nowrap text-right`} title={stopCellTitle(row, nowMs) ?? undefined}>
       <span className="inline-flex items-center justify-end gap-1.5">
         {above && (
           <span title={stopAboveEntryNote(row)} aria-label={stopAboveEntryNote(row)} className="inline-flex text-text-tertiary">
@@ -157,7 +160,12 @@ function StopCell({ row, nowMs }: { row: WarrenWatchRowOut; nowMs: number }) {
         )}
         <span className="font-mono text-text-primary">{fmtMoney(row.stop_price)}</span>
         {basis && (
-          <Badge size="compact" tone="neutral">
+          <Badge
+            size="compact"
+            tone={trailed ? "warn" : "neutral"}
+            title={trailed ? TRAILED_SINCE_ARROW_LABEL : undefined}
+            ariaLabel={trailed ? TRAILED_SINCE_ARROW_LABEL : undefined}
+          >
             {basis}
           </Badge>
         )}

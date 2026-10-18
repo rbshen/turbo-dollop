@@ -20,7 +20,7 @@ afterEach(() => {
 function row(over: Partial<WarrenWatchRowOut>): WarrenWatchRowOut {
   return {
     ticker: "AAA", profile: "any", latest_arrow_color: "yellow", latest_arrow_direction: "up", latest_arrow_at: "2026-10-15T13:30:00",
-    instruction_type: 3, instruction_text: "YELLOW UP - Buy.", entry_kind: "yellow", entry_at: "2026-10-15T13:30:00", last_price: 110, last_price_date: "2026-10-15", pl_pct: 0.1, stop_distance_pct: 0.1818, entry_price: 100, stop_price: 90, stop_basis: "10%", stop_moved_at: null, stop_moved_by: null,
+    instruction_type: 3, instruction_text: "YELLOW UP - Buy.", entry_kind: "yellow", entry_at: "2026-10-15T13:30:00", last_price: 110, last_price_date: "2026-10-15", pl_pct: 0.1, stop_distance_pct: 0.1818, entry_price: 100, stop_price: 90, stop_basis: "10%", stop_moved_at: null, stop_moved_by: null, stop_trailed_since_arrow: false,
     status: "active", breached_at: null, last_signal_at: "2026-10-15T13:30:00", last_updated_at: "2026-10-16T01:25:00", age_bars: 5,
     last_signal_age_bars: 5, ...over,
   };
@@ -119,6 +119,49 @@ describe("WarrenWatchTable", () => {
     expect(stopCell("OLD")).not.toHaveAttribute("title");
     expect(within(bodyRow("NON")).getByText("—").closest("td")).not.toHaveAttribute("title");
     vi.useRealTimers();
+  });
+
+  it("turns the LP pill yellow, with a tooltip line and an accessible name, only when the stop was trailed since the last arrow", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-16T12:00:00Z"));
+    const LABEL = "LP, trailed since last arrow";
+    draw([
+      row({ ticker: "TRL", stop_price: 95.5, stop_basis: "LP", stop_moved_at: "2026-10-16T09:30:00", stop_moved_by: "trail", stop_trailed_since_arrow: true }),
+      row({ ticker: "ARW", stop_price: 95.5, stop_basis: "LP", stop_moved_at: "2026-10-09T11:30:00", stop_moved_by: "blue_down" }),
+      row({ ticker: "PCT", stop_price: 90, stop_basis: "10%", stop_trailed_since_arrow: true }),
+      row({ ticker: "ENT", stop_price: 100, stop_basis: "entry", stop_trailed_since_arrow: true }),
+    ]);
+    const pill = (ticker: string, text: string) => within(bodyRow(ticker)).getByText(text);
+    const cell = (ticker: string, text: string) => pill(ticker, text).closest("td")!;
+    expect(pill("TRL", "LP")).toHaveClass("text-warn");
+    expect(pill("TRL", "LP")).toHaveAttribute("aria-label", LABEL);
+    expect(pill("TRL", "LP")).toHaveAttribute("title", LABEL);
+    expect(cell("TRL", "LP")).toHaveAttribute(
+      "title",
+      "Trailed to 2nd LP Oct 16, 09:30 ET · today\nTrailed since last arrow: the stop was moved by the trailing LP (not by an arrow) at Oct 16, 09:30 ET, and stays highlighted until the next arrow.",
+    );
+    expect(pill("ARW", "LP")).not.toHaveClass("text-warn");
+    expect(pill("ARW", "LP")).not.toHaveAttribute("aria-label");
+    expect(pill("ARW", "LP")).not.toHaveAttribute("title");
+    expect(cell("ARW", "LP")).toHaveAttribute("title", "Set Oct 9, 11:30 ET by Blue Down (2nd LP) · 7 days ago");
+    // The entry and 10% pills are never yellow, whatever the flag says.
+    expect(pill("PCT", "10%")).not.toHaveClass("text-warn");
+    expect(pill("ENT", "Entry")).not.toHaveClass("text-warn");
+    expect(pill("PCT", "10%")).not.toHaveAttribute("aria-label");
+    vi.useRealTimers();
+  });
+
+  it("shows no highlight on a breached row, even if the flag were set", () => {
+    draw([
+      row({
+        ticker: "BRC", status: "breached", breached_at: "2026-10-16T09:30:00", stop_price: 95.5, stop_basis: "LP", stop_moved_at: "2026-10-15T15:30:00",
+        stop_moved_by: "trail", stop_trailed_since_arrow: true,
+      }),
+    ]);
+    const lp = within(bodyRow("BRC")).getByText("LP");
+    expect(lp).not.toHaveClass("text-warn");
+    expect(lp).not.toHaveAttribute("aria-label");
+    expect(lp.closest("td")!.getAttribute("title") ?? "").not.toContain("Trailed since last arrow");
   });
 
   it("explains a stop above the entry price and stays quiet otherwise", () => {

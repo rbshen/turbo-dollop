@@ -104,6 +104,24 @@ STOP_MOVED_BY = (
     MOVED_GRAY_UP_ENTRY,
 )
 
+
+def stop_trailed_since_arrow(
+    status: str, stop_price: float | None, stop_basis: str, stop_moved_by: str | None, stop_moved_at: datetime | None, latest_arrow_at: datetime
+) -> bool:
+    """Display flag (the Technical Ideas "LP" pill turns yellow): an ACTIVE row whose last stop move was a trail and no arrow has been
+    recorded since. Same candle counts (the arrow is processed first, then the trail). Any later arrow clears it, including one that left the
+    stop unchanged (Blue Up on an open trade, Gray Up on an active row, a no-op down arrow). Both stamps are candle window starts (naive ET)
+    from the same candle index. False on a breached row, with no stop or no stop age, and for every basis other than LP."""
+    return (
+        status == STATUS_ACTIVE
+        and stop_price is not None
+        and stop_basis == BASIS_LP
+        and stop_moved_by == MOVED_TRAIL
+        and stop_moved_at is not None
+        and latest_arrow_at <= stop_moved_at
+    )
+
+
 # The 10% stop is `yellowEntryHeld * (1 - stopPercent / 100)` in the ThinkScript.
 _STOP_FACTOR = 1 - STOP_PERCENT / 100
 

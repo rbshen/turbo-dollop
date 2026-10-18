@@ -136,6 +136,26 @@ export function stopAgeTitle(row: Pick<WarrenWatchRowOut, "stop_moved_at" | "sto
   return age ? `${text[row.stop_moved_by]} · ${age}` : text[row.stop_moved_by];
 }
 
+/** The accessible name of the yellow "LP" pill: colour is never the only signal. */
+export const TRAILED_SINCE_ARROW_LABEL = "LP, trailed since last arrow";
+
+/** True when the Stop cell's LP pill is highlighted: the API flag, and only on an active row with an LP basis (display only; the API already
+ * guarantees both, the check keeps a stale or hand-built row from lighting up a breached stop). */
+export function showTrailedPill(row: Pick<WarrenWatchRowOut, "stop_trailed_since_arrow" | "status" | "stop_basis">): boolean {
+  return row.stop_trailed_since_arrow === true && row.status === "active" && row.stop_basis === "LP";
+}
+
+/** The Stop cell's tooltip: the stop-age line, plus (only when highlighted) one line saying the trailing LP moved it, not an arrow. */
+export function stopCellTitle(
+  row: Pick<WarrenWatchRowOut, "stop_moved_at" | "stop_moved_by" | "stop_trailed_since_arrow" | "status" | "stop_basis">,
+  nowMs: number,
+): string | null {
+  const age = stopAgeTitle(row, nowMs);
+  if (!showTrailedPill(row) || !row.stop_moved_at) return age;
+  const line = `Trailed since last arrow: the stop was moved by the trailing LP (not by an arrow) at ${fmtEtStamp(row.stop_moved_at)} ET, and stays highlighted until the next arrow.`;
+  return age ? `${age}\n${line}` : line;
+}
+
 /** A fraction as a signed one-decimal percent: 0.1234 -> "+12.3%", -0.05 -> "-5.0%", 0 -> "0.0%". */
 export function fmtSignedPct1(fraction: number): string {
   const pct = fraction * 100;

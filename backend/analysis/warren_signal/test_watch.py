@@ -824,3 +824,79 @@ def test_a_breached_row_freezes_the_pill_and_the_text_together():
     for down in ("blue_down", "yellow_down", "gray_down"):
         s, _ = _run(lows, [_ev("yellow_up", 1), _ev(down, 6)], Lp({6: 95.0}))
         assert s == base and (s.latest_arrow_kind, s.instruction_type) == ("yellow_up", 3)
+
+
+# --- stop_trailed_since_arrow: the display flag for the yellow LP pill (2026-10-18) ----------------------------------
+
+def _flag(s) -> bool:
+    return w.stop_trailed_since_arrow(s.status, s.stop_price, s.stop_basis, s.stop_moved_by, s.stop_moved_at, s.latest_arrow_at)
+
+
+def test_flag_is_true_for_a_trail_with_no_later_arrow():
+    s, _ = _trail_run({8: 80.0})
+    assert (s.stop_moved_by, s.stop_moved_at, s.latest_arrow_at) == ("trail", _ts(8), _ts(6))
+    assert _flag(s) is True
+
+
+def test_flag_is_true_when_the_arrow_and_the_trail_share_the_candle():
+    # A Blue Up inside the open trade (a no-op for the stop) on candle 8, then the trail moves the stop on that same candle.
+    s, _ = _trail_run({8: 80.0}, events=[*TRAIL_EVENTS, _ev("blue_up", 8)])
+    assert (s.stop_moved_by, s.stop_moved_at, s.latest_arrow_at, s.latest_arrow_kind) == ("trail", _ts(8), _ts(8), "blue_up")
+    assert _flag(s) is True
+
+
+@pytest.mark.parametrize(
+    "later_arrow",
+    [
+        pytest.param("blue_up", id="blue-up-on-an-open-trade"),
+        pytest.param("gray_up", id="gray-up-on-an-active-row"),
+        pytest.param("yellow_down", id="yellow-down-no-op"),
+        pytest.param("blue_down", id="blue-down-no-op"),
+        pytest.param("gray_down", id="gray-down-no-op"),
+    ],
+)
+def test_flag_clears_on_a_later_arrow_that_left_the_stop_unchanged(later_arrow):
+    # The trail moved the stop to 80 on candle 8; the arrow on candle 10 asks for an LP of 70 (not higher), so the stop value stays.
+    s, _ = _trail_run({8: 80.0, 10: 70.0}, events=[*TRAIL_EVENTS, _ev(later_arrow, 10)])
+    assert (s.stop_price, s.stop_moved_by, s.stop_moved_at, s.latest_arrow_at) == (80.0, "trail", _ts(8), _ts(10))
+    assert _flag(s) is False
+
+
+def test_flag_is_false_when_the_last_move_was_an_arrow():
+    s, _ = _trail_run({})  # repeat Yellow on candle 6, nothing after it
+    assert (s.stop_moved_by, s.stop_basis) == ("yellow_up_repeat", "LP") and _flag(s) is False
+    for kind, by in (("yellow_down", "yellow_down"), ("blue_down", "blue_down")):
+        s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev(kind, 4)], Lp({4: 95.0}), trail=True)
+        assert (s.stop_moved_by, s.stop_basis) == (by, "LP") and _flag(s) is False
+    s, _ = _run(RALLY, [_ev("yellow_up", 1), _ev("gray_down", 4)], closes=RALLY_CLOSES, trail=True)
+    assert (s.stop_moved_by, s.stop_basis) == ("gray_down", "entry") and _flag(s) is False
+
+
+def test_flag_is_false_on_a_breached_row_and_a_breach_clears_it():
+    lows = [*TRAIL_LOWS[:10], 70.0, 100.0, 100.0, 100.0]  # the low of candle 10 reaches the trailed stop of 80
+    s, _ = _trail_run({8: 80.0}, lows=lows)
+    assert (s.status, s.stop_moved_by) == ("breached", "trail") and _flag(s) is False
+    s, _ = _trail_run({8: 80.0})
+    assert _flag(s) is True
+
+
+def test_flag_is_false_with_no_stop_or_no_stop_age():
+    s, _ = _run(FLAT, [_ev("blue_up", 2)], trail=True)
+    assert s.stop_price is None and _flag(s) is False
+    s, _ = _trail_run({8: 80.0})
+    assert w.stop_trailed_since_arrow("active", 80.0, "LP", "trail", None, _ts(6)) is False  # a row not yet rebuilt has no stop age
+    assert w.stop_trailed_since_arrow("active", None, "none", None, None, _ts(6)) is False
+
+
+def test_flag_is_false_for_a_basis_other_than_lp():
+    assert w.stop_trailed_since_arrow("active", 90.0, "10%", "trail", _ts(8), _ts(6)) is False
+    assert w.stop_trailed_since_arrow("active", 90.0, "entry", "trail", _ts(8), _ts(6)) is False
+
+
+def test_a_trail_after_an_arrow_turns_the_flag_on_again():
+    events = [*TRAIL_EVENTS, _ev("blue_up", 10)]
+    lp = {8: 80.0, 12: 90.0}
+    s, _ = _trail_run(lp, lows=TRAIL_LOWS[:12], events=events)  # candles 0-11: trail at 8, Blue Up at 10
+    assert (s.stop_price, s.stop_moved_at, s.latest_arrow_at) == (80.0, _ts(8), _ts(10)) and _flag(s) is False
+    s, _ = _trail_run(lp, events=events)  # candle 12 trails to 90, after the arrow
+    assert (s.stop_price, s.stop_moved_at, s.latest_arrow_at) == (90.0, _ts(12), _ts(10)) and _flag(s) is True

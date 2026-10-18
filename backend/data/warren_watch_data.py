@@ -34,7 +34,7 @@ from analysis.liquidity_zones.types import LiquidityZoneSettings
 from analysis.warren_signal.state_machine import replay
 from analysis.warren_signal.types import WarrenReplayResult
 from analysis.warren_signal.indicators import compute_atr_wilder
-from analysis.warren_signal.watch import WatchState, advance, pick_support
+from analysis.warren_signal.watch import WatchState, advance, pick_support, stop_trailed_since_arrow
 from clients.daily_bar_sources import _is_half_day
 from clients.shared_bars_cache import _eastern_today, read_cached_completed_daily_bars
 from core.db import engine
@@ -451,7 +451,11 @@ def watch_table() -> dict:
                 "latest_arrow_at": r.latest_arrow_at, "instruction_type": r.instruction_type, "instruction_text": r.instruction_text,
                 "entry_kind": r.entry_kind, "entry_at": r.entry_at, "entry_price": r.entry_price, "stop_price": r.stop_price,
                 "stop_basis": r.stop_basis,
-                "stop_moved_at": r.stop_moved_at, "stop_moved_by": r.stop_moved_by, "last_price": last_price, "last_price_date": last_price_date,
+                "stop_moved_at": r.stop_moved_at, "stop_moved_by": r.stop_moved_by,
+                "stop_trailed_since_arrow": stop_trailed_since_arrow(
+                    r.status, r.stop_price, r.stop_basis, r.stop_moved_by, r.stop_moved_at, r.latest_arrow_at
+                ),
+                "last_price": last_price, "last_price_date": last_price_date,
                 "pl_pct": row_pl_pct(r.status, last_price, r.entry_price, r.stop_price), "stop_distance_pct": stop_distance_pct(last_price, r.stop_price),
                 "status": r.status, "breached_at": r.breached_at, "last_signal_at": r.last_signal_at,
                 "last_updated_at": _to_et_naive(r.last_updated_at),

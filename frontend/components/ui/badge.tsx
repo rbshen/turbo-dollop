@@ -18,9 +18,11 @@ export interface BadgeProps {
   className?: string;
   /** Native hover tooltip -- same contract as the HTML `title` attribute. */
   title?: string;
+  /** Accessible name when the colour carries a meaning the text does not. */
+  ariaLabel?: string;
 }
 
-export function Badge({ tone, size, missing, children, className, title }: BadgeProps) {
+export function Badge({ tone, size, missing, children, className, title, ariaLabel }: BadgeProps) {
   if (missing) {
     return (
       <span title={title} className={cn(pillVariants({ tone: "neutral", size }), "text-text-tertiary", className)}>
@@ -29,7 +31,7 @@ export function Badge({ tone, size, missing, children, className, title }: Badge
     );
   }
   return (
-    <span title={title} className={cn(pillVariants({ tone, size }), className)}>
+    <span title={title} aria-label={ariaLabel} className={cn(pillVariants({ tone, size }), className)}>
       {children}
     </span>
   );
