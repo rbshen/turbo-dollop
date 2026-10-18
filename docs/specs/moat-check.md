@@ -25,7 +25,7 @@ On the Economic Moat tab, below the rating selector, an **Independent check** ca
 ## What it never does
 
 - **Never writes `TickerMoat`** and has no path that could: the rating that scores changes only through `PUT /api/tickers/{t}/moat` and its confirm step.
-- **Never triggers a score recompute**, never touches `TickerScore`, `weights_version`, `moat_multiplier` or `SCORE_FORMULA_VERSION`, and is not read by the Screener, the Watchlist, Momentum or Opportunities.
+- **Never triggers a score recompute**, never touches `TickerScore`, `weights_version`, `moat_multiplier` or `SCORE_FORMULA_VERSION`, and is not read by the Screener, the Watchlist, Momentum or Weekly Routine (`/opportunities`).
 - **Never calls FMP.** The app makes no request for it; the data block is built from stored rows only (read-only).
 - **Never feeds the tracked universe.** The table is `KEEP` in `data/ticker_data_registry.py` and is **not** in `MANUAL_DATA_MODELS` (a check is not owner-entered data and must not protect or admit a ticker).
 - **Never applies to an ETF or fund.** The save script refuses a known ETF (the same check as the Moat PUT) and the ETF page has no Moat tab.

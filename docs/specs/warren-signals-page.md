@@ -409,8 +409,8 @@ for one age) for a column that showed `last_signal_at`. Since 2026-10-16 the Las
 `WarrenWatchSection`: heading **RSI WVF ADX by Warren**, tag **2h**, header stamp "As of Oct 15, 15:30 ET" (the table's `as_of`, a candle START).
 Another strategy adds its own section component, hook and table; nothing here changes. Data: `lib/hooks/useWarrenWatch.ts` (SWR, no polling).
 
-Table (`WarrenWatchTable`, modelled on `MomentumTable`: kit Table, compact Badge pills, mono tabular numbers, whole-row click opens
-`/tickers/{t}` in a new tab; the ticker link and the Remove control keep their own click):
+Table (`WarrenWatchTable`, modelled on `MomentumTable`: kit Table, compact Badge pills, mono tabular numbers, no row click (since
+2026-10-18): only the ticker link opens `/tickers/{t}`, in a new tab, and the row has no pointer or hover styling; the Remove control keeps its own click):
 
 | Column | Content |
 | --- | --- |
@@ -439,9 +439,10 @@ removal does (Removal section above; `tests/test_warren_watch_api.py`).
 
 ### Nav
 
-Top-level links are Stocks, ETFs, Watchlist, Momentum; then two dropdowns (the Markets pattern, one `NavMenu` component):
-**Investing** (Opportunities, Technical Ideas) and **Markets** (Sectors, Breadth). Opportunities left the top level; its page and URL
-are unchanged. `/technical-ideas` is a same-tab page like `/opportunities`. Investing is marked current on either route.
+Top-level links are Stocks, ETFs, Watchlist; then two dropdowns (the Markets pattern, one `NavMenu` component):
+**Investing** (Technical Ideas, Weekly Routine, Momentum; order since 2026-10-18) and **Markets** (Sectors, Breadth). Weekly Routine is the
+label of the former Opportunities page (URL `/opportunities` unchanged); Momentum left the top level. `/technical-ideas` is a same-tab page like
+`/opportunities`. Investing is marked current on any of its three routes.
 
 ### Open for a later phase
 
