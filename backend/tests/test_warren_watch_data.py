@@ -97,14 +97,32 @@ def test_seed_replays_twelve_months_and_creates_rows_only_for_tickers_with_an_up
     assert outcomes == {"OLD": "no_row", "ANCIENT": "no_row", "DOWN": "no_row", "NEW": "created", "EDGE": "created", "CUT12": "created"}
     got = rows(engine)
     assert set(got) == {"NEW", "EDGE", "CUT12"}
-    assert got["NEW"].entry_kind == "blue" and got["NEW"].entry_at == datetime(2026, 9, 1, 9, 30)
-    assert got["EDGE"].entry_at == datetime(2026, 7, 17, 9, 30)  # the blue at the 3-month cutoff does not count as recent; the next one does
+    # NEW: the 05-04 Yellow opened the trade; the 09-01 Blue Up is not an action in an open trade (entry, stop and basis stay), only the pill, the instruction and the dates move
+    new = got["NEW"]
+    assert (new.entry_kind, new.entry_at, new.entry_price) == ("yellow", datetime(2026, 5, 4, 9, 30), 100.0)
+    assert (new.stop_price, new.stop_basis, new.stop_moved_at, new.stop_moved_by) == (pytest.approx(89.1), "10%", datetime(2026, 5, 4, 9, 30), "yellow_up_entry")
+    assert (new.latest_arrow_kind, new.latest_arrow_at, new.last_signal_at) == ("blue_up", datetime(2026, 9, 1, 9, 30), datetime(2026, 9, 1, 9, 30))
+    assert (new.instruction_type, new.status) == (5, "active")
+    # EDGE: the row exists because of the 07-17 Blue Up (the one at the 3-month cutoff does not count as recent); the 07-16 Blue opened the trade and the 07-17 one is a no-op in it
+    edge = got["EDGE"]
+    assert (edge.entry_kind, edge.entry_at, edge.stop_price) == ("blue", datetime(2026, 7, 16, 15, 30), None)
+    assert (edge.last_signal_at, edge.instruction_type) == (datetime(2026, 7, 17, 9, 30), 5)
     assert got["CUT12"].entry_kind == "yellow" and got["CUT12"].entry_at == datetime(2026, 8, 3, 9, 30)
     with Session(engine) as s:
         cursors = {c.ticker: c.processed_through for c in s.exec(select(WarrenWatchCursor)).all()}
     assert set(cursors) == {"OLD", "ANCIENT", "DOWN", "NEW", "EDGE", "CUT12"}  # every ticker's progress is recorded, row or not
     assert set(cursors.values()) == {datetime(2026, 10, 16, 15, 30)}
     assert got["NEW"].as_of == datetime(2026, 10, 16, 15, 30)
+
+
+def test_a_blue_up_with_no_row_or_on_a_breached_row_opens_a_new_blue_entry_with_no_stop(monkeypatch, engine):
+    canned(monkeypatch, {"FRESH": [("blue_up", "2026-09-01 09:30")], "AGAIN": [("yellow_up", "2026-09-01 09:30"), ("blue_up", "2026-09-21 09:30")]})
+    run("FRESH", bars("2026-07-01", "2026-10-16"))
+    run("AGAIN", bars("2026-07-01", "2026-10-16", lows={"2026-09-10": 85.0}))  # the 89.1 stop is hit on 09-10: breached before the Blue Up
+    got = rows(engine)
+    assert (got["FRESH"].entry_kind, got["FRESH"].entry_at, got["FRESH"].stop_price, got["FRESH"].stop_basis, got["FRESH"].instruction_type) == ("blue", datetime(2026, 9, 1, 9, 30), None, "none", 2)
+    assert (got["AGAIN"].entry_kind, got["AGAIN"].entry_at, got["AGAIN"].status, got["AGAIN"].breached_at, got["AGAIN"].stop_price, got["AGAIN"].instruction_type) == (
+        "blue", datetime(2026, 9, 21, 9, 30), "active", None, None, 2)
 
 
 def test_the_deep_seed_finds_the_earlier_trade_a_short_window_would_miss(monkeypatch, engine):

@@ -4,7 +4,7 @@ zero-FMP / zero-write guarantee for the GET is also covered by tests/test_viewer
 
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from datetime import time as dtime
 
 import pytest
@@ -161,9 +161,9 @@ def test_remove_then_a_rerun_of_the_nightly_step_does_not_resurrect_the_row(monk
         assert s.exec(select(WarrenWatchRow)).one().removed_at is not None
 
 
-def add_daily_bars(engine, ticker, closes_by_age):
-    """Cached 1d bars: {days_ago: close}. Dated well before the last completed session, so the provisional-bar rule never applies."""
-    now = datetime.now()
+def add_daily_bars(engine, ticker, closes_by_age, now=None):
+    """Cached 1d bars: {days_ago: close}, counted from `now` (default: the real clock). Dated well before the last completed session, so the provisional-bar rule never applies."""
+    now = now or datetime.now()
     with Session(engine) as s:
         for days_ago, close in closes_by_age.items():
             s.add(SharedBarsCache(ticker=ticker, interval="1d", bar_time=datetime.combine(now.date() - timedelta(days=days_ago), dtime.min),
@@ -204,14 +204,41 @@ def test_a_row_without_an_entry_or_a_stop_has_null_pl_and_stop_distance(engine):
     assert (row["entry_at"], row["pl_pct"], row["stop_distance_pct"]) == (None, None, None)
 
 
-def test_a_breached_rows_pl_is_frozen_at_the_stop_and_ignores_the_last_price(engine):
+def session_before_the_last_completed_one_days_ago(now):
+    """How many days before `now` the trading day before the most recent COMPLETED session falls (the code's own calendar helper, so a
+    bar placed there is never dropped as live or provisional, whatever the weekday). Always newer than the 8-days-ago bars these tests use."""
+    completed = sbc._most_recent_completed_trading_date(now.replace(tzinfo=timezone.utc))
+    day = completed - timedelta(days=1)
+    while day.weekday() >= 5:
+        day -= timedelta(days=1)
+    days_ago = (now.date() - day).days
+    assert 1 <= days_ago < 8
+    return days_ago
+
+
+# The real clock, then fixed instants (UTC): a Wednesday midday, the Saturday and the Sunday of a weekend, a Monday morning before the open.
+SIMULATED_NOWS = [
+    pytest.param(None, id="real-clock"),
+    pytest.param(datetime(2026, 10, 14, 12, 0), id="wednesday"),
+    pytest.param(datetime(2026, 10, 17, 12, 0), id="saturday"),
+    pytest.param(datetime(2026, 10, 18, 12, 0), id="sunday"),
+    pytest.param(datetime(2026, 10, 12, 8, 0), id="monday-before-the-open"),
+]
+
+
+@pytest.mark.parametrize("simulated_now", SIMULATED_NOWS)
+def test_a_breached_rows_pl_is_frozen_at_the_stop_and_ignores_the_last_price(engine, monkeypatch, simulated_now):
+    now = simulated_now or datetime.now()
+    if simulated_now is not None:  # the page reads the cache through this function; give it the simulated clock (no production change)
+        real_read = wwd.read_cached_completed_daily_bars
+        monkeypatch.setattr(wwd, "read_cached_completed_daily_bars", lambda t, n: real_read(t, n, reference=simulated_now.replace(tzinfo=timezone.utc)))
     add_row(engine, "AAA", status="breached", breached_at=datetime(2026, 10, 13, 9, 30), entry_price=100.0, stop_price=90.0)
-    add_daily_bars(engine, "AAA", {8: 60.0})
+    add_daily_bars(engine, "AAA", {8: 60.0}, now)
     client = TestClient(main.app)
     row = client.get("/api/technical-ideas/warren").json()["rows"][0]
     assert row["pl_pct"] == pytest.approx(-0.10)  # (90 - 100) / 100, not (60 - 100) / 100
     assert row["stop_distance_pct"] == pytest.approx(-0.50)  # (60 - 90) / 60: still follows the price
-    add_daily_bars(engine, "AAA", {1: 150.0})  # the price recovers
+    add_daily_bars(engine, "AAA", {session_before_the_last_completed_one_days_ago(now): 150.0}, now)  # the price recovers (a bar on the previous session, never a weekend)
     row = client.get("/api/technical-ideas/warren").json()["rows"][0]
     assert row["last_price"] == 150.0 and row["pl_pct"] == pytest.approx(-0.10)
     assert row["stop_distance_pct"] == pytest.approx(0.40)  # (150 - 90) / 150
