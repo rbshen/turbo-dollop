@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from contextlib import asynccontextmanager
 from typing import Annotated, Literal
@@ -62,7 +63,7 @@ from data.moat_check import get_latest_moat_check, moat_check_payload
 from data.market_breadth_data import get_market_breadth
 from data.opportunity_data import get_run as get_opportunity_run, list_run_dates as list_opportunity_dates, record_picks as record_opportunity_picks
 from data.momentum_data import get_etf_momentum_snapshot, get_momentum_snapshot
-from data.warren_watch_data import remove_watch_row, watch_table
+from data.warren_watch_data import anchor_headroom, remove_watch_row, watch_table
 from data.sector_heatmap_data import get_sector_heatmap
 from helpers.weinstein_config import get_weinstein_settings, update_weinstein_settings
 from helpers.liquidity_zone_config import get_liquidity_zone_settings, update_liquidity_zone_settings
@@ -93,6 +94,7 @@ from data.universe_membership import (
 )
 from core.schemas import (
     OpportunityDateOut,
+    AnchorHeadroomOut,
     WarrenWatchOut,
     WarrenWatchRemoveOut,
     OpportunityRunOut,
@@ -388,8 +390,13 @@ def etf_momentum(period: MomentumPeriod = "current") -> EtfMomentumOut:
 # The Technical Ideas page (docs/specs/warren-signals-page.md): the Warren watch table, read from the stored rows only (no FMP call,
 # no write: safe for a viewer as it is). The one write is the admin-only soft remove; the nightly job never resurrects a removed row.
 @app.get("/api/technical-ideas/warren", response_model=WarrenWatchOut)
-def technical_ideas_warren() -> WarrenWatchOut:
-    return WarrenWatchOut(**watch_table())
+def technical_ideas_warren(restricted: Restricted) -> WarrenWatchOut:
+    out = WarrenWatchOut(**watch_table())
+    if not restricted:  # admin only: the re-anchor banner (a pure computation, no read or write); a viewer gets None
+        headroom = anchor_headroom()
+        if headroom.level != "none":
+            out.anchor_headroom = AnchorHeadroomOut(**asdict(headroom))
+    return out
 
 
 @app.delete("/api/technical-ideas/warren/{ticker}", response_model=WarrenWatchRemoveOut)

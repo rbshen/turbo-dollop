@@ -2732,12 +2732,28 @@ class WarrenWatchRowOut(BaseModel):
     last_signal_age_bars: int | None = None
 
 
+class AnchorHeadroomOut(BaseModel):
+    """The replay-anchor warm-up banner data (data/warren_watch_data.py::anchor_headroom). `days` = anchor date minus the nightly slice's first
+    date; the three dates are the first day below 300 days (warning), the first day below 270 (urgent) and the day it reaches 180 (the hard
+    deadline). Present only for an admin and only when `level` is not "none"."""
+
+    days: int
+    level: Literal["warning", "urgent"]
+    anchor: datetime
+    slice_start: date
+    warning_date: date
+    urgent_date: date
+    deadline_date: date
+
+
 class WarrenWatchOut(BaseModel):
     """The whole watch table (non-removed rows) and its `as_of`: the last completed 2h candle (window start, naive ET) the
-    nightly update has folded in. `as_of` is None only before the first seed."""
+    nightly update has folded in. `as_of` is None only before the first seed. `anchor_headroom` is the admin-only banner data (None for a
+    viewer, and for an admin while the headroom is 300 days or more)."""
 
     as_of: datetime | None
     rows: list[WarrenWatchRowOut]
+    anchor_headroom: AnchorHeadroomOut | None = None
 
 
 class WarrenWatchRemoveOut(BaseModel):

@@ -34,7 +34,7 @@ from analysis.warren_signal.state_machine import replay
 from analysis.warren_signal.types import WarrenReplayResult
 from analysis.warren_signal.watch import WatchState, advance
 from clients.daily_bar_sources import _is_half_day
-from clients.shared_bars_cache import read_cached_completed_daily_bars
+from clients.shared_bars_cache import _eastern_today, read_cached_completed_daily_bars
 from core.db import engine
 from core.models import WarrenWatchCursor, WarrenWatchRow
 from core.tickers import normalize_ticker
@@ -49,7 +49,9 @@ SEED_MONTHS = 12
 ROW_MONTHS = 3
 # The fixed start of every replay: the first seed's as_of (2026-10-15 15:30) minus SEED_MONTHS. A constant so the state does not
 # depend on the date; it must be moved forward before the cached 60m history (LOOKBACK_DAYS = 730) no longer leaves a 180-day
-# warm-up before it (about April 2027), and the rows rebuilt when it is.
+# warm-up before it (2027-04-17 at this value). anchor_headroom() below counts the days left and the admin banner warns from 300; the
+# steps are the spec's "Re-anchor runbook" (docs/specs/warren-signals-page.md). EDITING THIS ON MAIN IS THE APPLY: the nightly cron imports
+# the working tree and rewrites every row that differs, so change it on a branch and apply by hand.
 REPLAY_ANCHOR = datetime(2025, 10, 15, 15, 30)
 _UP_KINDS = ("blue_up", "yellow_up", "gray_up")
 
@@ -227,6 +229,55 @@ def update_warren_watch(
                 session.merge(WarrenWatchCursor(ticker=ticker, processed_through=as_of, updated_at=wall))
             session.commit()
     return WatchUpdate(outcome, lookup.calls, max(read, 0), changes)
+
+
+# Anchor headroom (docs/specs/warren-signals-page.md, "Anchor headroom and re-anchor runbook"): the days of cached 60m history before REPLAY_ANCHOR
+# in the slice the nightly step reads. The slice start moves forward one day a day, so headroom falls one day a day until the anchor is moved. The
+# 2026-10-18 sliding-start test: arrows start flipping at about 270 days, so "warning" below 300 and "urgent" below 270; the 180-day event write
+# gate warm-up is the hard deadline.
+ANCHOR_WARNING_DAYS = 300
+ANCHOR_URGENT_DAYS = 270
+ANCHOR_DEADLINE_DAYS = 180
+
+
+@dataclass(frozen=True)
+class AnchorHeadroom:
+    """`days` = anchor date minus the nightly slice's first date; `level` "none" | "warning" | "urgent". The dates are the first day the level
+    holds (days below 300 / below 270) and the day `days` reaches 180; a date already passed stays in the past."""
+
+    days: int
+    level: str
+    anchor: datetime
+    slice_start: date
+    warning_date: date
+    urgent_date: date
+    deadline_date: date
+
+
+def anchor_headroom(
+    now: datetime | None = None,
+    anchor: datetime | None = None,
+    warning_days: int = ANCHOR_WARNING_DAYS,
+    urgent_days: int = ANCHOR_URGENT_DAYS,
+    deadline_days: int = ANCHOR_DEADLINE_DAYS,
+) -> AnchorHeadroom:
+    """How much warm-up history the fixed replay anchor has left. The slice start is the nightly step's own (reconcile_warren_events.nightly_bars_start:
+    ET today minus LOOKBACK_DAYS - 1), so this follows LOOKBACK_DAYS; the first candle is the first session on or after it (up to 3 days later), so
+    the figure can read up to 3 days high. A pure computation: no DB, no FMP. The threshold arguments are test seams (the defaults are the rule)."""
+    from pipeline.backfills.reconcile_warren_events import nightly_bars_start  # lazy: that module imports the nightly job, which imports this one
+
+    now = now or datetime.now(timezone.utc)
+    anchor = anchor or REPLAY_ANCHOR
+    slice_start = nightly_bars_start(now)
+    today = _eastern_today(now)
+    days = (anchor.date() - slice_start).days
+    level = "urgent" if days < urgent_days else "warning" if days < warning_days else "none"
+    return AnchorHeadroom(
+        days=days, level=level, anchor=anchor, slice_start=slice_start,
+        warning_date=today + timedelta(days=days - warning_days + 1),
+        urgent_date=today + timedelta(days=days - urgent_days + 1),
+        deadline_date=today + timedelta(days=days - deadline_days),
+    )
 
 
 def _brief(state: WatchState) -> str:

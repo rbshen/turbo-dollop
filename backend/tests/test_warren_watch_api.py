@@ -28,6 +28,13 @@ def engine(monkeypatch):
     return eng
 
 
+@pytest.fixture(autouse=True)
+def fixed_headroom(monkeypatch):
+    """The banner data is clock-dependent (data/warren_watch_data.py::anchor_headroom): pin it to 2026-10-18, headroom 361, level none
+    (the banner's own tests are tests/test_anchor_headroom.py)."""
+    monkeypatch.setattr(main, "anchor_headroom", lambda: wwd.anchor_headroom(now=datetime(2026, 10, 18, 17, 0, tzinfo=timezone.utc)))
+
+
 @pytest.fixture
 def utc_server(monkeypatch):
     """The server clock is UTC in production; `last_updated_at` is converted from server-local wall clock, so pin it."""
@@ -106,7 +113,7 @@ def test_age_follows_the_nyse_calendar_holiday_and_early_close(engine):
 
 
 def test_an_empty_table_returns_no_rows_and_no_as_of():
-    assert TestClient(main.app).get("/api/technical-ideas/warren").json() == {"as_of": None, "rows": []}
+    assert TestClient(main.app).get("/api/technical-ideas/warren").json() == {"as_of": None, "rows": [], "anchor_headroom": None}
 
 
 def test_get_excludes_removed_rows(engine):
