@@ -24,6 +24,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
 from sqlalchemy import func, inspect
 from sqlmodel import Session, select
@@ -32,7 +33,8 @@ from analysis.entry_signal.resample import build_2h_session_candles_fast, drop_f
 from analysis.liquidity_zones.types import LiquidityZoneSettings
 from analysis.warren_signal.state_machine import replay
 from analysis.warren_signal.types import WarrenReplayResult
-from analysis.warren_signal.watch import WatchState, advance
+from analysis.warren_signal.indicators import compute_atr_wilder
+from analysis.warren_signal.watch import WatchState, advance, pick_support
 from clients.daily_bar_sources import _is_half_day
 from clients.shared_bars_cache import _eastern_today, read_cached_completed_daily_bars
 from core.db import engine
@@ -61,23 +63,67 @@ LAST_PRICE_LOOKBACK_DAYS = 30
 _ET = ZoneInfo("America/New_York")
 
 
+# The daily bars the LP gate's ATR reads: calendar days of cached 1d bars (about 960 completed sessions; Wilder smoothing needs a long run-in) and
+# the sessions needed before ATR(14) exists.
+DAILY_ATR_LOOKBACK_DAYS = 1400
+DAILY_ATR_MIN_SESSIONS = 14
+
+
+def load_daily_bars(ticker: str, now: datetime | None = None) -> pd.DataFrame:
+    """The ticker's COMPLETED daily bars from the cache (a pure read: no FMP call, no write; a live or provisional newest bar is already dropped by
+    `read_cached_completed_daily_bars`). Empty when nothing is cached."""
+    return read_cached_completed_daily_bars(normalize_ticker(ticker), DAILY_ATR_LOOKBACK_DAYS, reference=now)
+
+
+def daily_atr_for_candles(candle_index: pd.DatetimeIndex, daily: pd.DataFrame | None) -> np.ndarray:
+    """Daily ATR(14) (Wilder smoothing of the true range, which includes the overnight gap: `indicators.compute_atr_wilder`, the Chart tab's FVG
+    helper) as of the last COMPLETED session strictly BEFORE each candle's date, one value per candle; NaN where it does not exist (no daily bars,
+    or fewer than 14 completed sessions before that date). Only sessions before the candle's date are used, so a later daily bar can never change
+    an earlier candle's value (no look-ahead; the candle's own session is not used even once it has closed)."""
+    n = len(candle_index)
+    if daily is None or daily.empty or not {"high", "low", "close"} <= set(daily.columns):
+        return np.full(n, np.nan)
+    atr = compute_atr_wilder(daily["high"], daily["low"], daily["close"]).to_numpy(dtype=float)
+    sessions = pd.DatetimeIndex(daily.index).normalize()
+    j = sessions.searchsorted(pd.DatetimeIndex(candle_index).normalize(), side="left") - 1  # position of the last session < the candle's date
+    out = np.where(j >= DAILY_ATR_MIN_SESSIONS - 1, atr[np.clip(j, 0, None)], np.nan)
+    return out
+
+
 class SecondSupportLookup:
-    """The 2nd LP as of a candle: the second-nearest support below that candle's close, from the Chart tab's 2h LP read
-    (compute_liquidity_zones_2h, the shared LP settings) over the candles up to and including it. None when fewer than
-    two supports exist (including a `max_lps_per_side` below 2). `calls` counts the LP computations made."""
+    """The support the stop may use as of a candle (`__call__`, the SELECTED LP): the Chart tab's 2h LP read (compute_liquidity_zones_2h, the shared
+    LP settings; at most `max_lps_per_side` supports, nearest first) over the candles up to and including it, then `pick_support`'s eligibility
+    gate with the daily ATR as of that candle (`atr`, one value per candle, see `daily_atr_for_candles`; None = no ATR for any candle, the gate is
+    off). `plain(pos)` is the ungated 2nd-nearest support, which `advance` uses under rules with `lp_atr_gate` off. `calls` counts the LP
+    computations made; `gate_stats` counts the selected-LP uses by `pick_support` status (plus "rejected": uses where the 2nd LP was not the answer)."""
 
-    def __init__(self, candles: pd.DataFrame, settings: LiquidityZoneSettings):
+    def __init__(self, candles: pd.DataFrame, settings: LiquidityZoneSettings, atr: np.ndarray | None = None):
         self._candles = candles
+        self._closes = candles["close"].to_numpy(dtype=float)
         self._settings = settings
-        self._cache: dict[int, float | None] = {}
+        self._atr = atr
+        self._supports: dict[int, tuple[float, ...]] = {}
         self.calls = 0
+        self.gate_stats: dict[str, int] = {"uses": 0, "eligible": 0, "walked": 0, "none": 0, "off": 0, "short": 0}
 
-    def __call__(self, pos: int) -> float | None:
-        if pos not in self._cache:
+    def supports(self, pos: int) -> tuple[float, ...]:
+        if pos not in self._supports:
             self.calls += 1
             support = compute_liquidity_zones_2h(self._candles.iloc[: pos + 1], self._settings).support
-            self._cache[pos] = float(support[1].price) if len(support) >= 2 else None
-        return self._cache[pos]
+            self._supports[pos] = tuple(float(z.price) for z in support)
+        return self._supports[pos]
+
+    def plain(self, pos: int) -> float | None:
+        """The 2nd-nearest support (None with fewer than two): the rule before the gate."""
+        supports = self.supports(pos)
+        return supports[1] if len(supports) >= 2 else None
+
+    def __call__(self, pos: int) -> float | None:
+        atr = None if self._atr is None else float(self._atr[pos])
+        pick = pick_support(self.supports(pos), float(self._closes[pos]), atr if atr is not None and atr == atr else None)
+        self.gate_stats["uses"] += 1
+        self.gate_stats[pick.status] += 1
+        return pick.value
 
 
 def completed_candles(bars: pd.DataFrame, now: datetime) -> pd.DataFrame:
@@ -105,6 +151,8 @@ class WatchUpdate:
     lp_calls: int
     candles_read: int  # the candles replayed (everything after the replay start)
     changes: dict = field(default_factory=dict)  # {field: (stored, new)} for a "changed" row; {"<new row>": ...} for a created one
+    lp_gate: dict = field(default_factory=dict)  # SecondSupportLookup.gate_stats of this ticker's replay (uses, eligible, walked, none, off, short)
+    daily_atr: bool = True  # False when the ticker had no usable daily ATR for any candle (no daily bars cached, or fewer than 14 sessions)
 
 
 def _has_recent_up(events, as_of: datetime) -> bool:
@@ -163,11 +211,13 @@ def update_warren_watch(
     now: datetime | None = None,
     daily_volume: pd.Series | None = None,
     dry_run: bool = False,
+    daily: pd.DataFrame | None = None,
 ) -> WatchUpdate:
     """Recompute the ticker's watch row from scratch: replay every completed 2h candle after REPLAY_ANCHOR (or after the removal /
     `replay_from` of a removed or woken row) on `bars` (the shared cache's raw 60m frame; no download here) and write the row only
     if the result differs from the stored one. Raises ValueError when no completed candle can be built. Idempotent: a second call
-    on the same bars writes nothing but an unchanged `as_of`. `dry_run` computes and reports (`changes`) and writes nothing."""
+    on the same bars writes nothing but an unchanged `as_of`. `dry_run` computes and reports (`changes`) and writes nothing. `daily` = the completed daily bars for the LP gate's ATR (default: read
+    from the cache, no network; see `load_daily_bars`)."""
     ticker = normalize_ticker(ticker)
     now = now or datetime.now(timezone.utc)
     candles = completed_candles(bars, now)
@@ -176,6 +226,7 @@ def update_warren_watch(
     as_of = candles.index[-1].to_pydatetime()
     wall = datetime.now()
     profile = profile_for(ticker).name
+    atr = daily_atr_for_candles(candles.index, load_daily_bars(ticker, now) if daily is None else daily)  # a cache read (no network), before the row session opens
 
     with Session(engine) as session:
         row = _load_row(session, ticker)
@@ -188,8 +239,10 @@ def update_warren_watch(
                 after = cut
         stored = _state_from_row(row) if row is not None and removed_at is None else None
 
-        lookup = SecondSupportLookup(candles, settings)
-        read = int(len(candles) - candles.index.searchsorted(pd.Timestamp(after), side="right"))
+        lookup = SecondSupportLookup(candles, settings, atr)
+        first = int(candles.index.searchsorted(pd.Timestamp(after), side="right"))
+        read = len(candles) - first
+        atr_ok = bool(np.isfinite(atr[first:]).any())  # False = the gate is off for every candle this replay reads
         result = watch_replay(ticker, candles, daily_volume)
         new_state = advance(None, candles, result.events, result.first_yellow_after_blue_at, profile, after, lookup)
         if new_state is not None:
@@ -228,7 +281,7 @@ def update_warren_watch(
             if cursor is None or cursor.processed_through < as_of:
                 session.merge(WarrenWatchCursor(ticker=ticker, processed_through=as_of, updated_at=wall))
             session.commit()
-    return WatchUpdate(outcome, lookup.calls, max(read, 0), changes)
+    return WatchUpdate(outcome, lookup.calls, max(read, 0), changes, dict(lookup.gate_stats), atr_ok)
 
 
 # Anchor headroom (docs/specs/warren-signals-page.md, "Anchor headroom and re-anchor runbook"): the days of cached 60m history before REPLAY_ANCHOR

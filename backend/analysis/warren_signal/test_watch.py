@@ -99,7 +99,7 @@ def test_first_yellow_after_blue_is_no_action_only_dates_move():
     assert s.instruction_text == "FIRST YELLOW UP ARROW AFTER BLUE ENTRY - NO ACTION"
     assert (s.latest_arrow_kind, s.latest_arrow_at, s.last_signal_at) == ("yellow_up", _ts(4), _ts(4))
     assert lp.asked == []
-    old, _ = _run(FLAT, [_ev("blue_up", 1), _ev("yellow_up", 4)], Lp({4: 70.0}), first_yellow=[4], rules=w.PREVIOUS_RULES)
+    old, _ = _run(FLAT, [_ev("blue_up", 1), _ev("yellow_up", 4)], Lp({4: 70.0}), first_yellow=[4], rules=w.PRE_RAISE_ONLY_RULES)
     assert old.instruction_type == 2  # the previous rules left the Blue Up text under the Yellow pill
 
 
@@ -232,7 +232,7 @@ def test_a_blue_up_on_an_active_gray_entry_keeps_the_entry_and_the_stop():
     assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by) == (pytest.approx(90.0), "10%", _ts(1), "gray_up_entry")
     assert (s.latest_arrow_kind, s.latest_arrow_at, s.last_signal_at, s.instruction_type, s.status) == ("blue_up", _ts(4), _ts(4), 5, "active")
     assert lp.asked == []
-    s, _ = _gray_row(FLAT, [_ev("blue_up", 4)], rules=w.PREVIOUS_RULES)  # the previous rules gave the same trade; only the text differed
+    s, _ = _gray_row(FLAT, [_ev("blue_up", 4)], rules=w.PRE_RAISE_ONLY_RULES)  # the previous rules gave the same trade; only the text differed
     assert (s.entry_kind, s.entry_at, s.stop_price, s.instruction_type) == ("gray", _ts(1), pytest.approx(90.0), 2)
 
 
@@ -277,7 +277,7 @@ def test_a_down_arrow_with_a_2nd_lp_at_or_below_the_stop_is_text_only(down, text
         assert (s.stop_price, s.stop_basis, s.stop_moved_at) == (pytest.approx(90.0), "10%", _ts(1))
         assert s.stop_moved_by == ("yellow_up_entry" if entry == "yellow_up" else "gray_up_entry")
         assert (s.instruction_type, s.latest_arrow_kind, s.latest_arrow_at) == (text_type, down, _ts(4)) and lp.asked == [4]
-        old, _ = _run(FLAT, [_ev(entry, 1), _ev(down, 4)], Lp({4: lp_value}), rules=w.PREVIOUS_RULES)
+        old, _ = _run(FLAT, [_ev(entry, 1), _ev(down, 4)], Lp({4: lp_value}), rules=w.PRE_RAISE_ONLY_RULES)
         assert old.stop_price == lp_value and old.stop_basis == "LP"  # what the previous rule did (cut the stop to the 2nd LP)
 
 
@@ -637,7 +637,7 @@ def test_a_stop_that_becomes_none_clears_the_stop_age():
     lows = [100, 100, 100, 85, 100, 100]
     s, _ = _run(lows, [_ev("yellow_up", 1), _ev("blue_up", 4)])  # a Blue Up on a BREACHED row: a new blue entry, no stop
     assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by) == (None, "none", None, None)
-    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("blue_up", 4)], rules=w.PREVIOUS_RULES)  # the previous rules: a Blue Up in a trade did the same
+    s, _ = _run(FLAT, [_ev("yellow_up", 1), _ev("blue_up", 4)], rules=w.PRE_RAISE_ONLY_RULES)  # the previous rules: a Blue Up in a trade did the same
     assert (s.stop_price, s.stop_basis, s.stop_moved_at, s.stop_moved_by) == (None, "none", None, None)
     # A row that never had a stop has none either.
     s, _ = _run(FLAT, [_ev("blue_up", 1)])
@@ -684,7 +684,7 @@ def test_a_blue_up_on_an_active_row_changes_nothing_about_the_trade(first):
     assert (s.latest_arrow_kind, s.latest_arrow_at, s.last_signal_at) == ("blue_up", _ts(4), _ts(4))
     assert s.instruction_type == 5 and s.instruction_text == "BLUE UP - no change to an open trade"
     assert lp.asked == []
-    old, _ = _run(FLAT, [_ev(first, 1), _ev("blue_up", 4)], rules=w.PREVIOUS_RULES)
+    old, _ = _run(FLAT, [_ev(first, 1), _ev("blue_up", 4)], rules=w.PRE_RAISE_ONLY_RULES)
     assert (old.instruction_type, old.instruction_text) == (2, "BLUE UP - Use appropriate stop.")  # the previous text
 
 
@@ -798,7 +798,7 @@ def test_the_instruction_type_is_always_one_the_arrow_in_the_pill_can_carry(name
 
 def test_the_invariant_has_teeth_the_previous_rules_break_it():
     broken = [x for x in _situations() if (lambda s: s is not None and s.instruction_type not in PILL_TYPES[s.latest_arrow_kind])(
-        _run(x[1], x[3], Lp(x[4]), closes=x[2], first_yellow=x[5], rules=w.PREVIOUS_RULES)[0])]
+        _run(x[1], x[3], Lp(x[4]), closes=x[2], first_yellow=x[5], rules=w.PRE_RAISE_ONLY_RULES)[0])]
     assert broken  # first Yellow after a Blue and Gray Up on an open trade
     assert all(("first Yellow" in x[0] or "gray_up" in x[0]) for x in broken)
 

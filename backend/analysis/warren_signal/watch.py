@@ -50,8 +50,13 @@ Stop age: `stop_moved_at` / `stop_moved_by` record the candle and the rule that 
 repeat Yellow, Blue Down, Yellow Down, Gray Down, trail); re-setting the same value is not a move, and a stop that becomes
 none (a Blue Up) clears both.
 
-2nd LP = the second-nearest support below the close of the arrow candle (`lp_second`, supplied by the caller and
-called only where a rule above needs it)."""
+2nd LP = the SELECTED support below the close of the arrow candle (`lp_second`, supplied by the caller and called only where a rule
+above needs it). Since 2026-10-18 (`WatchRules.lp_atr_gate`) the selection has an eligibility gate, `pick_support`: the 2nd-nearest
+support is used only if it sits at least one daily ATR(14) below the candle close (`support <= close - 1.0 x ATR`); if it is too close
+the walk goes down the kept supports (the 3rd; at most 3 are kept) and takes the first eligible one; the 1st is never used; if none is
+eligible the selection is None, which every rule above already handles (Yellow Down, Blue Down and trailing leave the stop alone; the
+repeat Yellow falls back to 0.9 x low). The daily ATR is the last COMPLETED session strictly before the candle's date; where it is
+unavailable the gate is off for that use (the plain 2nd LP). One definition serves all four uses."""
 
 from collections import defaultdict
 from collections.abc import Callable, Collection, Sequence
@@ -115,18 +120,50 @@ class WatchRules:
     blue_up_in_trade_no_op: bool = True  # a Blue Up on an active row with an entry changes nothing about the trade; False = it replaced the entry (gray entries excepted)
     down_arrows_raise_only: bool = True  # Blue Down / Yellow Down: stop = max(stop, 2nd LP); False = the stop was set to the 2nd LP, lower or not
     text_follows_pill: bool = True  # the instruction type follows the arrow in the pill on every candle; False = a no-action up arrow (first Yellow after Blue, Gray Up on an open trade) left the old text
+    lp_atr_gate: bool = True  # the selected LP must sit at least 1 x daily ATR(14) below the candle close (R1, walk down from the 2nd LP); False = the plain 2nd-nearest support
 
 
 CURRENT_RULES = WatchRules()
-# The rules on main before the raise-only down arrows / Blue Up no-op change (b19cbc4): what the stored rows were built under, so the rebuild guard replays them.
-PREVIOUS_RULES = WatchRules(blue_up_in_trade_no_op=False, down_arrows_raise_only=False, text_follows_pill=False)
+# The rules on main before the LP gate (2026-10-18): what the stored rows were built under, so the rebuild guard replays them.
+PREVIOUS_RULES = replace(CURRENT_RULES, lp_atr_gate=False)
+# The rules before the raise-only down arrows / Blue Up no-op change (b19cbc4, 2026-10-17): for tests that pin that behaviour.
+PRE_RAISE_ONLY_RULES = WatchRules(lp_atr_gate=False, blue_up_in_trade_no_op=False, down_arrows_raise_only=False, text_follows_pill=False)
 # The rules before the Gray Down raise-only change (2026-10-17, earlier): for tests that pin that behaviour.
-PRE_GRAY_RAISE_ONLY_RULES = replace(PREVIOUS_RULES, gray_down_raise_only=False)
+PRE_GRAY_RAISE_ONLY_RULES = replace(PRE_RAISE_ONLY_RULES, gray_down_raise_only=False)
 # The rules before the gray-entry / breached-row change (2026-10-17, earliest): for tests that pin that behaviour.
 LEGACY_RULES = WatchRules(
     gray_entry=False, ignore_breached_downs=False, gray_up_freezes_breached=True, gray_down_raise_only=False,
-    blue_up_in_trade_no_op=False, down_arrows_raise_only=False, text_follows_pill=False,
+    blue_up_in_trade_no_op=False, down_arrows_raise_only=False, text_follows_pill=False, lp_atr_gate=False,
 )
+
+# The LP eligibility limit in daily ATRs (R1, 1 x ATR; the 2026-10-18 what-if's best family, see docs/decisions.md).
+LP_GATE_ATR_MULTIPLE = 1.0
+
+
+@dataclass(frozen=True)
+class LpPick:
+    """`pick_support`'s answer: the support the stop may use (None = none) and why: "eligible" (the 2nd LP passes), "walked" (a lower support
+    passes), "none" (no kept support passes), "off" (no usable ATR: the plain 2nd LP), "short" (fewer than two supports: None, as before)."""
+
+    value: float | None
+    status: str
+
+
+def pick_support(supports: Sequence[float], close: float, atr: float | None) -> LpPick:
+    """The selected LP. `supports` are the kept supports below `close`, nearest first (at most 3). With a usable `atr` (finite, > 0): the 2nd
+    support if it is at most `close - LP_GATE_ATR_MULTIPLE x atr` (equal is eligible), else the first lower support that is; the 1st is
+    never used. Without a usable ATR the plain 2nd support."""
+    if len(supports) < 2:
+        return LpPick(None, "short")
+    if atr is None or not atr > 0:  # unavailable (None, NaN) or degenerate
+        return LpPick(float(supports[1]), "off")
+    limit = close - LP_GATE_ATR_MULTIPLE * atr
+    if supports[1] <= limit:
+        return LpPick(float(supports[1]), "eligible")
+    for support in supports[2:]:
+        if support <= limit:
+            return LpPick(float(support), "walked")
+    return LpPick(None, "none")
 
 
 @dataclass(frozen=True)
@@ -287,7 +324,9 @@ def advance(
     low and close columns and a naive DatetimeIndex; `events` carry fired_at stamps from that same index. Returns the
     state after the last candle (None if no up arrow has created a row). `trail=False` replays the rules without the
     trailing stop (the rebuild script's guard); `trail_log`, when given, collects (ts, old stop, new stop) per trail move; `rules`
-    selects the arrow rules (CURRENT_RULES, or PREVIOUS_RULES / LEGACY_RULES for the rebuild's guard and tests)."""
+    selects the arrow rules (CURRENT_RULES, or PREVIOUS_RULES / PRE_RAISE_ONLY_RULES / LEGACY_RULES for the rebuild's guard and tests)."""
+    if not rules.lp_atr_gate:  # a gated lookup (data/warren_watch_data.py::SecondSupportLookup) carries the plain 2nd LP as `.plain`; any other callable is used as it is
+        lp_second = getattr(lp_second, "plain", lp_second)
     arrows: dict[datetime, set[str]] = defaultdict(set)
     for e in events:
         arrows[e.fired_at].add(e.kind)

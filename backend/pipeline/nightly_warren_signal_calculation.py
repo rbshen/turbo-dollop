@@ -89,6 +89,8 @@ def update_watch_table(tickers: list[str], bars_by_ticker: dict, dry_run: bool =
         else:
             settings = to_engine_settings(get_liquidity_zone_settings(session))
     created = changed = lp_calls = 0
+    gate = {"uses": 0, "eligible": 0, "walked": 0, "none": 0, "off": 0, "short": 0}
+    no_atr: list[str] = []  # tickers with no usable daily ATR for any candle the replay read (the LP gate is off for them)
     details: list[tuple[str, str, dict]] = []
     failures: list[tuple[str, str]] = []
     for ticker in tickers:
@@ -100,6 +102,10 @@ def update_watch_table(tickers: list[str], bars_by_ticker: dict, dry_run: bool =
             created += update.outcome == "created"
             changed += update.outcome == "changed"
             lp_calls += update.lp_calls
+            for key in gate:
+                gate[key] += update.lp_gate.get(key, 0)
+            if not update.daily_atr:
+                no_atr.append(ticker)
             if update.outcome in ("created", "changed"):
                 details.append((ticker, update.outcome, update.changes))
         except Exception as exc:  # noqa: BLE001 -- one bad ticker must never abort the watch step
@@ -110,9 +116,16 @@ def update_watch_table(tickers: list[str], bars_by_ticker: dict, dry_run: bool =
         "Warren watch table updated. Tickers: %d. Created: %d. Changed: %d. Failed: %d. LP calls: %d. Duration: %.1fs.",
         len(tickers), created, changed, len(failures), lp_calls, duration,
     )
+    # The LP gate (daily ATR): how its selections went, and where it was off because no daily ATR existed (docs/specs/warren-signals-page.md).
+    logger.info(
+        "Warren watch LP gate: %d selections, %d 2nd LP eligible, %d walked to a lower LP, %d with no eligible LP, %d with no daily ATR (gate off), %d with fewer than 2 supports. "
+        "Tickers with no daily ATR: %d%s.",
+        gate["uses"], gate["eligible"], gate["walked"], gate["none"], gate["off"], gate["short"], len(no_atr), f" ({', '.join(no_atr[:10])})" if no_atr else "",
+    )
     return {
         "watch_attempted": len(tickers), "watch_failed": len(failures), "watch_created": created, "watch_changed": changed,
         "watch_lp_calls": lp_calls, "watch_seconds": duration, "watch_failures": failures, "watch_details": details,
+        "watch_lp_gate": gate, "watch_no_daily_atr": no_atr,
     }
 
 

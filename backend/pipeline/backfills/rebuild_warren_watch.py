@@ -1,16 +1,18 @@
 """One-off rebuild of stored Warren watch rows after a rule change (docs/specs/warren-signals-page.md); the current one is the
-2026-10-17 raise-only down arrows / Blue Up no-op rules (earlier: gray entry, breached rows, Gray Down raise-only). Replays every non-removed row's candles from REBUILD_START (the first seed's as_of
+2026-10-18 LP gate (the selected LP must sit at least one daily ATR(14) below the candle close; earlier: raise-only down arrows / Blue Up no-op,
+gray entry, breached rows, Gray Down raise-only). Replays every non-removed row's candles from REBUILD_START (the first seed's as_of
 minus SEED_MONTHS, a fixed date so a rerun is stable) through the row's own cursor with the CURRENT rules (arrow rules plus the
-trailing stop), the cached 60m bars (a pure read: no FMP call) and today's LP settings, and compares every field with the stored row.
+trailing stop), the cached 60m bars and cached daily bars (a pure read: no FMP call) and today's LP settings, and compares every field with the stored row.
 
 Writes (only with --apply) the changed columns of a row that differs, and nothing else: `removed_at`, the cursor, `as_of` and
 `last_updated_at` are never touched, a removed row is skipped (never resurrected) and a ticker with no row never gets one.
 
 Mismatch guard. A row that already equals the new replay is identical (so a rerun after --apply reports every row identical). A row
-that differs is only rebuilt if the same bars and LP settings replayed under the PREVIOUS arrow rules (`GUARD_RULES` = `PREVIOUS_RULES`: the rules in force before the raise-only down arrows / Blue Up no-op change, i.e. a
-Blue Up in a trade replaced the entry, and a Blue Down / Yellow Down set the stop to the 2nd LP even when that lowered it; trailing on) reproduce the stored row exactly on
+that differs is only rebuilt if the same bars and LP settings replayed under the PREVIOUS arrow rules (`GUARD_RULES` = `PREVIOUS_RULES`: the
+current rules with the LP gate OFF, i.e. what the stored rows were built under until the gate; trailing on) reproduce the stored row exactly on
 all fourteen fields. If they do not, the difference is not explained by the rule change (the bars, the LP settings or the arrows
-moved), so the row is printed and skipped.
+moved), so the row is printed and skipped. Once the nightly step has written rows under the gate the guard no longer matches them (it replays gate off),
+so after that this script cannot rebuild anything; the nightly step (`pipeline.seed_warren_watch`) is the tool (re-anchor runbook, spec).
 
 A dry run reads even when the database has not yet been migrated to the stop-age columns (it selects only the columns that exist);
 --apply refuses until they exist (start the app or run a job once: init_db adds them).
@@ -36,7 +38,16 @@ from clients.shared_bars_cache import INTRADAY_INTERVAL, _load_frames
 from core.db import engine
 from core.models import LiquidityZoneSettings, WarrenWatchCursor, WarrenWatchRow
 from data.warren_signal_data import profile_for
-from data.warren_watch_data import REPLAY_ANCHOR, SecondSupportLookup, _row_values, _state_from_row, completed_candles, watch_replay
+from data.warren_watch_data import (
+    REPLAY_ANCHOR,
+    SecondSupportLookup,
+    _row_values,
+    _state_from_row,
+    completed_candles,
+    daily_atr_for_candles,
+    load_daily_bars,
+    watch_replay,
+)
 from helpers.liquidity_zone_config import to_engine_settings
 from pipeline.nightly_warren_signal_calculation import LOOKBACK_DAYS
 
@@ -46,7 +57,7 @@ REBUILD_START = REPLAY_ANCHOR
 # A 180-day engine warm-up before the replay start is the comfortable minimum for a clean left edge (warren-signal.md).
 WARMUP_DAYS = 180
 
-# The rules the stored rows were built under: the guard replays these (PREVIOUS_RULES = before the raise-only down arrows / Blue Up no-op change).
+# The rules the stored rows were built under: the guard replays these (PREVIOUS_RULES = the current rules with the LP gate off).
 GUARD_RULES = PREVIOUS_RULES
 
 # The fields the arrow rules and the guard cover. The stop-age fields are filled on every row since the 2026-10-16 rebuild, so the guard compares all fourteen.
@@ -57,6 +68,9 @@ GUARD_FIELDS = (
 AGE_FIELDS = ("stop_moved_at", "stop_moved_by")
 FIELDS = GUARD_FIELDS + AGE_FIELDS
 ARROW_FIELDS = ("latest_arrow_kind", "latest_arrow_at", "instruction_type")
+
+
+_DAILY: dict[str, pd.DataFrame] = {}
 
 
 class Replay(NamedTuple):
@@ -76,7 +90,9 @@ def replay_state(
     if candles.empty:
         return Replay(None, 0, [])
     result = watch_replay(ticker, candles)
-    lookup, log = SecondSupportLookup(candles, settings), []
+    if ticker not in _DAILY:  # the cached daily bars once per ticker (a cache read, no network): the gate's ATR, the same as the nightly step's
+        _DAILY[ticker] = load_daily_bars(ticker, datetime.now(timezone.utc))
+    lookup, log = SecondSupportLookup(candles, settings, daily_atr_for_candles(candles.index, _DAILY[ticker])), []
     state = advance(None, candles, result.events, result.first_yellow_after_blue_at, profile_for(ticker).name, start, lookup, trail, log, rules)
     return Replay(state, lookup.calls, log)
 
@@ -156,7 +172,7 @@ def main(apply: bool, tickers: list[str] | None = None, show: tuple[str, ...] = 
         bars = _load_frames(session, [r.ticker for r in rows], INTRADAY_INTERVAL, (datetime.now() - timedelta(days=LOOKBACK_DAYS)).date())
 
         changing, same, skipped, gaps, spotlight, finals, downs_ignored = [], 0, [], [], {}, {}, []
-        switch_matters: dict[str, list[str]] = {"blue_up_in_trade": [], "down_raise_only": []}
+        switch_matters: dict[str, list[str]] = {"blue_up_in_trade": [], "down_raise_only": [], "lp_atr_gate": []}
         lp_calls, trail_moves = 0, 0
         for row in rows:
             frame, through = bars.get(row.ticker), cursors.get(row.ticker)
@@ -197,8 +213,8 @@ def main(apply: bool, tickers: list[str] | None = None, show: tuple[str, ...] = 
             lp_calls += applied.lp_calls
             if applied.state is not None and any(getattr(applied.state, f) != getattr(fresh, f) for f in ARROW_FIELDS):
                 downs_ignored.append(row.ticker)
-            # What each of the two newest switches does to this row on its own: the current rules with only that switch off.
-            for name, off in (("blue_up_in_trade", {"blue_up_in_trade_no_op": False}), ("down_raise_only", {"down_arrows_raise_only": False})):
+            # What each of the three newest switches does to this row on its own: the current rules with only that switch off.
+            for name, off in (("blue_up_in_trade", {"blue_up_in_trade_no_op": False}), ("down_raise_only", {"down_arrows_raise_only": False}), ("lp_atr_gate", {"lp_atr_gate": False})):
                 alt = replay_state(row.ticker, frame, settings, through, rules=replace(CURRENT_RULES, **off))
                 lp_calls += alt.lp_calls
                 if alt.state is None or diff(alt.state, fresh):
@@ -237,7 +253,7 @@ def main(apply: bool, tickers: list[str] | None = None, show: tuple[str, ...] = 
     print(f"rows now on a gray entry that were not ({len(gray_restarts)}):", ", ".join(gray_restarts))
     print(f"rows whose arrow/instruction fields change from stored ({len(arrow_changed)}), of which because down arrows on a breached row are now ignored ({len([t for t in downs_ignored if t in arrow_changed])}):", ", ".join(t for t in downs_ignored if t in arrow_changed))
     print(f"rows where ignoring down arrows changes the final arrow fields at all ({len(downs_ignored)}):", ", ".join(downs_ignored))
-    for name, label in (("blue_up_in_trade", "Blue Up in an open trade changes nothing"), ("down_raise_only", "Blue/Yellow Down are raise-only")):
+    for name, label in (("blue_up_in_trade", "Blue Up in an open trade changes nothing"), ("down_raise_only", "Blue/Yellow Down are raise-only"), ("lp_atr_gate", "the LP must sit one daily ATR below the close")):
         print(f"rows the switch '{label}' changes on its own ({len(switch_matters[name])}):", ", ".join(switch_matters[name]))
     no_entry_left = sorted(t for t, f in finals.items() if f.entry_kind is None)
     print(f"rows with no entry after the rebuild ({len(no_entry_left)}):", ", ".join(no_entry_left))
