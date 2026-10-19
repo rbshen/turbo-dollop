@@ -18,8 +18,10 @@ on candle t is first tested on t+1, as the ThinkScript's `rawStopHit` needs `bar
      last signal move. It still resets the first-Yellow-after-Blue counter, which lives in the arrow replay, so the next Yellow Up
      is type 4 (no action) and the one after it acts.
    - Yellow Up (type 3): fresh entry (no row, breached row, or a row that never had an entry) -> entry kind yellow,
-     stop = 0.9 x this candle's low, basis "10%". On an active row with an entry -> stop = min(2nd LP, 0.9 x low),
-     basis whichever is lower ("10%" on a tie, or when there is no 2nd LP); the entry is unchanged.
+     stop = 0.9 x this candle's low, basis "10%". On an active row with an entry -> candidate = min(selected LP, 0.9 x low), basis
+     whichever is lower ("10%" on a tie, or when there is no LP); since 2026-10-19 the stop never goes DOWN: stop = max(stop, candidate)
+     (a candidate that is not higher changes nothing about the stop: no move, no stop-age stamp, no basis change; the arrow, text and
+     dates still update; a row with no stop, a blue entry, takes the candidate as its first stop); the entry is unchanged.
    - Gray Up (type 1), no open trade (no row, a breached row, or a row with no entry): a fresh GRAY entry (2026-10-17): entry kind
      gray, entry = this candle's close, stop = 0.9 x this candle's low, basis "10%". On an active row with an entry: no action,
      only the pill, the instruction (Gray Up, type 1) and the dates move.
@@ -31,12 +33,12 @@ on candle t is first tested on t+1, as the ThinkScript's `rawStopHit` needs `bar
    arrow). On an active row the instruction text and the latest arrow update; the stop changes only on a row with an entry, and
    a down arrow is RAISE-ONLY (a floor, never a cut; 2026-10-17): Blue Down -> stop = max(current stop, 2nd LP) (no stop yet ->
    the 2nd LP); Yellow Down -> the same if the entry kind is yellow or gray (a blue entry: no action); Gray Down -> stop =
-   max(current stop, entry price) if the entry kind is yellow or gray AND the entry price is BELOW the Gray Down candle's close
-   (an entry at or above the close would put the stop above the market and breach on the next candle, so the row is left as it
-   is, text only). When the new level is not higher there is no change at all: no stop move, no stop-age update, basis unchanged.
+   max(current stop, entry price x (1 + GRAY_DOWN_ENTRY_BUFFER)) if the entry kind is yellow or gray AND that buffered price is BELOW the
+   Gray Down candle's close (2026-10-19: the buffer is 1%, and the test is on the buffered price; a target at or above the close would put
+   the stop above the market and breach on the next candle, so the row is left as it is, text only). Basis stays "entry", no trailing. When the new level is not higher there is no change at all: no stop move, no stop-age update, basis unchanged.
    The ThinkScript computes no stop for a Gray Down; this is a rule on the instruction text only. A blue entry takes no stop from
-   a Gray Down ("GRAY DOWN on BLUE ENTRY = No Action" in the scripts). The armed repeat Yellow Up (rule 2) is the ONLY rule that
-   can lower a stop.
+   a Gray Down ("GRAY DOWN on BLUE ENTRY = No Action" in the scripts). Since 2026-10-19 no rule lowers a stop on an
+   active row (the repeat Yellow Up of rule 2 was the only one before).
 
 4. Trailing (2026-10-16): after a candle's arrows, an ACTIVE row whose stop basis is LP asks for the 2nd LP as of that candle
    and, if it is higher than the stop, raises the stop to it (basis stays LP). It never lowers a stop and never touches a
@@ -139,19 +141,31 @@ class WatchRules:
     down_arrows_raise_only: bool = True  # Blue Down / Yellow Down: stop = max(stop, 2nd LP); False = the stop was set to the 2nd LP, lower or not
     text_follows_pill: bool = True  # the instruction type follows the arrow in the pill on every candle; False = a no-action up arrow (first Yellow after Blue, Gray Up on an open trade) left the old text
     lp_atr_gate: bool = True  # the selected LP must sit at least 1 x daily ATR(14) below the candle close (R1, walk down from the 2nd LP); False = the plain 2nd-nearest support
+    never_lower_stop: bool = True  # (2026-10-19) a repeat Yellow Up on an active row with a stop sets max(stop, candidate); False = it set the candidate, lower or not
+    gray_down_entry_buffer: bool = True  # (2026-10-19) a Gray Down raises the stop to entry x (1 + GRAY_DOWN_ENTRY_BUFFER), tested against the close; False = to the entry price itself
 
+
+# A Gray Down on a yellow/gray-entry row raises the stop to the entry price plus this fraction (2026-10-19). One constant, not a setting: a live
+# setting would rewrite every row's history at the next run.
+GRAY_DOWN_ENTRY_BUFFER = 0.01
 
 CURRENT_RULES = WatchRules()
-# The rules on main before the LP gate (2026-10-18): what the stored rows were built under, so the rebuild guard replays them.
-PREVIOUS_RULES = replace(CURRENT_RULES, lp_atr_gate=False)
+# The rules on main before "never lower a stop" and the Gray Down buffer (2026-10-19): what the stored rows were built under until the manual
+# apply, so the rebuild guard replays them. (LP gate on.)
+PREVIOUS_RULES = replace(CURRENT_RULES, never_lower_stop=False, gray_down_entry_buffer=False)
+# The rules before the LP gate (2026-10-18): for tests that pin the plain 2nd LP.
+PRE_LP_GATE_RULES = replace(PREVIOUS_RULES, lp_atr_gate=False)
 # The rules before the raise-only down arrows / Blue Up no-op change (b19cbc4, 2026-10-17): for tests that pin that behaviour.
-PRE_RAISE_ONLY_RULES = WatchRules(lp_atr_gate=False, blue_up_in_trade_no_op=False, down_arrows_raise_only=False, text_follows_pill=False)
+PRE_RAISE_ONLY_RULES = WatchRules(
+    lp_atr_gate=False, never_lower_stop=False, gray_down_entry_buffer=False, blue_up_in_trade_no_op=False, down_arrows_raise_only=False, text_follows_pill=False
+)
 # The rules before the Gray Down raise-only change (2026-10-17, earlier): for tests that pin that behaviour.
 PRE_GRAY_RAISE_ONLY_RULES = replace(PRE_RAISE_ONLY_RULES, gray_down_raise_only=False)
 # The rules before the gray-entry / breached-row change (2026-10-17, earliest): for tests that pin that behaviour.
 LEGACY_RULES = WatchRules(
     gray_entry=False, ignore_breached_downs=False, gray_up_freezes_breached=True, gray_down_raise_only=False,
-    blue_up_in_trade_no_op=False, down_arrows_raise_only=False, text_follows_pill=False, lp_atr_gate=False,
+    blue_up_in_trade_no_op=False, down_arrows_raise_only=False, text_follows_pill=False, lp_atr_gate=False, never_lower_stop=False,
+    gray_down_entry_buffer=False,
 )
 
 # The LP eligibility limit in daily ATRs (R1, 1 x ATR; the 2026-10-18 what-if's best family, see docs/decisions.md).
@@ -274,6 +288,8 @@ def _apply_up(
         lp = lp_second(pos)
         stop, basis = (lp, BASIS_LP) if lp is not None and lp < ten_pct else (ten_pct, BASIS_PCT)
         moved = replace(state, latest_arrow_kind=kind, latest_arrow_at=ts, last_signal_at=ts, instruction_type=YELLOW_UP)
+        if rules.never_lower_stop and state.stop_price is not None and stop <= state.stop_price:
+            return moved  # a stop is never lowered (or re-set): no value change, no stop-age stamp, no basis change; the arrow itself is applied
         return _with_stop(moved, stop, basis, ts, MOVED_YELLOW_UP_REPEAT)
 
     # gray_up (type 1)
@@ -300,10 +316,12 @@ def _apply_down(
     if state.status != STATUS_ACTIVE or state.entry_kind is None:
         return moved  # nothing to tighten on a breached row or one with no entry
     if kind == "gray_down":
-        if state.entry_kind in (ENTRY_YELLOW, ENTRY_GRAY) and state.entry_price is not None and state.entry_price < close:
-            if rules.gray_down_raise_only and state.stop_price is not None and state.stop_price >= state.entry_price:
-                return moved  # already at or above the entry: a Gray Down never lowers a stop (and moves no stop age)
-            return _with_stop(moved, state.entry_price, BASIS_ENTRY, ts, MOVED_GRAY_DOWN)
+        if state.entry_kind in (ENTRY_YELLOW, ENTRY_GRAY) and state.entry_price is not None:
+            target = state.entry_price * (1 + GRAY_DOWN_ENTRY_BUFFER) if rules.gray_down_entry_buffer else state.entry_price
+            if target < close:
+                if rules.gray_down_raise_only and state.stop_price is not None and state.stop_price >= target:
+                    return moved  # already at or above the target: a Gray Down never lowers a stop (and moves no stop age)
+                return _with_stop(moved, target, BASIS_ENTRY, ts, MOVED_GRAY_DOWN)
         return moved
     if kind == "yellow_down" and state.entry_kind not in (ENTRY_YELLOW, ENTRY_GRAY):
         return moved

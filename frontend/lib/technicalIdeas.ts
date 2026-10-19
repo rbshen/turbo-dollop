@@ -57,7 +57,7 @@ export function stopAboveEntry(row: Pick<WarrenWatchRowOut, "stop_price" | "entr
 
 /** The note shown beside a stop that is above the entry price. */
 export function stopAboveEntryNote(row: Pick<WarrenWatchRowOut, "entry_price" | "stop_basis">): string {
-  const source = row.stop_basis === "LP" ? "the 2nd support (LP)" : row.stop_basis === "entry" ? "the entry price" : "an instruction";
+  const source = row.stop_basis === "LP" ? "the 2nd support (LP)" : row.stop_basis === "entry" ? "the entry price plus 1%" : "an instruction";
   return `Above the entry price${row.entry_price != null ? ` (${fmtMoney(row.entry_price)})` : ""}: the latest instruction set this stop from ${source}, not from the entry.`;
 }
 
@@ -129,7 +129,7 @@ export function stopAgeTitle(row: Pick<WarrenWatchRowOut, "stop_moved_at" | "sto
     yellow_up_repeat: `Repeat yellow, ${at} ET (lower of 2nd LP and 10%)`,
     blue_down: `Set ${at} ET by Blue Down (2nd LP)`,
     yellow_down: `Set ${at} ET by Yellow Down (2nd LP)`,
-    gray_down: `Gray Down: stop set to entry, ${at} ET`,
+    gray_down: `Gray Down: stop set to entry + 1%, ${at} ET`,
     trail: `Trailed to 2nd LP ${at} ET`,
   };
   const age = fmtAgeAgo(row.stop_moved_at, nowMs);

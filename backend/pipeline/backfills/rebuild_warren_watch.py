@@ -1,5 +1,6 @@
 """One-off rebuild of stored Warren watch rows after a rule change (docs/specs/warren-signals-page.md); the current one is the
-2026-10-18 LP gate (the selected LP must sit at least one daily ATR(14) below the candle close; earlier: raise-only down arrows / Blue Up no-op,
+2026-10-19 pair "never lower a stop" + "Gray Down raises the stop to entry x 1.01" (applied once by hand with the nightly watch step, see the spec);
+earlier: the 2026-10-18 LP gate (the selected LP must sit at least one daily ATR(14) below the candle close; earlier: raise-only down arrows / Blue Up no-op,
 gray entry, breached rows, Gray Down raise-only). Replays every non-removed row's candles from REBUILD_START (the first seed's as_of
 minus SEED_MONTHS, a fixed date so a rerun is stable) through the row's own cursor with the CURRENT rules (arrow rules plus the
 trailing stop), the cached 60m bars and cached daily bars (a pure read: no FMP call) and today's LP settings, and compares every field with the stored row.
@@ -9,9 +10,9 @@ Writes (only with --apply) the changed columns of a row that differs, and nothin
 
 Mismatch guard. A row that already equals the new replay is identical (so a rerun after --apply reports every row identical). A row
 that differs is only rebuilt if the same bars and LP settings replayed under the PREVIOUS arrow rules (`GUARD_RULES` = `PREVIOUS_RULES`: the
-current rules with the LP gate OFF, i.e. what the stored rows were built under until the gate; trailing on) reproduce the stored row exactly on
+current rules with never-lower-stop and the Gray Down buffer OFF, i.e. what the stored rows were built under until 2026-10-19; trailing on) reproduce the stored row exactly on
 all fourteen fields. If they do not, the difference is not explained by the rule change (the bars, the LP settings or the arrows
-moved), so the row is printed and skipped. Once the nightly step has written rows under the gate the guard no longer matches them (it replays gate off),
+moved), so the row is printed and skipped. Once the nightly step has written rows under the 2026-10-19 rules the guard no longer matches them (it replays them off),
 so after that this script cannot rebuild anything; the nightly step (`pipeline.seed_warren_watch`) is the tool (re-anchor runbook, spec).
 
 A dry run reads even when the database has not yet been migrated to the stop-age columns (it selects only the columns that exist);
@@ -57,7 +58,8 @@ REBUILD_START = REPLAY_ANCHOR
 # A 180-day engine warm-up before the replay start is the comfortable minimum for a clean left edge (warren-signal.md).
 WARMUP_DAYS = 180
 
-# The rules the stored rows were built under: the guard replays these (PREVIOUS_RULES = the current rules with the LP gate off).
+# The rules the stored rows were built under: the guard replays these (PREVIOUS_RULES = the current rules with never-lower-stop and the Gray Down buffer
+# off, i.e. main before 2026-10-19; the LP gate on).
 GUARD_RULES = PREVIOUS_RULES
 
 # The fields the arrow rules and the guard cover. The stop-age fields are filled on every row since the 2026-10-16 rebuild, so the guard compares all fourteen.
@@ -172,7 +174,7 @@ def main(apply: bool, tickers: list[str] | None = None, show: tuple[str, ...] = 
         bars = _load_frames(session, [r.ticker for r in rows], INTRADAY_INTERVAL, (datetime.now() - timedelta(days=LOOKBACK_DAYS)).date())
 
         changing, same, skipped, gaps, spotlight, finals, downs_ignored = [], 0, [], [], {}, {}, []
-        switch_matters: dict[str, list[str]] = {"blue_up_in_trade": [], "down_raise_only": [], "lp_atr_gate": []}
+        switch_matters: dict[str, list[str]] = {"blue_up_in_trade": [], "down_raise_only": [], "lp_atr_gate": [], "never_lower_stop": [], "gray_down_buffer": []}
         lp_calls, trail_moves = 0, 0
         for row in rows:
             frame, through = bars.get(row.ticker), cursors.get(row.ticker)
@@ -213,8 +215,8 @@ def main(apply: bool, tickers: list[str] | None = None, show: tuple[str, ...] = 
             lp_calls += applied.lp_calls
             if applied.state is not None and any(getattr(applied.state, f) != getattr(fresh, f) for f in ARROW_FIELDS):
                 downs_ignored.append(row.ticker)
-            # What each of the three newest switches does to this row on its own: the current rules with only that switch off.
-            for name, off in (("blue_up_in_trade", {"blue_up_in_trade_no_op": False}), ("down_raise_only", {"down_arrows_raise_only": False}), ("lp_atr_gate", {"lp_atr_gate": False})):
+            # What each of the five newest switches does to this row on its own: the current rules with only that switch off.
+            for name, off in (("blue_up_in_trade", {"blue_up_in_trade_no_op": False}), ("down_raise_only", {"down_arrows_raise_only": False}), ("lp_atr_gate", {"lp_atr_gate": False}), ("never_lower_stop", {"never_lower_stop": False}), ("gray_down_buffer", {"gray_down_entry_buffer": False})):
                 alt = replay_state(row.ticker, frame, settings, through, rules=replace(CURRENT_RULES, **off))
                 lp_calls += alt.lp_calls
                 if alt.state is None or diff(alt.state, fresh):
@@ -253,7 +255,7 @@ def main(apply: bool, tickers: list[str] | None = None, show: tuple[str, ...] = 
     print(f"rows now on a gray entry that were not ({len(gray_restarts)}):", ", ".join(gray_restarts))
     print(f"rows whose arrow/instruction fields change from stored ({len(arrow_changed)}), of which because down arrows on a breached row are now ignored ({len([t for t in downs_ignored if t in arrow_changed])}):", ", ".join(t for t in downs_ignored if t in arrow_changed))
     print(f"rows where ignoring down arrows changes the final arrow fields at all ({len(downs_ignored)}):", ", ".join(downs_ignored))
-    for name, label in (("blue_up_in_trade", "Blue Up in an open trade changes nothing"), ("down_raise_only", "Blue/Yellow Down are raise-only"), ("lp_atr_gate", "the LP must sit one daily ATR below the close")):
+    for name, label in (("blue_up_in_trade", "Blue Up in an open trade changes nothing"), ("down_raise_only", "Blue/Yellow Down are raise-only"), ("lp_atr_gate", "the LP must sit one daily ATR below the close"), ("never_lower_stop", "a repeat Yellow never lowers a stop"), ("gray_down_buffer", "Gray Down raises the stop to entry + 1%")):
         print(f"rows the switch '{label}' changes on its own ({len(switch_matters[name])}):", ", ".join(switch_matters[name]))
     no_entry_left = sorted(t for t, f in finals.items() if f.entry_kind is None)
     print(f"rows with no entry after the rebuild ({len(no_entry_left)}):", ", ".join(no_entry_left))

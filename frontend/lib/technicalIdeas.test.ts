@@ -58,7 +58,7 @@ describe("technicalIdeas", () => {
   it("explains an above-entry stop by its basis", () => {
     expect(stopAboveEntryNote({ entry_price: 142.42, stop_basis: "LP" })).toContain("2nd support (LP)");
     expect(stopAboveEntryNote({ entry_price: 142.42, stop_basis: "LP" })).toContain("$142.42");
-    expect(stopAboveEntryNote({ entry_price: 100, stop_basis: "entry" })).toContain("from the entry price");
+    expect(stopAboveEntryNote({ entry_price: 100, stop_basis: "entry" })).toContain("from the entry price plus 1%");
   });
 });
 
@@ -99,7 +99,7 @@ describe("entry and P/L formatting", () => {
     expect(at("yellow_up_entry", "2026-06-11T09:30:00")).toBe("Set at entry, Jun 11, 09:30 ET (10% of the candle low) · 4 months ago");
     expect(at("yellow_up_repeat", "2026-08-03T11:30:00")).toBe("Repeat yellow, Aug 3, 11:30 ET (lower of 2nd LP and 10%) · 2 months ago");
     expect(at("gray_up_entry", "2026-09-23T13:30:00")).toBe("Set at entry, Sep 23, 13:30 ET (10% of the candle low, gray entry) · 23 days ago");
-    expect(at("gray_down", "2026-09-23T13:30:00")).toBe("Gray Down: stop set to entry, Sep 23, 13:30 ET · 23 days ago");
+    expect(at("gray_down", "2026-09-23T13:30:00")).toBe("Gray Down: stop set to entry + 1%, Sep 23, 13:30 ET · 23 days ago");
     expect(stopAgeTitle({ stop_moved_at: null, stop_moved_by: null }, now)).toBeNull();
     expect(stopAgeTitle({ stop_moved_at: "2026-10-09T11:30:00", stop_moved_by: null }, now)).toBeNull();
   });

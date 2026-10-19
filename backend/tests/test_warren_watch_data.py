@@ -127,12 +127,12 @@ def test_a_blue_up_with_no_row_or_on_a_breached_row_opens_a_new_blue_entry_with_
 
 def test_the_deep_seed_finds_the_earlier_trade_a_short_window_would_miss(monkeypatch, engine):
     # An earlier yellow (June) then a refresh yellow in the last 3 months: the entry is the June one, not a "fresh" August entry.
-    canned(monkeypatch, {"MAR": [("yellow_up", "2026-06-26 11:30"), ("yellow_up", "2026-08-05 09:30")]})
-    fake_lp(monkeypatch, [80.0, 70.0, 60.0])
-    run("MAR", bars("2025-08-01", "2026-10-16"))
+    canned(monkeypatch, {"MAR": [("yellow_up", "2026-06-26 09:30"), ("yellow_up", "2026-08-05 09:30")]})
+    fake_lp(monkeypatch, [80.0, 75.0, 60.0])
+    run("MAR", bars("2025-08-01", "2026-10-16", lows={"2026-06-26": 80.0}))  # the entry's 10% stop is 72
     r = rows(engine)["MAR"]
-    assert (r.entry_at, r.last_signal_at, r.latest_arrow_at) == (datetime(2026, 6, 26, 11, 30), datetime(2026, 8, 5, 9, 30), datetime(2026, 8, 5, 9, 30))
-    assert (r.stop_price, r.stop_basis) == (70.0, "LP")  # the refresh: min(2nd LP 70, 0.9 x 99 = 89.1)
+    assert (r.entry_at, r.last_signal_at, r.latest_arrow_at) == (datetime(2026, 6, 26, 9, 30), datetime(2026, 8, 5, 9, 30), datetime(2026, 8, 5, 9, 30))
+    assert (r.stop_price, r.stop_basis) == (75.0, "LP")  # the refresh: min(2nd LP 75, 0.9 x 99 = 89.1) = 75, higher than the 72 stop, so it raises it
 
 
 def test_row_fields_after_a_seed(monkeypatch, engine):
@@ -175,16 +175,16 @@ def test_a_rerun_for_the_same_session_changes_nothing(monkeypatch, engine):
 
 def test_a_later_session_replays_everything_and_applies_each_arrow_once(monkeypatch, engine):
     canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30"), ("yellow_up", "2026-10-15 09:30")]})
-    seen = fake_lp(monkeypatch, [80.0, 70.0, 60.0])
-    run("A", bars("2026-07-01", "2026-10-14"))  # the second yellow does not exist yet in the bars
+    seen = fake_lp(monkeypatch, [80.0, 75.0, 60.0])
+    run("A", bars("2026-07-01", "2026-10-14", lows={"2026-09-01": 80.0}))  # the second yellow does not exist yet in the bars; the entry's 10% stop is 72
     first = rows(engine)["A"]
-    assert first.stop_price == pytest.approx(89.1) and seen == []
-    update = run("A", bars("2026-07-01", "2026-10-16"))
+    assert first.stop_price == pytest.approx(72.0) and seen == []
+    update = run("A", bars("2026-07-01", "2026-10-16", lows={"2026-09-01": 80.0}))
     second = rows(engine)["A"]
     assert update.outcome == "changed" and update.lp_calls == 8  # the arrow candle, then each later candle (trailing asks an LP-stop row every candle)
     assert second.last_signal_at == datetime(2026, 10, 15, 9, 30)
     assert second.entry_at == datetime(2026, 9, 1, 9, 30)  # unchanged
-    assert (second.stop_price, second.stop_basis) == (70.0, "LP")  # the 2nd of [80, 70, 60]
+    assert (second.stop_price, second.stop_basis) == (75.0, "LP")  # the 2nd of [80, 75, 60], higher than the 72 stop
     n = len(wwd.completed_candles(bars("2026-07-01", "2026-10-16"), NOW))
     assert seen[0] == n - 7 and seen[-1] == n  # first sliced as of the arrow candle (2026-10-15 09:30: seven candles remain after it), then each later candle
 
@@ -447,21 +447,21 @@ def test_a_second_run_on_the_same_bars_writes_nothing(monkeypatch, engine):
 
 
 def test_provisional_bars_one_night_final_bars_the_next_rewrite_the_stored_row(monkeypatch, engine):
-    # Night 1: the newest session's bars are provisional (a low of 80 under the 89.1 stop): the row is breached on 10-16.
+    # Night 1: the newest session's bars are provisional (a low of 70 under the 72 stop): the row is breached on 10-16.
     canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30")]})
-    run("A", bars("2026-07-01", "2026-10-16", lows={"2026-10-16": 80.0}))
+    run("A", bars("2026-07-01", "2026-10-16", lows={"2026-09-01": 80.0, "2026-10-16": 70.0}))
     assert (rows(engine)["A"].status, rows(engine)["A"].breached_at) == ("breached", datetime(2026, 10, 16, 9, 30))
     # Night 2: the same candles re-fetched final (low 99): the stored row follows the bars, no cursor in the way.
-    update = run("A", bars("2026-07-01", "2026-10-16"))
+    update = run("A", bars("2026-07-01", "2026-10-16", lows={"2026-09-01": 80.0}))
     r = rows(engine)["A"]
     assert update.outcome == "changed" and set(update.changes) == {"status", "breached_at"}
     assert (r.status, r.breached_at) == ("active", None)
     # A revised arrow works the same way: an arrow that disappears from the replay changes the row (here the second Yellow's stop).
     canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30"), ("yellow_up", "2026-10-15 09:30")]})
-    fake_lp(monkeypatch, [80.0, 70.0, 60.0])
-    assert run("A", bars("2026-07-01", "2026-10-16")).outcome == "changed" and rows(engine)["A"].stop_price == 70.0
+    fake_lp(monkeypatch, [80.0, 75.0, 60.0])
+    assert run("A", bars("2026-07-01", "2026-10-16", lows={"2026-09-01": 80.0})).outcome == "changed" and rows(engine)["A"].stop_price == 75.0
     canned(monkeypatch, {"A": [("yellow_up", "2026-09-01 09:30")]})
-    assert run("A", bars("2026-07-01", "2026-10-16")).outcome == "changed" and rows(engine)["A"].stop_price == pytest.approx(89.1)
+    assert run("A", bars("2026-07-01", "2026-10-16", lows={"2026-09-01": 80.0})).outcome == "changed" and rows(engine)["A"].stop_price == pytest.approx(72.0)
 
 
 def test_a_new_ticker_gets_its_row_from_the_full_history_and_only_with_a_recent_up_arrow(monkeypatch, engine):

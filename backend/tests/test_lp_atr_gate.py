@@ -163,8 +163,9 @@ def test_repeat_yellow_uses_the_selected_lp_and_falls_back_to_the_ten_percent_st
     assert (s.stop_price, s.stop_basis) == (pytest.approx(81.0), "10%")
     # the plain rule (gate off) takes the 2nd LP; where it is above the 10% stop the plain result is the 10% stop, the gated one the lower 3rd LP:
     lk = make_lookup(c, {6: (90.0, 88.0, 60.0)}, 5.0)  # 2nd 88 > 86 too close -> 3rd 60
-    assert w.advance(None, c, events, [], "any", None, lk, False).stop_price == 60.0
-    assert w.advance(None, c, events, [], "any", None, lk, False, None, w.PREVIOUS_RULES).stop_price == pytest.approx(81.0)  # plain 88 > 81: the 10% stop
+    assert w.advance(None, c, events, [], "any", None, lk, False, None, w.PREVIOUS_RULES).stop_price == 60.0  # the gated 3rd LP (the rules before 2026-10-19 lowered the stop to it)
+    assert w.advance(None, c, events, [], "any", None, lk, False).stop_price == pytest.approx(72.0)  # never lower a stop (2026-10-19): 60 < the 72 entry stop, ignored
+    assert w.advance(None, c, events, [], "any", None, lk, False, None, w.PRE_LP_GATE_RULES).stop_price == pytest.approx(81.0)  # plain 88 > 81: the 10% stop
 
 
 DOWN_LOWS = [100] * 6 + [118] * 6  # the market is above every stop from candle 6 on (no breach)
@@ -219,7 +220,7 @@ def test_the_switch_off_and_a_missing_atr_both_reproduce_the_old_behaviour(make_
     events = _entry_events("blue_down")
     supports = {6: (119.0, 116.0, 110.0)}
     gated = w.advance(None, c, events, [], "any", None, make_lookup(c, supports, 5.0), False)
-    off = w.advance(None, c, events, [], "any", None, make_lookup(c, supports, 5.0), False, None, w.PREVIOUS_RULES)
+    off = w.advance(None, c, events, [], "any", None, make_lookup(c, supports, 5.0), False, None, w.PRE_LP_GATE_RULES)
     no_atr = w.advance(None, c, events, [], "any", None, make_lookup(c, supports, None), False)
     nan_atr = w.advance(None, c, events, [], "any", None, make_lookup(c, supports, float("nan")), False)
     assert gated.stop_price == 110.0 and off.stop_price == 116.0  # the plain 2nd LP
@@ -235,7 +236,8 @@ def test_a_plain_callable_is_used_as_it_is_under_both_rule_sets():
 
 def test_the_rule_sets():
     assert w.CURRENT_RULES.lp_atr_gate is True
-    assert w.PREVIOUS_RULES == replace(w.CURRENT_RULES, lp_atr_gate=False)  # main's rules as they were before the gate
+    assert w.PREVIOUS_RULES == replace(w.CURRENT_RULES, never_lower_stop=False, gray_down_entry_buffer=False)  # main's rules as they were before 2026-10-19 (gate on)
+    assert w.PRE_LP_GATE_RULES == replace(w.PREVIOUS_RULES, lp_atr_gate=False)  # and before the gate
     assert w.PRE_RAISE_ONLY_RULES.lp_atr_gate is False and w.PRE_RAISE_ONLY_RULES.down_arrows_raise_only is False
     assert w.PRE_GRAY_RAISE_ONLY_RULES.lp_atr_gate is False and w.LEGACY_RULES.lp_atr_gate is False
     assert w.LP_GATE_ATR_MULTIPLE == 1.0
@@ -288,7 +290,7 @@ def test_update_warren_watch_reads_the_daily_bars_from_the_cache_only(monkeypatc
     assert seen == [("GATE", wwd.DAILY_ATR_LOOKBACK_DAYS, now)] and update.daily_atr is True
 
 
-def test_the_rebuild_replay_uses_the_same_gate_and_the_guard_rules_do_not(monkeypatch, engine):
+def test_the_rebuild_replay_and_its_guard_both_use_the_gate_and_differ_only_in_the_2026_10_19_rules(monkeypatch, engine):
     now, settings, frame = _watch_world(monkeypatch)
     monkeypatch.setattr(rb, "watch_replay", wwd.watch_replay)
     monkeypatch.setattr(rb, "completed_candles", lambda b, n: wwd.completed_candles(b, now))
@@ -297,8 +299,9 @@ def test_the_rebuild_replay_uses_the_same_gate_and_the_guard_rules_do_not(monkey
     through = datetime(2026, 10, 16, 15, 30)
     current = rb.replay_state("GATE", frame, settings, through, rules=w.CURRENT_RULES).state
     guard = rb.replay_state("GATE", frame, settings, through, rules=rb.GUARD_RULES).state
-    assert current.stop_price == 90.0 and guard.stop_price == 98.0  # the guard replays the gate OFF: what the stored rows held before the gate
-    assert rb.GUARD_RULES == w.PREVIOUS_RULES and rb.GUARD_RULES.lp_atr_gate is False
+    pre_gate = rb.replay_state("GATE", frame, settings, through, rules=w.PRE_LP_GATE_RULES).state
+    assert current.stop_price == 90.0 and guard.stop_price == 90.0 and pre_gate.stop_price == 98.0  # the guard keeps the gate ON (it is the rules before 2026-10-19); gate OFF gives 98
+    assert rb.GUARD_RULES == w.PREVIOUS_RULES and rb.GUARD_RULES.lp_atr_gate is True and not rb.GUARD_RULES.never_lower_stop and not rb.GUARD_RULES.gray_down_entry_buffer
     rb._DAILY.clear()
 
 

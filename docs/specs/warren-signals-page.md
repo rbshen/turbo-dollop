@@ -39,7 +39,7 @@ row, either direction), `instruction_type` + `instruction_text` (ToS number 1, 2
 (the latest UP arrow's candle, type 4 and Gray included), `last_updated_at` (wall-clock server time, moves only when the row's
 content changes; since 2026-10-16 a trail move or a stop-age change is a content change too, so a row can now update on a candle with no arrow), `removed_at` (naive America/New_York, so it compares with candle times), `replay_from` (nullable; the removal time of a woken row, 2026-10-17), `as_of`.
 
-## Rules at a glance (2026-10-17, updated 2026-10-18 for the LP gate; prices are illustrative)
+## Rules at a glance (2026-10-17, updated 2026-10-18 for the LP gate and 2026-10-19 for never-lower-a-stop and the Gray Down buffer; prices are illustrative)
 
 **Basics.** Entry = the 2h signal candle's close (not a fill). Initial stop = `0.9 x` the signal candle's low (basis `10%`; a blue entry has none). Stop basis = `10%`, `LP` or `entry`, and only `LP`-basis stops
 trail. Row state = no row, **active** or **breached**. Per candle, in this order (checked in `watch.advance`): (1) the breach test against the stop as it stood BEFORE the candle, (2) the up arrow, (3) the
@@ -47,12 +47,12 @@ down arrow (judged after the up arrow, so a breached row the up arrow restarted 
 
 | Arrow | No row or breached | Active row |
 |---|---|---|
-| **Yellow Up** | New yellow entry (entry = close, stop = `0.9 x low`, basis `10%`) | **Armed repeat Yellow:** stop = `min(selected LP, 0.9 x candle low)`, the ONLY rule that can lower a stop; entry and kind unchanged. The **first Yellow after a Blue** (within 20 candles) is no action (pill, instruction text type 4 and dates only). |
+| **Yellow Up** | New yellow entry (entry = close, stop = `0.9 x low`, basis `10%`) | **Armed repeat Yellow:** candidate = `min(selected LP, 0.9 x candle low)`, stop = `max(current stop, candidate)` (since 2026-10-19 **no rule lowers a stop**: a candidate that is not higher changes nothing about the stop, no move, no stop-age stamp, no basis change, while the pill, text and dates still update; a row with no stop, a blue entry, takes the candidate as its first stop); entry and kind unchanged. The **first Yellow after a Blue** (within 20 candles) is no action (pill, instruction text type 4 and dates only). |
 | **Blue Up** | New blue entry (entry = close, no stop) | No trade change (entry, kind, stop, basis, status stay); pill, instruction text ("BLUE UP - no change to an open trade") and dates update; resets the first-Yellow-after-Blue counter. |
 | **Gray Up** | New gray entry (entry = close, stop = `0.9 x low`, basis `10%`) | No trade change; pill, instruction text (type 1, "GRAY UP - NO ACTION. Stopped out twice.") and dates update. |
 | **Blue Down** | Ignored completely | stop = `max(current stop, selected LP)`; no stop yet -> the selected LP; no selected LP -> no change. Any entry kind. |
 | **Yellow Down** | Ignored completely | Yellow or gray entry: stop = `max(current stop, selected LP)`; no selected LP -> no change. Blue entry: no action (pill and text only). |
-| **Gray Down** | Ignored completely | Yellow or gray entry: stop = `max(current stop, entry price)`, only if the entry price is below the candle's close. Blue entry: no stop action (pill and text only). |
+| **Gray Down** | Ignored completely | Yellow or gray entry: stop = `max(current stop, entry price x 1.01)` (`GRAY_DOWN_ENTRY_BUFFER`, 2026-10-19), only if that buffered price is below the candle's close; basis `entry`, no trailing. Blue entry: no stop action (pill and text only). |
 
 **The selected LP (2026-10-18, `WatchRules.lp_atr_gate`, trial).** Wherever a rule below says "selected LP" (repeat Yellow, Yellow Down, Blue Down, and the trailing stop) it means one definition, `watch.pick_support`, fed by `SecondSupportLookup` (`data/warren_watch_data.py`): take the kept supports below the candle close, nearest first (the Chart tab's 2h LP read, swing 2, cluster 0, **at most 3**); with **L = 1.0 x the daily ATR(14)** as of the last COMPLETED daily session strictly before the candle's date, a support is **eligible** if it is `<= close - L` (equal is eligible). Use the **2nd** support if it is eligible; otherwise walk down (the 3rd) and take the first eligible one; the **1st is never used**. If none is eligible there is no selected LP: Yellow Down, Blue Down and trailing leave the stop alone (no stop move, no stop-age update, basis unchanged; pill and text still follow the arrow) and the repeat Yellow falls back to `0.9 x low`. If the daily ATR is unavailable (no daily bars cached, or fewer than 14 completed sessions before the candle's date) the gate is off for that use and the plain 2nd LP applies; the nightly log counts those uses. Before 2026-10-18 the selected LP was always the plain 2nd-nearest support (`PREVIOUS_RULES`).
 
@@ -62,19 +62,19 @@ down arrow (judged after the up arrow, so a breached row the up arrow restarted 
 
 **Other.** Trailing: every candle, an active `LP`-basis stop moves up to the selected LP if that is higher, never down; `10%` and `entry` stops never trail. Breached rows: P/L frozen at `(stop - entry) / entry`, no trailing, only an up arrow restarts. Stop age updates only when the stop value changes (a repeat Yellow that re-sets the same value may change the basis without stamping the age). "Ignored completely" = no pill, instruction, date or sort change. When a down arrow's level is not higher than the stop: no stop move, no stop-age update, basis unchanged, but the pill and instruction text still update.
 
-**Edge cases** (entry, stop, event -> result; each is a test in `analysis/warren_signal/test_watch.py`, or for 15-19 `tests/test_lp_atr_gate.py`):
+**Edge cases** (entry, stop, event -> result; each is a test in `analysis/warren_signal/test_watch.py`, or for 15-19 `tests/test_lp_atr_gate.py`; 20-22 are 2026-10-19):
 
-1. Entry 100, stop 90, Gray Down closes 112 -> stop 100, basis `entry`, stop age updates.
-2. Entry 100, stop 90, Gray Down closes 98 -> no change.
+1. Entry 100, stop 90, Gray Down closes 112 -> stop 101 (100 x 1.01), basis `entry`, stop age updates (it was 100 before 2026-10-19).
+2. Entry 100, stop 90, Gray Down closes 98 -> no change; closes 100.8 (the entry is below it, the buffered 101 is not) -> no change.
 3. Entry 100, stop 130 (`LP`, trailed), Gray Down closes 150 -> no change (the old rule dropped it to 100).
-4. Entry 100, stop 100, Gray Down closes 112 -> no change, no stop-age update.
+4. Entry 100, stop 100 (an LP stop exactly at the entry), Gray Down closes 112 -> stop 101, basis `entry` (a stop at the entry is below the buffered price); a second Gray Down changes nothing, no stop-age update.
 5. Blue entry, Gray Down -> pill and text only.
 6. Breached row, any down arrow -> ignored completely.
 7. A gray entry behaves as a yellow entry for down arrows.
-8. Breach and Gray Down on one candle (entry 100, stop 100, low 99.5, close 118) -> breach first, row breached, Gray Down ignored.
-9. Entry 100, stop 100 (`entry` basis), Yellow Down with 2nd LP 92 -> stop stays 100, no stop-age update, basis stays `entry`, no trailing.
-10. Entry 100, stop 100, Yellow Down with 2nd LP 105 -> stop 105, basis `LP`, trailing resumes.
-11. Entry 100, stop 100, armed repeat Yellow with candle low 108 and 2nd LP 104 -> `min(104, 97.2)` = 97.2: entry 100, stop 97.2 (below the entry), basis `10%`, trailing stops; a later Gray Down closing above 100 lifts the stop back to 100.
+8. Breach and Gray Down on one candle (entry 100, stop 101, low 100.5, close 118) -> breach first, row breached, Gray Down ignored.
+9. Entry 100, stop 101 (`entry` basis), Yellow Down with 2nd LP 92 -> stop stays 101, no stop-age update, basis stays `entry`, no trailing.
+10. Entry 100, stop 101, Yellow Down with 2nd LP 105 -> stop 105, basis `LP`, trailing resumes.
+11. Entry 100, stop 101 (`entry` basis), armed repeat Yellow with candle low 108 and 2nd LP 104 -> candidate `min(104, 97.2)` = 97.2 is not higher than 101: ignored. Stop 101, basis `entry` and the stop age stay; the pill, text and dates update. (Before 2026-10-19 the stop dropped to 97.2, basis `10%`, and a later Gray Down lifted it back to the entry.)
 12. Entry 100, stop 90 (`10%` basis), Blue Up -> nothing changes; the next Yellow Up is no action; the second Yellow acts.
 13. Blue entry with no stop, Blue Down with 2nd LP 95 -> stop 95, basis `LP`.
 14. Breach and Gray Up on one candle -> breach first, then the Gray Up restarts the row as a new gray entry (the breach is never shown).
@@ -83,6 +83,9 @@ down arrow (judged after the up arrow, so a breached row the up arrow restarted 
 17. **LP gate, none eligible.** Same, supports 119 / 118 / 117 -> no selected LP: the Blue Down leaves entry 100, stop 90, basis `10%` and the stop age as they were; only the pill and text change. A trailing `LP` stop of 100 at close 120, ATR 5, with 2nd and 3rd supports 118 / 117 also stays 100.
 18. **LP gate and the repeat Yellow.** Entry 100, stop 90, armed repeat Yellow on a candle with low 90, close 91, ATR 5 (limit 86), supports 90 / 88 / 60 -> the 2nd (88) is too close, the 3rd (60) passes: `min(60, 0.9 x 90 = 81)` = 60, basis `LP`. With supports 90 / 88 / 86.5 none passes -> the stop falls back to `0.9 x 90` = 81, basis `10%`.
 19. **LP gate, no daily ATR** (a young ticker with fewer than 14 completed sessions, or no daily bars cached) -> the plain 2nd LP is used, as before the gate.
+20. **Never lower, raised.** Yellow entry 100 (candle low 80: stop 72), armed repeat Yellow on a candle with low 100 and selected LP 75 -> candidate `min(75, 90)` = 75 > 72: stop 75, basis `LP`, stop age stamped `yellow_up_repeat`.
+21. **Never lower, ignored (low or equal).** Entry 100, stop 90 (`10%`), armed repeat Yellow with selected LP 70 (candidate 70) -> stop stays 90, basis `10%`, stop age as before; the yellow LP pill rule sees `latest_arrow_at` advance while `stop_moved_at` does not. The same with a candidate of exactly 90: nothing changes.
+22. **Blue entry, first stop.** Blue entry 101 (no stop), armed repeat Yellow on a candle with low 100 -> first stop 90, basis `10%` (a repeat Yellow or a Blue Down still sets the first stop).
 
 **Where the literal wording needed a correction** (checked against the code and tests when this section was written): (a) a Gray Up on an open trade moves the pill, the instruction text (now type 1) and the dates; before the pill/text fix (2026-10-17) it moved the pill and dates but left the old text; (b) the first Yellow after a Blue is flagged by the arrow replay only within 20 candles of that Blue (`BLUE_UP_WITHIN_BARS`) and never for a gray-flavoured yellow, so a later first Yellow is an ordinary repeat Yellow; (c) "stop age updates only when the stop value changes" holds for every rule, but a repeat Yellow that re-sets the same value can still change the stop basis; (d) a down arrow on a breached row is ignored only if the same candle's up arrow did not restart the row (that down then applies to the new entry).
 
@@ -131,8 +134,8 @@ tested first, so a stop set on candle t is first tested on t+1 (the ThinkScript'
    **Order within a candle is unchanged:** the breach is tested against the stop in force BEFORE the candle, then the arrows, then the trail. Consequences: a Gray (or Yellow
    or Blue) Up on the same candle as a breach finds a breached row and restarts it as a new entry, so the breach is never shown (the stopped trade is replaced by the new entry
    on that candle); a down arrow on the candle that breaches the row is ignored.
-4. **The armed repeat Yellow Up is the ONLY rule that can lower a stop** (2026-10-17): a second Yellow whose `min(2nd LP, 0.9 x low)` is below the
-   current stop lowers it, even below the entry price. Blue Down, Yellow Down, Gray Down (since 2026-10-17) and the trail below are raise-only.
+4. **No rule lowers a stop** (2026-10-19; until then the armed repeat Yellow Up was the ONLY rule that could): a second Yellow whose `min(selected LP, 0.9 x low)`
+   is not above the current stop changes nothing about the stop. Blue Down, Yellow Down, Gray Down (since 2026-10-17) and the trail below are raise-only too.
 5. **Trailing (2026-10-16).** After a candle's arrows, an ACTIVE row whose stop basis is `LP` takes the 2nd LP as of THAT candle; if it is higher than the
    stop, the stop is raised to it (basis stays `LP`). It never lowers a stop, never trails a `10%`, `entry` or `none` stop, and does not touch a breached row.
    It runs on every 2h candle the row reads, arrow or not. The breach test on a candle uses the stop as it stood BEFORE that candle (rule 1), so a stop trailed on
@@ -298,7 +301,7 @@ Raising `LOOKBACK_DAYS` above 730 (`pipeline/nightly_warren_signal_calculation.p
 
 ## LP gate: daily ATR x1, reading R1 (2026-10-18, adopted as a trial on main)
 
-**Rule.** See "The selected LP" under "Rules at a glance". Switch `WatchRules.lp_atr_gate` (default on). `PREVIOUS_RULES` = the current rules with the gate off (what the stored rows held until now); the rules before the raise-only change moved to `PRE_RAISE_ONLY_RULES`; `PRE_GRAY_RAISE_ONLY_RULES` and `LEGACY_RULES` have the gate off.
+**Rule.** See "The selected LP" under "Rules at a glance". Switch `WatchRules.lp_atr_gate` (default on). `PREVIOUS_RULES` was then the current rules with the gate off (since 2026-10-19 it is the rules with the gate ON and never-lower / the Gray Down buffer off, and `PRE_LP_GATE_RULES` is the gate-off set); the rules before the raise-only change moved to `PRE_RAISE_ONLY_RULES`; `PRE_GRAY_RAISE_ONLY_RULES` and `LEGACY_RULES` have the gate off.
 
 **ATR definition.** `analysis/warren_signal/indicators.py::compute_atr_wilder` (the repo's helper, also used by the Chart tab's FVG filter), length 14, on the completed daily bars: Wilder smoothing (`wilder_rma`: a simple average of the first 14 true ranges, then `(prev x 13 + TR) / 14`) of the true range `max(high - low, |high - previous close|, |low - previous close|)`, so the overnight gap is included. The what-if used exactly this helper, so the definition is not a guess. The value for a candle is the ATR of the last completed session strictly before the candle's date (`daily_atr_for_candles`, `searchsorted(..., side="left") - 1`): the candle's own session is not used even once it has closed, and a later daily bar can never change an earlier candle (a test pins it).
 
@@ -309,6 +312,20 @@ Raising `LOOKBACK_DAYS` above 730 (`pipeline/nightly_warren_signal_calculation.p
 **Evidence (what-if of 2026-10-18, report-only, 136 tickers, 2025-10-15 to 2026-10-16, equal-risk R, not a dry run of this code).** R1 with 1 x daily ATR: realized R +243.5 -> +262.5 (+19.0), profit factor 2.85 -> 2.96, expectancy 0.690 -> 0.752, average win 2.19R -> 2.35R, trades 450 -> 446, combined (with unrealized) +252.4 -> +271.5; mean hold 57.6 -> 62.2 days, trades over 180 days 17 -> 19. The gate fired on 9.7% of arrow-time LP uses and 22% of trailing uses (2.9% and 6.7% with no eligible LP). **Not robust enough to call it an edge:** the gain sits in the first half of the year (entries before 2026-04-15: +18.0R; second half +1.0R), per ticker 36 up against 47 down (sign test p = 0.27) with the bootstrap interval of the mean change barely above zero, concentrated in a few runners (MU, SEZL, STX, WDC), and tail losses were NOT reduced (R < -1: 25 -> 27 trades, worst trade unchanged at -3.54R, 10%-stop exits untouched). Wider multiples and the fixed-percentage limits looked better only through open trades marked at the last close and are not adopted. Re-measure after a down or sideways stretch.
 
 **Expected effect on the table (unverified).** No dry run was run before the merge. The what-if suggested about 16 of the 117 rows would change on the next nightly run: status PTC; entry ETN, NDSN, LMT; stop ETN, AMAT, GOOGL, KLAC, FIX, FTNT, VEEV, PTC, AMZN, KEYS, CRDO, PLTR, LMT, COHR, IGV. The production code was not compared with the what-if row by row, and the daily-bar read in production differs in two small ways (a 1400-day cache read at run time; the provisional newest session dropped by the reader).
+
+## Never lower a stop and the Gray Down buffer (2026-10-19)
+
+**Rules** (switches `WatchRules.never_lower_stop` and `WatchRules.gray_down_entry_buffer`, both default on; the constant `GRAY_DOWN_ENTRY_BUFFER = 0.01` is defined once in `analysis/warren_signal/watch.py`; no setting, no UI):
+- **A, never lower a stop.** On an ACTIVE row that has a stop, a repeat Yellow Up sets stop = `max(current stop, candidate)`, the candidate staying `min(selected LP, 0.9 x candle low)`. A candidate that is not higher (lower or equal) changes nothing about the stop: no `stop_moved_by` / `stop_moved_at`, no basis change. The arrow itself still applies (pill, text, `latest_arrow_at`, `last_signal_at`, the first-Yellow-after-Blue counter). A row with no stop (blue entry) still gets its first stop from a repeat Yellow or a Blue Down; a breached row restarts as a fresh entry with a 10% stop on the new low; the first Yellow after a Blue within 20 candles stays no action.
+- **B, Gray Down buffer.** On an active yellow/gray-entry row, Gray Down sets stop = `max(current stop, entry x 1.01)` only if that buffered price is below the candle close (the old test was entry below close). Basis stays `entry` (so no trailing), `stop_moved_by` stays `gray_down`. Blue entries: no stop action. A stop exactly at the entry is therefore raised by a later Gray Down.
+- **C unchanged.** The LP multiple stays 1.0 x daily ATR(14). No multiple was consistent across the two halves of the year, and a settings section was not built on purpose: a live setting would rewrite every row's history at the next run.
+
+**Evidence** (phase 1 what-if, 2026-10-19, report only, 136 monitored tickers, 446 trades under the old rules; R as in the LP gate section; the what-if assumed free re-entries after a stop-out):
+- A alone: realized +8R (270.7 vs 262.5, 95% interval -29 to +56 over tickers), first half +21R, second half -13R: inside the noise. It is a risk rule: the tail is capped at -1R (30 trades lost more than -1R before, none after), at the cost of 43 more trades, 60 more 10%-basis stop-outs and a lower win rate (48% to 43%, PF 2.96 to 2.66).
+- B at 1%: about +4R realized (266.7 vs 262.5, interval +0.5 to +8.1), positive in both halves (+2.7R, +1.5R); the 46 zero-R entry-basis exits become small wins; 25 trades near break-even that survived are stopped out by the buffered stop (sum +3.1R to +2.2R).
+- Together (A + B 1% + C 1.0): 488 trades, +266.9R realized, PF 2.64, 395 realized trades. The live rows moved: 52 of 117 (39 on stop, 7 on basis, 7 on status, 21 on entry); active to breached AME, AVGO, CAT, DDOG, META, NVDA; breached to active KLAC.
+
+**Applying a rules change (runbook note).** The stateless nightly replay rewrites every row whose result differs from the stored one, so a rules change is applied by the next nightly run on its own, with no seed or rebuild. The 2026-10-19 change was applied by hand instead, once, in this order: tests and an in-process acceptance replay of all 117 rows (nothing written); commit on main; a JSON export of `warrenwatchrow` and `warrenwatchcursor` to `/home/shen/backups`; then ONE call of the nightly step's own function, `update_watch_table(tickers, bars_by_ticker)` (`pipeline/nightly_warren_signal_calculation.py`), with the bars read from the shared cache (no network) and outside 01:05-02:30 UTC. Not the seed script, not `rebuild_warren_watch` (its guard replays `PREVIOUS_RULES` = the rules before this change, which no longer reproduces rows after the apply), not the event reconcile. Restore, if ever needed: stop the app and cron windows, then write the export's rows back into the two tables (the export holds every column of every row, removed rows included).
 
 ## Removal
 
@@ -354,7 +371,7 @@ about 133 x (15 ms candles + 24 ms replay) = 5 s plus the few LP calls the night
   the rule working (the 2nd LP below the arrow candle's close, after a rally), not a bug, but a page reading "stop vs entry" must expect it.
   A Gray Down used to set the stop to the entry price even when that sat above the market (it breached on the next candle); since 2026-10-16 it
   does so only when the entry price is below the Gray Down candle's close (rule 3).
-- **Stops can move down, by one rule only.** A second (armed) Yellow's `min(2nd LP, 0.9 x low)` can be below the first Yellow's stop; every other rule is raise-only (2026-10-17).
+- **Stops could move down, by one rule only (until 2026-10-19).** A second (armed) Yellow's `min(2nd LP, 0.9 x low)` could be below the first Yellow's stop; 349 of 442 repeat Yellows (79%) did on the 2026-10-19 data, and 30 trades lost more than -1R. Since 2026-10-19 no rule lowers a stop.
 - **A Blue entry gets its first stop from a later down arrow.** PAYX: blue entry 101.80, Blue Down moved the stop to an LP at 101.42.
   Blue entries otherwise carry no stop and cannot breach.
 - **A Gray Up on a breached row** used to advance `last_signal_at` (WDC: the Gray of 2026-10-15 re-dated a row whose trade began 2026-09-16 and was stopped on 10-13), then (2026-10-16) froze it; since 2026-10-17 it restarts the row as a gray entry (rule 2; WDC would show a gray entry at the 2026-10-15 15:30 close).
