@@ -1657,6 +1657,10 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 - "BLUE DOWN - Stop raised to the 2nd LP." and "YELLOW DOWN - Stop raised to the 2nd LP." now end "to the LP support.", because the ATR gate can walk the selected LP down to the 3rd support. The profiled set (SPY, QQQ, TQQQ, TECL) keeps "stop to 2nd LP" on purpose (ThinkScript labels); chart texts untouched. Live check: 3 rows show a raised Blue/Yellow Down text, all on the 2nd LP.
 - "First stop set" (2026-10-19 text table) is never produced: a blue entry's first stop and a later raise are indistinguishable in stored fields, both read "Stop raised". If an up arrow moves the stop and a down arrow shares the candle, the down text reads "unchanged" (rare, accepted).
 
+### 2026-10-19 — Warren watch: stop-age hover strings say "LP support" (frontend text only)
+
+- The four Technical Ideas stop-age hovers in `stopAgeTitle` (repeat Yellow, Blue Down, Yellow Down, trail) and the stop-above-entry note now say "LP support" instead of "2nd LP", because the ATR gate can walk the selected LP down to the 3rd support. The profiled set (SPY, QQQ, TQQQ, TECL) keeps its ThinkScript wording; chart texts, aria-labels and the "trailed since last arrow" line are unchanged. No rule, stop, status, event or nightly output changed.
+
 ### 2026-10-19 — Warren: down-arrow show-once rule recorded; phantom events left
 
 - The show-once rule (each down colour fires once until a non-gray Yellow Up or Blue Up resets all three flags; Gray Up does not, as in the ThinkScript) lives only in the signal engine and is now written up in `docs/specs/warren-signal.md`. Investigation: chart, rows and log agree after the write gate (1,255 up / 1,179 down events); ~2,877 candles are hidden; 11 arrows would appear if Gray Up reset the flags, so it stays as is. A Gray Up reset would be one line plus a parity-test change and a rebuild of rows and events.

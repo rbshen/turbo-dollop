@@ -114,8 +114,8 @@ describe("WarrenWatchTable", () => {
       row({ ticker: "NON", stop_price: null, stop_basis: "none", entry_kind: "blue" }),
     ]);
     const stopCell = (ticker: string) => within(bodyRow(ticker)).getAllByText(/^\$|^—$/).map((n) => n.closest("td")!).find((td) => td.textContent?.includes("LP") || td.textContent?.includes("10%"));
-    expect(stopCell("TRL")).toHaveAttribute("title", "Trailed to 2nd LP Oct 16, 09:30 ET · today");
-    expect(stopCell("BDN")).toHaveAttribute("title", "Set Oct 9, 11:30 ET by Blue Down (2nd LP) · 7 days ago");
+    expect(stopCell("TRL")).toHaveAttribute("title", "Trailed to LP support Oct 16, 09:30 ET · today");
+    expect(stopCell("BDN")).toHaveAttribute("title", "Set Oct 9, 11:30 ET by Blue Down (LP support) · 7 days ago");
     expect(stopCell("OLD")).not.toHaveAttribute("title");
     expect(within(bodyRow("NON")).getByText("—").closest("td")).not.toHaveAttribute("title");
     vi.useRealTimers();
@@ -138,12 +138,12 @@ describe("WarrenWatchTable", () => {
     expect(pill("TRL", "LP")).toHaveAttribute("title", LABEL);
     expect(cell("TRL", "LP")).toHaveAttribute(
       "title",
-      "Trailed to 2nd LP Oct 16, 09:30 ET · today\nTrailed since last arrow: the stop was moved by the trailing LP (not by an arrow) at Oct 16, 09:30 ET, and stays highlighted until the next arrow.",
+      "Trailed to LP support Oct 16, 09:30 ET · today\nTrailed since last arrow: the stop was moved by the trailing LP (not by an arrow) at Oct 16, 09:30 ET, and stays highlighted until the next arrow.",
     );
     expect(pill("ARW", "LP")).not.toHaveClass("text-warn");
     expect(pill("ARW", "LP")).not.toHaveAttribute("aria-label");
     expect(pill("ARW", "LP")).not.toHaveAttribute("title");
-    expect(cell("ARW", "LP")).toHaveAttribute("title", "Set Oct 9, 11:30 ET by Blue Down (2nd LP) · 7 days ago");
+    expect(cell("ARW", "LP")).toHaveAttribute("title", "Set Oct 9, 11:30 ET by Blue Down (LP support) · 7 days ago");
     // The entry and 10% pills are never yellow, whatever the flag says.
     expect(pill("PCT", "10%")).not.toHaveClass("text-warn");
     expect(pill("ENT", "Entry")).not.toHaveClass("text-warn");
