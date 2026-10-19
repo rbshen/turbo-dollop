@@ -1651,3 +1651,23 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 - **Why:** the old texts were the ThinkScript's ("Adjust stop accordingly", "YELLOW UP INITIAL ENTRY" also on a repeat Yellow, "GRAY UP - NO ACTION" on a row that opened a trade) and had become false after raise-only arrows, never-lower and the Gray Down buffer.
 - **How:** derived at read time from stored fields (type, latest arrow candle, entry kind and candle, stop age); no storage, no schema change, no rule, stop, status, sort, event, cursor or nightly change; the stored `instruction_text` column stays the chart's wording. The chart's texts are untouched.
 - **Known limit:** a blue entry's first stop cannot be told from a later raise with the stored fields, so "First stop set" is not produced and both read "Stop raised". Spec: `docs/specs/warren-signals-page.md`, "Instruction texts on the Technical Ideas table".
+
+### 2026-10-19 — Warren watch: Blue Down / Yellow Down text says "LP support" (generic set only)
+
+- "BLUE DOWN - Stop raised to the 2nd LP." and "YELLOW DOWN - Stop raised to the 2nd LP." now end "to the LP support.", because the ATR gate can walk the selected LP down to the 3rd support. The profiled set (SPY, QQQ, TQQQ, TECL) keeps "stop to 2nd LP" on purpose (ThinkScript labels); chart texts untouched. Live check: 3 rows show a raised Blue/Yellow Down text, all on the 2nd LP.
+- "First stop set" (2026-10-19 text table) is never produced: a blue entry's first stop and a later raise are indistinguishable in stored fields, both read "Stop raised". If an up arrow moves the stop and a down arrow shares the candle, the down text reads "unchanged" (rare, accepted).
+
+### 2026-10-19 — Warren: down-arrow show-once rule recorded; phantom events left
+
+- The show-once rule (each down colour fires once until a non-gray Yellow Up or Blue Up resets all three flags; Gray Up does not, as in the ThinkScript) lives only in the signal engine and is now written up in `docs/specs/warren-signal.md`. Investigation: chart, rows and log agree after the write gate (1,255 up / 1,179 down events); ~2,877 candles are hidden; 11 arrows would appear if Gray Up reset the flags, so it stays as is. A Gray Up reset would be one line plus a parity-test change and a rebuild of rows and events.
+- 20 pre-gate phantom events (19 up, 1 down, mostly April 2025) are left on purpose: unreliable region, no effect on any row, chart or stop. Cleaning them would need a reviewed one-off and is not planned.
+
+### 2026-10-19 — Warren: Gray Down keeps switching to entry basis (what-if D1 / D2 rejected)
+
+- D1 (an LP-basis stop keeps trailing after a Gray Down floor): realized -2.2R vs the live rules (95% interval -15.8 to +10.6), 14 baseline trades differ (4 exit higher, 7 lower or sooner), -5.9R first half, +3.6R second, 6 tickers up and 7 down. D2 (10%-basis stops also trail): -2.4R (interval -53.4 to +34.0), 81 trades differ, -26.4R first half, +24.0R second, worst loss ARM -18.5R, lowest profit factor, removes rule A's -1R tail cap. Only 8 of 59 baseline entry-basis exits came from LP-basis stops, 51 from 10%-basis stops. The what-if assumed free re-entries.
+- **Decision:** no trailing after a Gray Down; do not re-test unless the rules or the sample change materially.
+
+### 2026-10-19 — Intraday refresh investigated (no decision)
+
+- Report only, nothing built. Findings: bars stay provisional for hours after the close (7 of 93 same-night events later proved phantom); no incremental saving is possible; a full run takes about 4-5 minutes and 125-422 MB.
+- No decision taken yet.

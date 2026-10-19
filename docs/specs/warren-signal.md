@@ -246,6 +246,16 @@ as context and are ~0% wrong.
   `last_buy` (its latest-state row still shows the signal). Exempting non-truncated windows is a small change
   if wanted. Regression tests are in `tests/test_warren_signal_data.py`.
 
+## Down-arrow show-once rule (2026-10-19)
+
+Each down-arrow colour (Blue Down, Yellow Down, Gray Down) fires only if **its own flag was not set on the previous bar**: the flag is set when that colour's down condition is met on a bar with no new trade arrow, so a run of qualifying candles draws one arrow, not one per candle. **All three flags reset together only on a new trade arrow**, defined as a **non-gray Yellow Up or a Blue Up** (`any_buy = yellow_up or blue_up`). **A Gray Up does NOT reset them**, the same as the ThinkScript. Up arrows are never gated. The rule is applied **once, in the signal engine** (`_replay_from_signals` in `analysis/warren_signal/state_machine.py`: the `seen_blue` / `seen_yellow` / `seen_gray` latches, read before the bar's own update), so the chart, the Technical Ideas watch rows and the event log all read the same gated stream. It is pinned by `analysis/warren_signal/test_thinkscript_parity.py`.
+
+Investigation of 2026-10-19 (report only): no divergence between chart, rows and log after the write gate (1,255 up and 1,179 down events matched exactly). About 2,877 candles meet a down-arrow condition but are hidden by the rule. 11 arrows after the anchor would appear if a Gray Up also reset the flags; the ThinkScript hides them too, so this is intended. A Gray Up reset would be a one-line change at the reset condition in `state_machine.py` (`if any_buy:`), and would need a parity-test change and a rebuild of rows and events.
+
+## Phantom events before the write gate (2026-10-19)
+
+20 stored events before the write gate (19 up, 1 down, mostly April 2025: CLS, JPM, AME, PH, VEEV, GRMN, UNH) are not produced by today's replay. They are **left on purpose**: the replay cannot be trusted before the write gate (the warm-up buffer), and they affect no watch row, chart or stop. The 141 phantoms deleted on 2026-10-18 were all after the gate. The gate slides forward daily, so these stay behind it. Cleaning them would need a one-off reviewed against the old chart and is not planned.
+
 ## Event retention
 
 `warren_signal_data.EVENT_RETENTION_DAYS` and `entry_signal_data.EVENT_RETENTION_DAYS` are both **1460 days
