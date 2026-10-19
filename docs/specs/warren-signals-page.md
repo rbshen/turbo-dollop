@@ -34,7 +34,7 @@ stamps a window by its LAST 60m bar (10:30 / 12:30 / 14:30 / 15:30), so the two 
 
 `ticker`, `profile` (any / spy / qqq / tqqq / tecl), `latest_arrow_kind` + `latest_arrow_at` (the latest arrow applied to the
 row, either direction), `instruction_type` + `instruction_text` (ToS number 1, 2, 3, 10, 20, 30 and the profile's string from
-`instructions.py`), `entry_kind` (blue / yellow / gray / null; `gray` since 2026-10-17, null only on a legacy row born from a Gray Up), `entry_at`, `entry_price` (close of the entry arrow's candle),
+`instructions.py`; the API and page show the text derived from the row instead, 2026-10-19, see "Instruction texts on the Technical Ideas table"), `entry_kind` (blue / yellow / gray / null; `gray` since 2026-10-17, null only on a legacy row born from a Gray Up), `entry_at`, `entry_price` (close of the entry arrow's candle),
 `stop_price`, `stop_basis` (`10%` / `LP` / `entry` / `none`), `stop_moved_at` + `stop_moved_by` (the candle that last changed the stop VALUE and the rule that did it; see "Trailing stop and stop age"), `status` (`active` / `breached`), `breached_at`, `last_signal_at`
 (the latest UP arrow's candle, type 4 and Gray included), `last_updated_at` (wall-clock server time, moves only when the row's
 content changes; since 2026-10-16 a trail move or a stop-age change is a content change too, so a row can now update on a candle with no arrow), `removed_at` (naive America/New_York, so it compares with candle times), `replay_from` (nullable; the removal time of a woken row, 2026-10-17), `as_of`.
@@ -327,6 +327,35 @@ Raising `LOOKBACK_DAYS` above 730 (`pipeline/nightly_warren_signal_calculation.p
 
 **Applying a rules change (runbook note).** The stateless nightly replay rewrites every row whose result differs from the stored one, so a rules change is applied by the next nightly run on its own, with no seed or rebuild. The 2026-10-19 change was applied by hand instead, once, in this order: tests and an in-process acceptance replay of all 117 rows (nothing written); commit on main; a JSON export of `warrenwatchrow` and `warrenwatchcursor` to `/home/shen/backups`; then ONE call of the nightly step's own function, `update_watch_table(tickers, bars_by_ticker)` (`pipeline/nightly_warren_signal_calculation.py`), with the bars read from the shared cache (no network) and outside 01:05-02:30 UTC. Not the seed script, not `rebuild_warren_watch` (its guard replays `PREVIOUS_RULES` = the rules before this change, which no longer reproduces rows after the apply), not the event reconcile. Restore, if ever needed: stop the app and cron windows, then write the export's rows back into the two tables (the export holds every column of every row, removed rows included).
 
+## Instruction texts on the Technical Ideas table (2026-10-19)
+
+**Display only, derived at read time, nothing stored.** `instruction_type` and the stored `instruction_text` are written by the nightly exactly as before (the stored text is the chart's wording, `instructions.text_for`, and is no longer what the page shows). `data/warren_watch_data.py::watch_table` returns `instruction_text` from `analysis/warren_signal/watch_text.py::watch_instruction_text(profile, instruction_type, latest_arrow_at, entry_kind, entry_at, stop_moved_at, stop_moved_by)`. The chart's texts (`GENERIC_TEXTS`, `PROFILED_TEXTS`, "STOP HIT = EXIT OR RESET") are not touched. Because the type is read from the row, a stored text that was stale against its type (a row written before the 2026-10-17 text fix) now reads correctly too.
+
+**Generic set** (every ticker except SPY/QQQ/TQQQ/TECL; the text says what the row did):
+
+| Situation | Text |
+|---|---|
+| Yellow Up, new entry (no row, or after a stop-out) | YELLOW UP - New entry. Stop set 10% below the candle low. |
+| Yellow Up, repeat, stop raised | YELLOW UP (repeat) - Stop raised. |
+| Yellow Up, repeat, stop unchanged | YELLOW UP (repeat) - Stop unchanged, the new level is not higher. |
+| First Yellow Up within 20 candles of a Blue entry (type 4) | FIRST YELLOW UP AFTER BLUE ENTRY - No action. |
+| Blue Up, new entry (type 2) | BLUE UP - New entry, no stop. |
+| Blue Up on an open trade (type 5) | BLUE UP - No change to the open trade. |
+| Gray Up, new entry | GRAY UP - New entry (stopped out twice before, SPECULATIVE). Stop 10% below the candle low. |
+| Gray Up on an open trade | GRAY UP - No change to the open trade. |
+| Blue Down | BLUE DOWN - Stop raised to the 2nd LP. / BLUE DOWN - Stop unchanged. |
+| Yellow Down | YELLOW DOWN - Stop raised to the 2nd LP. / YELLOW DOWN - Stop unchanged. / YELLOW DOWN - No action (blue entry). |
+| Gray Down | GRAY DOWN - Stop raised to entry + 1%. / GRAY DOWN - Stop unchanged. / GRAY DOWN - No action (blue entry). |
+| Breached row (drawn by the frontend, every profile; `STOP_HIT_TEXT`) | STOP HIT - Out of the trade until the next Yellow, Blue or Gray Up. (with "since <breach candle> ET" beneath; the tooltip carries "Last instruction: <the row's text>") |
+
+The "1%" is built from `GRAY_DOWN_ENTRY_BUFFER` (`watch_text._BUFFER_PCT`), not a second copy.
+
+**Derivation, from stored fields only.** *New entry* = `entry_at == latest_arrow_at` (every fresh entry stamps its own candle). *Stop raised* = `stop_moved_at == latest_arrow_at` AND `stop_moved_by` is the arrow's own mover (repeat Yellow: `yellow_up_repeat`, `yellow_up_entry` also accepted; Blue Down: `blue_down`; Yellow Down: `yellow_down`; Gray Down: `gray_down`); otherwise unchanged. A trail on the arrow's candle stamps `trail`, so an arrow that did not move the stop reads "unchanged" (correct), and a trail on a later candle does too. Yellow Down and Gray Down on a blue entry read "No action (blue entry)" whatever the stop did. A Gray Up or Blue Up that is not the entry candle reads "No change to the open trade". Types 4 and 5 are fixed texts.
+
+**Profiled set** (SPY, QQQ, TQQQ, TECL): their own short, arrow-type-only wording (`watch_text.PROFILED_WATCH_TEXTS`, no raised/unchanged variants), with two corrections: Gray Down "stop to entry" -> "stop to entry + 1%", and the repeat Yellow Up keeps "whichever is lower" for the candidate and adds "; the stop is never lowered below the current stop". Every other profiled string, and type 5, is verbatim. The chart still shows the unchanged profiled strings.
+
+**Limits.** (1) A blue entry's FIRST stop and a later raise look identical (a repeat Yellow stamps `yellow_up_repeat` on the arrow's candle either way and the old stop is not stored), so both read "Stop raised"; the decided "YELLOW UP (repeat) - First stop set." is therefore never produced (no storage was added). (2) If an up arrow and a down arrow share a candle (one stamp, the down's is the latest arrow) and the up arrow moved the stop, the down arrow's text reads "unchanged". (3) "2nd LP" in the Blue Down / Yellow Down texts is the selected LP: when the ATR gate walks to the 3rd support the stop goes to that one. (4) Profiled strings still loose: Blue Down / Yellow Down "stop to 2nd LP" (raise-only, no-op when not higher) and Gray Up "NO ACTION ... stay out until BLUE UP" (a Gray Up with no open trade now opens a gray entry); left as written. (5) A legacy row with no entry on a Gray Up reads the chart's text.
+
 ## Removal
 
 `remove_watch_row(ticker)` sets `removed_at` (naive America/New_York wall clock); the row stays (a soft delete; `DELETE
@@ -435,7 +464,7 @@ Table (`WarrenWatchTable`, modelled on `MomentumTable`: kit Table, compact Badge
 | --- | --- |
 | Ticker | Link; a profiled ticker (spy/qqq/tqqq/tecl) shows "<profile> profile" beneath. |
 | Signal | Up/down pill in the arrow's colour: Blue = `chart-ema21` (the chart's own blue for Blue arrows), Yellow = `chart-warren-yellow`, Gray = `chart-warren-gray`. Title: the arrow candle's time. A row whose trade was opened by a Gray Up (`entry_kind = gray`, 2026-10-17) also shows a small neutral **"Gray entry"** tag under the pill, tooltip "Two stop-outs in a row, higher risk" (`GRAY_ENTRY_NOTE`). |
-| Instruction | The stored text, wrapped to at most 2 lines in a 220 to 360 px cell, truncated beyond that, the full text in the tooltip (the longest string is the profiled Yellow Up, about 124 characters; the generic set tops out near 50). **A breached row** shows **"Stop hit"** with "since <breach candle, ET>" beneath instead (display only: the stored instruction type, text and stop are unchanged; the tooltip carries "Last instruction: <stored text>"). |
+| Instruction | The derived text ("Instruction texts on the Technical Ideas table"), wrapped to at most 2 lines, truncated beyond that, the full text in the tooltip (the longest string is the profiled Yellow Up, about 165 characters; the generic set tops out near 95). **A breached row** shows **"STOP HIT - Out of the trade until the next Yellow, Blue or Gray Up."** with "since <breach candle, ET>" beneath instead (display only: the stored instruction type, text and stop are unchanged; the tooltip carries "Last instruction: <the row's text>"). |
 | Entry | `entry_price`, mono, dash with no entry (Gray-born rows). Tooltip: entry kind (Blue/Yellow/Gray), the entry candle's ET stamp (`entry_at`), its age ("7 months ago", `fmtAgeAgo`) and "The close of the entry candle, not an actual fill." |
 | Last | `last_price`, the latest daily close; tooltip "Daily close of <last_price_date>"; dash when null. |
 | P/L % | `pl_pct`, signed, one decimal (`fmtSignedPct1`). **Active row:** `(last_price - entry_price) / entry_price`, green above the entry, red below. **Breached row (2026-10-16): frozen at the stop**, `(stop_price - entry_price) / entry_price`, computed server-side (`data/warren_watch_data.py::row_pl_pct`) from stored fields, so it does not move with the daily close; an estimate of the exit, not a fill (a gap through the stop is not included). Neutral colour (no green/red) with the tooltip "Stopped out at $<stop> on <breach date> ET. P/L estimated at the stop, not a real fill; gaps through the stop are not included." (`breachedPlTitle`). A new Yellow/Blue Up that returns the row to active switches it back to the active formula by itself. Dash with no entry, or on a breached row with no stop. Last and Stop dist. keep following the cached daily close, so on a breached row Stop dist. is how far price has moved from the stop since the stop-out. |
@@ -465,7 +494,7 @@ label of the former Opportunities page (URL `/opportunities` unchanged); Momentu
 
 ### Open for a later phase
 
-- **Review the instruction text (open, 2026-10-18).** Make it accurate and consistent per situation: a new entry versus a repeat Yellow (the generic "YELLOW UP INITIAL ENTRY" is also shown for a repeat Yellow), and "raise" instead of "adjust" now that every down arrow is raise-only ("Adjust stop accordingly" is the ThinkScript wording). Also the gray-entry row reads "GRAY UP - NO ACTION. Stopped out twice." although a Gray Up with no open trade opens a trade. Wording only; no rule changes.
+- **Review the instruction text: done 2026-10-19**, see "Instruction texts on the Technical Ideas table".
 - **Intraday refresh.** The table is as of the last nightly run; a refresh during the session would need the 60m cache topped up and the step
   run outside the Warren job (the cursor makes that safe), plus a decision on whether a forming candle may ever breach a stop.
 - **A second strategy section** needs only a new section component and hook; the page and the shell do not change.

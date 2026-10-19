@@ -9,6 +9,7 @@ import pytest
 
 from analysis.warren_signal import watch as w
 from analysis.warren_signal.types import WarrenSignalEvent
+from analysis.warren_signal.watch_text import watch_instruction_text
 
 T0 = datetime(2026, 1, 5, 9, 30)
 
@@ -1017,3 +1018,22 @@ def test_repeated_gray_downs_never_lower_the_stop():
     assert (s.stop_price, s.stop_moved_at, s.stop_moved_by) == (_buffered(101.0), _ts(4), "gray_down")
     s, _ = _run(RALLY, [_ev("gray_up", 1), _ev("gray_down", 4), _ev("gray_down", 6)], closes=RALLY_CLOSES)  # a gray entry behaves as a yellow one
     assert (s.entry_kind, s.stop_price, s.stop_moved_at) == ("gray", _buffered(101.0), _ts(4))
+
+
+# --- the derived Technical Ideas text follows the pill too (2026-10-19) -----------------------------------------------------
+
+# pill -> the prefixes of the texts it may carry, in both sets
+PILL_PREFIXES = {
+    "blue_up": ("BLUE UP",), "yellow_up": ("YELLOW UP", "FIRST YELLOW UP"), "gray_up": ("GRAY UP",),
+    "blue_down": ("BLUE DOWN",), "yellow_down": ("YELLOW DOWN",), "gray_down": ("GRAY DOWN",),
+}
+
+
+@pytest.mark.parametrize("profile", ["any", "qqq"])
+@pytest.mark.parametrize("name, lows, closes, events, lp, first", _situations(), ids=[x[0] for x in _situations()])
+def test_the_derived_text_always_matches_the_arrow_in_the_pill(profile, name, lows, closes, events, lp, first):
+    s, _ = _run(lows, events, Lp(lp), closes=closes, first_yellow=first, profile=profile)
+    if s is None:
+        return
+    shown = watch_instruction_text(s.profile, s.instruction_type, s.latest_arrow_at, s.entry_kind, s.entry_at, s.stop_moved_at, s.stop_moved_by)
+    assert shown.startswith(PILL_PREFIXES[s.latest_arrow_kind]), (name, s.latest_arrow_kind, shown)

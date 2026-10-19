@@ -35,6 +35,7 @@ from analysis.warren_signal.state_machine import replay
 from analysis.warren_signal.types import WarrenReplayResult
 from analysis.warren_signal.indicators import compute_atr_wilder
 from analysis.warren_signal.watch import WatchState, advance, pick_support, stop_trailed_since_arrow
+from analysis.warren_signal.watch_text import watch_instruction_text
 from clients.daily_bar_sources import _is_half_day
 from clients.shared_bars_cache import _eastern_today, read_cached_completed_daily_bars
 from core.db import engine
@@ -448,7 +449,10 @@ def watch_table() -> dict:
         out.append(
             {
                 "ticker": r.ticker, "profile": r.profile, "latest_arrow_color": color, "latest_arrow_direction": direction,
-                "latest_arrow_at": r.latest_arrow_at, "instruction_type": r.instruction_type, "instruction_text": r.instruction_text,
+                "latest_arrow_at": r.latest_arrow_at, "instruction_type": r.instruction_type,
+                "instruction_text": watch_instruction_text(
+                    r.profile, r.instruction_type, r.latest_arrow_at, r.entry_kind, r.entry_at, r.stop_moved_at, r.stop_moved_by
+                ),
                 "entry_kind": r.entry_kind, "entry_at": r.entry_at, "entry_price": r.entry_price, "stop_price": r.stop_price,
                 "stop_basis": r.stop_basis,
                 "stop_moved_at": r.stop_moved_at, "stop_moved_by": r.stop_moved_by,

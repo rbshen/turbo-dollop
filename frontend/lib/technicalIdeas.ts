@@ -61,14 +61,17 @@ export function stopAboveEntryNote(row: Pick<WarrenWatchRowOut, "entry_price" | 
   return `Above the entry price${row.entry_price != null ? ` (${fmtMoney(row.entry_price)})` : ""}: the latest instruction set this stop from ${source}, not from the entry.`;
 }
 
-/** What the Instruction column draws. A breached row reads "Stop hit" with the breach candle beneath (display only: the stored
+/** The breached row's instruction (2026-10-19), the same for every profile: the frontend draws it, the stored text stays in the tooltip. */
+export const STOP_HIT_TEXT = "STOP HIT - Out of the trade until the next Yellow, Blue or Gray Up.";
+
+/** What the Instruction column draws. A breached row reads STOP_HIT_TEXT with the breach candle beneath (display only: the stored
  * instruction type, text and stop are unchanged and the stored text stays in the tooltip); any other row draws its stored text. */
 export function instructionDisplay(
   row: Pick<WarrenWatchRowOut, "status" | "breached_at" | "instruction_text">,
 ): { primary: string; secondary: string | null; title: string } {
   if (row.status !== "breached") return { primary: row.instruction_text, secondary: null, title: row.instruction_text };
   return {
-    primary: "Stop hit",
+    primary: STOP_HIT_TEXT,
     secondary: row.breached_at ? `since ${fmtEtStamp(row.breached_at)} ET` : null,
     title: `Last instruction: ${row.instruction_text}`,
   };

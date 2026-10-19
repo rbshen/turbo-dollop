@@ -306,3 +306,22 @@ def test_get_is_cache_only_and_writes_nothing(engine, monkeypatch):
     before = dump()
     assert TestClient(main.app).get("/api/technical-ideas/warren").status_code == 200
     assert dump() == before
+
+
+def test_get_derives_the_instruction_text_at_read_time_and_ignores_the_stored_text(engine, utc_server):
+    """The stored column ("Buy") is the nightly's; the API shows the text derived from the row's fields, generic for 'any', short for a profiled ticker."""
+    arrow = datetime(2026, 10, 15, 13, 30)
+    add_row(engine, "NEW", stop_moved_at=arrow, stop_moved_by="yellow_up_entry")  # entry on the arrow's candle
+    add_row(engine, "RPT", entry_at=datetime(2026, 10, 1, 9, 30), stop_moved_at=arrow, stop_moved_by="yellow_up_repeat")
+    add_row(engine, "NOP", entry_at=datetime(2026, 10, 1, 9, 30), stop_moved_at=datetime(2026, 10, 2, 9, 30), stop_moved_by="yellow_up_repeat")
+    add_row(engine, "QQQ", profile="qqq", stop_moved_at=arrow, stop_moved_by="yellow_up_entry")
+    add_row(engine, "GDN", latest_arrow_kind="gray_down", instruction_type=30, entry_at=datetime(2026, 10, 1, 9, 30), stop_basis="entry",
+            stop_moved_at=arrow, stop_moved_by="gray_down")
+    rows = {r["ticker"]: r["instruction_text"] for r in TestClient(main.app).get("/api/technical-ideas/warren").json()["rows"]}
+    assert rows["NEW"] == "YELLOW UP - New entry. Stop set 10% below the candle low."
+    assert rows["RPT"] == "YELLOW UP (repeat) - Stop raised."
+    assert rows["NOP"] == "YELLOW UP (repeat) - Stop unchanged, the new level is not higher."
+    assert rows["QQQ"].startswith("YELLOW UP: new entry = 10% stop") and rows["QQQ"].endswith("the stop is never lowered below the current stop")
+    assert rows["GDN"] == "GRAY DOWN - Stop raised to entry + 1%."
+    with Session(engine) as s:
+        assert {r.instruction_text for r in s.exec(select(WarrenWatchRow)).all()} == {"Buy"}  # nothing was written

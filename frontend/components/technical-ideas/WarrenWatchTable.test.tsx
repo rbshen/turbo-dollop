@@ -185,8 +185,8 @@ describe("WarrenWatchTable", () => {
 
   it("wraps a long instruction to two lines with the full text in the tooltip, on a bounded cell", () => {
     const longest =
-      "YELLOW UP: new entry = 10% stop; already in trade = stop to 2nd LP or 10% below candle low, whichever is lower";
-    const grayDown = "GRAY DOWN: yellow entry = stop to entry; blue entry = no action";
+      "YELLOW UP: new entry = 10% stop; already in trade = stop to 2nd LP or 10% below candle low, whichever is lower; the stop is never lowered below the current stop";
+    const grayDown = "GRAY DOWN: yellow entry = stop to entry + 1%; blue entry = no action";
     draw([row({ ticker: "LNG", instruction_text: longest }), row({ ticker: "GRD", instruction_text: grayDown })]);
     for (const [ticker, text] of [["LNG", longest], ["GRD", grayDown]] as const) {
       const text_el = within(bodyRow(ticker)).getByText(text);
@@ -278,12 +278,15 @@ describe("WarrenWatchTable", () => {
     for (const th of screen.getAllByRole("columnheader")) expect(th).toHaveClass("sticky", "top-0", "bg-page");
   });
 
-  it("shows Stop hit since the breach candle on a breached row, keeping the stop and the last instruction in the tooltip", () => {
-    draw([row({ ticker: "BRC", status: "breached", breached_at: "2026-10-13T09:30:00", instruction_text: "YELLOW UP INITIAL ENTRY - Use appropriate stop.", stop_price: 376.25 })]);
+  it("shows the stop-hit text since the breach candle on a breached row, keeping the stop and the last instruction in the tooltip", () => {
+    draw([row({ ticker: "BRC", status: "breached", breached_at: "2026-10-13T09:30:00", instruction_text: "YELLOW UP (repeat) - Stop unchanged, the new level is not higher.", stop_price: 376.25 })]);
     const r = within(bodyRow("BRC"));
-    expect(r.getByText("Stop hit")).toHaveAttribute("title", "Last instruction: YELLOW UP INITIAL ENTRY - Use appropriate stop.");
+    expect(r.getByText("STOP HIT - Out of the trade until the next Yellow, Blue or Gray Up.")).toHaveAttribute(
+      "title",
+      "Last instruction: YELLOW UP (repeat) - Stop unchanged, the new level is not higher.",
+    );
     expect(r.getByText("since Oct 13, 09:30 ET")).toBeInTheDocument();
-    expect(r.queryByText("YELLOW UP INITIAL ENTRY - Use appropriate stop.")).toBeNull();
+    expect(r.queryByText("YELLOW UP (repeat) - Stop unchanged, the new level is not higher.")).toBeNull();
     expect(r.getByText("$376.25")).toBeInTheDocument();
   });
 
