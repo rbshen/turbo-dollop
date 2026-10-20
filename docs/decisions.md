@@ -1269,7 +1269,7 @@ Also decided: two text sets keyed by the Blue profile (the shortened "profiled" 
 5. **Not built:** a committed transcript-audit script (the phase 6 trial produces a one-off report instead) and the headless `claude -p` fallback (only if the canary shows the hook is inactive).
 6. **Command file, not skill**, at the spec's path, `disable-model-invocation: true` so Claude never starts a research run on its own. Personal allow rules (`uv run --directory backend python -m pipeline.moat_check_{prepare,save,finish} *`, `Edit(//tmp/moat-check/**)`, `WebSearch`, `WebFetch`, `Agent(moat-pass-1)`, `Agent(moat-pass-2)`) go in the gitignored `.claude/settings.local.json`.
 
-**Residual risk, accepted (decision 9 of the phase 5 plan).** A hostname that DNS-resolves to this machine (for example `127.0.0.1.nip.io`) passes the guard, which judges the spelling of the host; the app listens on `0.0.0.0:8002` and `GET /api/tickers/<t>/moat` answers there. The app's binding is not changed. Also accepted: the guard works only if Claude Code runs project-level agent hooks (workspace trust, hooks not disabled), which the canary checks, and nothing can remove what the model already knows from training.
+**Residual risk, accepted (decision 9 of the phase 5 plan).** A hostname that DNS-resolves to this machine (for example `127.0.0.1.nip.io`) passes the guard, which judges the spelling of the host; the app listens on `127.0.0.1:8002` only (`bin/common.sh` default for `BACKEND_HOST`; checked live 2026-10-20), so the exposure is limited to processes on this machine, and `GET /api/tickers/<t>/moat` answers there. The app's binding is not changed. Also accepted: the guard works only if Claude Code runs project-level agent hooks (workspace trust, hooks not disabled), which the canary checks, and nothing can remove what the model already knows from training.
 
 **Not changed:** `TickerMoat`, scoring, `SCORE_FORMULA_VERSION`, any endpoint, the card, `crontab.txt`, how the app binds.
 
@@ -1592,12 +1592,12 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 
 - **Applied 2026-10-17 by hand** (owner approval, after a verified backup `backend/fathom_pre_stateless_20261017_121242.db`): the stateless step's first run changed exactly the 24 expected rows; a dry run afterwards reports 0 changing. Revert: restore the backup, then `git revert 1e43b3b 6797c38`. Spec: "applied once by hand".
 
-### 2026-10-17 — Warren watch: down arrows are raise-only, Blue Up is not an action in an open trade (branch `warren-raise-only-arrows`, not merged)
+### 2026-10-17 — Warren watch: down arrows are raise-only, Blue Up is not an action in an open trade (branch `warren-raise-only-arrows`, merged into main 2026-10-17)
 
 - **Principle:** no change to the ThinkScript logic, only how its instructions are read. A down arrow is a floor, never a cut; Blue Up is not an action when a trade is open; the armed repeat Yellow Up is the only rule that can lower a stop. Gray Down was already raise-only.
 - **Rules:** Blue Up on an active row (any entry kind, with or without a stop) changes nothing about the trade; only the pill, the instruction ("BLUE UP - no change to an open trade", type 5, watch table only) and the dates move, and the first-Yellow-after-Blue counter (it lives in the arrow replay) still resets. Blue Down / Yellow Down: `max(stop, 2nd LP)`, no change (no stop age, basis unchanged) when the 2nd LP is not higher; a row with no stop yet takes the 2nd LP.
 - **Mechanism:** two more `WatchRules` switches (`blue_up_in_trade_no_op`, `down_arrows_raise_only`); `PREVIOUS_RULES` is main's rules before this change (the rebuild guard replays it), `PRE_GRAY_RAISE_ONLY_RULES` the one before the Gray Down change, `LEGACY_RULES` everything off. No schema change.
-- **Effect on the live table (dry run):** 6 of 117 rows would change (ADP, DASH, NOC, PAYX, PTC, SNPS), 0 skipped. Replay: 34 Blue Up replacements gone, total R +259.8 -> +252.4, expectancy +0.727R -> +0.690R, R below -1: 23 -> 25. Not merged or applied; the merge is the owner's decision. Spec: `docs/specs/warren-signals-page.md`, "Rules at a glance" and the last section.
+- **Effect on the live table (dry run):** 6 of 117 rows would change (ADP, DASH, NOC, PAYX, PTC, SNPS), 0 skipped. Replay: 34 Blue Up replacements gone, total R +259.8 -> +252.4, expectancy +0.727R -> +0.690R, R below -1: 23 -> 25. Merged into main 2026-10-17 23:38 UTC (fast-forward, `6b5ca2b` and `1f72648`, not pushed); the figures above are from the pre-merge dry run. Spec: `docs/specs/warren-signals-page.md`, "Rules at a glance" and the last section.
 
 ### 2026-10-17 — Warren watch: the instruction text follows the pill (branch `warren-raise-only-arrows`)
 
@@ -1605,13 +1605,13 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 - **Rule:** the instruction type is derived from the arrow in the pill (plus the existing first-Yellow-within-20-candles context) on every candle where the pill changes: first Yellow after a Blue -> type 4, Gray Up on an open trade -> type 1. Existing texts only, no schema change, no change to trades, stops, entries, status or sorting; a breached row still ignores a down arrow (pill and text frozen together).
 - **Mechanism:** `WatchRules.text_follows_pill` (off in `PREVIOUS_RULES` and `LEGACY_RULES`, so the rebuild guard reproduces stored rows). Rows whose only difference is the text are rewritten by the next nightly replay; no dry run was run for this change.
 
-### 2026-10-18 — Warren events: reconcile the log with the replay every night (branch `warren-event-reconcile`, not merged)
+### 2026-10-18 — Warren events: reconcile the log with the replay every night (branch `warren-event-reconcile`, merged into main 2026-10-18)
 
 - **Problem:** `WarrenSignalEvent` was insert-only, so an arrow that later moved (a provisional newest session corrected the next night, a bar-source change) left its old row for good. On the nightly's own input, 141 of 2,575 stored events (65 of 136 tickers) are not reproduced by today's replay and none is missing; 132 come from the 09-26 switch of the 60m bars to FMP (old rows from the previous source), 9 from provisional newest-session bars (partly confirmed). The earlier "14 missing" were a gate effect (the earlier count replayed more bars than the nightly does).
 - **Decision:** per ticker, after the replay, events at or after the write gate are reconciled with the replay: stale rows deleted, missing arrows inserted, matching rows untouched (created_at and stop_price as written). Events before the gate are never touched. This deliberately ends the insert-only rule at and after the gate. No schema change.
 - **Safety:** a failed replay or missing bars raises before anything is touched; an empty replay, or a reconcile that would delete 5 or more events and over half the window, is refused and logged; an event after the last replayed candle is never deleted.
 - **Consumers:** the Warren fields of TickerScore / EtfScreenerRow are refreshed in the same run for the changed tickers (they were waiting for the 03:25 recompute). Stored Opportunities runs and flags are history and are not rewritten.
-- **Not applied.** Dry run: 141 deletes, 0 adds, 65 tickers. The one-time cleanup (`pipeline/backfills/reconcile_warren_events.py --apply`) needs an events backup and the owner's approval. Spec: `docs/specs/warren-signals-page.md`, "Event log reconcile".
+- **Merged (fast-forward `85328d0` -> `0958902`) and applied 2026-10-18** (141 deletes after an events export; see the spec's "Event log reconcile: merged, applied and verified"). The dry run that sized it: 141 deletes, 0 adds, 65 tickers. Spec: `docs/specs/warren-signals-page.md`, "Event log reconcile".
 
 ### 2026-10-18 — Warren watch: the replay anchor stays fixed; an admin banner and a runbook, not a sliding start
 
