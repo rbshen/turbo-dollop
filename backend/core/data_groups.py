@@ -393,10 +393,6 @@ STATEMENT_TYPE_GROUP: dict[str, str] = {
     "price_target_consensus": "analyst_ratings",
     "price_target_summary": "analyst_ratings",
     "price_target_news": "analyst_ratings",
-    # Not an FMP call (SEC EDGAR), but cached through the same gate and feeds
-    # the Debt/fundamentals cross-check; it was paused by the old global flag,
-    # so it rides with `fundamentals` to keep that behaviour.
-    "sec_company_facts": "fundamentals",
     "etf_info": "etf_info",
 }
 

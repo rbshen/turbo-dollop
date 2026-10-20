@@ -73,7 +73,6 @@ def test_operational_detail_and_spend_reads_are_admin_only():
         ("GET", "/api/config/data-source-health"),
         ("GET", "/api/config/data-groups"),
         *SETTINGS_ONLY_READS,
-        ("GET", "/api/tickers/{ticker}/financials/cash-flow-cell-check"),
     ):
         assert ROUTE_ROLES[key] == "admin", key
 

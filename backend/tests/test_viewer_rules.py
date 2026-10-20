@@ -426,8 +426,7 @@ def test_viewer_cannot_read_settings_only_endpoints_but_an_admin_can(world, clie
 
 def test_viewer_cannot_read_operational_endpoints(world):
     viewer = TestClient(main.app)
-    for path in ("/api/config/cron-health", "/api/config/data-source-health", "/api/config/data-groups",
-                 "/api/tickers/TRK/financials/cash-flow-cell-check?field=interestPaid&period_end=2025-12-31"):
+    for path in ("/api/config/cron-health", "/api/config/data-source-health", "/api/config/data-groups"):
         response = viewer.get(path)
         assert response.status_code == 403, path
     assert world.calls == [] and world.writes == []

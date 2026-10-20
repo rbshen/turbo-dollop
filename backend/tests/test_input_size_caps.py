@@ -133,5 +133,3 @@ def test_query_caps(client):
     assert client.get("/api/tickers/search", params={"q": "q" * 101}).status_code == 422
     assert client.get("/api/watchlists/export-data", params=[("ids", 1)] * 101).status_code == 422
     assert client.get("/api/watchlists/export-data", params=[("ids", 1)] * 100).status_code == 200
-    r = client.get("/api/tickers/AAPL/financials/cash-flow-cell-check", params={"field": "f" * 65, "period_end": "2025-12-31"})
-    assert r.status_code == 422

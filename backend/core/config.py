@@ -64,11 +64,6 @@ class Settings(BaseSettings):
     # the descriptive fields essentially never do, so a 1-day window keeps the numbers current without
     # a refetch on every view. A failed refetch serves the stale row (data/etf_data.py).
     etf_info_staleness_days: int = 1
-    # SEC EDGAR's fair-use policy requires a descriptive User-Agent
-    # identifying the requester with real contact info (a bare/generic UA
-    # gets 403'd) -- override via SEC_EDGAR_USER_AGENT in .env with a real
-    # app name and contact email before relying on this in production.
-    sec_edgar_user_agent: str = "Fathom Fundamentals Screener (set SEC_EDGAR_USER_AGENT in .env)"
     # FastAPI's /docs, /redoc and /openapi.json are off unless this is true (ENABLE_API_DOCS=true in the dev
     # shell or .env). Read once at import, because the routes are registered when the app is built.
     enable_api_docs: bool = False

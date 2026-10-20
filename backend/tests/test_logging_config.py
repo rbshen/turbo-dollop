@@ -66,7 +66,7 @@ def test_configure_logging_writes_redacted_output_to_the_log_file(tmp_path):
 
 SECRET = "FAKE0000TESTKEY0000PLACEHOLDER0"
 URL = f"https://financialmodelingprep.com/stable/quote?symbol=AAPL&apikey={SECRET}"
-REAL_LOGGER_MODULES = ["core.cache", "clients.fmp_client", "clients.sec_edgar"]
+REAL_LOGGER_MODULES = ["core.cache", "clients.fmp_client"]
 
 
 def _httpx_error() -> httpx.HTTPStatusError:

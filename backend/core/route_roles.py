@@ -2,7 +2,7 @@
 
 * ``public``  -- no session needed. Only ``GET /api/health`` (start.sh polls it) and ``POST /api/auth/login``.
 * ``viewer``  -- any signed-in user, admin or viewer. Reads, plus the two pure/own-session writes in VIEWER_ALLOWED_WRITES.
-* ``admin``   -- admins only (403 for a viewer): every other write, and the reads that spend FMP/SEC calls or show operational detail.
+* ``admin``   -- admins only (403 for a viewer): every other write, and the reads that spend FMP calls or show operational detail.
 
 `core/auth.py::authorize` (the app-level dependency) looks the request's route up here; a route that is missing is treated as admin-only,
 and `tests/test_route_roles_registry.py` fails if a route is missing, a stale entry remains, a write method is registered ``viewer``
@@ -104,7 +104,6 @@ ROUTE_ROLES: dict[tuple[str, str], Role] = {
     ("POST", "/api/tickers/{ticker}/custom-valuation/activate"): "admin",
     ("POST", "/api/tickers/{ticker}/custom-valuation/deactivate"): "admin",
     ("POST", "/api/tickers/{ticker}/etf-watchlist"): "admin",
-    ("GET", "/api/tickers/{ticker}/financials/cash-flow-cell-check"): "admin",
     ("PUT", "/api/tickers/{ticker}/moat"): "admin",
     ("POST", "/api/tickers/{ticker}/refresh"): "admin",
     ("DELETE", "/api/tickers/{ticker}/universe"): "admin",

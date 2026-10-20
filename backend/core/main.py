@@ -72,7 +72,7 @@ from helpers.reit_dividend_yield_config import get_reit_dividend_yield_config, u
 from core.models import IndexConstituent, SavedScreenerFilter, TickerCustomValuation, TickerScore, Watchlist
 from core.tickers import InvalidTickerError, normalize_ticker, require_valid_ticker
 from pipeline.refresh import clear_ticker_cache, groups_blocking_refresh
-from data.financials_data import get_cash_flow_cell_sec_check, get_financials_data
+from data.financials_data import get_financials_data
 from data.pe_history_data import get_pe_history
 from data.ratios_data import get_ratios_data
 from data.saved_screener_filters import delete_saved_filter, list_saved_filters, upsert_saved_filter
@@ -143,7 +143,6 @@ from core.schemas import (
     SavedScreenerFilterIn,
     SavedScreenerFilterOut,
     ScreenerMeta,
-    SecCrossCheck,
     SectorHeatmapOut,
     SegmentationOut,
     SpeculativeGrowthOut,
@@ -1005,31 +1004,6 @@ async def ticker_financials(ticker: TickerPath, restricted: Restricted) -> Finan
         # would leak the key into the response body the moment that stops
         # being true for some future call site.
         raise HTTPException(status_code=502, detail="FMP request failed") from exc
-
-
-@app.get("/api/tickers/{ticker}/financials/cash-flow-cell-check", response_model=SecCrossCheck)
-async def ticker_financials_cash_flow_cell_check(
-    ticker: TickerPath, field: Annotated[str, Query(max_length=64)], period_end: Annotated[str, Query(max_length=32)]
-) -> SecCrossCheck:
-    """Phase 3a (2026-08-16): on-demand SEC EDGAR cross-check for a single
-    zero/blank Financials-tab cell -- see get_cash_flow_cell_sec_check's own
-    docstring for why this is scoped to exactly two fields (incomeTaxesPaid,
-    interestPaid) and annual periods only, rather than a generic lookup.
-    Single ticker + single field + single period per call, triggered only by
-    an explicit user click on that one cell -- never reachable from
-    Screener, Watchlist, or any nightly/bulk job (none of those import this
-    function or call this endpoint)."""
-    try:
-        result = await get_cash_flow_cell_sec_check(ticker, field, period_end)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except httpx.HTTPError as exc:
-        # Same "don't leak the FMP apikey via a raw exception string"
-        # rationale as every other FMP-backed endpoint in this file --
-        # SEC EDGAR itself doesn't use an apikey, but the underlying call
-        # also resolves a CIK via FMP's own /profile endpoint first.
-        raise HTTPException(status_code=502, detail="Lookup failed") from exc
-    return SecCrossCheck(**result._asdict())
 
 
 @app.get("/api/tickers/{ticker}/ratios", response_model=RatiosOut)

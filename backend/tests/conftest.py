@@ -292,7 +292,7 @@ def _isolate_long_history_engine(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _forbid_real_http(monkeypatch, request):
-    """No test may make a real outbound HTTP call. fmp_client (and sec_edgar) build a fresh `httpx.AsyncClient` per request,
+    """No test may make a real outbound HTTP call. fmp_client builds a fresh `httpx.AsyncClient` per request,
     and a real one sends through `httpx.AsyncHTTPTransport.handle_async_request`: that method is blocked here, so the call
     raises at once with the test id and URL. `httpx.MockTransport` (test_fmp_client.py and the other FMP client tests) is a
     different class and is untouched. The error is also recorded and re-raised as a failure at teardown, so a caller that

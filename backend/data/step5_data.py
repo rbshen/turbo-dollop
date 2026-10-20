@@ -1,8 +1,5 @@
-from datetime import date as date_cls
-
 from sqlmodel import Session
 
-import clients.sec_edgar as sec_edgar
 from helpers.bank_capital_metrics import get_ticker_bank_capital_metrics
 from core.cache import get_or_fetch, get_or_fetch_earnings_aware, safe_fetch
 from core.config import settings
@@ -12,7 +9,7 @@ from helpers.earnings import resolve_most_recent_earnings_date
 from helpers.first import _first
 from clients.fmp_client import fmp_client
 from helpers.npl import compute_npl_ratio
-from core.schemas import BreachContextSignal, OutlierWarning, SecCrossCheck, Step5Out, Step5RatioResult
+from core.schemas import BreachContextSignal, OutlierWarning, Step5Out, Step5RatioResult
 from core.tickers import normalize_ticker
 from data.score_weights import load_score_weights
 from scoring.weights import ScoreWeights
@@ -29,12 +26,6 @@ from helpers.ttm import TOTAL_QUARTERS_NEEDED
 # CLAUDE.md's caching policy).
 ANNUAL_WINDOW = 10
 TREND_WINDOW_YEARS = 5
-
-# The Debt Servicing Ratio's own two inputs -- an outlier flagged on either
-# of these triggers an on-demand SEC EDGAR cross-check (see sec_edgar.py).
-# Never triggered in bulk/nightly -- only when a specific quarter is
-# already flagged for a specific ticker being viewed.
-SEC_CROSS_CHECK_METRICS = {"net_interest_expense_ttm", "cfo_ttm"}
 
 # Previously held IBKR/HOOD, confirmed (via cached FMP XBRL data -- no
 # deposit-liability tag at any material magnitude) to have no customer
@@ -122,59 +113,14 @@ def _outlier_warnings(*flag_groups: MetricOutlierFlags) -> list[OutlierWarning]:
     ]
 
 
-async def _attach_sec_cross_checks(
-    session: Session, ticker: str, warnings: list[OutlierWarning], staleness_days: int
-) -> list[OutlierWarning]:
-    """On-demand only -- called with exactly the flagged quarter(s) for one
-    ticker's Step 5 view, never in a bulk sweep (SEC EDGAR's rate-limit
-    penalty for exceeding 10 req/sec is a 10-minute lockout, far harsher
-    than FMP's)."""
-    result = []
-    for warning in warnings:
-        if warning.metric not in SEC_CROSS_CHECK_METRICS or not warning.date:
-            result.append(warning)
-            continue
-
-        target_end = date_cls.fromisoformat(warning.date)
-        if warning.metric == "net_interest_expense_ttm":
-            # warning.value is the raw quarterly netInterestIncome figure
-            # (negative = net expense) -- flip sign to match SEC's
-            # positive-expense tag convention.
-            cross_check = await sec_edgar.cross_check_interest_expense(session, ticker, target_end, -warning.value, staleness_days)
-        else:  # cfo_ttm
-            cross_check = await sec_edgar.cross_check_cfo(session, ticker, target_end, warning.value, staleness_days)
-
-        result.append(warning.model_copy(update={"sec_cross_check": SecCrossCheck(**cross_check._asdict())}))
-    return result
-
-
 async def get_step5_data(
     ticker: str,
     cache_only: bool = False,
-    allow_sec_cross_check: bool = True,
     weights: ScoreWeights | None = None,
 ) -> Step5Out:
     """`cache_only=True` (used by ticker_score.py's recompute path) reads
     only whatever's already cached and never calls FMP -- see
-    cache.get_or_fetch's own cache_only branch. It also skips the SEC EDGAR
-    cross-check entirely regardless of whether an outlier is flagged: that
-    cross-check is on-demand-only by design (SEC's rate-limit penalty is a
-    10-minute lockout), and must never fire during a ~500-ticker sweep.
-
-    `allow_sec_cross_check=False` (used by
-    pipeline/nightly_fundamentals_fetch.py, see its own call site) is a
-    *separate* guard for the same invariant -- cache_only alone doesn't
-    cover it, since the nightly bulk sweep calls this function with
-    cache_only=False (it needs live data for everything else this function
-    fetches) and would otherwise still fire a live cross-check for any
-    ticker whose outlier flags happen to trip that night. Confirmed via
-    fetched_at timestamps: 134 sec_company_facts calls landed in one night
-    (2026-08-14) despite this function's own docstring already claiming the
-    cross-check "must never fire during a ~500-ticker sweep" -- that claim
-    was only ever true for the cache_only=True recompute path, not the
-    nightly fetch's actual cache_only=False call. On-demand single-ticker
-    callers (core/main.py's Step 5 endpoint) don't pass this, so they keep
-    the default True and are unaffected."""
+    cache.get_or_fetch's own cache_only branch."""
     ticker = normalize_ticker(ticker)
     weights = weights if weights is not None else load_score_weights(engine).weights
     staleness_days = settings.cache_staleness_days
@@ -429,15 +375,6 @@ async def get_step5_data(
     outlier_warnings = _outlier_warnings(
         *debt_metrics.outlier_flags, MetricOutlierFlags(metric="cfo_ttm", flagged=cfo_result.flagged)
     )
-
-    if outlier_warnings and not cache_only and allow_sec_cross_check:
-        # Fresh, short-lived session scoped to just this on-demand
-        # cross-check -- only opened when there's actually something
-        # flagged, not on every Step 5 view, and never at all in
-        # cache_only mode or when the caller has explicitly opted out via
-        # allow_sec_cross_check (see this function's docstring).
-        with Session(engine) as sec_session:
-            outlier_warnings = await _attach_sec_cross_checks(sec_session, ticker, outlier_warnings, staleness_days)
 
     # REIT gearing uses FMP's own totalDebt field (a broader aggregate than
     # short+long term debt alone), a different definition than the Standard

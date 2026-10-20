@@ -1,4 +1,4 @@
-"""Upstream data validation: FMPClient.get's shape check, null-safe ticker_summary / sec_edgar parsing and the corrupt
+"""Upstream data validation: FMPClient.get's shape check, null-safe ticker_summary parsing and the corrupt
 saved-view guard. Malformed fixtures only, no network (MockTransport), in-memory engines."""
 
 import asyncio
@@ -12,7 +12,6 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import clients.fmp_client as fmp_client_module
-import clients.sec_edgar as sec_edgar
 import core.cache as cache_module
 import core.data_groups as dg
 import core.main as main
@@ -196,84 +195,6 @@ def test_next_earnings_date_skips_malformed_dates():
 def test_pct_and_number_helpers():
     assert ts._pct(0.5) == 50
     assert ts._pct(None) is None and ts._pct("0.5") is None and ts._pct(True) is None and ts._pct(float("nan")) is None
-
-
-# ---- sec_edgar -------------------------------------------------------------------------------------------------------
-
-END = date(2025, 6, 30)
-
-
-def _facts(*rows, tag="InterestExpense"):
-    return {"facts": {"us-gaap": {tag: {"units": {"USD": list(rows)}}}}}
-
-
-GOOD = {"start": "2025-04-01", "end": "2025-06-30", "val": 100, "filed": "2025-07-30"}
-
-
-def test_duration_days_is_none_for_a_malformed_row():
-    assert sec_edgar._duration_days(GOOD) == 90
-    for bad in ({}, {"end": "2025-06-30"}, {"start": None, "end": "2025-06-30"}, {"start": "x", "end": "y"}, {"start": 1, "end": 2}):
-        assert sec_edgar._duration_days(bad) is None
-
-
-def test_income_statement_finder_skips_malformed_rows_and_still_finds_the_good_one():
-    facts = _facts(
-        {"end": "2025-06-30"},  # no start
-        {"start": "bad", "end": "2025-06-30", "val": 1},
-        {"start": "2025-04-01", "end": "2025-06-30", "val": None, "filed": "2025-08-01"},  # newest, but no value
-        {"start": "2025-04-01", "end": "2025-06-30", "val": "n/a", "filed": "2025-09-01"},
-        GOOD,
-        "junk",
-    )
-    assert sec_edgar.find_discrete_income_statement_value(facts, ["InterestExpense"], END) == (100, "InterestExpense")
-
-
-def test_finders_return_none_not_raise_for_a_malformed_document():
-    for facts in ({}, {"facts": None}, {"facts": {"us-gaap": None}}, {"facts": {"us-gaap": {"InterestExpense": None}}},
-                  {"facts": {"us-gaap": {"InterestExpense": {"units": {"USD": None}}}}}, [], None, "x"):
-        assert sec_edgar.find_discrete_income_statement_value(facts, ["InterestExpense"], END) is None
-        assert sec_edgar.find_annual_value(facts, ["InterestExpense"], END) is None
-        assert sec_edgar.find_discrete_cfo_value(facts, ["InterestExpense"], END) is None
-
-
-def test_annual_finder_skips_a_row_with_no_value():
-    row = {"start": "2024-07-01", "end": "2025-06-30", "val": None, "filed": "2025-08-01"}
-    good = {"start": "2024-07-01", "end": "2025-06-30", "val": 7, "filed": "2025-07-30"}
-    assert sec_edgar.find_annual_value(_facts(row, good), ["InterestExpense"], END) == (7, "InterestExpense")
-    assert sec_edgar.find_annual_value(_facts(row), ["InterestExpense"], END) is None
-
-
-def test_cfo_finder_ignores_rows_it_cannot_subtract():
-    ytd = {"start": "2025-01-01", "end": "2025-06-30", "val": 500, "filed": "2025-07-30"}
-    prior = {"start": "2025-01-01", "end": "2025-03-31", "val": 200, "filed": "2025-04-30"}
-    broken_prior = {"start": "2025-01-01", "end": "2025-04-30", "val": None, "filed": "2025-05-30"}
-    facts = _facts(ytd, prior, broken_prior, {"end": "2025-05-31", "val": 1}, tag="NetCashProvidedByUsedInOperatingActivities")
-    assert sec_edgar.find_discrete_cfo_value(facts, ["NetCashProvidedByUsedInOperatingActivities"], END) == (
-        300, "NetCashProvidedByUsedInOperatingActivities")
-
-
-def test_company_facts_fetch_with_a_non_json_body_is_a_handled_error(monkeypatch):
-    current = {}
-    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=current["content"]))
-    real = httpx.AsyncClient
-    monkeypatch.setattr(sec_edgar.httpx, "AsyncClient", lambda *a, **k: real(*a, transport=transport, **k))
-    for content in (b"<html>blocked</html>", b"[1, 2]", b"null"):
-        current["content"] = content
-        with pytest.raises(sec_edgar.SecInvalidResponseError):
-            asyncio.run(sec_edgar._fetch_company_facts(123))
-
-
-def test_cross_check_degrades_when_sec_sends_garbage(monkeypatch):
-    async def fake_cik(session, ticker, staleness_days, cache_only=False):
-        return 123
-
-    async def bad_facts(session, ticker, cik, staleness_days):
-        raise sec_edgar.SecInvalidResponseError("not json")
-
-    monkeypatch.setattr(sec_edgar, "get_cik", fake_cik)
-    monkeypatch.setattr(sec_edgar, "get_company_facts", bad_facts)
-    result = asyncio.run(sec_edgar.cross_check_cfo(None, "PEP", END, 1.0, 7))
-    assert result.available is False and "unavailable" in result.note
 
 
 # ---- saved views -----------------------------------------------------------------------------------------------------

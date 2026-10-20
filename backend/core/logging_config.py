@@ -43,11 +43,11 @@ class RedactApiKeyFilter(logging.Filter):
         return True
 
 
-# The loggers that can emit a raw FMP/SEC request URL, by their real names (each module logs through
+# The loggers that can emit a raw FMP request URL, by their real names (each module logs through
 # logging.getLogger(__name__), so these are the module paths, not the bare file names; tests/test_logging_config.py
-# pins them against the modules): httpx/httpcore's own request logging, cache.py's failed-fetch warnings, the FMP
-# client and the SEC EDGAR client.
-REDACTED_LOGGER_NAMES = ("httpx", "httpcore", "core.cache", "clients.fmp_client", "clients.sec_edgar")
+# pins them against the modules): httpx/httpcore's own request logging, cache.py's failed-fetch warnings and the FMP
+# client.
+REDACTED_LOGGER_NAMES = ("httpx", "httpcore", "core.cache", "clients.fmp_client")
 
 
 def _attach(target: logging.Filterer, redact_filter: logging.Filter) -> None:
@@ -57,7 +57,7 @@ def _attach(target: logging.Filterer, redact_filter: logging.Filter) -> None:
 
 def apply_redaction_filters() -> None:
     """Attaches the redaction filter in the three places a record carrying a
-    raw FMP/SEC request URL can pass through, without touching handlers'
+    raw FMP request URL can pass through, without touching handlers'
     levels, formatters or output destination (so it is safe to call from the
     live FastAPI app (main.py) without fighting uvicorn's own logging setup):
 
