@@ -92,8 +92,11 @@ re-declares the union.
 
 ## What the jobs and pages do for a ticker outside the universe
 
-- Its data, `TickerScore` row, Weinstein row, bars, price-target and momentum history all stay until the wipe. `prune_cache` (unchanged) deletes
-  `FundamentalsCache` rows older than 180 days, so a browsed/expired ticker's cache rows go about 210 days after its last view.
+- Its data, `TickerScore` row, Weinstein row, bars, price-target and momentum history all stay until the wipe. `prune_cache` deletes
+  `FundamentalsCache` rows older than 180 days **only for tickers outside the universe** (changed 2026-10-20: a tracked stock or ETF keeps its
+  last-known rows whatever their age), so a browsed/expired ticker's cache rows go about 210 days after its last view. The tracked set is
+  `classify_known_tickers` + `classify_etf_tickers` minus `OUT_OF_UNIVERSE`; a delisted ticker is still pruned. If that set cannot be built, is empty
+  or is below 100 tickers, the age rule is skipped entirely (the job reports `skipped`; the bars trim still runs).
 - **Screener, `universe=all`:** `TickerScore.ticker IN tracked universe`, so a browsed or expired ticker is simply not listed; there is no hidden count (the
   `hidden_inactive` fields were removed with the flip). Index universes are unaffected. Saved views store filters, not results, so they stay valid and simply show
   fewer rows. **ETFs page:** rows of ETFs in `load_etf_universe` only; the 1:45 job deletes the rest (`prune_etf_screener_rows`).

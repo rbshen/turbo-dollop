@@ -292,6 +292,8 @@ def test_refresh_keeps_history_rows_stale_instead_of_deleting_them(engine, monke
 
 def test_prune_never_deletes_a_row_a_refresh_marked_stale(engine, monkeypatch):
     monkeypatch.setattr(prune_cache, "engine", engine)
+    monkeypatch.setattr(prune_cache, "_load_tracked_tickers", lambda session: {"ZZZ"})
+    monkeypatch.setattr(prune_cache, "MIN_TRACKED_TICKERS", 1)
     _seed(engine, "AAA", "income_statement", "annual", fy_rows(2016, 2025), fetched_at=INVALIDATED_AT)
     _seed(engine, "BBB", "income_statement", "annual", fy_rows(2016, 2025), fetched_at=datetime.now() - timedelta(days=400))
     assert prune_cache.prune_cache(180) == 1

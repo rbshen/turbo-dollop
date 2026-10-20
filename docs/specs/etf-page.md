@@ -199,5 +199,6 @@ valuation saved against an ETF (not creatable from the ETF page) is not read by 
 - The caption says "Exchange-traded fund" for every `isEtf || isFund` ticker, including a mutual fund or closed-end fund.
 - Empty stock-statement rows cached for an ETF before 2026-10-02 stay in `FundamentalsCache` (2026-10-02 read-only check of
   the live DB: 103 empty rows across the 7 cached ETFs, plus 4 non-empty `earnings` rows whose `epsActual` is all null).
-  Nothing reads them for an ETF and nothing refreshes them any more, so `pipeline.prune_cache` (it deletes every
-  `FundamentalsCache` row older than `Settings.cache_retention_days`, 180 days) removes them in time; they were not deleted by hand.
+  Nothing reads them for an ETF and nothing refreshes them any more, so they stay: since 2026-10-20 `pipeline.prune_cache` (180-day age rule) spares
+  every tracked ticker, ETFs included, so these rows are **not** removed by it while the ETF is in the universe (they are small and unread; a
+  one-off delete is a separate decision). They were not deleted by hand.

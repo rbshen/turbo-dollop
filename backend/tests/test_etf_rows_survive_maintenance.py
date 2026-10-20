@@ -53,11 +53,18 @@ def _counts(engine, ticker):
         }
 
 
-def test_an_etfs_rows_survive_every_prune_and_cleanup_job(engine):
+def test_an_etfs_rows_survive_every_prune_and_cleanup_job(engine, monkeypatch):
     _seed_etf(engine, "QQQ")
     before = _counts(engine, "QQQ")
     assert all(count >= 1 for count in before.values())
 
+    # Age the ETF's cache rows past the window and lower the sanity floor so the real classifiers decide: a tracked ETF keeps them.
+    monkeypatch.setattr(prune_cache_job, "MIN_TRACKED_TICKERS", 1)
+    with Session(engine) as session:
+        for row in session.exec(select(FundamentalsCache).where(FundamentalsCache.ticker == "QQQ")).all():
+            row.fetched_at = datetime.now() - timedelta(days=400)
+            session.add(row)
+        session.commit()
     prune_cache_job.prune_cache(retention_days=180)
     shared_bars_cache.prune_old_bars()
     assert purge_job.purge_invalid_tickers() == []

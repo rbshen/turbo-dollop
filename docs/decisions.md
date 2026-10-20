@@ -1727,3 +1727,15 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 **Not changed.** Every score, verdict, table and column, the database, `backend/.env`, `crontab.txt`. The CIK in `helpers/ttm.py`'s non-monetary keys and the FMP profile cache stay.
 
 **Follow-up (not done).** Delete the cached `sec_company_facts` rows and `VACUUM`; drop `SEC_EDGAR_USER_AGENT` from `backend/.env`. The entries of 2026-08 to 2026-10 above that mention the cross-check stay as written.
+
+### 2026-10-20 — prune_cache's 180-day age rule spares tracked tickers (fail-safe floor of 100)
+
+**Problem.** The 2026-10-14 entry reported one retention gap: `prune_cache` deleted any `FundamentalsCache` row older than 180 days, including the last-known rows of a ticker that is tracked but not refreshed that often (a slow reporter such as SINGY) or that holds an on-demand row type. A viewer reads the cache only, so such a ticker would show blank sections. **Exposure today was zero:** the oldest row was 94 days; the first row due to age out is on 2027-01-14 (WBA, delisted).
+
+**Decided (owner).** The age rule deletes a row only if its ticker is **not tracked**. Tracked = `classify_known_tickers` + `classify_etf_tickers`, minus `OUT_OF_UNIVERSE` (the `load_tracked_universe` exclusions: delisted, browsed, expired, untracked), reusing the existing helpers. A delisted ticker is still pruned; an unknown/orphan ticker and a non-ticker key (`forex_rate`) are untracked and still age out. Unchanged: `fetched_at < now - 180 days`, rows a Refresh marked stale (`INVALIDATED_AT`) are skipped, the bars trim (6y daily, 3y hourly) and `prune_audit_log`. **`treasury_rates`** (zero code references) stays on the plain age rule for every ticker, so it is not kept forever.
+
+**Fail-safe.** If building the tracked set raises, returns empty, or has fewer than `MIN_TRACKED_TICKERS` (100; the live set is about 609) tickers, the age rule is skipped entirely: nothing is deleted, a warning is logged and the heartbeat is `skipped` with the reason. The bars trim still runs. Without it, a classifier failure would turn every ticker into an "untracked" one and delete the whole cache.
+
+**Mechanism.** The delete set is computed in Python (ids of aged rows, filtered by ticker and type) and deleted in chunks of 500 ids; `--dry-run` reports the same count. The job message shows the deleted count and the number of aged rows spared because the ticker is tracked.
+
+**Not changed:** `SCORE_FORMULA_VERSION` (no score or verdict arithmetic), the database, `crontab.txt`, `backend/.env`, the BF.B and price-target items. Docs updated: tracked-universe.md, fmp-data-and-bar-cache.md, etf-page.md, OPS_RUNBOOK.md.

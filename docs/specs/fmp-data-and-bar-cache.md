@@ -673,7 +673,7 @@ list item 1). Code: `core/history_merge.py` (the rule, the registry, the tracker
 | `LongHistoryBars` | cold: replace (nothing to lose); warm: top-up upsert; restatement: replace | unchanged behaviour, a restated AND shorter answer is now logged and counted |
 | `CorporateEvent` | upsert only, never deletes (regression test `test_a_narrower_second_response_never_deletes_cached_rows`); `prune_old_events` by event date only | verified, unchanged |
 | `IndexConstituent` | delete-then-insert behind sanity floors | unchanged (a short list is refused by the floors) |
-| Deletes: `pipeline/refresh.py::clear_ticker_cache` (Refresh button), `prune_cache` (180 days), the purges | delete | Refresh: a history row is **kept and marked stale** instead of deleted (below); prune: skips a marked row; the age prune and the ticker purges are deliberate and unchanged |
+| Deletes: `pipeline/refresh.py::clear_ticker_cache` (Refresh button), `prune_cache` (180 days, untracked tickers only since 2026-10-20), the purges | delete | Refresh: a history row is **kept and marked stale** instead of deleted (below); prune: skips a marked row; the age prune and the ticker purges are deliberate and unchanged |
 
 **Bars were not safe by construction** (the downgrade report called them safe in practice): a full answer of 20 or more
 bars replaced the ticker's rows even when shorter than the cache. They are safe today only because the nightly window
@@ -728,8 +728,12 @@ coverage check from re-fetching the whole window every night.
 `clear_ticker_cache` no longer deletes a history row: it keeps the rows and sets `fetched_at = INVALIDATED_AT`
 (1970-01-01), which every freshness rule reads as stale (`_is_earnings_aware_stale` checks it first, so the 2-day
 post-earnings buffer does not postpone the refetch). The refetch is then merged. Non-history rows are deleted as before,
-`cleared_entries` still counts all of them. `prune_cache` never prunes a marked row. The 180-day age prune of untouched
-rows is unchanged: a ticker not touched for 6 months loses its rows and would rebuild at whatever depth the plan serves.
+`cleared_entries` still counts all of them. `prune_cache` never prunes a marked row. The 180-day age prune now
+spares every **tracked** ticker (stock or ETF; changed 2026-10-20, docs/decisions.md), so a slow reporter or an on-demand row type keeps its
+last-known rows however old. An untracked ticker (browsed, expired, untracked, delisted, an orphan, a non-ticker key such as `forex_rate`) not
+touched for 6 months still loses its rows and would rebuild at whatever depth the plan serves. Fail-safe: if the tracked set cannot be built, is
+empty or has fewer than `MIN_TRACKED_TICKERS` (100) tickers, nothing is age-pruned and the job reports `skipped`. The dead `treasury_rates` type
+stays on the plain age rule for every ticker.
 
 ### Audit
 

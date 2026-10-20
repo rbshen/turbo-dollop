@@ -384,18 +384,24 @@ writes nothing at all). Since the **2026-10-03 cutover (step 7)** it is the only
 
 **`prune_cache`** — deletes `FundamentalsCache` rows older than
 `Settings.cache_retention_days` (180 days by default; distinct from the
-7-day staleness window, which only controls refetching, not deletion).
-Success: a log line `Pruned N FundamentalsCache row(s) older than 180
-days.` in `backend/logs/prune_cache.log`. `--dry-run` previews the count
-without deleting. The same job also trims `SharedBarsCache` (FMP OHLCV bars)
+7-day staleness window, which only controls refetching, not deletion)
+**for tickers outside the tracked universe only** (since 2026-10-20: a
+tracked stock or ETF keeps its last-known rows whatever their age; the dead
+`treasury_rates` type is still age-pruned for everyone).
+Success: a log line `FundamentalsCache: N row(s) older than 180 days
+deleted; K spared (tracked ticker).` in `backend/logs/prune_cache.log`.
+**Fail-safe:** if the tracked set cannot be built, is empty or has fewer than
+100 tickers, the age rule deletes nothing, logs a warning and the run is
+recorded as `skipped` with the reason (the bars trim still runs); look at
+`classify_known_tickers` / the DB if that appears. `--dry-run` previews the
+count without deleting. The same job also trims `SharedBarsCache` (FMP OHLCV bars)
 to 6 years of `1d` / 3 years of `60m` (`clients/shared_bars_cache.py::
 RETENTION_DAYS`) and logs one `SharedBarsCache: N '<interval>' bar(s) older
 than D days deleted.` line per interval — a few thousand bars a week in
 steady state, ~1M on the very first run after a long-unpruned cache. If the
-FundamentalsCache N is unexpectedly huge, check whether the S&P
-500/Dow constituent lists synced correctly recently (see the section
-below) — a broken sync can make otherwise-active tickers look
-"orphaned" and eligible for pruning.
+FundamentalsCache N is unexpectedly huge, check the tracked universe
+(docs/specs/tracked-universe.md) before anything else: a ticker wrongly
+classified `browsed`/`expired`/`untracked` is eligible for pruning.
 
 **`backup_db`** — writes a compressed, timestamped snapshot of
 `fathom.db` to `backend/backups/` (gitignored, not synced anywhere else
