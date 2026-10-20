@@ -30,6 +30,25 @@ const STATUS_PILL: Record<CronJobHealthOut["health_status"], { tone: StatusTone;
   skipped: { tone: "neutral", label: "Skipped" },
 };
 
+const LAST_FAILURE_MAX_CHARS = 140;
+
+/** The server clock is UTC and CronRunLog times are naive, so the stored text is shown as is ("2026-10-18 03:30 UTC") rather than parsed
+ * into the browser's zone. */
+export function formatFailureTime(iso: string): string {
+  return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+}
+
+/** Quiet "Last failure ..." line under a job's message, for a failure in the last 14 days even when the latest run succeeded. Nothing when
+ * the latest run IS that failure (its message is already on the row). Full text on hover. */
+function lastFailureLine(job: CronJobHealthOut): { text: string; full: string } | null {
+  const failure = job.last_failure;
+  if (!failure || failure.started_at === job.last_run?.started_at) return null;
+  const summary = (failure.error_summary ?? "").trim();
+  const short = summary.length > LAST_FAILURE_MAX_CHARS ? `${summary.slice(0, LAST_FAILURE_MAX_CHARS).trimEnd()}…` : summary;
+  const when = formatFailureTime(failure.started_at);
+  return { text: short ? `Last failure ${when}: ${short}` : `Last failure ${when}`, full: summary ? `Last failure ${when}: ${summary}` : `Last failure ${when}` };
+}
+
 /** One job's health pill -- exported so /styleguide shows the real thing. */
 export function JobStatusPill({ status }: { status: CronJobHealthOut["health_status"] }) {
   const { tone, label } = STATUS_PILL[status];
@@ -116,6 +135,14 @@ export function ScheduledJobsSection() {
                       )}
                     >
                       {job.message ?? "—"}
+                      {(() => {
+                        const line = lastFailureLine(job);
+                        return line ? (
+                          <div className="mt-0.5 text-[11px] text-text-tertiary" title={line.full} data-testid="last-failure">
+                            {line.text}
+                          </div>
+                        ) : null;
+                      })()}
                     </TableCell>
                   </TableRow>
                 ))

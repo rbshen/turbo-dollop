@@ -84,6 +84,9 @@ export interface CronJobHealthOut {
   message: string | null;
   last_run: CronRunOut | null;
   last_success_at: string | null;
+  // The job's latest failed run in the last 14 days, whatever the latest run is (core/cron_health.py::_attach_last_failures); display only,
+  // never an input to health_status. null/absent when there is none.
+  last_failure?: CronRunOut | null;
   // Set only when health_status === "skipped": start of the current streak of skipped runs.
   skipped_since: string | null;
   // Static display metadata (core/cron_health.py::JOB_METADATA), sourced

@@ -141,3 +141,73 @@ describe("ScheduledJobsSection: the cadence strip is a neutral tab list", () => 
     await waitFor(() => expect(groupEntry(/^Weekly/)).toHaveFocus());
   });
 });
+
+describe("ScheduledJobsSection: last failure", () => {
+  const failure = {
+    job_name: "pipeline.backup_db",
+    started_at: "2026-10-18T03:30:02.931411",
+    finished_at: "2026-10-18T03:30:02.987923",
+    status: "failure",
+    error_summary: "InsufficientDiskSpaceError: Refusing to start backup: 1.58 GB free on the volume holding /home/shen/fathom/backend/backups",
+  };
+  const latest = { ...failure, started_at: "2026-10-19T03:30:03.056298", status: "success", error_summary: "158.1 MB, 1 old backup(s) pruned" };
+
+  it("shows the time and a short message for a failure that a later success did not erase", () => {
+    mockData([job({ health_status: "ok", message: "158.1 MB, 1 old backup(s) pruned", last_run: latest, last_failure: failure })]);
+    render(<ScheduledJobsSection />);
+
+    expect(screen.getByText("Success")).toBeInTheDocument(); // the latest status is untouched
+    const line = screen.getByTestId("last-failure");
+    expect(line).toHaveTextContent("Last failure 2026-10-18 03:30 UTC: InsufficientDiskSpaceError: Refusing to start backup");
+    expect(line.getAttribute("title")).toContain("1.58 GB free on the volume holding /home/shen/fathom/backend/backups"); // full text on hover
+  });
+
+  it("truncates a long message and keeps the whole text in the hover title", () => {
+    const long = "RuntimeError: " + "x".repeat(300);
+    mockData([job({ last_run: latest, last_failure: { ...failure, error_summary: long } })]);
+    render(<ScheduledJobsSection />);
+
+    const line = screen.getByTestId("last-failure");
+    expect(line.textContent!.endsWith("…")).toBe(true);
+    expect(line.textContent!.length).toBeLessThan(200);
+    expect(line.getAttribute("title")).toContain("x".repeat(300));
+  });
+
+  it("is quiet text: tertiary tone, no accent colour, no control", () => {
+    mockData([job({ last_run: latest, last_failure: failure })]);
+    render(<ScheduledJobsSection />);
+
+    const line = screen.getByTestId("last-failure");
+    expect(line.className).toMatch(/text-text-tertiary/);
+    expect(line.className).not.toMatch(/negative|warn|brand|positive|sky-|red-|amber-/);
+    expect(line.querySelector("button, a, input")).toBeNull();
+  });
+
+  it("shows nothing extra for a job with no failure in the window", () => {
+    mockData([job({ last_run: latest, last_failure: null }), job({ job_name: "other", description: "Other job", last_run: latest })]);
+    render(<ScheduledJobsSection />);
+
+    expect(screen.queryByTestId("last-failure")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/Last failure/);
+  });
+
+  it("does not repeat the failure on a row whose latest run is that failure", () => {
+    mockData([job({ health_status: "failed", message: failure.error_summary, last_run: failure, last_failure: failure })]);
+    render(<ScheduledJobsSection />);
+
+    expect(screen.getByText("Failed").className).toMatch(/text-negative/);
+    expect(screen.queryByTestId("last-failure")).toBeNull();
+  });
+
+  it("shows the earlier failure under a red row when the latest failure is a different run", () => {
+    mockData([job({ health_status: "failed", message: "boom", last_run: { ...failure, started_at: "2026-10-20T03:30:00" }, last_failure: { ...failure, started_at: "2026-10-18T03:30:02" } })]);
+    render(<ScheduledJobsSection />);
+    // The latest failure IS last_failure in the API, so a differing started_at cannot occur; the guard compares runs, not statuses.
+    expect(screen.getByTestId("last-failure")).toBeInTheDocument();
+  });
+
+  it("formats the stored UTC time without parsing it into the browser's zone", async () => {
+    const { formatFailureTime } = await import("@/components/settings/ScheduledJobsSection");
+    expect(formatFailureTime("2026-10-18T03:30:02.931411")).toBe("2026-10-18 03:30 UTC");
+  });
+});
