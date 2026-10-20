@@ -68,17 +68,24 @@ def test_job_metadata_matches_cron_job_names():
     )
 
 
-def _crontab_schedule() -> dict[str, tuple[str, str, str, str, str]]:
-    """module name -> the five raw cron time fields (minute, hour, dom, month, dow)."""
-    schedule = {}
+def _crontab_entries() -> dict[str, list[tuple[str, str, str, str, str]]]:
+    """module name -> the five raw cron time fields (minute, hour, dom, month, dow) of EVERY active line for it, in file order.
+    pipeline.backup_db has two (the daily 3:30 and the Saturday 4:15, 2026-10-20)."""
+    entries: dict[str, list[tuple[str, str, str, str, str]]] = {}
     for line in CRONTAB_PATH.read_text().splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
         match = re.search(r"-m ([\w.]+)", stripped)
         if match:
-            schedule[match.group(1)] = tuple(stripped.split()[:5])
-    return schedule
+            entries.setdefault(match.group(1), []).append(tuple(stripped.split()[:5]))
+    return entries
+
+
+def _crontab_schedule() -> dict[str, tuple[str, str, str, str, str]]:
+    """module name -> the five raw cron time fields of its FIRST active line (the primary schedule; for backup_db the daily 3:30 line, which
+    is kept above the Saturday one in crontab.txt, and test_backup_db_runs_a_second_time_on_saturday_after_the_weekly_job pins both)."""
+    return {module: lines[0] for module, lines in _crontab_entries().items()}
 
 
 def _daily_minute_of_day(module: str) -> int:
@@ -293,3 +300,35 @@ def test_the_daily_flag_job_runs_between_the_outcome_updater_and_the_saturday_jo
     assert scheduled >= _daily_minute_of_day("pipeline.backup_db") + 8
     minute, hour, *_ = _crontab_schedule()["pipeline.weekly_opportunity_snapshot"]
     assert int(hour) * 60 + int(minute) - scheduled >= 15
+
+
+def test_backup_db_has_exactly_the_daily_line_first_and_one_saturday_line():
+    lines = _crontab_entries()["pipeline.backup_db"]
+    assert lines == [("30", "3", "*", "*", "*"), ("15", "4", "*", "*", "6")], lines
+    assert JOB_METADATA["pipeline.backup_db"].sort_minutes == 3 * 60 + 30  # the display row is the daily line
+
+
+def test_the_saturday_backup_runs_after_the_weekly_job_and_before_the_next_scheduled_job():
+    """Saturday 4:15: the weekly opportunity job starts 4:00 and took 12 s (04:00:03-04:00:15 on 2026-10-17), so 15 minutes after its start leaves
+    >= 14 min of margin; the 3:30 backup took 113-307 s over 69 successful runs, so it is long finished; and the Saturday 4:15 backup (same
+    ~5 min worst) ends > 90 min before the next scheduled job of that morning, the 6:00 corporate-events refresh."""
+    saturday = [f for f in _crontab_entries()["pipeline.backup_db"] if f[4] == "6"]
+    assert len(saturday) == 1
+    minute, hour, dom, month, dow = saturday[0]
+    assert (dom, month) == ("*", "*")
+    start = int(hour) * 60 + int(minute)
+    weekly_minute, weekly_hour, *_ = _crontab_schedule()["pipeline.weekly_opportunity_snapshot"]
+    weekly = int(weekly_hour) * 60 + int(weekly_minute)
+    assert start >= weekly + 10, "the weekly job (~15 s) must be finished with a wide margin"
+    assert start >= _daily_minute_of_day("pipeline.backup_db") + 30, "the Saturday 3:30 backup (<= ~5 min) must be long finished"
+    assert start >= _daily_minute_of_day("pipeline.opportunity_daily_flags") + 20  # nor overlap the 3:30-3:45 chain
+    # Every other job that runs on a Saturday (daily lines included): none inside [start - 10, start + 30] (a backup takes up to ~5 min).
+    for module, lines in _crontab_entries().items():
+        for m, h, d, mo, w in lines:
+            if (module, (m, h, d, mo, w)) == ("pipeline.backup_db", saturday[0]):
+                continue
+            if w in ("*", "6"):
+                other = int(h) * 60 + int(m)
+                assert not (start - 10 <= other <= start + 30), f"{module} at {h}:{m} is too close to the Saturday 4:15 backup"
+    later = [int(h) * 60 + int(m) for module, lines in _crontab_entries().items() for m, h, d, mo, w in lines if w in ("*", "6") and int(h) * 60 + int(m) > start]
+    assert min(later) - start >= 90, "the next scheduled job after the Saturday backup (corporate events 6:00) must leave >= 90 minutes"

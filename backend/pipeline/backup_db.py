@@ -40,6 +40,14 @@ LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "backup_db.log"
 #     back ~5 weeks.
 # Both tiers count distinct dates present on disk, not calendar days back, so
 # an outage never shrinks retention below 3 daily copies.
+# Saturday runs twice (03:30 and, since 2026-10-20, 04:15 after the weekly
+# opportunity job). A date is kept or dropped as a whole in the daily tier, so
+# Saturday's second file lives only while Saturday is one of the newest 3 dates
+# (Sat 04:15 to Tue 03:30) and then goes with its date: the Sunday backup is
+# the week's last, so Saturday is never a weekly copy unless Sunday failed. In
+# the weekly tier only the newest file of a date is kept, so even the
+# Sunday-failed fallback holds one file (the 04:15 one). Worst case 8 files
+# (3 dates with Saturday doubled, plus 4 weekly), steady state 7.
 BACKUP_KEEP_DAILY = 3
 BACKUP_KEEP_WEEKLY = 4
 
@@ -214,8 +222,10 @@ def select_backups_to_prune(paths: list[Path], stem: str, keep_daily: int, keep_
     anything else in the directory (a hand-made `fathom_before_migration.
     db.gz`, another DB's backups) is never returned, so it can't be deleted
     by a rule that doesn't understand it. Retention works on dates: every
-    file on a kept date is kept (a manual same-day re-run doesn't displace
-    anything), and every file on a dropped date is dropped."""
+    file on a daily-tier date is kept (a manual same-day re-run, or the
+    Saturday 04:15 backup beside the 03:30 one, doesn't displace anything),
+    every file on a dropped date is dropped, and a weekly-tier date keeps
+    only its newest file (2026-10-20)."""
     name_re = re.compile(rf"^{re.escape(stem)}_(\d{{8}})_\d{{6}}\.db\.gz$")
     by_date: dict[date, list[Path]] = {}
     for path in paths:
@@ -236,9 +246,16 @@ def select_backups_to_prune(paths: list[Path], stem: str, keep_daily: int, keep_
     for backup_date in newest_first:
         last_of_week.setdefault(backup_date.isocalendar()[:2], backup_date)
     weekly_candidates = sorted((d for d in last_of_week.values() if d not in kept), reverse=True)
-    kept |= set(weekly_candidates[: max(keep_weekly, 0)])
+    weekly_dates = set(weekly_candidates[: max(keep_weekly, 0)])
+    kept |= weekly_dates
 
-    return sorted(path for backup_date, files in by_date.items() if backup_date not in kept for path in files)
+    # Daily-tier dates keep every file on them (the Saturday 04:15 backup sits beside the 03:30 one for the 3 days
+    # it is inside the window); a weekly-tier date keeps ONLY its newest file (names carry HHMMSS, so the highest
+    # name), so a week that falls back to a Saturday copy holds the 04:15 file, not both. Bounds the weekly tier
+    # to exactly keep_weekly files.
+    surplus = [path for backup_date in weekly_dates for path in sorted(by_date[backup_date], key=lambda p: p.name)[:-1]]
+    dropped = [path for backup_date, files in by_date.items() if backup_date not in kept for path in files]
+    return sorted(dropped + surplus)
 
 
 def _prune_old_backups(backup_dir: Path, stem: str, keep_daily: int, keep_weekly: int) -> list[Path]:

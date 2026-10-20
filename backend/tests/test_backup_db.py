@@ -135,6 +135,92 @@ def test_every_file_on_a_kept_date_is_kept_and_on_a_dropped_date_dropped(tmp_pat
     assert sorted(deleted) == sorted([old_a, old_b])
 
 
+def _files(backup_dir: Path, names: list[str]) -> list[Path]:
+    backup_dir.mkdir(exist_ok=True)
+    paths = []
+    for n in names:
+        path = backup_dir / n
+        path.write_bytes(b"fake")
+        paths.append(path)
+    return paths
+
+
+def _simulate_nights(backup_dir: Path, start, nights: int, fail_dates=frozenset()) -> list[tuple[object, int]]:
+    """Runs the real daily schedule through the pure rule: 03:30 every night, plus 04:15 on Saturdays, pruning after
+    each run (as create_backup does). Returns (day, file count after that day's last run) per night."""
+    from datetime import timedelta
+
+    counts = []
+    for i in range(nights):
+        day = start + timedelta(days=i)
+        runs = ["033002"]
+        if day.weekday() == 5:  # Saturday
+            runs.append("041503")
+        for stamp in runs:
+            if day in fail_dates and stamp == "033002":
+                continue
+            (backup_dir / f"fathom_{day:%Y%m%d}_{stamp}.db.gz").write_bytes(b"fake")
+            for gone in backup_db.select_backups_to_prune(list(backup_dir.glob("fathom_*.db.gz")), "fathom", 3, 4):
+                gone.unlink()
+        counts.append((day, len(list(backup_dir.glob("fathom_*.db.gz")))))
+    return counts
+
+
+def test_two_files_on_one_daily_date_are_both_kept_then_both_dropped_with_the_date(tmp_path):
+    # Saturday 2026-10-24 has the 03:30 and the 04:15 file. Daily window of 3: Sat, Fri, Thu.
+    names = ["fathom_20261022_033002.db.gz", "fathom_20261023_033002.db.gz", "fathom_20261024_033002.db.gz", "fathom_20261024_041503.db.gz"]
+    paths = _files(tmp_path, names)
+    assert backup_db.select_backups_to_prune(paths, "fathom", 3, 0) == []
+    # Sunday and Monday arrive: Saturday is still inside the window of 3 on Monday ...
+    paths += _files(tmp_path, ["fathom_20261025_033002.db.gz", "fathom_20261026_033002.db.gz"])
+    assert _select(paths, keep_daily=3, keep_weekly=0) == ["fathom_20261022_033002.db.gz", "fathom_20261023_033002.db.gz"]
+    # ... and Tuesday pushes the whole date out, both files together (Sunday is that week's last backup, so Saturday is no weekly copy).
+    paths += _files(tmp_path, ["fathom_20261027_033002.db.gz"])
+    assert _select(paths, keep_daily=3, keep_weekly=4) == sorted(
+        ["fathom_20261022_033002.db.gz", "fathom_20261023_033002.db.gz", "fathom_20261024_033002.db.gz", "fathom_20261024_041503.db.gz"]
+    )
+
+
+def test_a_weekly_tier_date_keeps_only_its_newest_file(tmp_path):
+    # Sunday 2026-10-18 failed, so Saturday 10-17 (two files) is that week's last backup and becomes the weekly copy.
+    names = ["fathom_20261017_033003.db.gz", "fathom_20261017_041503.db.gz"] + [f"fathom_202610{d}_033002.db.gz" for d in (19, 20, 21, 22)]
+    paths = _files(tmp_path, names)
+    # The 03:30 copy goes with 10-19 (outside the window; its week's last backup, 10-22, is in it); the 04:15 one stays.
+    assert _select(paths, keep_daily=3, keep_weekly=4) == ["fathom_20261017_033003.db.gz", "fathom_20261019_033002.db.gz"]
+
+
+def test_daily_tier_still_keeps_manual_same_day_files(tmp_path):
+    paths = _files(tmp_path, ["fathom_20261021_033002.db.gz", "fathom_20261021_140000.db.gz", "fathom_20261022_033002.db.gz"])
+    assert _select(paths, keep_daily=3, keep_weekly=4) == []
+
+
+def test_steady_state_with_the_saturday_backup_is_seven_files_and_never_more_than_eight(tmp_path):
+    from datetime import date
+
+    # 12 weeks of nightly backups starting Monday 2026-08-03, Saturday doubled.
+    counts = _simulate_nights(tmp_path, date(2026, 8, 3), 12 * 7)
+    settled = [(d, n) for d, n in counts if d >= date(2026, 9, 14)]  # past the 4-week ramp-up
+    assert max(n for _, n in settled) == 8, settled
+    assert min(n for _, n in settled) == 7, settled
+    # Eight files exist only from Saturday 04:15 through Monday; Tuesday's prune is back to seven.
+    assert {d.strftime("%a") for d, n in settled if n == 8} == {"Sat", "Sun", "Mon"}
+    assert {d.strftime("%a") for d, n in settled if n == 7} == {"Tue", "Wed", "Thu", "Fri"}
+
+
+def test_a_failed_sunday_leaves_one_saturday_file_as_that_weeks_copy_and_stays_bounded(tmp_path):
+    from datetime import date, timedelta
+
+    sundays = {date(2026, 8, 3) + timedelta(days=6 + 7 * w) for w in range(12)}
+    counts = _simulate_nights(tmp_path, date(2026, 8, 3), 12 * 7, fail_dates=sundays)  # every Sunday backup fails
+    assert max(n for d, n in counts if d >= date(2026, 9, 14)) <= 8
+    names = sorted(p.name for p in tmp_path.glob("fathom_*.db.gz"))
+    newest_three = {n.split("_")[1] for n in names[-4:]}  # the daily window (one date may hold two files)
+    saturdays = {f"{d - timedelta(days=1):%Y%m%d}" for d in sundays}
+    weekly_saturdays = [n for n in names if n.split("_")[1] in saturdays and n.split("_")[1] not in newest_three]
+    assert len(weekly_saturdays) == 4  # exactly keep_weekly files, one per week
+    assert all(n.endswith("_041503.db.gz") for n in weekly_saturdays)  # the 04:15 copy, which holds the weekly list
+
+
 def test_files_the_rule_does_not_understand_are_never_pruned(tmp_path):
     tmp_path.mkdir(exist_ok=True)
     odd = [

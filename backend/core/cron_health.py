@@ -162,7 +162,9 @@ JOB_METADATA: dict[str, JobMetadata] = {
     "pipeline.nightly_etf_screener": JobMetadata(
         "ETFs screener refresh (fund facts, returns, Weinstein stage, signals per ETF)", "daily", "1:45 AM", 60 + 45
     ),
-    "pipeline.backup_db": JobMetadata("Nightly SQLite backup + rotation", "daily", "3:30 AM", 3 * 60 + 30),
+    "pipeline.backup_db": JobMetadata(
+        "Nightly SQLite backup + rotation (Saturdays also 4:15 AM, after the weekly opportunity list)", "daily", "3:30 AM", 3 * 60 + 30
+    ),
     "scrapers.refresh_sp500_list": JobMetadata("Keeps your S&P 500 stock list up to date", "weekly", "Sun 12:00 AM", 0),
     "scrapers.refresh_nasdaq_list": JobMetadata("Keeps your Nasdaq-100 stock list up to date", "weekly", "Sun 12:05 AM", 5),
     "scrapers.refresh_dow_list": JobMetadata("Keeps your Dow Jones stock list up to date", "weekly", "Sun 12:10 AM", 10),

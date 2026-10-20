@@ -164,6 +164,15 @@
 # weekly copies. ~3 min. See pipeline/backup_db.py.
 30 3 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/backup_db.lock /home/shen/.local/bin/uv run python -m pipeline.backup_db >> /home/shen/fathom/backend/logs/backup_db_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped backup_db: the previous run is still going" >> /home/shen/fathom/backend/logs/backup_db_cron.log
 
+# 4:15 Saturday SQLite backup (2026-10-20): the weekly opportunity list is written at Saturday 4:00 (about 15 s)
+# and TrendAnalysis/TickerScore are overwritten nightly, so the list cannot be rebuilt; the 3:30 backup
+# predates it and the next one is Sunday 3:30, so a Saturday-only loss window of ~47 h existed until Monday's
+# backup. Same job, same lock file as the 3:30 line (two backups can never run at once), same heartbeat name
+# and log. Runs 15 minutes after the 4:00 job started (it ended 4:00:15), ~3-5 min, and ends well before the
+# next scheduled job (Saturday 6:00 corporate events). The Saturday file is pruned with its date: the Sunday
+# 3:30 backup is the ISO week's weekly copy. Same 1.25x free-space pre-check as every run.
+15 4 * * 6 cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/backup_db.lock /home/shen/.local/bin/uv run python -m pipeline.backup_db >> /home/shen/fathom/backend/logs/backup_db_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped backup_db: the previous run is still going" >> /home/shen/fathom/backend/logs/backup_db_cron.log
+
 # PLAN NOTE (2026-10-14): the plan is Starter and the three constituent endpoints answer 402 on it (Premium tier; the
 # `index_membership` group is recorded Premium, so it reads "Not on plan"). While the plan stays Starter the three
 # jobs below start, skip before any FMP call (a real `skipped` status, no error, no alert), and leave the stored lists

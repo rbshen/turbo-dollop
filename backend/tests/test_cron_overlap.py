@@ -31,8 +31,10 @@ def test_every_active_line_is_under_a_per_job_flock():
 
 
 def test_lock_files_are_unique_per_job():
-    locks = [re.search(r"logs/locks/(\S+\.lock)", l).group(1) for l in LINES]
-    assert len(locks) == len(set(locks))
+    # One lock per JOB, not per line: backup_db has a 3:30 daily and a Saturday 4:15 line that deliberately share backup_db.lock, so two
+    # backups can never run at once.
+    locks = {(_job(l), re.search(r"logs/locks/(\S+\.lock)", l).group(1)) for l in LINES}
+    assert len({lock for _, lock in locks}) == len({job for job, _ in locks})
 
 
 def test_schedule_and_command_are_otherwise_unchanged():
