@@ -332,3 +332,19 @@ def test_the_saturday_backup_runs_after_the_weekly_job_and_before_the_next_sched
                 assert not (start - 10 <= other <= start + 30), f"{module} at {h}:{m} is too close to the Saturday 4:15 backup"
     later = [int(h) * 60 + int(m) for module, lines in _crontab_entries().items() for m, h, d, mo, w in lines if w in ("*", "6") and int(h) * 60 + int(m) > start]
     assert min(later) - start >= 90, "the next scheduled job after the Saturday backup (corporate events 6:00) must leave >= 90 minutes"
+
+
+def test_the_disk_check_runs_after_the_recompute_and_before_the_backup_with_margin():
+    """3:28: the recompute finished by 03:25:48 on 19 of 20 nights (03:26:22 worst), so 3:28 leaves >= 1.5 min after the worst; the check is ~2 s,
+    and the backup starts 2 minutes later, so it reads the space the backup will see."""
+    from core.cron_health import _DAILY_HOURS, _EXPECTED_CADENCE_HOURS
+
+    name = "pipeline.disk_space_check"
+    assert name in CRON_JOB_NAMES and name in JOB_METADATA and name not in DISABLED_CRON_JOBS
+    assert _EXPECTED_CADENCE_HOURS[name] == _DAILY_HOURS == 36
+    assert _crontab_entries()[name] == [("28", "3", "*", "*", "*")]
+    check = _daily_minute_of_day(name)
+    assert check == JOB_METADATA[name].sort_minutes == 3 * 60 + 28
+    assert check >= _daily_minute_of_day("pipeline.nightly_score_recompute") + 2
+    assert check + 2 <= _daily_minute_of_day("pipeline.backup_db")
+    assert check > _daily_minute_of_day("pipeline.nightly_price_target_snapshot") + 10

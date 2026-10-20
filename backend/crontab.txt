@@ -158,6 +158,14 @@
 # pipeline/nightly_score_recompute.py). Cache-only, zero FMP calls (~25s).
 25 3 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/nightly_score_recompute.lock /home/shen/.local/bin/uv run python -m pipeline.nightly_score_recompute >> /home/shen/fathom/backend/logs/nightly_score_recompute_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped nightly_score_recompute: the previous run is still going" >> /home/shen/fathom/backend/logs/nightly_score_recompute_cron.log
 
+# 3:28 Low-disk early warning (2026-10-20): free space on the volume holding fathom.db, read with
+# os.statvfs, no FMP call, no write but its own heartbeat row. Success message "N GB free (warn below
+# 3.5 GB, hard limit 2.0 GB)"; one night below 3.5 GB is still a success whose message says "Low disk
+# warning ... (night 1 of 2)", a second night in a row or any night below 2.0 GB is a failure (red).
+# After the 3:25 recompute (finished 3:25:48 at the latest, 3:26:22 worst, over 20 nights) and 2 minutes
+# before the backup, so it reads the space the backup will see. ~2 s. See pipeline/disk_space_check.py.
+28 3 * * * cd /home/shen/fathom/backend && mkdir -p logs/locks && /usr/bin/flock -n -E 99 logs/locks/disk_space_check.lock /home/shen/.local/bin/uv run python -m pipeline.disk_space_check >> /home/shen/fathom/backend/logs/disk_space_check_cron.log 2>&1; [ $? -ne 99 ] || echo "$(date -u +\%FT\%TZ) skipped disk_space_check: the previous run is still going" >> /home/shen/fathom/backend/logs/disk_space_check_cron.log
+
 # 3:30 Daily SQLite backup (was 3:55 before the 2026-09-30 reorder) -- last in the
 # chain so it holds the night's full output. Compressed, timestamped copy of
 # fathom.db to backend/backups/ (gitignored); keeps the newest 3 daily + 4

@@ -67,6 +67,7 @@ CRON_JOB_NAMES: list[str] = [
     "pipeline.opportunity_outcome_update",
     "pipeline.opportunity_daily_flags",
     "pipeline.backup_db",
+    "pipeline.disk_space_check",
 ]
 
 # Expected cadence per job, with slack -- daily jobs (1:00 AM through 3:30 AM)
@@ -92,6 +93,7 @@ _EXPECTED_CADENCE_HOURS: dict[str, int] = {
     "pipeline.nightly_market_breadth": _DAILY_HOURS,
     "pipeline.nightly_etf_screener": _DAILY_HOURS,
     "pipeline.backup_db": _DAILY_HOURS,
+    "pipeline.disk_space_check": _DAILY_HOURS,
     "scrapers.refresh_sp500_list": _WEEKLY_HOURS,
     "scrapers.refresh_nasdaq_list": _WEEKLY_HOURS,
     "scrapers.refresh_dow_list": _WEEKLY_HOURS,
@@ -164,6 +166,12 @@ JOB_METADATA: dict[str, JobMetadata] = {
     ),
     "pipeline.backup_db": JobMetadata(
         "Nightly SQLite backup + rotation (Saturdays also 4:15 AM, after the weekly opportunity list)", "daily", "3:30 AM", 3 * 60 + 30
+    ),
+    "pipeline.disk_space_check": JobMetadata(
+        "Low-disk early warning: free space on the database volume (warn below 3.5 GB, red on a second night or below 2.0 GB)",
+        "daily",
+        "3:28 AM",
+        3 * 60 + 28,
     ),
     "scrapers.refresh_sp500_list": JobMetadata("Keeps your S&P 500 stock list up to date", "weekly", "Sun 12:00 AM", 0),
     "scrapers.refresh_nasdaq_list": JobMetadata("Keeps your Nasdaq-100 stock list up to date", "weekly", "Sun 12:05 AM", 5),
