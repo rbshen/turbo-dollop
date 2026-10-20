@@ -61,6 +61,7 @@ from data.score_recompute import (
 from data.moat import get_moat_score_config, get_ticker_moat, set_ticker_moat, update_moat_score_config
 from data.moat_check import get_latest_moat_check, moat_check_payload
 from data.market_breadth_data import get_market_breadth
+from data import opportunity_scorecard_data as scorecard_data
 from data.opportunity_data import get_run as get_opportunity_run, list_run_dates as list_opportunity_dates, record_picks as record_opportunity_picks
 from data.momentum_data import get_etf_momentum_snapshot, get_momentum_snapshot
 from data.warren_watch_data import anchor_headroom, remove_watch_row, watch_table
@@ -420,6 +421,36 @@ def opportunities_latest() -> OpportunityRunOut:
     if run is None:
         raise HTTPException(status_code=404, detail="No opportunity run has been saved yet.")
     return run
+
+
+# The Scorecard (docs/specs/opportunities.md, "Scorecard"): READ-ONLY aggregates of the stored outcome tables. These MUST be registered before
+# "/api/opportunities/{as_of_date}": the dated route would capture "scorecard" and answer 422. Cached in-process (data/opportunity_scorecard_data.py).
+@app.get("/api/opportunities/scorecard")
+def opportunities_scorecard(rules_version: str | None = None, triggers_version: str | None = None, weights_version: int | None = None) -> dict:
+    return scorecard_data.get_scorecard(rules_version, triggers_version, weights_version)
+
+
+@app.get("/api/opportunities/scorecard/flags")
+def opportunities_scorecard_flags(rules_version: str | None = None, triggers_version: str | None = None, weights_version: int | None = None) -> dict:
+    return scorecard_data.get_flags(rules_version, triggers_version, weights_version)
+
+
+@app.get("/api/opportunities/scorecard/picks")
+def opportunities_scorecard_picks(rules_version: str | None = None) -> dict:
+    return scorecard_data.get_picks(rules_version)
+
+
+@app.get("/api/opportunities/scorecard/outcomes")
+def opportunities_scorecard_outcomes(
+    source: Literal["listed", "flags", "pool"] = "listed",
+    horizon: int | None = None,
+    rules_version: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=scorecard_data.AUDIT_MAX_LIMIT)] = scorecard_data.AUDIT_DEFAULT_LIMIT,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict:
+    if horizon is not None and horizon not in scorecard_data.sc.HORIZONS:
+        raise HTTPException(status_code=422, detail=f"horizon must be one of {list(scorecard_data.sc.HORIZONS)}")
+    return scorecard_data.get_outcomes(source, horizon, rules_version, limit, offset)
 
 
 @app.get("/api/opportunities/{as_of_date}", response_model=OpportunityRunOut)

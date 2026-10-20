@@ -99,7 +99,10 @@ def test_the_opportunity_routes_are_get_only():
     for route in app.routes:
         if getattr(route, "path", "").startswith("/api/opportunities"):
             methods[route.path] = set(route.methods)
-    assert set(methods) == {"/api/opportunities/dates", "/api/opportunities/latest", "/api/opportunities/{as_of_date}"}
+    assert set(methods) == {
+        "/api/opportunities/dates", "/api/opportunities/latest", "/api/opportunities/scorecard", "/api/opportunities/scorecard/flags",
+        "/api/opportunities/scorecard/outcomes", "/api/opportunities/scorecard/picks", "/api/opportunities/{as_of_date}",
+    }
     assert all(m <= {"GET", "HEAD"} for m in methods.values())
 
 
