@@ -2238,3 +2238,221 @@ export interface WarrenWatchOut {
   rows: WarrenWatchRowOut[];
   anchor_headroom?: AnchorHeadroomOut | null;
 }
+
+// GET /api/opportunities/scorecard{,/flags,/picks,/outcomes} (docs/specs/opportunities.md, "Scorecard"). Returns are FRACTIONS (0.05 = 5%).
+// A cell below the gate carries counts only: `values` is null.
+export type ScorecardState = "too_early" | "early" | "ok";
+export type ScorecardBenchmark = "spy" | "sector";
+export type ScorecardHorizon = 5 | 10 | 20 | 60;
+
+export interface ScorecardValues {
+  median_excess: number | null;
+  mean_excess: number;
+  share_above: number;
+  cohorts_positive: number;
+  cohorts_counted: number;
+  benchmark_median_return: number | null;
+  median_return: number | null;
+  stop_hit_rate: number | null;
+  stop_n: number;
+  median_with_stop_return: number | null;
+  median_with_stop_excess: number | null;
+  median_worst_move: number | null;
+  median_drawdown: number | null;
+  including_censored: { n: number; median_excess: number | null };
+}
+
+export interface ScorecardCounts {
+  n_complete: number;
+  n_pending: number;
+  n_censored: number;
+  n_entry_gap: number;
+  n_no_benchmark: number;
+  n_unpriced?: number;
+  cohorts: number;
+  cohorts_total: number;
+  state: ScorecardState;
+}
+
+export interface ScorecardPool extends ScorecardCounts {
+  values: ScorecardValues | null;
+}
+
+export interface ScorecardCell extends ScorecardCounts {
+  values: ScorecardValues | null;
+  weights_versions: number[];
+  mixed_weights: boolean;
+  pool: ScorecardPool | null;
+  listed_minus_pool: { median_excess: number | null; cohorts: number } | null;
+}
+
+export interface ScorecardGroup {
+  key: string;
+  kind: "list" | "tier" | "leveraged" | "rule";
+  list_name: OpportunityListName | null;
+  tier: OpportunityTier | null;
+  rule: string | null;
+  has_pool: boolean;
+  cells: Record<string, Record<ScorecardBenchmark, ScorecardCell>>;
+}
+
+export interface ScorecardVersions {
+  selected: { rules: string; triggers: string; weights: number | null; current_rules: string; current_triggers: string };
+  available: { rules: string[]; triggers: string[]; weights: number[] };
+}
+
+export interface ScorecardLatest {
+  outcomes_spy_bar: string | null;
+  flags_session: string | null;
+  latest_outcome_run_id: number | null;
+  latest_daily_run_id: number | null;
+}
+
+export interface ScorecardThresholds {
+  min_rows: number;
+  min_cohorts: number;
+  early_rows: number;
+  early_cohorts: number;
+}
+
+export interface ScorecardCohort {
+  as_of_date: string;
+  run_id: number;
+  rules_version: string;
+  weights_version: number | null;
+  listed_rows: number;
+  pool_names: number;
+  horizons: Record<string, { complete: number; pending: number; censored: number; expected_data_date: string | null }>;
+}
+
+export interface ScorecardOut {
+  has_data: boolean;
+  versions: ScorecardVersions;
+  latest: ScorecardLatest;
+  thresholds: ScorecardThresholds;
+  horizons: number[];
+  benchmarks: ScorecardBenchmark[];
+  excluded: {
+    other_rules_version_rows: number;
+    other_rules_version_pool_rows: number;
+    cohorts_other_weights_version: number;
+    by_horizon: Record<string, { complete: number; pending: number; censored: number; entry_gap: number; leveraged: number }>;
+    note: string;
+  };
+  next_expected: Record<string, string>;
+  cohorts: ScorecardCohort[];
+  groups: ScorecardGroup[];
+}
+
+export type FlagTrigger = "D1" | "D2" | "D3";
+
+export interface FlagCellPair {
+  flagged: ScorecardCounts & { values: ScorecardValues | null };
+  unflagged?: ScorecardCounts & { values: ScorecardValues | null };
+}
+
+export type FlagCells = Record<string, Record<ScorecardBenchmark, FlagCellPair>>;
+
+export interface FlagTriggerOut {
+  trigger: FlagTrigger;
+  eligible: number;
+  flagged: number;
+  not_covered: number;
+  incomplete: number;
+  unflagged: number;
+  cohorts: number;
+  cohorts_window_open: number;
+  flagged_in_open_cohorts: number;
+  comparator_provisional: boolean;
+  per_cohort: {
+    cohort: string;
+    window_open: boolean;
+    weights_version: number | null;
+    eligible: number;
+    flagged: number;
+    not_covered: number;
+    incomplete: number;
+    unflagged: number;
+  }[];
+  cells: FlagCells;
+  split?: {
+    already_at_ma_on_list: { flagged: number; cells: FlagCells };
+    not_at_ma_on_list: { flagged: number; cells: FlagCells };
+  };
+}
+
+export interface FlagLedgerHorizon {
+  status: string;
+  forward_return: number | null;
+  excess_vs_spy: number | null;
+  excess_vs_sector: number | null;
+  stop_hit: boolean | null;
+  stop_fill_return: number | null;
+  with_stop_return: number | null;
+  entry_gap_flag: boolean;
+}
+
+export interface FlagLedgerRow {
+  flag_id: number;
+  ticker: string;
+  trigger: FlagTrigger;
+  trigger_id: string;
+  list_name: OpportunityListName;
+  tier: OpportunityTier;
+  leveraged: boolean;
+  list_as_of_date: string;
+  flag_date: string;
+  window_open: boolean;
+  already_at_ma_on_list: boolean | null;
+  horizons: Record<string, FlagLedgerHorizon | null>;
+}
+
+export interface ScorecardFlagsOut {
+  has_data: boolean;
+  versions: ScorecardVersions;
+  latest: ScorecardLatest;
+  thresholds: ScorecardThresholds;
+  comparator_label: string;
+  pricing_note: string;
+  excluded: { other_trigger_version_flags: number; cohorts_other_weights_version: number };
+  triggers: Record<FlagTrigger, FlagTriggerOut>;
+  any_flag: { flagged_names: number; flagged_in_open_cohorts: number; cells: FlagCells };
+  ledger: FlagLedgerRow[];
+}
+
+export interface ScorecardPicksOut {
+  label: string;
+  count: number;
+  empty: boolean;
+  cohorts: number;
+  unmatched: number;
+  message: string | null;
+  cells: Record<string, Record<ScorecardBenchmark, ScorecardCounts & { values: ScorecardValues | null }>> | null;
+}
+
+export interface ScorecardOutcomeRow {
+  source: string;
+  cohort: string | null;
+  weights_version: number | null;
+  ticker: string;
+  list_name: string | null;
+  tier: string | null;
+  leveraged?: boolean;
+  rules?: string[];
+  trigger_id?: string;
+  flag_date?: string;
+  horizon: number;
+  status: string;
+  censor_reason: string | null;
+  bucket: string;
+  [key: string]: unknown;
+}
+
+export interface ScorecardOutcomesOut {
+  source: "listed" | "flags" | "pool";
+  total: number;
+  offset: number;
+  limit: number;
+  truncated: boolean;
+  rows: ScorecardOutcomeRow[];
+}

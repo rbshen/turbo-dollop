@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { Suspense, useEffect, useId, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { MarketContextStrip } from "@/components/opportunities/MarketContextStrip";
 import { OpportunitiesTable } from "@/components/opportunities/OpportunitiesTable";
+import { ScorecardView } from "@/components/opportunities/ScorecardView";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { AdminOnly } from "@/components/auth/AdminOnly";
 import { AddToWatchlistButton, type AddedResult } from "@/components/ticker/AddToWatchlistButton";
@@ -46,14 +48,44 @@ function download(content: string, type: string, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
+type View = "lists" | "scorecard";
+
+/** ?view=scorecard in the URL opens the Scorecard; anything else (or nothing) is the Lists. */
+function viewFromSearch(value: string | null | undefined): View {
+  return value === "scorecard" ? "scorecard" : "lists";
+}
+
 export default function OpportunitiesPage() {
+  // useSearchParams (the ?view= parameter) needs a Suspense boundary on a prerendered page.
+  return (
+    <Suspense fallback={null}>
+      <OpportunitiesContent />
+    </Suspense>
+  );
+}
+
+function OpportunitiesContent() {
   const dateId = useId();
+  const searchParams = useSearchParams();
+  const [view, setView] = useState<View>(() => viewFromSearch(searchParams?.get("view")));
+  const onScorecard = view === "scorecard";
+
+  // Native replaceState integrates with the Next router; "lists" is the default, so it carries no parameter.
+  function changeView(next: string) {
+    const v = viewFromSearch(next);
+    setView(v);
+    const url = new URL(window.location.href);
+    if (v === "scorecard") url.searchParams.set("view", "scorecard");
+    else url.searchParams.delete("view");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+
   // null = the latest run; a date string = that stored run.
   const [asOf, setAsOf] = useState<string | null>(null);
   const [list, setList] = useState<OpportunityListName>("momentum");
   const [tier, setTier] = useState<TierFilter>("all");
-  const { data: dates } = useOpportunityDates();
-  const { data: run, error } = useOpportunityRun(asOf);
+  const { data: dates } = useOpportunityDates(!onScorecard);
+  const { data: run, error } = useOpportunityRun(asOf, !onScorecard);
 
   // Selection is held by ticker: it survives the tier filter and the Momentum / Reversal tabs, and is cleared when the snapshot date
   // changes and after a successful Add to watchlist. A ticker is on one list per run, so a ticker names one row.
@@ -139,8 +171,16 @@ export default function OpportunitiesPage() {
     <PageContainer className="space-y-6 pb-12">
       <PageHeader
         title="Weekly Routine"
-        subtitle={run ? `Frozen weekly lists as of ${run.as_of_date}, built from stored data only` : "Frozen weekly lists, built from stored data only"}
+        subtitle={
+          onScorecard
+            ? "What happened to the frozen weekly lists afterwards, from stored prices only"
+            : run
+              ? `Frozen weekly lists as of ${run.as_of_date}, built from stored data only`
+              : "Frozen weekly lists, built from stored data only"
+        }
+        // The list-only controls (snapshot date, Export, Add to watchlist) are not rendered on the Scorecard: hidden, not disabled.
         actions={
+          onScorecard ? undefined : (
           <>
             {dates && dates.length > 0 && (
               <div className="flex items-center gap-2">
@@ -176,15 +216,29 @@ export default function OpportunitiesPage() {
               />
             </AdminOnly>
           </>
+          )
         }
       />
 
-      {noRuns && <p className="text-sm text-text-tertiary">No snapshot yet — the weekly routine job has not run.</p>}
-      {!noRuns && error && <p className="text-sm text-negative">Couldn&apos;t load the weekly routine lists — {error.message}</p>}
+      <Tabs
+        aria-label="Weekly Routine view"
+        value={view}
+        onValueChange={changeView}
+        items={[
+          { value: "lists", label: "Lists" },
+          { value: "scorecard", label: "Scorecard" },
+        ]}
+        className="min-w-[220px]"
+      />
 
-      {!noRuns && !error && run && <MarketContextStrip market={summary?.market} asOf={run.as_of_date} />}
+      {onScorecard && <ScorecardView />}
 
-      {!noRuns && !error && (
+      {!onScorecard && noRuns && <p className="text-sm text-text-tertiary">No snapshot yet — the weekly routine job has not run.</p>}
+      {!onScorecard && !noRuns && error && <p className="text-sm text-negative">Couldn&apos;t load the weekly routine lists — {error.message}</p>}
+
+      {!onScorecard && !noRuns && !error && run && <MarketContextStrip market={summary?.market} asOf={run.as_of_date} />}
+
+      {!onScorecard && !noRuns && !error && (
         <Section>
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <Tabs
@@ -249,7 +303,7 @@ export default function OpportunitiesPage() {
         </Section>
       )}
 
-      {run && (
+      {!onScorecard && run && (
         <div className="space-y-1 text-xs text-text-tertiary">
           <p>
             Rules v{run.rules_version} ({run.rules_hash.slice(0, 8)}) · score formula v{run.score_formula_version}
