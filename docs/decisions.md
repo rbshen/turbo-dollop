@@ -1675,3 +1675,28 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 
 - Report only, nothing built. Findings: bars stay provisional for hours after the close (7 of 93 same-night events later proved phantom); no incremental saving is possible; a full run takes about 4-5 minutes and 125-422 MB.
 - No decision taken yet.
+
+### 2026-10-20 — Scorecard built: read-only API and a Scorecard tab on /opportunities
+
+**Decision.** The scorecard decided on 2026-10-12 is built as a read-only aggregate of the stored outcome tables: `scoring/opportunity_scorecard.py` (pure), `data/opportunity_scorecard_data.py` (one cohort at a time, in-process cache), four GETs under `/api/opportunities/scorecard` (registered before the dated route), and a page-level Lists / Scorecard tab pair (`?view=scorecard`). No schema change, no new table or column, no `init_db` change, no crontab or pipeline change, and the outcome engine, updater and flag job are untouched. Mechanism and wording rules: `docs/specs/opportunities.md`, "Scorecard".
+
+**The scorecard decisions, as implemented.** The seven recorded on 2026-10-12 (numbered as there), plus what this build's brief added:
+1. **Gate:** values only with 20 complete rows and 3 cohorts; "Early" until 60 rows and 8 cohorts; below it counts only, "—" and a "Too early" pill. The cohort count binds. Per cell and per benchmark: a sector-ETF cell counts only the rows that have a sector return.
+2. **Headline:** the median excess, taken per cohort and then across cohorts, beside the mean, the share above the benchmark, "k of m cohorts positive" and the benchmark's own median return.
+3. **Exclusions, each counted:** pending, censored (with an "including censored" sensitivity line), entry-gap rows and leveraged ETFs (their own row); another `RULES_VERSION` / `TRIGGERS_VERSION` is excluded by the selectors (default: current), never merged. The buckets are disjoint, checked in the order entry gap, pending, censored, complete.
+4. **Flag comparator:** same-list unflagged eligible names (eligible minus flagged, not covered and incomplete), priced from the list, labelled "Not a controlled comparison", provisional while the list's window is open; triggers never summed; "any flag" keeps the first flag per name; the main flag view is a per-name ledger with no averages.
+5. **Picks:** counts and a list-date proxy only, labelled "Priced from the list date, not your add date"; one-line empty state (no picks exist).
+6. **Placement:** page-level Lists / Scorecard tabs; the snapshot date, Export and Add controls are hidden on Scorecard, not disabled.
+7. **Deferred list of 2026-10-12, changed:** "rule-level cuts in the first view" is now built, at the build brief's request, as separate overlapping groups (B1, B2, B3, `deep_pullback`) that are never summed and have no pool baseline. The rest of that list stays deferred (below).
+8. **Pool baseline** (from the pool step): the unlisted pool names with the same stage-assigned list and tier (leveraged apart), from the slim `OpportunityPoolOutcome` rows; "listed minus pool" is the median over cohorts of the paired difference.
+9. **A list-level row** (the list as a whole, leveraged ETFs excluded) heads each list's tiers. "Tiers are never pooled" is read as: no figure across the two lists' tiers and no sum of tier statistics; the list row is its own computation. (An interpretation: say if the list row should go.)
+
+**Weights-version handling.** The Quality tier depends on the score weights, which changed between the 2026-10-09 and 2026-10-16 lists (v8 to v9). The cohorts are not split by default: the weights filter defaults to all, and any cell holding Quality rows from more than one version carries `mixed_weights` / `weights_versions` and a visible "Mixed weights" note. Choosing one version keeps only that version's lists.
+
+**Choices made in the build.** Excess is drawn green/red only on a cell past "Early" (below the gate and while Early it is neutral). A flag is "incomplete" for a list if it was incomplete on any night judged against it (it was not fully judged), unless it flagged. Leveraged funds are left out of the flag aggregates (still in the ledger, marked). A flag with no outcome rows yet shows as "not priced yet", not as pending. The expected data date of a pending horizon is the (N+1)th session after the as-of date (entry bar, then N bars), from the exchange calendar. `horizon` and the version filters are plain query parameters; the audit endpoint is paged (limit up to 20,000) and uncached. The three aggregate endpoints are viewer-readable like the other opportunity reads (stored data only, no FMP call, no write).
+
+**Measured (read-only connection to the live database, 2026-10-20):** cold 0.53 s, warm about 1 ms, about +20 MB peak RSS over the imported modules; response sizes 44 KB (scorecard), 51 KB (flags), 475 KB (the full listed audit, 712 rows).
+
+**Deferred (decided, not built):** a controlled flag comparison (state-based triggers cannot be rebuilt from stored data), a full picks section (needs picks), a cohort-by-cohort chart, bootstrap intervals, flag badges on the list rows, extending the 180-day `opportunity` tracked-universe protection to the unlisted pool, a close-only stop.
+
+**Not changed:** the weekly rules and `RULES_VERSION`, the triggers and `TRIGGERS_VERSION`, `SCORE_FORMULA_VERSION`, the outcome engine and updater, the flag job, every table, `crontab.txt`, any FMP use.
