@@ -33,6 +33,9 @@ logger = logging.getLogger(__name__)
 
 _ERROR_SUMMARY_MAX_CHARS = 500
 
+# How far back the Scheduled Jobs page remembers a job's last failure after a later success (CronJobHealthOut.last_failure).
+LAST_FAILURE_WINDOW_DAYS = 14
+
 # Dotted module paths, copied verbatim from crontab.txt's `-m` invocations --
 # this is every job actually scheduled there, not just the ones with a
 # plain (non-_cron) log file: audit_fixture_contamination never calls
@@ -573,6 +576,20 @@ def _job_health(job_name: str, session: Session, now: datetime) -> CronJobHealth
     )
 
 
+def _attach_last_failures(session: Session, jobs: list[CronJobHealthOut], now: datetime) -> list[CronJobHealthOut]:
+    """Sets `last_failure` on each job from one read of the failure rows in the window. Read-only and additive: health_status, message and
+    every other field are exactly what _job_health computed."""
+    failures = session.exec(
+        select(CronRunLog)
+        .where(CronRunLog.status == "failure", CronRunLog.started_at >= now - timedelta(days=LAST_FAILURE_WINDOW_DAYS))
+        .order_by(CronRunLog.started_at.desc())
+    ).all()
+    newest: dict[str, CronRunLog] = {}
+    for row in failures:  # newest first, so the first row seen per job is its latest failure
+        newest.setdefault(row.job_name, row)
+    return [job.model_copy(update={"last_failure": _run_out(newest[job.job_name])}) if job.job_name in newest else job for job in jobs]
+
+
 def get_cron_health() -> CronHealthOut:
     # Gates reporting only -- cron_heartbeat() above writes CronRunLog rows
     # unconditionally, regardless of this flag, so history is preserved and
@@ -582,4 +599,5 @@ def get_cron_health() -> CronHealthOut:
         return CronHealthOut(enabled=False, jobs=[])
     now = datetime.now()
     with Session(engine) as session:
-        return CronHealthOut(enabled=True, jobs=[_job_health(job_name, session, now) for job_name in CRON_JOB_NAMES])
+        jobs = [_job_health(job_name, session, now) for job_name in CRON_JOB_NAMES]
+        return CronHealthOut(enabled=True, jobs=_attach_last_failures(session, jobs, now))

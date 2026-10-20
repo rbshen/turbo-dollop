@@ -928,6 +928,10 @@ class CronJobHealthOut(BaseModel):
     message: str | None = None
     last_run: CronRunOut | None = None
     last_success_at: datetime | None = None
+    # The job's most recent run with status "failure" that started within the last LAST_FAILURE_WINDOW_DAYS (14) days, whatever the
+    # latest run is (so a success the next night no longer hides it); None when there is none. Display only: it never feeds
+    # health_status, message or the overdue rule. When the latest run IS this failure the two are the same run.
+    last_failure: CronRunOut | None = None
     # Set only when health_status == "skipped": when the current streak of
     # skipped runs began (a long-off group must stay visible).
     skipped_since: datetime | None = None
