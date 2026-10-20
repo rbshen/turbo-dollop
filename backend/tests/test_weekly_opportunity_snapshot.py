@@ -89,7 +89,7 @@ def test_the_weekly_run_comes_after_the_backup_and_the_nightly_chain():
     for line in (BACKEND / "crontab.txt").read_text().splitlines():
         m = re.search(r"-m ([\w.]+)", line)
         if line.strip() and not line.lstrip().startswith("#") and m:
-            schedule[m.group(1)] = line.split()[:5]
+            schedule.setdefault(m.group(1), line.split()[:5])  # first line per job: backup_db's daily 3:30 (its Saturday 4:15 line comes later)
     minute, hour, _dom, _month, dow = schedule["pipeline.weekly_opportunity_snapshot"]
     backup_minute, backup_hour, *_ = schedule["pipeline.backup_db"]
     assert dow == "6" and int(hour) * 60 + int(minute) > int(backup_hour) * 60 + int(backup_minute)

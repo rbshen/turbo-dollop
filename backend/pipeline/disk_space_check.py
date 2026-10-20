@@ -25,8 +25,8 @@ from pathlib import Path
 from sqlmodel import Session, select
 
 import core.cron_health as cron_health
-from core.config import BASE_DIR, settings
 from core.cron_health import cron_heartbeat
+from core.db import DB_PATH
 from core.logging_config import configure_logging
 from core.models import CronRunLog
 
@@ -40,8 +40,6 @@ HARD_FREE_BYTES = int(2.0e9)
 # The previous run only counts as "the night before" inside the daily cadence window (cron_health._DAILY_HOURS), so a long gap resets the streak.
 CONSECUTIVE_WINDOW = timedelta(hours=36)
 LOW_MARKER = "Low disk"
-
-DEFAULT_DB_PATH = (BASE_DIR / settings.database_path).resolve()
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +90,7 @@ def evaluate(free: int, previous_low: bool, warn: int = WARN_FREE_BYTES, hard: i
     return "ok", f"{_gb(free)} free on the database volume (warn below {_gb(warn)}, hard limit {_gb(hard)})."
 
 
-def main(db_path: Path = DEFAULT_DB_PATH) -> str:
+def main(db_path: Path = DB_PATH) -> str:
     """Returns the heartbeat message; raises LowDiskSpaceError for the red cases."""
     configure_logging(LOG_PATH)
     free = free_bytes(db_path.parent)
