@@ -407,9 +407,16 @@ own `Connection.backup()` API, then prunes with a tiered retention rule
 ISO week's (Mon–Sun) last backup: the Sunday one normally, the latest
 earlier day if a Sunday run failed. Both tiers count backups actually on
 disk, not calendar days, so a multi-day outage never shrinks retention below
-3 copies. Every file on a kept date is kept (a manual same-day re-run doesn't
-displace anything); files that don't match `fathom_YYYYMMDD_HHMMSS.db.gz`
-exactly are never pruned. Tunable via `BACKUP_KEEP_DAILY`/`BACKUP_KEEP_WEEKLY`
+3 copies. Every file on a **daily-tier** date is kept (a manual same-day re-run doesn't
+displace anything); a **weekly-tier** date keeps only its newest file (2026-10-20); files that don't match `fathom_YYYYMMDD_HHMMSS.db.gz`
+exactly are never pruned.
+**Saturday runs twice (2026-10-20):** a second crontab line runs `pipeline.backup_db` at **Saturday 04:15 UTC (12:15 Hong Kong)**, 15 minutes after the
+04:00 weekly opportunity job (which takes ~15 s) so the list, which cannot be rebuilt (`TrendAnalysis`/`TickerScore` are overwritten nightly), is in a backup
+the same morning instead of from Monday 03:30. Same module, same lock file (`backup_db.lock`, so two backups never run at once), same log and heartbeat name,
+same 1.25x pre-check; it takes ~2-5 min and the next scheduled job that morning is the 06:00 corporate-events refresh. Retention is by date: Saturday's two
+files stay together while Saturday is one of the newest 3 dates (Saturday 04:15 to Tuesday 03:30) and are then pruned with it, because Sunday's 03:30 backup is the
+ISO week's last and so the weekly copy; if Sunday's run fails, Saturday becomes the weekly copy and only its 04:15 file is kept. **Files on disk: 7 at steady
+state, 8 from Saturday 04:15 until Tuesday 03:30, never more; at ~160 MB each that is ~1.1 GB (7) to ~1.3 GB (8), plus ~1.6 GB of temporary space while a run is going.** Tunable via `BACKUP_KEEP_DAILY`/`BACKUP_KEEP_WEEKLY`
 in `pipeline/backup_db.py`; the constants apply on the next run, and
 already-on-disk files are judged against them then (nothing is force-deleted
 out-of-band). Success: `Backup created: .../backups/fathom_<timestamp>.db.gz
@@ -676,7 +683,11 @@ so no duration is implied). Row 265 was closed that way on 2026-10-09 ("Stale ro
 if no row exists yet, `"overdue"` if no successful run falls within that
 job's expected cadence (36h for the 6 daily jobs, ~8 days for the 7
 weekly-Sunday jobs, ~35 days for the 2 monthly ones — `core/cron_health.py`'s
-`_EXPECTED_CADENCE_HOURS`), else `"ok"`. Settings > Scheduled Jobs
+`_EXPECTED_CADENCE_HOURS`), else `"ok"`. **Last failure (2026-10-20):** each job also carries `last_failure`, its latest `CronRunLog` row with status `failure` that started in the last
+14 days (`LAST_FAILURE_WINDOW_DAYS`), whatever the latest run is, so a success the next night no longer hides it (Sunday 2026-10-18's backup failure vanished from the page on Monday). It is display only
+(`_attach_last_failures` runs after `_job_health` and sets nothing else; the status, message and overdue rule are untouched), read in one query, and `null` for a job with no failure in the window. The page shows a
+quiet tertiary "Last failure 2026-10-18 03:30 UTC: <message>" line under the job's message (message cut at 140 characters, full text on hover; the stored UTC time is shown as is), and not on a row whose latest run
+is that failure. Settings > Scheduled Jobs
 (`ScheduledJobsSection`) lists every job's health there — the old
 site-wide `CronHealthBanner`/`FmpPausedBanner` pair was deleted and folded
 into this Settings section instead, so a healthy day no longer shows
@@ -976,7 +987,13 @@ The repo, `backend/backups`, the caches under `~/.cache`, `~/.npm` and `~/.vscod
 below 1.25 x the DB size free (about 1.67 GB at a 1.33 GB DB); a refusal is a failed `pipeline.backup_db` cron job with no new restore point.
 Causes of sudden drops seen so far: a new ~650 MB VS Code server per update that stays on disk (four were present on 2026-10-09; old ones are removed by hand); ad-hoc pre-change DB snapshots
 (~150 MB each) in `backend/backups`, `~/scratch` and `$HOME`; the frontend `.next/dev` cache (about 1.4 GB, growing about 125 MB/day); the npm, uv and Playwright caches.
-Backup tiers: 3 daily + 4 weekly (`BACKUP_KEEP_DAILY`/`BACKUP_KEEP_WEEKLY`), about 150 MB each, 7 files at steady state; each weekly copy adds ~150 MB until then.
+Backup tiers: 3 daily + 4 weekly (`BACKUP_KEEP_DAILY`/`BACKUP_KEEP_WEEKLY`), about 160 MB each, 7 files at steady state, 8 from Saturday 04:15 to Tuesday 03:30 (the Saturday second backup); each weekly copy adds ~160 MB until then.
+**Early warning (2026-10-20):** `pipeline.disk_space_check` runs daily at **03:28 UTC** (after the 03:25 recompute, 2 minutes before the backup) and records the free space on the volume holding `fathom.db`
+(`os.statvfs`, decimal GB, the figure `backup_db` uses; reads only, no FMP call, nothing written but its heartbeat row). Warn **below 3.5 GB** (about twice the backup's real peak, DB copy plus its gzip),
+hard **below 2.0 GB** (just above the 1.25x pre-check, 1.76 GB at a 1.41 GB DB). `cron_heartbeat` has no partial/amber status (decisions 2026-10-02 rejected a warning health value), so: healthy = success
+"6.9 GB free on the database volume (warn below 3.5 GB, hard limit 2.0 GB)."; the **first** night below 3.5 GB = still a success, message "Low disk warning: 3.1 GB free, below the 3.5 GB warn threshold (night 1 of 2; hard limit 2.0 GB)."
+(green pill, the message names it); a **second night in a row** below 3.5 GB (the job's previous run started within 36 h and said "Low disk") or **any night below 2.0 GB** = failure, the red row.
+A good night resets the streak. Its log is `backend/logs/disk_space_check.log` / `_cron.log`. When it goes red: free space first (`du -x --max-depth=2 -h /home/shen | sort -h | tail`; old VS Code servers, `~/.cache/uv`, `.next/dev`, ad-hoc snapshots), then check the backup ran.
 Check: `df -h /`, `du -x --max-depth=2 -h /home/shen | sort -h | tail`, `journalctl --disk-usage`.
 Delete an ad-hoc snapshot once its change is recorded in `docs/decisions.md`. Clearing `frontend/.next/dev/cache` needs the dev servers stopped (`./bin/stop.sh`).
 `uv cache prune` is not safe while the dev backend runs (shared lock, no dry-run).

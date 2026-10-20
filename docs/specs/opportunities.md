@@ -115,7 +115,7 @@ Each table row has a `Checkbox` (neutral checked style, `aria-label` "Select <ti
 ## Cron status
 
 **Enabled 2026-10-12.** `0 4 * * 6` in `backend/crontab.txt`, installed with `crontab crontab.txt` from `backend/`. The server clock is UTC (`Etc/UTC`), so 04:00 Saturday is 00:00 Saturday in New York
-(EDT; 23:00 Friday in winter) and **12:00 noon Saturday in Hong Kong** (UTC+8). It runs after the Friday-session nightly chain (1:00-3:25) and the 3:30 backup. The first scheduled run is
+(EDT; 23:00 Friday in winter) and **12:00 noon Saturday in Hong Kong** (UTC+8). It runs after the Friday-session nightly chain (1:00-3:25) and the 3:30 backup. **Backed up the same morning (2026-10-20):** the list cannot be rebuilt after the fact (`TrendAnalysis` and `TickerScore` hold the latest row only) and the 3:30 backup predates it, so a second `pipeline.backup_db` line runs **Saturday 04:15 UTC (12:15 Hong Kong)**, after the ~15 s run; before it the list sat in no backup until Monday 03:30 (~47 h). Retention and slot reasoning: `backend/OPS_RUNBOOK.md` ("backup_db"), docs/decisions.md 2026-10-20. The first scheduled run is
 **Saturday 2026-10-17 04:00 UTC** (as-of Friday 2026-10-16); the 2026-10-09 run already exists from the manual run. The cadence slack is 8 days (a missed Saturday reads overdue the next Sunday
 after a day of slack).
 
