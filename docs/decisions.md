@@ -1710,3 +1710,20 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 - **Last failure on the Scheduled Jobs page.** `CronJobHealthOut.last_failure` (latest `failure` run in the last 14 days, any later success notwithstanding), a quiet tertiary line under the job's message: time (UTC, as stored) and a short message with the full text on hover. Display only: status, message and overdue logic untouched; `null` and no extra text for a job with no failure in 14 days; not repeated on a row whose latest run is that failure. No schema change.
 **Deferred (decided, not built).** Streaming compression (the backup API writes to a database, not a stream, so removing the ~1.4 GB uncompressed temp needs a different design); `VACUUM INTO` (no space saving, heavier on one CPU); lowering the 1.25x pre-check (the real peak is ~1.12x, so ~180 MB of margin gained at the cost of a mid-run disk-full); reducing `BACKUP_KEEP_WEEKLY` from 4 to 2 (frees ~320 MB, still an owner call); a free-space history record; an amber "warning" health value.
 **Not changed.** The opportunity jobs, the outcome engine and updater, the flag job, the weekly job logic, every table and column, `init_db`, the 03:30 line, the pre-check, the compression and the copy.
+
+### 2026-10-20 — SEC EDGAR cross-check removed (code, tests, docs; data cleanup is a separate follow-up)
+
+**Problem.** The SEC EDGAR cross-check (`clients/sec_edgar.py`) fed no score, verdict or multiplier, yet its cached `sec_company_facts` rows held about 757 MB of the database (whole `companyfacts` JSON, 214 tickers) and rode in every backup. Its only visible effects were an admin-only magnifier on zero Taxes Paid / Interest Paid cells and a SEC line under some outlier warnings.
+
+**Decided (owner), remove it.**
+- **Code.** `clients/sec_edgar.py` and its fixtures; the Step 5 cross-check (`SEC_CROSS_CHECK_METRICS`, `_attach_sec_cross_checks`, the `allow_sec_cross_check` flag, which the nightly fetch no longer needs to pass); `get_cash_flow_cell_sec_check` and `GET /api/tickers/{ticker}/financials/cash-flow-cell-check` with its `route_roles` line; `SecCrossCheck` and `OutlierWarning.sec_cross_check`; the `sec_company_facts` entries in `data_groups.py` and `history_merge.py`; `sec_edgar_user_agent`, the `clients.sec_edgar` redacted logger, the `.env.example` lines and `SEC_EDGAR_USER_AGENT` in `bin/start.sh`'s required keys.
+- **Frontend.** `SecCellCheckButton` and the cell-check wiring in `FinancialsStatementTable` (its `ticker` and `reportedCurrency` props went with it), the SEC branch of `OutlierWarningNote`, the type and the admin-guard pattern.
+- **Tests.** The SEC client, endpoint, wiring and parsing tests were deleted; the Step 5 outlier-warning test was converted to assert the FMP warnings for `interest_expense_ttm`, `net_interest_expense_ttm` and `cfo_ttm` with no SEC patching.
+
+**What was lost.** The admin-only magnifier on zero Income Taxes Paid / Interest Paid cells (the info icon on those two rows stays) and the SEC "filed value" line under an outlier warning. The FMP outlier warnings themselves are unchanged.
+
+**Dropped ideas.** The 23-field SEC-vs-FMP checker and the compact-projection table (Decision 5 of `docs/sec-vs-fmp-data-quality-investigation-2026-10-09.md`) are not built.
+
+**Not changed.** Every score, verdict, table and column, the database, `backend/.env`, `crontab.txt`. The CIK in `helpers/ttm.py`'s non-monetary keys and the FMP profile cache stay.
+
+**Follow-up (not done).** Delete the cached `sec_company_facts` rows and `VACUUM`; drop `SEC_EDGAR_USER_AGENT` from `backend/.env`. The entries of 2026-08 to 2026-10 above that mention the cross-check stay as written.

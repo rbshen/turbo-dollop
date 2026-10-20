@@ -48,8 +48,8 @@ An unknown, inactive or locked account pays for one dummy scrypt check, so timin
   `tests/test_route_roles_registry.py` fails if a route is missing, an entry is stale, a write method is `viewer` without being in `VIEWER_ALLOWED_WRITES`, any route lacks the dependency,
   or a `{ticker}` route lacks the ticker guard. Public: `GET /api/health` (GET only; `bin/start.sh` polls it) and `POST /api/auth/login`. Viewer-allowed writes: `POST /api/auth/logout` and
   `POST /api/tickers/{ticker}/step3/manual` (a pure calculation, no I/O). **Adding a route means adding one line there.**
-- The full role table is generated from the registry; the admin-only reads are `GET /api/config/cron-health`, `/api/config/data-source-health`, `/api/config/data-groups` (plan, `key_problem_detail`),
-  `GET /api/tickers/{ticker}/financials/cash-flow-cell-check` (an on-demand SEC EDGAR + FMP call) and, since 2026-10-14, the five config reads only the Settings page uses:
+- The full role table is generated from the registry; the admin-only reads are `GET /api/config/cron-health`, `/api/config/data-source-health`, `/api/config/data-groups` (plan, `key_problem_detail`)
+  and, since 2026-10-14, the five config reads only the Settings page uses:
   `GET /api/config/discount-rate`, `/discount-rates`, `/liquidity-zones`, `/reit-dividend-yield`, `/weinstein`. **The Settings page is admin-only as a whole.** The two config reads other pages use stay open
   to a viewer: `GET /api/config/moat` (Moat tab, Overall Assessment card) and `GET /api/config/score-weights` (Overall Assessment, Screener stale-weights note). A new Settings-only endpoint is `admin`; one a
   non-Settings page also reads is `viewer`.
@@ -107,7 +107,6 @@ cookie from a made-up one, and an expired cookie gets through to the page, where
 | Moat tab | the rating picker (the rating shows as text) | `components/ticker/EconomicMoatTab.tsx` |
 | Valuation tab, Custom valuation | Save, Activate, Revert to auto, Delete (the calculator still runs: `step3/manual` is allowed for a viewer) | `components/step3/ManualCalculationPanel.tsx` |
 | Debt tab (banks) | the CET1 / NPL form | `components/step5/Step5Card.tsx` |
-| Financials tab | the SEC cell-check magnifier (an admin-only SEC EDGAR + FMP call) | `components/ticker/FinancialsStatementTable.tsx` |
 | Stocks screener | Recompute all scores, Add to watchlist, Save current view, Delete view (applying a saved view and Reset stay) | `app/screener/page.tsx`, `components/screener/SavedFiltersBar.tsx` |
 | ETFs screener | Add to watchlist, Save / Delete view | `app/etfs/page.tsx`, the same bar |
 | Weekly Routine (`/opportunities`) | Add to watchlist (Export stays) | `app/opportunities/page.tsx` |

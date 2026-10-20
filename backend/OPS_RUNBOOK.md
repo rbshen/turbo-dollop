@@ -1062,6 +1062,7 @@ that draft is why; it was never committed.
   exit codes are untouched; a heartbeat DB write failure (e.g. the exact
   disk-full case above) is itself swallowed rather than masking the job's
   real outcome.
+- **Removed 2026-10-20:** the SEC EDGAR cross-check and the on-demand Financials cell lookup (next two items) no longer exist (`docs/decisions.md`, 2026-10-20). The text below is kept as history; `get_step5_data` has no `allow_sec_cross_check` flag any more, and the cached `sec_company_facts` rows stay in the database until a separate cleanup.
 - **SEC EDGAR cross-check firing during the nightly bulk sweep.**
   `get_step5_data`'s on-demand cross-check was gated on `cache_only`
   alone, which the nightly job never sets (it needs live data for

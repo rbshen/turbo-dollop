@@ -1,5 +1,7 @@
 # Cached FMP vs SEC data-quality check: investigation, 2026-10-09
 
+> **Dropped 2026-10-20.** The SEC EDGAR cross-check was removed from Fathom (`docs/decisions.md`, 2026-10-20), so the 23-field SEC-vs-FMP checker (design options (a) and (b)) and the compact-projection idea (Decision 5) were not built and are dropped. The report below is kept as history; its cached `sec_company_facts` source no longer feeds anything in the app.
+
 Report only. No code, spec, score or database change; cache only, **no SEC or FMP network call** (the SQLite file was opened `mode=ro`, the scratch scripts and their
 extracts are deleted). Follow-up to item 9 of `docs/step1-cash-flow-distortion-investigation-2026-10-09.md`. Weights in force: `weights_version` 8 (Overall
 35/20/20/25, Step 1 30/20/25/10/15, Narrow 0.85). Comparison basis: the 214 cached `sec_company_facts` rows against the 5 newest annual rows of FMP's income, balance
@@ -193,7 +195,7 @@ blocked for this IP.
 2. Alert only on breaks and zero gaps, or also on persistent definition differences (159 undecoded cells)?
 3. Mismatch policy: surface only, an override table, or a verified whitelist for SEC-preferred values?
 4. Ship the three cache-only prefilters first (no SEC budget)?
-5. Store a compact projection and stop keeping the 4 MB blobs (and prune the existing 798 MB)?
+5. Store a compact projection and stop keeping the 4 MB blobs (and prune the existing 798 MB)? **Dropped 2026-10-20:** no projection is built; the blobs go with the SEC removal (data cleanup is a separate follow-up).
 6. SEC budget: approve tier 1 (119 requests) now? Pace and per-night cap? Trial the `frames` API (about 10 requests) before any per-company sweep?
 7. A separate data group or switch for SEC, instead of riding on `fundamentals`?
 8. Test whether a manual Refresh heals STX, CAT, GM, KKR (about 8 FMP calls)?

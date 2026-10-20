@@ -4,6 +4,8 @@ Report only. No code, spec or database change. Cache only, no FMP call; a read-o
 scratch scripts are deleted. The harness reproduces the stored `TickerScore` Overall for all 471 non-exempt tickers it scored (0 mismatches), so the
 counterfactuals below start from the real numbers. Follow-up to the open item in `docs/specs/stuck-check.md` (removed, see git 520a033) ("IBKR and GM in Step 1").
 
+> **Note, 2026-10-20.** The SEC columns below came from cached `sec_company_facts` rows. The SEC EDGAR cross-check has been removed from Fathom (`docs/decisions.md`, 2026-10-20) and those cached rows are due to be deleted, so the SEC figures can no longer be reproduced from the app. The numbers stay as recorded.
+
 Weights in force (the saved set, `weights_version` 8, not the code defaults): Step 1 Revenue 30 / Net Income 20 / CFO 25 / Margins 10 / FCF 15;
 Overall Financials 35 / Growth 20 / Profitability 20 / Debt 25. `SCORE_FORMULA_VERSION` 6.
 

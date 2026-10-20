@@ -18,7 +18,7 @@ backend/     FastAPI app, organized into packages by role:
                Origin guard), auth.py + passwords.py + auth_routes.py +
                audit.py + route_roles.py + auth_cli.py (login accounts,
                sessions, roles, the audit log; docs/specs/auth.md).
-  clients/     Thin external API clients: fmp_client.py, sec_edgar.py,
+  clients/     Thin external API clients: fmp_client.py,
                daily_bar_sources.py (the FMP daily/60m bar sources),
                shared_bars_cache.py (the SharedBarsCache get-or-fetch),
                long_history_bars.py, technical_sources.py.

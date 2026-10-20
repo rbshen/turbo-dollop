@@ -59,7 +59,7 @@ These cannot be resolved from the citation text alone; the mapping below is infe
 
 | Location | Inferred section |
 |---|---|
-| `backend/clients/sec_edgar.py:47` | Step 1 deviations |
+| `backend/clients/sec_edgar.py:47` | Step 1 deviations (file removed 2026-10-20 with the SEC cross-check; kept as history) |
 | `backend/clients/shared_bars_cache.py:4` | Shared bars cache |
 | `backend/core/config.py:43` | Caching policy; also "cache-freshness design note", "FMP-pause investigation", "2026-08-16 nightly-sweep fix", "cron thundering-herd follow-up", and |
 | `backend/core/models.py:308` | technical entry-signal section |
@@ -100,7 +100,7 @@ Every citing line, grouped by the section it resolves to. `(i)` = inferred (see 
 
 **Step 1 deviations** — 24
 
-`backend/clients/sec_edgar.py:47` (i), `backend/data/step1_data.py:33`, `backend/data/step3_data.py:64`, `backend/scoring/series_trend.py:107`, `backend/scoring/step1.py:38`, `backend/scoring/step1.py:99`, `backend/scoring/step1.py:211`, `backend/scoring/step1.py:248`, `backend/scoring/step1.py:269`, `backend/scoring/step1.py:319`, `backend/scoring/step1.py:331` (i), `backend/scoring/step1.py:502`, `backend/scoring/test_step1.py:289`, `backend/scoring/test_step1.py:471`, `backend/scoring/test_trend.py:52`, `backend/scoring/test_trend.py:99`, `backend/scoring/trend.py:22`, `backend/scoring/trend.py:96`, `backend/scoring/trend.py:113` (i), `backend/scoring/trend.py:342`, `backend/scoring/trend.py:414`, `backend/scoring/trend.py:451`, `backend/scoring/trend.py:473` (i), `frontend/components/step1/Step1Card.tsx:18`
+`backend/clients/sec_edgar.py:47` (i; file removed 2026-10-20, kept as history), `backend/data/step1_data.py:33`, `backend/data/step3_data.py:64`, `backend/scoring/series_trend.py:107`, `backend/scoring/step1.py:38`, `backend/scoring/step1.py:99`, `backend/scoring/step1.py:211`, `backend/scoring/step1.py:248`, `backend/scoring/step1.py:269`, `backend/scoring/step1.py:319`, `backend/scoring/step1.py:331` (i), `backend/scoring/step1.py:502`, `backend/scoring/test_step1.py:289`, `backend/scoring/test_step1.py:471`, `backend/scoring/test_trend.py:52`, `backend/scoring/test_trend.py:99`, `backend/scoring/trend.py:22`, `backend/scoring/trend.py:96`, `backend/scoring/trend.py:113` (i), `backend/scoring/trend.py:342`, `backend/scoring/trend.py:414`, `backend/scoring/trend.py:451`, `backend/scoring/trend.py:473` (i), `frontend/components/step1/Step1Card.tsx:18`
 
 **Step 4 deviations** — 19
 
