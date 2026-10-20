@@ -12,7 +12,6 @@ const warning = {
   date: "2026-06-30",
   value: 5_000_000_000,
   trailing_median: 1_000_000_000,
-  sec_cross_check: null,
 } as unknown as OutlierWarning;
 
 describe("OutlierWarningNote", () => {

@@ -7,7 +7,6 @@ import { SavedFiltersBarView } from "@/components/screener/SavedFiltersBar";
 import { Step5Card } from "@/components/step5/Step5Card";
 import { EconomicMoatTab } from "@/components/ticker/EconomicMoatTab";
 import { EtfHeader } from "@/components/ticker/EtfHeader";
-import { FinancialsStatementTable } from "@/components/ticker/FinancialsStatementTable";
 import { TickerHeader } from "@/components/ticker/TickerHeader";
 import { RemoveCell } from "@/components/watchlist/tableParts";
 import { WatchlistNameEditor } from "@/components/watchlist/WatchlistNameEditor";
@@ -31,7 +30,6 @@ vi.mock("@/components/ticker/UniverseControl", () => ({
 vi.mock("@/components/ticker/AddToWatchlistButton", () => ({ AddToWatchlistButton: () => <button>Add to watchlist</button> }));
 vi.mock("@/components/ticker/EtfWatchlistButton", () => ({ EtfWatchlistButton: () => <button>Add ETF to watchlist</button> }));
 vi.mock("@/components/ticker/RefreshButton", () => ({ RefreshButton: () => <button>Refresh</button> }));
-vi.mock("@/components/ticker/SecCellCheckButton", () => ({ SecCellCheckButton: () => <button>Check SEC</button> }));
 vi.mock("@/components/step5/BankCapitalMetricsForm", () => ({ BankCapitalMetricsForm: () => <p>CET1 and NPL form</p> }));
 vi.mock("@/components/ticker/MoatCheckBoundary", () => ({ MoatCheckBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/ticker/MoatCheckCard", () => ({ MoatCheckCard: () => null }));
@@ -208,20 +206,5 @@ describe("Debt card: the CET1 / NPL form for a bank", () => {
     cleanup();
     asRole("viewer", <Step5Card ticker="BNK" />);
     expect(screen.queryByText("CET1 and NPL form")).toBeNull();
-  });
-});
-
-describe("Financials tab: the SEC cell check", () => {
-  const data = {
-    periods: ["2025-06-30", "2026-06-30"],
-    groups: [{ label: null, items: [{ label: "Interest Paid", values: [0, 0], unit: "money", emphasis: false }] }],
-  };
-
-  it("an admin gets the check on a zero cell; a viewer does not (it is an admin-only SEC EDGAR call)", () => {
-    asRole("admin", <FinancialsStatementTable ticker="AAPL" periodType="annual" data={data} statement="cash_flow" />);
-    expect(screen.getAllByRole("button", { name: "Check SEC" }).length).toBeGreaterThan(0);
-    cleanup();
-    asRole("viewer", <FinancialsStatementTable ticker="AAPL" periodType="annual" data={data} statement="cash_flow" />);
-    expect(screen.queryByRole("button", { name: "Check SEC" })).toBeNull();
   });
 });

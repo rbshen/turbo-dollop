@@ -1,14 +1,6 @@
 import type { EtfFilterState, EtfSortField } from "@/lib/etfScreenerFilters";
 import type { ScreenerFilterState, SortDirection, SortField } from "@/lib/screenerFilters";
 
-export interface SecCrossCheck {
-  available: boolean;
-  sec_value: number | null;
-  tag_used: string | null;
-  matches_fmp: boolean | null;
-  note: string;
-}
-
 export interface OutlierWarning {
   // Matches a TickerSummaryOut/MetricDef key (e.g. "interest_expense_ttm")
   // or a Step5 debt metric name (e.g. "cfo_ttm") -- never changes the
@@ -17,10 +9,6 @@ export interface OutlierWarning {
   date: string | null;
   value: number;
   trailing_median: number;
-  // Only populated for Step 5's own two Debt Servicing Ratio inputs
-  // (net_interest_expense_ttm, cfo_ttm) -- null everywhere else, including
-  // the ticker header's copy of the same warning list.
-  sec_cross_check: SecCrossCheck | null;
 }
 
 export type DataGroupState = "live" | "cached_only" | "not_on_plan" | "restricted" | "failing";

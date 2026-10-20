@@ -36,14 +36,6 @@ export function OutlierWarningNote({ warnings, labels, currency = "USD" }: Props
               {w.date ? ` (${w.date})` : ""}: FMP {fmtCompactMoney(w.value, currency)} vs. trailing median{" "}
               {fmtCompactMoney(w.trailing_median, currency)}
             </div>
-            {w.sec_cross_check &&
-              (w.sec_cross_check.available ? (
-                <div className={w.sec_cross_check.matches_fmp ? "text-positive" : "text-negative"}>
-                  SEC EDGAR (filed value): {fmtCompactMoney(w.sec_cross_check.sec_value!, currency)} — {w.sec_cross_check.note}
-                </div>
-              ) : (
-                <div className="text-text-tertiary">{w.sec_cross_check.note}</div>
-              ))}
           </li>
         ))}
       </ul>

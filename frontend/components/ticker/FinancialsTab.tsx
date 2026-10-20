@@ -94,10 +94,8 @@ export function FinancialsTab({ ticker }: Props) {
       <NotLandedLine flags={data.data_quality} />
 
       <FinancialsStatementTable
-        ticker={ticker}
         periodType={period}
         data={statementData[period]}
-        reportedCurrency={data.reported_currency ?? "USD"}
         statement={STATEMENT_KIND[statement]}
         dataQuality={data.data_quality}
       />

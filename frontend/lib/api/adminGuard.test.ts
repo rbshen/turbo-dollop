@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 // `SettingsFooter` that hides Save for a viewer) or be rendered only from files that do. An unguarded chain that reaches a page
 // fails here. What it cannot see: a guard in the file that is not wrapped around the right control. Review the diff for that.
 //
-// Admin-only reads (core/route_roles.py): cron-health, data-source-health, data-groups, cash-flow-cell-check, and the five config reads only
+// Admin-only reads (core/route_roles.py): cron-health, data-source-health, data-groups, and the five config reads only
 // the Settings page uses (discount-rate(s), liquidity-zones, reit-dividend-yield, weinstein; moat and score-weights are shared, so open).
 const ROOT = join(__dirname, "..", "..");
 const SCAN_DIRS = ["app", "components", "lib"];
@@ -17,7 +17,7 @@ const SKIP = [/^lib\/api\/client\.ts$/, /^lib\/auth\//, /^app\/styleguide\//]; /
 const MARKER = /\b(AdminOnly|isAdmin|SettingsFooter)\b/;
 const WRITE_CALL = /\bapi(?:Post|Put|Patch|Delete)\b/;
 const ADMIN_READ =
-  /cash-flow-cell-check|\/config\/(?:cron-health|data-source-health|data-groups|discount-rates?|liquidity-zones|reit-dividend-yield|weinstein)\b/;
+  /\/config\/(?:cron-health|data-source-health|data-groups|discount-rates?|liquidity-zones|reit-dividend-yield|weinstein)\b/;
 
 // Files that write but whose guard lives in a component they render, so the marker is not in the file itself.
 const GUARDED_ELSEWHERE: Record<string, string> = {
@@ -109,7 +109,6 @@ describe("admin controls are behind a guard", () => {
       "components/settings/MoatSettingsForm.tsx",
       "components/settings/FmpDataGroupsSection.tsx",
       "components/settings/ScheduledJobsSection.tsx",
-      "components/ticker/SecCellCheckButton.tsx",
       "components/ticker/EconomicMoatTab.tsx",
       "components/step3/ManualCalculationPanel.tsx",
       "components/step5/BankCapitalMetricsForm.tsx",

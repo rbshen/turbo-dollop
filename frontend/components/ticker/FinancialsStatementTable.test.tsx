@@ -32,7 +32,7 @@ function markersOf(container: HTMLElement) {
 describe("FinancialsStatementTable data-quality markers", () => {
   it("marks the flagged quarter's header and leaves the values exactly as given", () => {
     const { container } = render(
-      <FinancialsStatementTable ticker="AZO" periodType="quarterly" data={quarterly} statement="cash_flow" dataQuality={[placeholder]} />,
+      <FinancialsStatementTable periodType="quarterly" data={quarterly} statement="cash_flow" dataQuality={[placeholder]} />,
     );
 
     expect(markersOf(container)).toEqual(["No cash flow reported for this period — $0 is a placeholder, not a result."]);
@@ -45,7 +45,7 @@ describe("FinancialsStatementTable data-quality markers", () => {
 
   it("marks the annual table's TTM column with the understated-TTM sentence", () => {
     const { container } = render(
-      <FinancialsStatementTable ticker="AZO" periodType="annual" data={annual} statement="cash_flow" dataQuality={[placeholder]} />,
+      <FinancialsStatementTable periodType="annual" data={annual} statement="cash_flow" dataQuality={[placeholder]} />,
     );
 
     expect(markersOf(container)).toEqual([
@@ -55,8 +55,8 @@ describe("FinancialsStatementTable data-quality markers", () => {
   });
 
   it("shows no marker on another statement's table, or without flags", () => {
-    expect(markersOf(render(<FinancialsStatementTable ticker="AZO" periodType="annual" data={annual} statement="income" dataQuality={[placeholder]} />).container)).toEqual([]);
+    expect(markersOf(render(<FinancialsStatementTable periodType="annual" data={annual} statement="income" dataQuality={[placeholder]} />).container)).toEqual([]);
     cleanup();
-    expect(markersOf(render(<FinancialsStatementTable ticker="AZO" periodType="annual" data={annual} statement="cash_flow" />).container)).toEqual([]);
+    expect(markersOf(render(<FinancialsStatementTable periodType="annual" data={annual} statement="cash_flow" />).container)).toEqual([]);
   });
 });
