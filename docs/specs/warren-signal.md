@@ -95,7 +95,7 @@ output is byte-identical to before (pinned in `test_state_machine.py`; also chec
   processes them and each has `TechnicalEntrySignal` and `WarrenSignalEvent` rows: 65 events in all (QQQ 19, TECL 17, SPY 16, TQQQ 13), first
   written 2026-10-04 08:48 (no BB+RSI events). The Chart tab's
   2H range computes the profiled signal on demand as well (live, uncached, nothing stored). FMP returns the full 730 days (the window the app asks for) of
-  `/historical-chart/1hour` for all four: 499 sessions, 494 with 7 bars and 5 half-days with 4, RTH only. **Events were insert-only until 2026-10-18 (`_upsert` wrote with `on_conflict_do_nothing`; the only delete is the age prune; the reconcile on branch `warren-event-reconcile` replaces that, see warren-signals-page.md "Event log reconcile"), so a row written before a later profile edit is never rewritten and
+  `/historical-chart/1hour` for all four: 499 sessions, 494 with 7 bars and 5 half-days with 4, RTH only. **Events were insert-only until 2026-10-18 (`_upsert` wrote with `on_conflict_do_nothing`; the only delete is the age prune; the reconcile (branch `warren-event-reconcile`, merged into main 2026-10-18) replaced that, see warren-signals-page.md "Event log reconcile"), so a row written before a later profile edit is never rewritten and
   there is no purge or profile-version mechanism: editing a profile's thresholds later (or adding a ticker to `TICKER_PROFILES` after it
   already has stored events) leaves the old Blue rows behind.** Not built; out of scope of the 2026-10-04 change.
 - **Volume guard (2026-10-04).** FMP's intraday volume has episodes where a few single 1-minute prints carry more shares than the whole

@@ -1594,16 +1594,16 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 
 ### 2026-10-17 — Warren watch: down arrows are raise-only, Blue Up is not an action in an open trade (branch `warren-raise-only-arrows`, merged into main 2026-10-17)
 
-- **Principle:** no change to the ThinkScript logic, only how its instructions are read. A down arrow is a floor, never a cut; Blue Up is not an action when a trade is open; the armed repeat Yellow Up is the only rule that can lower a stop. Gray Down was already raise-only.
+- **Principle:** no change to the ThinkScript logic, only how its instructions are read. A down arrow is a floor, never a cut; Blue Up is not an action when a trade is open; the armed repeat Yellow Up was then the only rule that could lower a stop (no rule does since 2026-10-19). Gray Down was already raise-only.
 - **Rules:** Blue Up on an active row (any entry kind, with or without a stop) changes nothing about the trade; only the pill, the instruction ("BLUE UP - no change to an open trade", type 5, watch table only) and the dates move, and the first-Yellow-after-Blue counter (it lives in the arrow replay) still resets. Blue Down / Yellow Down: `max(stop, 2nd LP)`, no change (no stop age, basis unchanged) when the 2nd LP is not higher; a row with no stop yet takes the 2nd LP.
-- **Mechanism:** two more `WatchRules` switches (`blue_up_in_trade_no_op`, `down_arrows_raise_only`); `PREVIOUS_RULES` is main's rules before this change (the rebuild guard replays it), `PRE_GRAY_RAISE_ONLY_RULES` the one before the Gray Down change, `LEGACY_RULES` everything off. No schema change.
+- **Mechanism:** two more `WatchRules` switches (`blue_up_in_trade_no_op`, `down_arrows_raise_only`); at the time `PREVIOUS_RULES` was main's rules before this change; today that set is `PRE_RAISE_ONLY_RULES` (`PREVIOUS_RULES` is the rules before 2026-10-19), `PRE_GRAY_RAISE_ONLY_RULES` the one before the Gray Down change, `LEGACY_RULES` everything off. No schema change.
 - **Effect on the live table (dry run):** 6 of 117 rows would change (ADP, DASH, NOC, PAYX, PTC, SNPS), 0 skipped. Replay: 34 Blue Up replacements gone, total R +259.8 -> +252.4, expectancy +0.727R -> +0.690R, R below -1: 23 -> 25. Merged into main 2026-10-17 23:38 UTC (fast-forward, `6b5ca2b` and `1f72648`, not pushed); the figures above are from the pre-merge dry run. Spec: `docs/specs/warren-signals-page.md`, "Rules at a glance" and the last section.
 
-### 2026-10-17 — Warren watch: the instruction text follows the pill (branch `warren-raise-only-arrows`)
+### 2026-10-17 — Warren watch: the instruction text follows the pill (branch `warren-raise-only-arrows`, merged into main 2026-10-17 with the raise-only change)
 
 - **Problem:** two no-action up arrows moved the pill but left the old text: the first Yellow after a Blue (pill Yellow Up, text still the Blue Up message; BKNG, DASH) and a Gray Up on an open trade (pill Gray Up, text still the entry's).
 - **Rule:** the instruction type is derived from the arrow in the pill (plus the existing first-Yellow-within-20-candles context) on every candle where the pill changes: first Yellow after a Blue -> type 4, Gray Up on an open trade -> type 1. Existing texts only, no schema change, no change to trades, stops, entries, status or sorting; a breached row still ignores a down arrow (pill and text frozen together).
-- **Mechanism:** `WatchRules.text_follows_pill` (off in `PREVIOUS_RULES` and `LEGACY_RULES`, so the rebuild guard reproduces stored rows). Rows whose only difference is the text are rewritten by the next nightly replay; no dry run was run for this change.
+- **Mechanism:** `WatchRules.text_follows_pill` (off in `PRE_RAISE_ONLY_RULES` and `LEGACY_RULES`, which keep the stale text; at the time of the change it was off in the then-`PREVIOUS_RULES`, so the rebuild guard reproduced stored rows). Rows whose only difference is the text are rewritten by the next nightly replay; no dry run was run for this change.
 
 ### 2026-10-18 — Warren events: reconcile the log with the replay every night (branch `warren-event-reconcile`, merged into main 2026-10-18)
 
