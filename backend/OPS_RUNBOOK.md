@@ -707,7 +707,7 @@ the run is marked `failure` (the existing red state; no new health value) when *
 (`FAILURE_RATE_THRESHOLD`) **or everything attempted failed**. The 5% rate rule only applies from **25
 attempted** (`FAILURE_RATE_MIN_ATTEMPTED`), so a tiny run (a `--tickers` test, a short watchlist) cannot flip
 on one error; "no data" and "skipped" counts appear in the message but never in the rule. What each job now
-reports: price-target "N written, M no analyst data, K skipped (ETF), F failed"; fundamentals "N refreshed, F
+reports: price-target "N written, M no analyst data (names), K skipped (ETF), F failed (names)" (names capped at 10, 2026-10-21); the two opportunity jobs are quiet when healthy ("success: 2 runs, 571 updated", "success: 99 watched, 27 flags") and list only non-zero problem items, the full line going to their logs at INFO; fundamentals "N refreshed, F
 failed, C FMP calls, D min"; BB+RSI and Warren "N computed, F failed, S swept, P pruned, K still stale after fetch"; score recompute "N
 scored, S skipped (no cached profile), F failed" (skips are not in the denominator); backup "X MB, N old
 backup(s) pruned" (no threshold: any error raises). Limits: fundamentals only counts an exception that escapes a

@@ -52,7 +52,7 @@ def main(as_of: date | None = None, dry_run: bool = False) -> DailyResult:
         finish_log(log_id, "failure", f"{type(exc).__name__}: {exc}")
         raise
     finish_log(log_id, result.status, result.message(), result)
-    logger.info("Opportunity daily flags (%.1fs): %s", time.monotonic() - started, result.message())
+    logger.info("Opportunity daily flags (%.1fs): %s", time.monotonic() - started, result.detail())  # the full detail; the stored message is the quiet one
     for ticker, why in sorted(result.failed.items()):
         logger.warning("Daily flags: %s left incomplete: %s", ticker, why)
     return result

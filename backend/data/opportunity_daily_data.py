@@ -51,6 +51,7 @@ from core.models import (
 )
 from data import opportunity_outcome_data as ou
 from data.watchlists import list_monitored_tickers
+from helpers.job_message import labelled
 from scoring import opportunity_triggers as trig
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,11 @@ class DailyResult:
     upstream: dict[str, dict[str, str]] = field(default_factory=dict)  # session -> job -> status
 
     def message(self) -> str:
+        """The quiet run message (CronRunLog / OpportunityDailyRun): see daily_message. The old full line is `detail()`."""
+        return daily_message(self)
+
+    def detail(self) -> str:
+        """The full one-line detail (per-trigger flag counts, not covered, incomplete, gaps), written to the job log at INFO."""
         if self.status == "noop":
             return f"no-op: {self.reason}"
         per = ", ".join(f"{t.split('.')[0]} {self.counts[t].flagged}" for t in trig.TRIGGER_IDS if t in self.counts)
@@ -107,6 +113,25 @@ class DailyResult:
             f"{self.status}: session {self.session_date} against the list of {self.list_as_of_date}, {self.watched} watched; "
             f"{self.flags_created} flag(s) ({per}); not covered {n_nc}, incomplete {n_inc}, gaps {len(self.gaps)}{tail}"
         )
+
+
+def daily_message(result: DailyResult) -> str:
+    """Quiet when healthy, specific when not. A no-op keeps its reason. Otherwise "<status>: N watched, F flags", and ", but gaps G,
+    incomplete I, failed to read R (AAA, BBB)" listing only the non-zero problem items (names capped at 10). Problem items: gaps (a missed
+    night's state trigger, or a late event), incomplete (a trigger that could not be judged tonight) and tickers whose bars failed to read.
+    "Not covered" is routine (names off the monitored watchlists, 7 on a normal night), so it is only in `DailyResult.detail()` and the log."""
+    if result.status == "noop":
+        return f"no-op: {result.reason}"
+    text = f"{result.status}: {result.watched} watched, {result.flags_created} flag" + ("" if result.flags_created == 1 else "s")
+    problems = []
+    if result.gaps:
+        problems.append(f"gaps {len(result.gaps)}")
+    n_inc = sum(len(v) for v in result.incomplete.values())
+    if n_inc:
+        problems.append(f"incomplete {n_inc}")
+    if result.failed:
+        problems.append(labelled("failed to read", len(result.failed), sorted(result.failed)))
+    return text + (", but " + ", ".join(problems) if problems else "")
 
 
 # --- helpers ----------------------------------------------------------------------------------------------------------------------

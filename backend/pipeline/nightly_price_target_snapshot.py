@@ -51,6 +51,7 @@ from core.cron_health import check_failure_threshold, cron_heartbeat
 from core.cache import get_or_fetch
 from core.db import engine, init_db
 from helpers.first import _first
+from helpers.job_message import counted
 from clients.fmp_client import fmp_client
 from core.logging_config import configure_logging
 from core.models import PriceTargetSnapshot
@@ -220,6 +221,7 @@ async def main(tickers: list[str] | None = None) -> dict:
         "processed": len(tickers),
         "written": written,
         "no_data": len(no_data),
+        "no_data_tickers": no_data,
         "etf_skipped": etf_skipped,
         "failed": len(failures),
         "calls_made": calls_made,
@@ -248,18 +250,25 @@ def _resolve_cli_tickers(args: argparse.Namespace) -> list[str] | None:
     return None
 
 
+def price_target_message(result: dict) -> str:
+    """"N written, M no analyst data (AAA, BBB), K skipped (ETF), F failed (BF-B)". The no-data and failed counts carry their ticker names
+    (each list capped at 10, then "+N more") when the summary has them; the full lists are in the job log."""
+    failed_names = [t for t, _ in result.get("failures") or []]
+    return (
+        f"{result['written']} written, {counted(result['no_data'], 'no analyst data', result.get('no_data_tickers'))}, "
+        f"{result['etf_skipped']} skipped (ETF), {counted(result['failed'], 'failed', failed_names)}"
+    )
+
+
 def record_outcome(result: dict, run) -> None:
     """Map a main() summary onto the heartbeat: a gated run is "skipped"; otherwise the run's
-    message is "N written, M no analyst data, K skipped (ETF), F failed", and it raises
+    message is price_target_message(result), and it raises
     (heartbeat "failure") when failures cross core.cron_health.check_failure_threshold --
     the failed share of the tickers attempted, never counting no_data or ETF skips."""
     if result.get("skipped"):
         run.skip(result["skip_reason"])
         return
-    message = (
-        f"{result['written']} written, {result['no_data']} no analyst data, "
-        f"{result['etf_skipped']} skipped (ETF), {result['failed']} failed"
-    )
+    message = price_target_message(result)
     check_failure_threshold(result["processed"], result["failed"], message)
     run.message = message
 

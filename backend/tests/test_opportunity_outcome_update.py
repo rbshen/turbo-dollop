@@ -270,7 +270,7 @@ def test_a_ticker_out_of_the_universe_is_censored_left_universe(world, monkeypat
 def test_the_run_counts_by_status_and_horizon(world):
     result = update(world)
     assert result.by_status["complete"] == {5: 3} and result.by_status["pending"] == {10: 3, 20: 3, 60: 3}
-    assert "complete 3, pending 9, censored 0, stops 4" in result.message()
+    assert "complete 3, pending 9, censored 0, stops 4" in result.detail()  # the full line; message() is the quiet one
 
 
 # --- dry run -----------------------------------------------------------------------------------------------------------------------
@@ -339,7 +339,7 @@ def test_the_job_writes_one_log_row_per_real_run_and_the_next_run_reads_its_spy_
     assert first.status == "success"
     (row,) = logs(jobbed)
     assert row.status == "success" and row.finished_at is not None and row.spy_last_bar_date == jobbed.dates[-1]
-    assert "complete 3" in row.message and json.loads(row.summary_json)["stops"] == 4
+    assert row.message == first.message() and "complete 3" in first.detail() and json.loads(row.summary_json)["stops"] == 4
     second = job.main()
     assert second.status == "noop"
     rows = logs(jobbed)
@@ -405,7 +405,7 @@ def test_a_real_run_is_a_green_heartbeat_with_the_result_as_its_message(beat, jo
     result = beat()
     assert result.status == "success"
     ((status, message),) = beats(jobbed)
-    assert status == "success" and message == result.message() and "complete 3" in message
+    assert status == "success" and message == result.message() and message.startswith("success: 1 run, ")
 
 
 def test_a_no_op_run_is_a_green_heartbeat_not_a_failure_or_a_skip(beat, jobbed):
@@ -430,7 +430,7 @@ def test_every_ticker_failing_is_a_red_heartbeat_but_one_failed_ticker_is_not(be
     monkeypatch.setattr(ou.eng, "compute_outcomes", lambda **kw: (_ for _ in ()).throw(ValueError("x")) if kw["as_of_close"] == 100.0 else real(**kw))
     one = beat()  # 1 of 3 attempted failed: below the threshold, green, but named in the message
     assert one.status == "partial" and one.attempted == 3
-    assert beats(jobbed)[-1][0] == "success" and "1 ticker(s) failed" in beats(jobbed)[-1][1]
+    assert beats(jobbed)[-1][0] == "success" and "but failed 1 (AAA)" in beats(jobbed)[-1][1]
 
     monkeypatch.setattr(ou.eng, "compute_outcomes", lambda **kw: (_ for _ in ()).throw(ValueError("x")))
     with pytest.raises(RuntimeError, match="all 3 attempted failed"):
@@ -606,3 +606,68 @@ def test_the_dry_run_reports_a_revival_without_writing_it(world):
     dry = ou.update_outcomes(dry_run=True, now=world.now, as_of=AS_OF)
     assert dry.updated > 0 and "censored" not in dry.by_status
     assert world.rows()[("CCC", 5)].status == "censored" and world.rows()[("CCC", 5)].computed_at == stored.computed_at
+
+
+# --- the quiet run message ------------------------------------------------------------------------------------------------------------------
+
+
+def _result(**kw):
+    base = dict(status="success", spy_last_bar_date=date(2026, 10, 19), runs=2, listed_rows=178, updated=571, stops=60,
+                by_status={"complete": {5: 79}, "pending": {10: 633}}, flag_rows=26, flag_updated=52, pool_rows=1013, pool_updated=2504)
+    base.update(kw)
+    return ou.UpdateResult(**base)
+
+
+def test_a_clean_run_gives_only_the_headline_numbers():
+    assert ou.update_message(_result()) == "success: 2 runs, 571 updated"
+    assert _result().message() == "success: 2 runs, 571 updated"
+    assert ou.update_message(_result(runs=1)) == "success: 1 run, 571 updated"
+
+
+def test_created_rows_appear_only_when_non_zero():
+    assert ou.update_message(_result(seeded=396, updated=0)) == "success: 2 runs, 396 created, 0 updated"
+
+
+def test_routine_counts_never_reach_the_message():
+    message = ou.update_message(_result(stops=7, by_status={"complete": {5: 1}, "pending": {5: 2}, "censored": {5: 4}}, flag_stops=3))
+    for word in ("censored", "pending", "complete", "stops", "listed", "flag", "pool", "SPY bar"):
+        assert word not in message
+
+
+def test_failed_tickers_are_the_one_problem_item_and_are_named_and_capped():
+    one = ou.update_message(_result(status="partial", failed={"BBB": "x"}))
+    assert one == "partial: 2 runs, 571 updated, but failed 1 (BBB)"
+    many = ou.update_message(_result(status="partial", failed={f"T{i:02d}": "x" for i in range(12)}))
+    assert many.endswith("but failed 12 (T00, T01, T02, T03, T04, T05, T06, T07, T08, T09, +2 more)")
+
+
+def test_a_no_op_keeps_its_reason():
+    assert ou.update_message(ou.UpdateResult(status="noop", reason="SPY has no bar newer than 2026-10-16 (the last run's)")) == (
+        "no-op: SPY has no bar newer than 2026-10-16 (the last run's)"
+    )
+
+
+def test_detail_is_the_old_full_line():
+    detail = _result().detail()
+    assert detail == (
+        "success: 2 run(s), 178 listed rows; complete 79, pending 633, censored 0, stops 60; 0 created, 571 updated (SPY bar 2026-10-19); "
+        "flag outcomes: 26 flag(s), complete 0, pending 0, censored 0, stops 0; 0 created, 52 updated; "
+        "pool outcomes: 1013 name(s), complete 0, pending 0, censored 0; 0 created, 2504 updated"
+    )
+
+
+def test_the_job_logs_the_full_detail_at_info_and_stores_the_quiet_message(jobbed, monkeypatch):
+    logged = []
+    monkeypatch.setattr(job, "logger", type("L", (), {"info": lambda self, fmt, *a: logged.append(fmt % a), "warning": lambda self, *a, **k: None})())
+    result = job.main()
+    (row,) = logs(jobbed)
+    assert row.message == result.message() and "complete" not in row.message
+    assert any("listed rows; complete 3" in line for line in logged)
+
+
+def test_a_failed_job_run_keeps_its_error_text(beat, jobbed):
+    jobbed.frames.pop("SPY")
+    with pytest.raises(RuntimeError, match="SPY"):
+        beat()
+    (row,) = logs(jobbed)
+    assert row.status == "failure" and row.message.startswith("RuntimeError: ") and "SPY" in row.message

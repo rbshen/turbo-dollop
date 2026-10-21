@@ -1739,3 +1739,17 @@ series of ADM / BLDR / HUM / CVS / CIEN / PCAR, then the stacking and one-off-ye
 **Mechanism.** The delete set is computed in Python (ids of aged rows, filtered by ticker and type) and deleted in chunks of 500 ids; `--dry-run` reports the same count. The job message shows the deleted count and the number of aged rows spared because the ticker is tracked.
 
 **Not changed:** `SCORE_FORMULA_VERSION` (no score or verdict arithmetic), the database, `crontab.txt`, `backend/.env`, the BF.B and price-target items. Docs updated: tracked-universe.md, fmp-data-and-bar-cache.md, etf-page.md, OPS_RUNBOOK.md.
+
+### 2026-10-21 — Job messages: ticker names on the price-target row, quiet-when-healthy opportunity jobs
+
+**Problem.** BF-B fails the price-target job every night (the FMP 402 symbol problem), so the row reads "574 written, 6 no analyst data, 0 skipped (ETF), 1 failed" permanently, and a *new* failure would sit invisibly behind that standing 1. The two opportunity jobs' messages were the opposite: one long line of routine counts (listed rows, complete / pending / censored / stops, flag and pool parts, "0 created", "not covered 7, incomplete 0, gaps 0"), so the few items that could mean a data problem were buried.
+
+**Decided.**
+- **Price target:** the message names the tickers behind two counts, `"... 6 no analyst data (ERIE, L, ...), ... 1 failed (BF-B)"`, each list capped at 10 then `+N more`, no list at zero. BF-B keeps failing and showing; it is not skipped.
+- **Opportunity jobs, quiet when healthy.** Clean outcome run: `success: 2 runs, 571 updated`. Clean daily night: `success: 99 watched, 27 flags`. Zero-count noise is dropped. Only non-zero **problem** items are appended after `, but`: outcome updater, failed tickers (named); daily flags, gaps, incomplete and tickers that failed to read (named). **Routine, never in the message:** complete / pending / stops, the flag and pool parts, `censored` (a cumulative state count that a real delisting keeps non-zero for ever, not a per-run signal), and `not covered` (7 on a normal night by design). A no-op and a failure keep their text.
+- **Nothing is lost:** the old full line is `UpdateResult.detail()` / `DailyResult.detail()` and goes to the job log at INFO; the run rows keep `summary_json` and the per-night `not_covered_json` / `incomplete_json` / `gaps_json`.
+- Each message is built by a small pure function (`price_target_message`, `update_message`, `daily_message`; name lists in `helpers/job_message.py`) and unit-tested.
+
+**Not changed.** Run status logic, `check_failure_threshold` and the 5% / 25-attempted rule, the failure text, the BF-B override and every fetch, the ERROR line and the symbol-scoped 402 warning, every table, `crontab.txt`, `backend/.env`, `SCORE_FORMULA_VERSION`. No data changed; rows already written keep their old message text.
+
+**Follow-up (not built).** A per-run "newly censored" count (a delta, not the cumulative state) would make censored usable as a problem signal; it needs a counter in the updater.

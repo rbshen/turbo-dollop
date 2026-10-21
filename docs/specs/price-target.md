@@ -113,6 +113,14 @@ no_data included, ETF skips excluded; the rate rule needs at least 25 attempted)
 no_data and the ETF skips are message-only and never enter it. A run that is red shows the same counts
 in its message.
 
+**Names in the message (2026-10-21).** The message names the tickers behind two of its counts, built by the pure function
+`price_target_message` (names via `helpers/job_message.py`): `"574 written, 6 no analyst data (ERIE, L, NWS, ...), 0 skipped (ETF), 1 failed (BF-B)"`.
+Each list is capped at 10 names, then `+N more`; a zero count shows no list. `main()` returns the no-data names as `no_data_tickers`
+(the failed names were already in `failures`); the complete lists and the per-ticker reasons stay in the job log. Counts, the run
+status, the 5% failure rule, the per-ticker ERROR log line and the symbol-scoped 402 warning are unchanged, and BF-B still fails and
+shows (it is not skipped or excluded): its name now stands on the row, so a new failure next to it is visible. A red run's text keeps
+the names (at most 20, so it stays far inside the 500-character error-summary limit).
+
 **Chart split tried, then reverted the same week.** `PriceTargetTrendChart.tsx` briefly drew two
 series (dashed = legacy, solid-with-dots = live) when a ticker's history spanned both
 methodologies. This was deliberately reverted — the legacy/live jump now renders as an

@@ -510,7 +510,7 @@ def test_a_real_run_writes_one_log_row_and_a_green_heartbeat(jobbed):
     assert log.status == "success" and log.session_date == MON and log.spy_last_bar_date == MON and log.list_as_of_date == R2 and log.flags_created == 5 and log.watched == 7
     assert json.loads(log.summary_json)["counts"][D1]["flagged"] == 2
     ((status, message),) = beats(jobbed)
-    assert status == "success" and message == result.message() and "5 flag(s)" in message
+    assert status == "success" and message == result.message() and "5 flags" in message
 
 
 def test_a_no_op_night_is_a_green_heartbeat_not_a_failure_or_a_skip(jobbed):
@@ -613,3 +613,68 @@ def test_the_daily_job_makes_no_fmp_call_and_does_not_touch_the_existing_outcome
     source = (backend / "data" / "opportunity_daily_data.py").read_text() + (backend / "scoring" / "opportunity_triggers.py").read_text()
     assert "fmp_client" not in source and "get_or_fetch" not in source
     assert "OpportunityOutcome," not in source and "OpportunityPick" not in source and "OpportunityPoolRow" not in source
+
+
+# --- the quiet run message ------------------------------------------------------------------------------------------------------------------
+
+
+def _daily(**kw):
+    base = dict(status="success", session_date=date(2026, 10, 19), list_as_of_date=date(2026, 10, 16), watched=99, flags_created=27,
+                not_covered={D1: ["A", "B", "C", "D", "E", "F", "G"]})
+    base.update(kw)
+    return od.DailyResult(**base)
+
+
+def test_a_clean_night_gives_only_watched_and_flags():
+    assert od.daily_message(_daily()) == "success: 99 watched, 27 flags"
+    assert _daily().message() == "success: 99 watched, 27 flags"
+    assert od.daily_message(_daily(flags_created=1)) == "success: 99 watched, 1 flag"
+    assert od.daily_message(_daily(flags_created=0)) == "success: 99 watched, 0 flags"
+
+
+def test_not_covered_is_routine_and_never_in_the_message():
+    assert "covered" not in od.daily_message(_daily())
+
+
+def test_each_problem_item_appears_only_when_non_zero():
+    assert od.daily_message(_daily(gaps=[{"type": "late_event"}] * 3)) == "success: 99 watched, 27 flags, but gaps 3"
+    assert od.daily_message(_daily(incomplete={D1: {"A": "x", "B": "y"}, D2: {"C": "z"}})) == "success: 99 watched, 27 flags, but incomplete 3"
+    both = od.daily_message(_daily(gaps=[{"type": "state_trigger_gap"}] * 3, incomplete={D1: {"A": "x", "B": "y"}}))
+    assert both == "success: 99 watched, 27 flags, but gaps 3, incomplete 2"
+
+
+def test_ticker_read_failures_are_named_and_capped():
+    message = od.daily_message(_daily(failed={f"T{i:02d}": "x" for i in range(11)}, gaps=[{}]))
+    assert message == "success: 99 watched, 27 flags, but gaps 1, failed to read 11 (T00, T01, T02, T03, T04, T05, T06, T07, T08, T09, +1 more)"
+
+
+def test_a_no_op_keeps_its_reason():
+    assert od.daily_message(od.DailyResult(status="noop", reason="no weekly opportunity list dated before 2026-10-09")) == (
+        "no-op: no weekly opportunity list dated before 2026-10-09"
+    )
+
+
+def test_detail_is_the_old_full_line():
+    result = _daily(counts={D1: od.TriggerCount(flagged=5), D2: od.TriggerCount(flagged=4), D3: od.TriggerCount(flagged=18)})
+    assert result.detail() == (
+        "success: session 2026-10-19 against the list of 2026-10-16, 99 watched; 27 flag(s) (D1 5, D2 4, D3 18); not covered 7, incomplete 0, gaps 0"
+    )
+
+
+def test_the_job_logs_the_full_detail_at_info_and_stores_the_quiet_message(jobbed, monkeypatch):
+    standard(jobbed)
+    logged = []
+    monkeypatch.setattr(job, "logger", type("L", (), {"info": lambda self, fmt, *a: logged.append(fmt % a), "warning": lambda self, *a, **k: None})())
+    result = job.main()
+    (log,) = jobbed.runs()
+    assert log.message == result.message() and "session" not in log.message and "not covered" not in log.message
+    assert any("session 2026-" in line and "not covered" in line for line in logged)
+
+
+def test_a_failed_night_keeps_its_error_text(jobbed):
+    standard(jobbed)
+    jobbed.frames.pop("SPY")
+    with pytest.raises(RuntimeError, match="SPY"):
+        job.main()
+    (log,) = jobbed.runs()
+    assert log.status == "failure" and log.message.startswith("RuntimeError: ") and "SPY" in log.message

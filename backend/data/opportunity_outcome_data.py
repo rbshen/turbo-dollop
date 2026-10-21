@@ -40,6 +40,7 @@ from core.db import engine
 from core.models import OpportunityOutcome, OpportunityOutcomeRun, OpportunityRun, OpportunitySnapshotRow, TickerScore
 from data.market_breadth_data import SECTOR_TO_ETF
 from data.tracked_universe import load_etf_universe, load_tracked_universe
+from helpers.job_message import labelled
 from scoring import opportunity_outcomes as eng
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,11 @@ class UpdateResult:
     pool_by_status: dict[str, dict[int, int]] = field(default_factory=dict)
 
     def message(self) -> str:
+        """The quiet run message (CronRunLog / OpportunityOutcomeRun): see update_message. The old full line is `detail()`."""
+        return update_message(self)
+
+    def detail(self) -> str:
+        """The full one-line detail (every count, the flag and pool parts), written to the job log at INFO."""
         if self.status == "noop":
             return f"no-op: {self.reason}"
         counts = {s: sum(h.values()) for s, h in self.by_status.items()}
@@ -125,6 +131,23 @@ class UpdateResult:
                 f"censored {pool_counts.get(eng.CENSORED, 0)}; {self.pool_seeded} created, {self.pool_updated} updated"
             )
         return text
+
+
+def update_message(result: UpdateResult) -> str:
+    """Quiet when healthy, specific when not. A no-op keeps its reason. Otherwise "<status>: N runs[, C created], U updated" (the weekly
+    lists' rows; the flag and pool parts are in `UpdateResult.detail()` and the log), and ", but failed N (AAA, BBB)" when tickers failed
+    to read or price (names capped at 10). The only problem item is the failed tickers: the complete / pending / stops counts are routine,
+    and "censored" is a cumulative state count that a real delisting keeps non-zero for ever, so it is not a per-run signal."""
+    if result.status == "noop":
+        return f"no-op: {result.reason}"
+    parts = [f"{result.runs} run" + ("" if result.runs == 1 else "s")]
+    if result.seeded:
+        parts.append(f"{result.seeded} created")
+    parts.append(f"{result.updated} updated")
+    text = f"{result.status}: " + ", ".join(parts)
+    if result.failed:
+        text += ", but " + labelled("failed", len(result.failed), sorted(result.failed))
+    return text
 
 
 # --- bars -------------------------------------------------------------------------------------------------------------------

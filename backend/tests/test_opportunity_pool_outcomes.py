@@ -338,7 +338,7 @@ def test_the_weekly_and_flag_result_and_message_are_unchanged_when_no_pool_is_ad
             s.delete(o)
         s.commit()
     merged = po.update_pool_into(fo.update_outcomes_and_flags(now=world.now), now=world.now)
-    assert merged.message() == base.message() and "pool outcomes" not in merged.message()
+    assert merged.message() == base.message() and merged.detail() == base.detail() and "pool outcomes" not in merged.detail()
     assert merged.status == base.status and world.pool_outcomes() == {}
 
 
@@ -356,8 +356,8 @@ def jobbed(world, monkeypatch, tmp_path):
 def test_the_job_prices_the_pool_after_the_lists_and_the_message_gains_a_pool_segment(jobbed):
     result = job.main()
     assert result.status == "success"
-    assert "complete 1, pending 3" in result.message()  # the weekly part, unchanged wording (one listed name)
-    assert "pool outcomes: 4 name(s), complete 4, pending 12, censored 0; 16 created, 0 updated" in result.message()
+    assert "complete 1, pending 3" in result.detail()  # the weekly part, unchanged wording (one listed name)
+    assert "pool outcomes: 4 name(s), complete 4, pending 12, censored 0; 16 created, 0 updated" in result.detail()
     assert len(jobbed.pool_outcomes()) == 16
     with Session(jobbed.engine) as s:
         (row,) = s.exec(select(OpportunityOutcomeRun)).all()
@@ -387,7 +387,7 @@ def test_a_pool_failure_makes_the_run_partial_and_counts_toward_the_threshold(jo
     real = eng.compute_outcomes
     monkeypatch.setattr(slim.eng, "compute_outcomes", lambda **kw: (_ for _ in ()).throw(ValueError("x")) if kw["as_of_close"] == 50.0 else real(**kw))
     result = job.main()
-    assert result.status == "partial" and "BBB" in result.failed and "1 ticker(s) failed" in result.message()
+    assert result.status == "partial" and "BBB" in result.failed and "but failed 1 (BBB)" in result.message()
     # the weekly part still ran
     with Session(jobbed.engine) as s:
         assert len(s.exec(select(OpportunityOutcome)).all()) == 4

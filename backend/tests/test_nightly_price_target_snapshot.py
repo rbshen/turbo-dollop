@@ -368,3 +368,55 @@ def test_universe_is_us_listed_tracked_tickers_minus_delisted(monkeypatch, tmp_p
         session.commit()
         monkeypatch.setattr(monthly, "_profile_exchanges", lambda tickers: {"AAPL": "NASDAQ", "TSM": "NYSE", "OXY": "NYSE", "0005.HK": "HKSE", "TWTR": "NYSE"})
         assert monthly.load_us_price_target_universe(session) == ["AAPL", "OXY", "TSM"]
+
+
+# --- the run message names the failed and no-data tickers -----------------------------------------------------------------------------
+
+
+def _named(written=0, no_data=(), etf_skipped=0, failed=()):
+    return {
+        "processed": written + len(no_data) + len(failed), "written": written, "no_data": len(no_data), "no_data_tickers": list(no_data),
+        "etf_skipped": etf_skipped, "failed": len(failed), "failures": [(t, "boom") for t in failed],
+    }
+
+
+def test_message_names_the_one_failed_ticker():
+    assert monthly.price_target_message(_named(written=574, no_data=["ERIE"], failed=["BF-B"])) == (
+        "574 written, 1 no analyst data (ERIE), 0 skipped (ETF), 1 failed (BF-B)"
+    )
+
+
+def test_message_lists_the_no_data_names_and_caps_each_list_at_ten():
+    names = [f"T{i:02d}" for i in range(13)]
+    message = monthly.price_target_message(_named(written=5, no_data=names, failed=names[:11]))
+    assert "13 no analyst data (T00, T01, T02, T03, T04, T05, T06, T07, T08, T09, +3 more)" in message
+    assert "11 failed (T00, T01, T02, T03, T04, T05, T06, T07, T08, T09, +1 more)" in message
+    assert "T10" not in message.split("failed")[1]  # the eleventh failed name is behind "+1 more"
+
+
+def test_exactly_ten_names_have_no_more_suffix():
+    names = [f"T{i}" for i in range(10)]
+    assert "more" not in monthly.price_target_message(_named(written=5, failed=names))
+
+
+def test_zero_failures_and_zero_no_data_show_no_name_list():
+    assert monthly.price_target_message(_named(written=600, etf_skipped=10)) == "600 written, 0 no analyst data, 10 skipped (ETF), 0 failed"
+
+
+def test_a_summary_without_names_keeps_the_old_wording():
+    assert monthly.price_target_message(_result(written=571, no_data=3, failed=29)) == "571 written, 3 no analyst data, 0 skipped (ETF), 29 failed"
+
+
+def test_named_message_keeps_the_status_and_the_five_percent_rule(monkeypatch):
+    # one named failure of 600 stays green; the same rule as before turns 30 of 600 red, and the red text keeps the names
+    ok = _heartbeat_row(monkeypatch, _named(written=599, failed=["BF-B"]))
+    assert ok.status == "success" and ok.error_summary == "599 written, 0 no analyst data, 0 skipped (ETF), 1 failed (BF-B)"
+    red = _heartbeat_row(monkeypatch, _named(written=570, failed=[f"F{i}" for i in range(30)]))
+    assert red.status == "failure" and "30 failed (F0, F1" in red.error_summary and "+20 more" in red.error_summary and "5.0% failed" in red.error_summary
+
+
+def test_main_returns_the_no_data_names(monkeypatch, tmp_path):
+    _fresh_engine(monkeypatch, tmp_path)
+    _stub_responses(monkeypatch, {"ERIE": [], "NWS": {}, "AAPL": [{"targetConsensus": 1.0}]})
+    summary = asyncio.run(monthly.main(tickers=["ERIE", "AAPL", "NWS"]))
+    assert summary["no_data_tickers"] == ["ERIE", "NWS"] and summary["no_data"] == 2

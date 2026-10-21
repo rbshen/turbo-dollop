@@ -66,7 +66,7 @@ def main(run_id: int | None = None, as_of: date | None = None, dry_run: bool = F
         raise
     # a partial run stores no SPY date, so the next normal run goes ahead and retries the tickers that failed
     finish_log(log_id, result.status, result.message(), None if result.status == "partial" else result.spy_last_bar_date, summary_of(result))
-    logger.info("Opportunity outcome update (%.1fs): %s", time.monotonic() - started, result.message())
+    logger.info("Opportunity outcome update (%.1fs): %s", time.monotonic() - started, result.detail())  # the full detail; the stored message is the quiet one
     for ticker, why in sorted(result.failed.items()):
         logger.warning("Outcome update: %s left as it was: %s", ticker, why)
     return result

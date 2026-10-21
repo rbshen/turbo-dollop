@@ -173,11 +173,11 @@ def snapshot(rows: dict) -> dict:
 def test_pricing_flags_changes_no_weekly_outcome_row_and_adds_none(world):
     first = update(world)  # no flags yet: the weekly rows are seeded and priced
     before = snapshot(world.weekly_rows())
-    assert len(before) == 4 and "flag outcomes" not in first.message()
+    assert len(before) == 4 and "flag outcomes" not in first.detail()
     world.add_flag("AAA")
     after_result = update(world)
     assert snapshot(world.weekly_rows()) == before  # byte-for-byte the same rows
-    assert len(world.flag_rows()) == 4 and "flag outcomes: 1 flag(s)" in after_result.message()
+    assert len(world.flag_rows()) == 4 and "flag outcomes: 1 flag(s)" in after_result.detail()
 
 
 def test_a_flag_is_priced_even_when_the_weekly_outcomes_are_all_final_or_spy_has_no_new_bar(world):
@@ -191,7 +191,7 @@ def test_a_flag_is_priced_even_when_the_weekly_outcomes_are_all_final_or_spy_has
 
 def test_the_weekly_message_is_unchanged_when_there_are_no_flags(world):
     result = update(world)
-    assert "flag" not in result.message() and result.flag_rows == 0
+    assert "flag" not in result.detail() and result.flag_rows == 0
     assert "flags" not in ou.summary_of(result)
 
 
@@ -289,7 +289,7 @@ def test_the_job_prices_weekly_and_flag_outcomes_in_one_invocation_and_logs_both
     assert log.status == "success" and log.spy_last_bar_date == world.dates[-1]
     summary = json.loads(log.summary_json)
     assert summary["stops"] == 0 and summary["flags"]["flag_rows"] == 1 and summary["flags"]["seeded"] == 4
-    assert "flag outcomes: 1 flag(s)" in log.message
+    assert log.message == result.message() and "flag" not in log.message  # the quiet message; the flag part is in detail()
     assert len(world.weekly_rows()) == 4 and len(world.flag_rows()) == 4
     assert job.main().status == "noop"  # the next run: nothing new anywhere
 
